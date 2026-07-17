@@ -1,0 +1,130 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_family_task_board_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-family-task-board",
+    "slug": "family-task-board"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_family_task_board_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Family Task Board",
+    "description": "Coordinate household members, chores, activities, stars, and family rewards.",
+    "iconAssets": ["assets/family-task-board.svg"],
+    "assets": [{
+      "role": "app-icon",
+      "mediaType": "image/svg+xml",
+      "path": "assets/family-task-board.svg",
+      "integrity": "pending",
+      "sizes": ["any"],
+      "theme": "any"
+    }]
+  },
+  "compatibility": {
+    "tapSdk": "0.0.1",
+    "tapHost": ">=0.1.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_family_task_board_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "family-task-board",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["family-task-board.view"],
+        "effects": [{ "kind": "storage", "resources": ["family-task-board"] }]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Family Task Board",
+        "description": "See today's chores, activities, and star rewards.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained",
+        "iconAssets": ["assets/family-task-board.svg"]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "family-task-board-app",
+      "apiVersion": 1,
+      "options": { "contributionIds": ["family-task-board"] }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "family-task-board-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "family-task-board.view",
+            "resource": "tap.family-task-board:view",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "family-task-board.manage",
+            "resource": "tap.family-task-board:manage",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "fresh-decision",
+            "risk": "write"
+          }
+        ],
+        "levels": [
+          {
+            "id": "family-member",
+            "actions": ["family-task-board.view"],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "family-parent",
+            "actions": ["family-task-board.view", "family-task-board.manage"],
+            "assignableTo": ["human", "specialist"]
+          }
+        ],
+        "roleRecommendations": [{
+          "actor": "human",
+          "workspaceRole": "member",
+          "level": "family-member"
+        }]
+      }
+    }
+  ],
+  "events": { "publishes": [] },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}
