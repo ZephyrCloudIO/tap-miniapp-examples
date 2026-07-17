@@ -1,0 +1,13 @@
+# Local source repositories used to study TAP, the SDK, and existing miniapps.
+/reference-repos/
+/kent-courses/
+/tap-miniapps/
+/tap-miniapps-labs/
+/ze-agency-tauri/
+
+# Local tooling and generated output.
+.DS_Store
+node_modules/
+dist/
+.tap-build/
+.tap-receipts/

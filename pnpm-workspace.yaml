@@ -1,0 +1,6 @@
+packages:
+  - "apps/*"
+
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@theaiplatform/miniapp-sdk@0.0.1"
