@@ -1,0 +1,178 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_vanta_companion_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-vanta-companion",
+    "slug": "vanta-companion"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_vanta_companion_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Vanta Companion",
+    "description": "A governed SOC 2 coordination workspace that displays only authorized source data.",
+    "iconAssets": ["assets/vanta-companion.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/vanta-companion.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": { "tapSdk": "0.0.1", "tapHost": ">=0.1.0" },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_vanta_companion_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "vanta-companion",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["vanta-companion.view"],
+        "effects": [
+          { "kind": "storage", "resources": ["vanta-companion"] },
+          {
+            "kind": "external-network",
+            "resources": ["https://*"]
+          },
+          { "kind": "channel.write", "resources": ["workspace"] },
+          { "kind": "workflow.invoke", "resources": ["workspace"] },
+          {
+            "kind": "specialist.manage",
+            "resources": ["vanta-soc2-companion"]
+          },
+          {
+            "kind": "specialist.invoke",
+            "resources": ["vanta-soc2-companion"]
+          },
+          {
+            "kind": "mcp.oauth",
+            "resources": [
+              "https://mcp.vanta.com/mcp",
+              "https://mcp.eu.vanta.com/mcp",
+              "https://mcp.aus.vanta.com/mcp"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Vanta Companion",
+        "description": "Coordinate a SOC 2 program without weakening source-system governance.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained",
+        "iconAssets": ["assets/vanta-companion.svg"]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "vanta-companion-app",
+      "apiVersion": 1,
+      "options": { "contributionIds": ["vanta-companion"] }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "vanta-companion-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "vanta-companion.view",
+            "resource": "tap.vanta-companion:view",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "vanta-companion.coordinate",
+            "resource": "tap.vanta-companion:coordinate",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "vanta-companion.analyze",
+            "resource": "tap.specialist:vanta-soc2-companion",
+            "scopes": ["workspace", "channel", "project"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "none",
+            "risk": "read"
+          }
+        ],
+        "levels": [
+          {
+            "id": "compliance-viewer",
+            "actions": ["vanta-companion.view"],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "compliance-operator",
+            "actions": [
+              "vanta-companion.view",
+              "vanta-companion.analyze",
+              "vanta-companion.coordinate"
+            ],
+            "assignableTo": ["human"]
+          },
+          {
+            "id": "compliance-lead",
+            "actions": [
+              "vanta-companion.view",
+              "vanta-companion.analyze",
+              "vanta-companion.coordinate"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "compliance-viewer"
+          }
+        ]
+      }
+    }
+  ],
+  "events": { "publishes": [] },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}

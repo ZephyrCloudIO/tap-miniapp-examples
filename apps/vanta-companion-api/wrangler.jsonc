@@ -1,0 +1,59 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tap-vanta-companion-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "WORKSPACE_ID": "local-development",
+    "ACCESS_TEAM_DOMAIN": "https://example.cloudflareaccess.com",
+    "ACCESS_AUD": "local-development",
+    "ALLOWED_ORIGINS": "http://localhost:3000",
+    "EVENT_RETENTION_DAYS": "90"
+  },
+  "secrets": {
+    "required": ["VANTA_WEBHOOK_SECRET"]
+  },
+  "d1_databases": [
+    {
+      "binding": "EVENTS",
+      "database_name": "tap-vanta-companion-events",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "env": {
+    "production": {
+      "name": "tap-vanta-companion-api-production",
+      "vars": {
+        "WORKSPACE_ID": "configure-with-github-variable",
+        "ACCESS_TEAM_DOMAIN": "https://example.cloudflareaccess.com",
+        "ACCESS_AUD": "configure-with-github-variable",
+        "ALLOWED_ORIGINS": "https://configure-with-github-variable.invalid",
+        "EVENT_RETENTION_DAYS": "90"
+      },
+      "secrets": {
+        "required": ["VANTA_WEBHOOK_SECRET"]
+      },
+      "d1_databases": [
+        {
+          "binding": "EVENTS",
+          "database_name": "tap-vanta-companion-events-production",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "triggers": {
+        "crons": ["17 3 * * *"]
+      }
+    }
+  }
+}
