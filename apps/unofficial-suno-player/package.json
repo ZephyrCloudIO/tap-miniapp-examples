@@ -1,0 +1,37 @@
+{
+  "name": "@tap-examples/unofficial-suno-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "preview": "rsbuild preview",
+    "build": "pnpm build:preview && pnpm build:miniapp",
+    "build:preview": "rsbuild build",
+    "build:target": "rslib build",
+    "build:miniapp": "pnpm build:target && node scripts/assemble-package.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "rstest run",
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "verify:package": "node scripts/verify-package.mjs"
+  },
+  "dependencies": {
+    "@theaiplatform/miniapp-sdk": "0.0.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.0",
+    "@module-federation/runtime-tools": "2.8.0",
+    "@rsbuild/core": "^2.1.5",
+    "@rsbuild/plugin-react": "2.1.0",
+    "@rslib/core": "^0.23.2",
+    "@rstest/core": "^0.9.10",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "ajv": "8.20.0",
+    "typescript": "^6.0.3"
+  }
+}

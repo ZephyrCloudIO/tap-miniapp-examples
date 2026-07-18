@@ -1,0 +1,263 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_unofficial_suno_player_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-unofficial-suno-player",
+    "slug": "unofficial-suno-player"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_unofficial_suno_player_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Unofficial Suno Player",
+    "description": "Turn approved channel moments into a governed, user-owned soundtrack.",
+    "iconAssets": ["assets/player.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/player.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": {
+    "tapSdk": "0.0.1",
+    "tapHost": ">=0.1.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_unofficial_suno_player_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "unofficial-suno-player",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "publishes": [
+        "player.surface.mounted",
+        "player.surface.unmounted",
+        "player.track.started",
+        "player.track.reacted",
+        "player.brief.approved"
+      ],
+      "authorization": {
+        "allOf": [
+          "suno-player.view",
+          "channels.list",
+          "channels.read",
+          "channels.send-message",
+          "profile.read",
+          "specialists.list",
+          "specialists.invoke",
+          "workflows.list",
+          "workflows.invoke"
+        ],
+        "effects": [
+          { "kind": "storage", "resources": ["unofficial-suno-player"] },
+          { "kind": "presence", "resources": ["unofficial-suno-player"] }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Unofficial Suno Player",
+        "description": "Create governed song briefs and play user-owned channel audio.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "singleton",
+        "persistence": "retained",
+        "iconAssets": ["assets/player.svg"]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "unofficial-suno-player-app",
+      "apiVersion": 1,
+      "options": { "contributionIds": ["unofficial-suno-player"] }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "unofficial-suno-player-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "suno-player.view",
+            "resource": "tap.unofficial-suno-player:view",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "channels.list",
+            "resource": "tap.channels:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "channels.read",
+            "resource": "tap.channels:read",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "channels.send-message",
+            "resource": "tap.channels:send-message",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "profile.read",
+            "resource": "tap.profile:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "specialists.list",
+            "resource": "tap.specialists:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "specialists.invoke",
+            "resource": "tap.specialists:invoke",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
+          },
+          {
+            "id": "workflows.list",
+            "resource": "tap.workflows:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.invoke",
+            "resource": "tap.workflows:invoke",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
+          }
+        ],
+        "levels": [
+          {
+            "id": "player-user",
+            "actions": [
+              "suno-player.view",
+              "channels.list",
+              "channels.read",
+              "channels.send-message",
+              "profile.read",
+              "specialists.list",
+              "specialists.invoke",
+              "workflows.list",
+              "workflows.invoke"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          { "actor": "human", "workspaceRole": "member", "level": "player-user" }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {
+        "name": "player.surface.mounted",
+        "schema": "urn:tap-pkg:examples-unofficial-suno-player:event:surface:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "player.surface.unmounted",
+        "schema": "urn:tap-pkg:examples-unofficial-suno-player:event:surface:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "player.track.started",
+        "schema": "urn:tap-pkg:examples-unofficial-suno-player:event:track-started:1",
+        "schemaVersion": 1,
+        "visibility": "channel",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "player.track.reacted",
+        "schema": "urn:tap-pkg:examples-unofficial-suno-player:event:track-reaction:1",
+        "schemaVersion": 1,
+        "visibility": "channel",
+        "delivery": "durable"
+      },
+      {
+        "name": "player.brief.approved",
+        "schema": "urn:tap-pkg:examples-unofficial-suno-player:event:brief-approved:1",
+        "schemaVersion": 1,
+        "visibility": "channel",
+        "delivery": "durable"
+      }
+    ]
+  },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}

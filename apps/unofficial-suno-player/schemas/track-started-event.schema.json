@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tap-pkg:examples-unofficial-suno-player:event:track-started:1",
+  "title": "Unofficial Suno Player track started event",
+  "type": "object",
+  "required": ["channelId", "trackId"],
+  "additionalProperties": false,
+  "properties": {
+    "channelId": { "type": "string", "minLength": 1 },
+    "trackId": { "type": "string", "minLength": 1 }
+  }
+}
