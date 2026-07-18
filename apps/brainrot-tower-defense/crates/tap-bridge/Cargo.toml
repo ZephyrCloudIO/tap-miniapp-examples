@@ -1,0 +1,15 @@
+[package]
+name="tap-bridge"
+version.workspace=true
+edition.workspace=true
+license.workspace=true
+[dependencies]
+game-protocol.workspace=true
+serde.workspace=true
+serde_json.workspace=true
+thiserror.workspace=true
+wasm-bindgen.workspace=true
+wasm-bindgen-futures.workspace=true
+js-sys.workspace=true
+[lints]
+workspace=true

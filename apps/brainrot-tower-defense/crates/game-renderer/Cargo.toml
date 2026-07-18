@@ -1,0 +1,12 @@
+[package]
+name="game-renderer"
+version.workspace=true
+edition.workspace=true
+license.workspace=true
+[dependencies]
+game-content.workspace=true
+game-protocol.workspace=true
+wasm-bindgen.workspace=true
+web-sys={workspace=true,features=["CanvasRenderingContext2d","HtmlCanvasElement","HtmlImageElement","MediaQueryList","Window"]}
+[lints]
+workspace=true

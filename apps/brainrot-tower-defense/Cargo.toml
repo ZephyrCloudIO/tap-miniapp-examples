@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/game-core",
+  "crates/game-content",
+  "crates/game-protocol",
+  "crates/game-renderer",
+  "crates/game-web",
+  "crates/tap-bridge",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+game-core = { path = "crates/game-core" }
+game-content = { path = "crates/game-content" }
+game-protocol = { path = "crates/game-protocol" }
+game-renderer = { path = "crates/game-renderer" }
+tap-bridge = { path = "crates/tap-bridge" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "js", "serde"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace.lints.clippy]
+correctness = "deny"
+suspicious = "warn"
+style = "warn"
+complexity = "warn"
+perf = "warn"

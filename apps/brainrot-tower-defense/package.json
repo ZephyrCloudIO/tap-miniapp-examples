@@ -1,0 +1,31 @@
+{
+  "name": "@tap-examples/brainrot-tower-defense",
+  "version": "0.1.4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "wasm-pack build crates/game-web --target bundler --release --out-dir ../../pkg --out-name brainrot_game_web && node scripts/fix-wasm-package.mjs",
+    "validate:content": "cargo test -p game-content all_content_is_valid --quiet",
+    "build:preview": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rsbuild build",
+    "build:miniapp": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build",
+    "build": "pnpm build:preview && pnpm build:miniapp && pnpm check:size",
+    "dev": "pnpm validate:content && pnpm wasm && rsbuild dev",
+    "typecheck": "cargo check --workspace --all-targets",
+    "test": "cargo test --workspace && node scripts/validate-assets.mjs",
+    "lint": "cargo clippy --workspace --all-targets -- -D warnings",
+    "format:check": "cargo fmt --all -- --check",
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "validate:assets": "node scripts/validate-assets.mjs",
+    "check:size": "node scripts/check-size.mjs"
+  },
+  "dependencies": {
+    "@theaiplatform/miniapp-sdk": "0.0.1"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.0",
+    "@rsbuild/core": "^2.1.5",
+    "@rslib/core": "^0.23.2",
+    "@rspack/core": "2.1.4",
+    "ajv": "^8.20.0"
+  }
+}

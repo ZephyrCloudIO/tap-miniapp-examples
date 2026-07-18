@@ -1,0 +1,31 @@
+[package]
+name="game-web"
+version.workspace=true
+edition.workspace=true
+license.workspace=true
+description="Rust/WASM browser lifecycle and UI for the Brainrot Tower Defense TAP example"
+readme="README.md"
+repository="https://github.com/ZephyrCloudIO/tap-miniapp-examples"
+[lib]
+crate-type=["cdylib","rlib"]
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = [
+  "-Oz",
+  "--enable-bulk-memory",
+  "--enable-nontrapping-float-to-int",
+]
+[dependencies]
+game-core.workspace=true
+game-content.workspace=true
+game-protocol.workspace=true
+game-renderer.workspace=true
+tap-bridge.workspace=true
+serde.workspace=true
+serde_json.workspace=true
+uuid.workspace=true
+wasm-bindgen.workspace=true
+wasm-bindgen-futures.workspace=true
+js-sys.workspace=true
+web-sys={workspace=true,features=["Window","Performance","Document","Element","Node","NodeList","DomRect","HtmlElement","HtmlCanvasElement","CanvasRenderingContext2d","HtmlInputElement","HtmlSelectElement","Event","MouseEvent","Storage","AudioContext","AudioDestinationNode","AudioParam","OscillatorNode","OscillatorType","GainNode","console"]}
+[lints]
+workspace=true
