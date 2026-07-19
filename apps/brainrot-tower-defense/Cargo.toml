@@ -22,6 +22,7 @@ game-renderer = { path = "crates/game-renderer" }
 tap-bridge = { path = "crates/tap-bridge" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde-wasm-bindgen = "0.6"
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "js", "serde"] }
 wasm-bindgen = "0.2"

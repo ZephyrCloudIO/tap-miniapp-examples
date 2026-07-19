@@ -18,7 +18,15 @@ Target a single example with pnpm's workspace filter, such as `pnpm --filter @ta
 
 ## SDK versions
 
-Each example exact-pins the SDK version it was verified against, and its TAP descriptor declares the same version in `compatibility.tapSdk`. The Unofficial Suno Player uses `0.2.0-pr.6821.02b36a6`; the Family Task Board remains on its verified `0.0.1` baseline.
+Each example exact-pins the SDK version it was verified against, and its TAP
+descriptor declares the same version in `compatibility.tapSdk`. All current
+miniapps are verified against:
+
+```json
+"@theaiplatform/miniapp-sdk": "0.2.0-pr.6821.02b36a6"
+```
+
+Do not copy an older SDK pin from a reference repository.
 
 Each example has its own product brief under [`miniapps`](./miniapps). The briefs are ordered for refinement; their status indicates whether the concept has been approved or remains proposed.
 

@@ -5,7 +5,7 @@ compiles the Rust workspace before Rsbuild creates the browser preview and Rslib
 packages the desktop federated surface and lifecycle expose. Gameplay, DOM
 input, the in-canvas HUD, rendering, audio, persistence, presence, lifecycle,
 and host calls are authored in Rust/WASM. The small `.mjs` files are the required
-federation, asset, appearance, and host-authority adapters.
+federation, asset, host-authority, and MCP package-runtime adapters.
 
 The app starts empty. Browser-preview records come only from user interaction
 and use the distinct `tap-example.brainrot-td.preview.v1` local-storage key.
@@ -126,8 +126,8 @@ informational diagnostics, not a quality budget or acceptance threshold: game
 quality, route readability, art, and audio are not constrained by a byte cap.
 
 Release `0.1.4` is declared in both `package.json` and `manifest.tap.json`. Its
-native evidence is 141 passing tests: 23 content, 51 core, 4 protocol, 27
-renderer, 32 web, and 4 TAP bridge tests. In addition to the complete economy,
+native evidence is 143 passing tests: 23 content, 51 core, 4 protocol, 27
+renderer, 34 web, and 4 TAP bridge tests. In addition to the complete economy,
 upgrade, replay, and permission suite, this release locks School Hallway Rush to
 its reviewed two-entrance map contract: both painted lanes converge on a shared
 east corridor and terminate inside the visible server room. Renderer and core
@@ -147,7 +147,24 @@ level-1-to-5 purchase run, production reload, 2048 px desktop layout, 390 px
 compact layout, and clean browser warning/error log are recorded separately in
 the requirements checklist so the native and live evidence remain explicit.
 
-## Current platform and distribution blockers
+## SDK 0.2.0-pr.6821.02b36a6 blockers resolved
+
+The app now mounts its portable toolbar, runtime badge, TAP save status, and
+browser-preview reset confirmation through
+`@theaiplatform/miniapp-sdk/ui/wasm`. Rust owns the complete serializable UI
+model and action reducer, rejects stale revisions and replayed event IDs, and
+uses JSON-compatible WASM serialization at the SDK boundary. The legacy
+hand-authored toolbar/reset DOM is removed; the gameplay canvas and domain UI
+remain Rust-owned.
+
+The requested read-only specialist game-state capability is now packaged as the
+`brainrot-td-state-server` MCP server with the `get_game_state` tool. Its handler
+calls the Rust/WASM snapshot export directly and returns a bounded,
+schema-validated view of the selected channel game under the
+`brainrot-td.read-state` permission. The manifest, server-specific federation
+expose, and input/output schemas are validated together during the build.
+
+## Remaining platform and distribution blockers
 
 The six featured-enemy pose sheets are image-generated adaptations guided by
 third-party character cards. Their provenance and reviewed asset contract are
@@ -155,19 +172,6 @@ documented, but this repository has no written derivative or redistribution
 grant for that source artwork. Public distribution therefore requires rights
 clearance or replacement original art; the example does not claim ownership or
 a permissive license for the referenced card graphics or character designs.
-
-The product brief requests a read-only Chloe game-state tool. The public
-`@theaiplatform/miniapp-sdk@0.0.1` package can package a tool expose but has no
-public API that registers a live specialist tool handler. The executable tool
-and manifest contribution are therefore intentionally omitted instead of
-declaring an unconnected capability.
-
-The SDK's UI exports are React 19 components. This brief simultaneously forbids
-a handwritten JavaScript/TypeScript application layer and requires all authored
-DOM/input code to be Rust/WASM, so those React components cannot be mounted from
-the Rust DOM implementation through a supported API. The surface imports the
-SDK theme stylesheet and tokens, but that does not satisfy the component-library
-portion of the brief.
 
 Finally, TAP storage and presence do not expose a host-stamped caller identity
 for cross-client commands. Presence identity is host-stamped but presence state

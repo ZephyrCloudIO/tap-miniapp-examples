@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brainrot Tower Defense game-state tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Optional game session in the mounted TAP channel. Omit it to read the selected game."
+    }
+  }
+}

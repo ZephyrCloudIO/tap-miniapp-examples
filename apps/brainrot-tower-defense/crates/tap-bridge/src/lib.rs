@@ -410,7 +410,7 @@ where
 ///
 /// Decode and scope-validation errors are delivered to `listener` instead of
 /// being swallowed. The SDK subscription itself is synchronous, matching the
-/// installed `0.0.1` declaration.
+/// installed `0.2.0-pr.6821.02b36a6` declaration.
 ///
 /// # Errors
 ///

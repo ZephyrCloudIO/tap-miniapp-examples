@@ -14,7 +14,8 @@ const library = tapLib({
     dts: false,
     exposes: {
       "./tap/lifecycle": "./src/lifecycle.mjs",
-      "./ui/desktop": "./src/surface.mjs"
+      "./ui/desktop": "./src/surface.mjs",
+      "./mcp/brainrot-td-state-server": "./src/mcp.mjs"
     }
   }
 });
@@ -25,7 +26,7 @@ library.tools = {
     config.experiments = { ...config.experiments, asyncWebAssembly: true };
     config.plugins ??= [];
     config.plugins.push(new rspack.CopyRspackPlugin({
-      patterns: [{ from: "schemas/checkpoint.json", to: "schemas/checkpoint.json" }]
+      patterns: [{ from: "schemas", to: "schemas" }]
     }));
   }
 };

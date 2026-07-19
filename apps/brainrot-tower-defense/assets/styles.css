@@ -11,10 +11,19 @@ html, body { margin: 0; min-width: 0; }
 button, input, select { font: inherit; }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: calc(100vh - 48px);
   min-width: 0;
   background: var(--background, #f6f7fa);
 }
+
+.portable-ui-root {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--background, #f6f7fa);
+}
+
+.portable-ui-root [data-component="mini-app-toolbar"] > :first-child { flex: 1; }
 
 .skip-link {
   position: fixed;
@@ -29,33 +38,6 @@ button, input, select { font: inherit; }
 }
 
 .skip-link:focus { transform: translateY(0); }
-
-.toolbar {
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border, #d8dbe3);
-  background: var(--card, #fff);
-  position: sticky;
-  top: 0;
-  z-index: 4;
-}
-
-.brand-mark {
-  display: grid;
-  place-items: center;
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: #171b2d;
-  color: #72e6c0;
-  font-weight: 900;
-}
-
-.toolbar-title { min-width: 0; font-weight: 750; flex: 1; }
 
 .badge {
   display: inline-flex;
@@ -739,9 +721,8 @@ input:focus-visible,
 
 @media (max-width: 680px) {
   .main-content { padding: 12px; }
-  .toolbar { padding-inline: 12px; }
-  .toolbar-title { font-size: 14px; }
-  .toolbar > .runtime-badge { display: none; }
+  .portable-ui-root [data-component="mini-app-toolbar"] { padding-inline: 12px; }
+  .portable-ui-root [data-component="mini-app-toolbar"] > span { display: none; }
   .game-stage {
     width: 100%;
     height: calc(56.2vw + 158px);
