@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tap-pkg:examples-unofficial-suno-player:event:surface:1",
+  "title": "Unofficial Suno Player surface lifecycle event",
+  "type": "object",
+  "required": ["contributionId", "instanceId"],
+  "additionalProperties": false,
+  "properties": {
+    "contributionId": { "type": "string", "minLength": 1 },
+    "instanceId": { "type": "string", "minLength": 1 }
+  }
+}

@@ -16,15 +16,17 @@ pnpm test
 
 Target a single example with pnpm's workspace filter, such as `pnpm --filter @tap-examples/family-task-board dev`.
 
-## SDK baseline
+## SDK versions
 
-All example apps created in this repository must exact-pin:
+Each example exact-pins the SDK version it was verified against, and its TAP
+descriptor declares the same version in `compatibility.tapSdk`. All current
+miniapps are verified against:
 
 ```json
 "@theaiplatform/miniapp-sdk": "0.2.0-pr.6821.02b36a6"
 ```
 
-Their TAP descriptors must likewise declare `compatibility.tapSdk` as `0.2.0-pr.6821.02b36a6`. Do not copy an older SDK pin from a reference repository.
+Do not copy an older SDK pin from a reference repository.
 
 Each example has its own product brief under [`miniapps`](./miniapps). The briefs are ordered for refinement; their status indicates whether the concept has been approved or remains proposed.
 

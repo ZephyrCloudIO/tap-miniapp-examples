@@ -1,0 +1,93 @@
+name: Deploy Vanta Companion API
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-vanta-companion-api.yml"
+      - "apps/vanta-companion-api/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+concurrency:
+  group: vanta-companion-api-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+    environment: vanta-companion-production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate deployment configuration
+        env:
+          VANTA_WORKSPACE_ID: ${{ vars.VANTA_WORKSPACE_ID }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}
+          TAP_ALLOWED_ORIGINS: ${{ vars.TAP_ALLOWED_ORIGINS }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VANTA_WEBHOOK_SECRET: ${{ secrets.VANTA_WEBHOOK_SECRET }}
+        run: |
+          test -n "$VANTA_WORKSPACE_ID"
+          test -n "$CF_ACCESS_TEAM_DOMAIN"
+          test -n "$CF_ACCESS_AUD"
+          test -n "$TAP_ALLOWED_ORIGINS"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$VANTA_WEBHOOK_SECRET"
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Worker
+        run: |
+          pnpm --filter @tap-examples/vanta-companion-api types:check
+          pnpm --filter @tap-examples/vanta-companion-api typecheck
+          pnpm --filter @tap-examples/vanta-companion-api test
+          pnpm --filter @tap-examples/vanta-companion-api build
+
+      - name: Ensure production D1 database exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm --dir apps/vanta-companion-api exec wrangler d1 info tap-vanta-companion-events-production >/dev/null 2>&1 || \
+            pnpm --dir apps/vanta-companion-api exec wrangler d1 create tap-vanta-companion-events-production
+
+      - name: Apply migrations and deploy
+        uses: cloudflare/wrangler-action@v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/vanta-companion-api
+          packageManager: pnpm
+          environment: production
+          wranglerVersion: "4.112.0"
+          secrets: |
+            VANTA_WEBHOOK_SECRET
+          preCommands: wrangler d1 migrations apply EVENTS --remote --env production --yes
+          command: >-
+            deploy --env production
+            --var WORKSPACE_ID:${{ vars.VANTA_WORKSPACE_ID }}
+            --var ACCESS_TEAM_DOMAIN:${{ vars.CF_ACCESS_TEAM_DOMAIN }}
+            --var ACCESS_AUD:${{ vars.CF_ACCESS_AUD }}
+            --var ALLOWED_ORIGINS:${{ vars.TAP_ALLOWED_ORIGINS }}
+            --var EVENT_RETENTION_DAYS:90
+        env:
+          VANTA_WEBHOOK_SECRET: ${{ secrets.VANTA_WEBHOOK_SECRET }}

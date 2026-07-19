@@ -8,6 +8,8 @@
 # Local tooling and generated output.
 .DS_Store
 node_modules/
+.pnpm-store/
 dist/
 .tap-build/
+.tap-package/
 .tap-receipts/
