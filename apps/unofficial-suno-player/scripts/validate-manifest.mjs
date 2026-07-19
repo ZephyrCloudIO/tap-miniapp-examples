@@ -53,4 +53,4 @@ for (const reference of workflowReferences) {
   if (integrity !== reference.integrity) throw new Error(`Workflow schema ${reference.id} does not match its canonical integrity.`);
 }
 
-console.log(`manifest.tap.json, ${eventSchemas.length} event schemas, and ${workflowReferences.length} workflow schema references are valid against SDK 0.2.0-pr.6821.02b36a6 contracts`);
+console.log(`manifest.tap.json, ${eventSchemas.length} event schemas, and ${workflowReferences.length} workflow schema references are valid against SDK 0.2.0 contracts`);

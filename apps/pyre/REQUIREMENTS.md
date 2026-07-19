@@ -15,7 +15,7 @@ This checklist is derived from `miniapps/04-pyre.md`. Evidence is updated during
 - [x] Audit history for edits, corrections, decisions, approvals, and revisions
 - [x] Internal report preview and Markdown/HTML rendering from reviewed structured data with unresolved questions and provenance
 - [x] Approval gates, public-variant separation, visibility checks, and immutable report revision receipts
-- [ ] Zephyr Cloud publication and host publication receipts (blocked: no SDK 0.2.0-pr.6821.02b36a6 publication API)
+- [ ] Zephyr Cloud publication and host publication receipts (blocked: no SDK 0.2.0 publication API)
 - [x] TAP specialist/channel/workflow/presence/VFS/HTTP capabilities connected only when host APIs are available
 - [x] Read-only package-runtime MCP tools expose bounded structured investigation state to the same-package Pyre specialist
 - [x] Owner discovery never invents owners; missing ownership becomes an open question
@@ -26,7 +26,7 @@ This checklist is derived from `miniapps/04-pyre.md`. Evidence is updated during
 
 ## Capability exclusions to document if host APIs remain unavailable
 
-- VFS has write/provision operations but no public read/list/immutable-bit API in SDK 0.2.0-pr.6821.02b36a6; Pyre can write evidence snapshots and receipts but cannot independently browse or enforce host filesystem immutability.
+- VFS has write/provision operations but no public read/list/immutable-bit API in SDK 0.2.0; Pyre can write evidence snapshots and receipts but cannot independently browse or enforce host filesystem immutability.
 - The SDK can list existing HTTP credential metadata and use opaque credential references, but it does not expose credential provisioning, approval-state inspection, rotation, or revocation.
-- CKG, knowledge-plot, Zephyr Cloud publication, reminder scheduling, repository clone, notification, and access-request APIs are not present in SDK 0.2.0-pr.6821.02b36a6. Package workflow declarations also remain limited to one attempt without checkpointing or scheduling. Their executable controls must be omitted rather than simulated.
+- CKG, knowledge-plot, Zephyr Cloud publication, reminder scheduling, repository clone, notification, and access-request APIs are not present in SDK 0.2.0. Package workflow declarations also remain limited to one attempt without checkpointing or scheduling. Their executable controls must be omitted rather than simulated.
 - Remaining host and SDK gaps are tracked in [ZephyrCloudIO/ze-agency-tauri#6794](https://github.com/ZephyrCloudIO/ze-agency-tauri/issues/6794).
