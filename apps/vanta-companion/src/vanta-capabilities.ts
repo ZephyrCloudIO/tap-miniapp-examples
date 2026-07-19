@@ -228,7 +228,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
     analysisKind: null,
     apiFamilies: ['auditors', 'audits', 'information-request'],
     mcpTools: [],
-    boundary: `Covered by the official Auditor SDK ${VANTA_AUDITOR_SDK_VERSION}; unavailable here until TAP exposes an Auditor bearer-credential and request bridge. No audit result is simulated.`,
+    boundary: `Covered by the official Auditor SDK ${VANTA_AUDITOR_SDK_VERSION}; unavailable here until a host-managed Vanta bearer credential and per-method execution adapter are configured. No audit result is simulated.`,
   },
   {
     id: 'people-devices',
@@ -350,7 +350,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
     apiFamilies: ['integrations'],
     mcpTools: ['integrations', 'integration_resources'],
     boundary:
-      'MCP reads connected integrations and their resources. Pushing custom resources or test outcomes requires Build Integrations API credentials not exposed by TAP SDK 0.0.1.',
+      'MCP reads connected integrations and their resources. Pushing custom resources or test outcomes requires a host-managed Build Integrations API credential and an execution adapter that this companion does not configure.',
   },
 ] as const;
 

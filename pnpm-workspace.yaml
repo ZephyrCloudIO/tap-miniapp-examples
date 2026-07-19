@@ -8,7 +8,7 @@ allowBuilds:
 
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
-  - "@theaiplatform/miniapp-sdk@0.0.1"
+  - "@theaiplatform/miniapp-sdk"
   - "@cloudflare/vitest-pool-workers@0.18.6"
   - "@types/node@26.1.1"
   - "miniflare@4.20260714.0"

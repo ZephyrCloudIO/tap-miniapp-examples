@@ -28,7 +28,10 @@
       }
     ]
   },
-  "compatibility": { "tapSdk": "0.0.1", "tapHost": ">=0.1.0" },
+  "compatibility": {
+    "tapSdk": "0.2.0-pr.6821.02b36a6",
+    "tapHost": ">=0.1.0"
+  },
   "targets": {
     "desktop": {
       "remoteName": "tap_vanta_companion_desktop",

@@ -1651,10 +1651,10 @@ function AuditApiBoundary() {
           <H1>Audit requests</H1>
           <p>
             The official Auditor SDK is fully inventoried, but it is not
-            callable through TAP miniapp SDK 0.0.1.
+            connected to a host-managed Vanta credential and execution adapter.
           </p>
         </div>
-        <Badge variant="outline">API bridge required</Badge>
+        <Badge variant="outline">Credential adapter required</Badge>
       </section>
       <Card className="audit-boundary-card">
         <Empty>
@@ -1665,8 +1665,9 @@ function AuditApiBoundary() {
               Vanta&apos;s TypeScript SDK {VANTA_AUDITOR_SDK_VERSION} covers
               audits, evidence, controls, comments, frameworks, tests, auditors,
               information requests, scoped people, vendors, risks,
-              vulnerabilities, and snapshots. TAP currently exposes neither an
-              Auditor bearer credential nor a host HTTP request API, so this
+              vulnerabilities, and snapshots. TAP exposes host-mediated HTTP
+              and credential metadata, but this companion has no configured
+              Vanta Auditor credential or per-method execution adapter, so this
               surface does not fabricate a queue or enable a misleading action.
             </EmptyDescription>
           </EmptyHeader>
@@ -1685,7 +1686,7 @@ function AuditApiBoundary() {
             </p>
             <p>
               Required capability: a host-managed Vanta Auditor bearer
-              credential plus an authenticated request bridge with per-method
+              credential plus an authenticated execution adapter with per-method
               scopes and fresh approval for writes.
             </p>
             <details className="sdk-method-list">

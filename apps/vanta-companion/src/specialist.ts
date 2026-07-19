@@ -60,7 +60,7 @@ export function specialistManifest(
       evidence:
         'Read control intent and available Vanta documents, links, uploads, and test state. Validate date range, completeness, and confidentiality, then prepare candidates with provenance. Do not claim access to an audit information request unless an available tool returned it. Draft only.',
       auditorResponse:
-        'The installed MCP allowlist does not expose Auditor API information requests. Do not draft from imagined request state. Explain the missing Auditor API bridge, then organize only the exact user-supplied request and independently retrieved authorized evidence as an explicitly incomplete draft.',
+        'The installed MCP allowlist does not expose Auditor API information requests. Do not draft from imagined request state. Explain the missing Vanta credential-backed execution adapter, then organize only the exact user-supplied request and independently retrieved authorized evidence as an explicitly incomplete draft.',
       remediation:
         'Establish the failed requirement and scope from Vanta, use scoped CKG and knowledge only when relevant, then define verifiable tasks, acceptance criteria, evidence, owners, and rollback considerations.',
       controlsMonitoring:
@@ -115,7 +115,7 @@ export function specialistManifest(
       ],
       nonGoals: [
         'Replace Vanta as system of record',
-        'Call unexposed Auditor/Manage/Build APIs',
+        'Call unconfigured Auditor/Manage/Build APIs',
         'Autonomous risk acceptance',
         'Autonomous external communication',
       ],
@@ -137,10 +137,10 @@ export function specialistManifest(
         apiFamilies: [...VANTA_API_FAMILIES],
         auditorSdk: `vanta-auditor-api-sdk@${VANTA_AUDITOR_SDK_VERSION}`,
         auditorSdkAvailability:
-          'catalogued for routing but not callable from TAP miniapp SDK 0.0.1',
+          'catalogued for routing but not wired to a host-managed Vanta credential and HTTP execution adapter',
         auditorSdkMethods: [...VANTA_AUDITOR_SDK_METHODS],
         webhooks:
-          'not available: miniapp SDK 0.0.1 has no inbound HTTP/event contribution',
+          'not available: the miniapp SDK has no inbound HTTP/event contribution',
       },
     },
     tags: ['soc2', 'vanta', 'compliance', 'audit', 'security', 'mcp'],
