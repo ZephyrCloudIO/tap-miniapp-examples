@@ -3,4 +3,4 @@ packages:
 
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
-  - "@theaiplatform/miniapp-sdk@0.0.1"
+  - "@theaiplatform/miniapp-sdk@0.2.0-pr.6821.02b36a6"

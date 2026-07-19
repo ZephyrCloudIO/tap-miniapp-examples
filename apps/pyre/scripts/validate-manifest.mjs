@@ -8,7 +8,7 @@ const manifest = JSON.parse(fs.readFileSync(new URL("../manifest.tap.json", impo
 const validate = new Ajv2020({
   allErrors: true,
   strict: false,
-  formats: { uint16: true, uint64: true, uri: true },
+  formats: { uint8: true, uint16: true, uint64: true, uri: true },
 }).compile(schema);
 
 if (!validate(manifest)) {
@@ -16,4 +16,4 @@ if (!validate(manifest)) {
   process.exit(1);
 }
 
-console.log("manifest.tap.json is valid against SDK 0.0.1 schema");
+console.log(`manifest.tap.json is valid against SDK ${manifest.compatibility.tapSdk} schema`);

@@ -14,7 +14,7 @@ This checklist is derived from `miniapps/04-pyre.md`. Evidence is updated during
 - [x] Audit history for edits, corrections, decisions, approvals, and revisions
 - [x] Internal report preview and Markdown/HTML rendering from reviewed structured data with unresolved questions and provenance
 - [x] Approval gates, public-variant separation, visibility checks, and immutable report revision receipts
-- [ ] Zephyr Cloud publication and host publication receipts (blocked: no SDK 0.0.1 publication API)
+- [ ] Zephyr Cloud publication and host publication receipts (blocked: no SDK 0.2.0-pr.6821.02b36a6 publication API)
 - [x] TAP specialist/channel/workflow/presence/VFS capabilities connected only when host APIs are available
 - [x] Owner discovery never invents owners; missing ownership becomes an open question
 - [x] Loading, empty, saving, success, conflict, failure, destructive confirmation, responsive/dark/reduced-motion/accessibility states
@@ -24,5 +24,5 @@ This checklist is derived from `miniapps/04-pyre.md`. Evidence is updated during
 
 ## Capability exclusions to document if host APIs remain unavailable
 
-- VFS has write/provision operations but no public read/list/immutable-bit API in SDK 0.0.1; Pyre can write evidence snapshots and receipts but cannot independently browse or enforce host filesystem immutability.
-- CKG, knowledge-plot, Zephyr Cloud publication, reminder scheduling, connector credential/approval, repository clone, notification, and access-request APIs are not present in SDK 0.0.1. Their executable controls must be omitted rather than simulated.
+- VFS has write/provision operations but no public read/list/immutable-bit API in SDK 0.2.0-pr.6821.02b36a6; Pyre can write evidence snapshots and receipts but cannot independently browse or enforce host filesystem immutability.
+- CKG, knowledge-plot, Zephyr Cloud publication, reminder scheduling, credential provisioning/approval, repository clone, notification, and access-request APIs are not present in SDK 0.2.0-pr.6821.02b36a6. Their executable controls must be omitted rather than simulated.
