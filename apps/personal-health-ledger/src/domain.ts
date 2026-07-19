@@ -167,9 +167,53 @@ export interface SavedView {
   readonly scope: 'approved-only' | 'include-unapproved';
   readonly evidenceTypes: readonly string[];
 }
+export type ResearchSource = 'pubmed' | 'clinical-trials' | 'openfda';
+export type ResearchEvidenceType =
+  | 'literature'
+  | 'registered-trial'
+  | 'regulatory';
+export interface ResearchRecord {
+  readonly id: string;
+  readonly watchId: string;
+  readonly itemId: string;
+  readonly source: ResearchSource;
+  readonly sourceRecordId: string;
+  readonly evidenceType: ResearchEvidenceType;
+  readonly title: string;
+  readonly summary: string;
+  readonly url: string;
+  readonly publishedAt: string;
+  readonly fetchedAt: string;
+}
+export interface ResearchSourceCursor {
+  readonly source: ResearchSource;
+  readonly cursor: string;
+  readonly success: boolean;
+  readonly recordCount: number;
+  readonly error: string;
+  readonly reviewedAt: string;
+}
+export interface ResearchWatch {
+  readonly id: string;
+  readonly itemId: string;
+  readonly viewId: string;
+  readonly query: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly sources: readonly ResearchSourceCursor[];
+}
+export type ResearchRecordInput = Omit<
+  ResearchRecord,
+  'id' | 'watchId' | 'itemId' | 'fetchedAt'
+>;
+export type ResearchSourceCursorInput = Omit<
+  ResearchSourceCursor,
+  'reviewedAt'
+>;
 export type SpecialistTask =
   | 'research-update'
   | 'anecdotal-pulse'
+  | 'log-administration'
   | 'record-audit'
   | 'results-review'
   | 'appointment-summary';
@@ -202,7 +246,7 @@ export interface AuditEntry {
   readonly entityId: string;
 }
 export interface LedgerState {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly ownerLabel: string;
   readonly jurisdiction: string;
   readonly role: LedgerRole;
@@ -215,6 +259,8 @@ export interface LedgerState {
   readonly confounders: readonly Confounder[];
   readonly adverseEvents: readonly AdverseEvent[];
   readonly savedViews: readonly SavedView[];
+  readonly researchWatches: readonly ResearchWatch[];
+  readonly researchRecords: readonly ResearchRecord[];
   readonly specialistBinding: SpecialistBinding | null;
   readonly specialistRuns: readonly SpecialistRun[];
   readonly audit: readonly AuditEntry[];
@@ -254,7 +300,7 @@ export const createLedger = (
   ownerLabel: string,
   jurisdiction: string,
 ): LedgerState => ({
-  schemaVersion: 3,
+  schemaVersion: 4,
   ownerLabel: required(ownerLabel, 'Ledger name'),
   jurisdiction: required(jurisdiction, 'Jurisdiction'),
   role: 'owner',
@@ -267,6 +313,8 @@ export const createLedger = (
   confounders: [],
   adverseEvents: [],
   savedViews: [],
+  researchWatches: [],
+  researchRecords: [],
   specialistBinding: null,
   specialistRuns: [],
   audit: [],
@@ -428,6 +476,12 @@ export const recordAdministration = (
   const lot = input.lotId
     ? state.lots.find(candidate => candidate.id === input.lotId)
     : undefined;
+  if (input.lotId && !lot)
+    throw new LedgerValidationError('Choose an inventory lot from this ledger.');
+  if (lot && lot.itemId !== item.id)
+    throw new LedgerValidationError(
+      'The selected inventory lot belongs to a different tracked item.',
+    );
   const consumes =
     input.status === 'taken' ||
     input.status === 'delayed' ||
@@ -635,6 +689,117 @@ export const addSavedView = (
     audit: audit(state, 'created', 'saved-view', entityId),
   };
 };
+export const applyResearchRefresh = (
+  state: LedgerState,
+  input: {
+    readonly itemId: string;
+    readonly viewId: string;
+    readonly query: string;
+    readonly refreshedAt: string;
+    readonly records: readonly ResearchRecordInput[];
+    readonly sources: readonly ResearchSourceCursorInput[];
+  },
+): LedgerState => {
+  guard(state);
+  if (!state.items.some(item => item.id === input.itemId))
+    throw new LedgerValidationError('Choose a tracked item to refresh.');
+  if (!state.savedViews.some(view => view.id === input.viewId))
+    throw new LedgerValidationError('Choose a saved research view to refresh.');
+  const query = required(input.query, 'Research query').slice(0, 240);
+  const refreshedAt = required(input.refreshedAt, 'Refresh time');
+  const sourceNames = input.sources.map(source => source.source);
+  if (
+    !sourceNames.length ||
+    sourceNames.length !== new Set(sourceNames).size ||
+    input.sources.some(
+      source =>
+        !['pubmed', 'clinical-trials', 'openfda'].includes(source.source) ||
+        !Number.isInteger(source.recordCount) ||
+        source.recordCount < 0,
+    )
+  )
+    throw new LedgerValidationError(
+      'Research source receipts must be unique and well formed.',
+    );
+  const existingWatch = state.researchWatches.find(
+    watch =>
+      watch.itemId === input.itemId &&
+      watch.viewId === input.viewId &&
+      watch.query === query,
+  );
+  const watchId = existingWatch?.id ?? id();
+  const watch: ResearchWatch = {
+    id: watchId,
+    itemId: input.itemId,
+    viewId: input.viewId,
+    query,
+    createdAt: existingWatch?.createdAt ?? refreshedAt,
+    updatedAt: refreshedAt,
+    sources: input.sources.map(source => ({
+      source: source.source,
+      cursor: clean(source.cursor).slice(0, 500),
+      success: source.success,
+      recordCount: source.recordCount,
+      error: clean(source.error).slice(0, 1000),
+      reviewedAt: refreshedAt,
+    })),
+  };
+  const recordsBySourceId = new Map(
+    state.researchRecords.map(record => [
+      `${record.itemId}:${record.source}:${record.sourceRecordId}`,
+      record,
+    ]),
+  );
+  for (const record of input.records) {
+    if (
+      !['pubmed', 'clinical-trials', 'openfda'].includes(record.source) ||
+      !['literature', 'registered-trial', 'regulatory'].includes(
+        record.evidenceType,
+      )
+    )
+      throw new LedgerValidationError('Research record source is unsupported.');
+    const sourceRecordId = required(
+      record.sourceRecordId,
+      'Source record ID',
+    ).slice(0, 300);
+    const title = required(record.title, 'Research record title').slice(0, 600);
+    const url = required(record.url, 'Research record URL');
+    if (!/^https:\/\//i.test(url))
+      throw new LedgerValidationError('Research record URLs must use HTTPS.');
+    const key = `${input.itemId}:${record.source}:${sourceRecordId}`;
+    const existing = recordsBySourceId.get(key);
+    recordsBySourceId.set(key, {
+      id: existing?.id ?? id(),
+      watchId,
+      itemId: input.itemId,
+      source: record.source,
+      sourceRecordId,
+      evidenceType: record.evidenceType,
+      title,
+      summary: clean(record.summary).slice(0, 4000),
+      url: url.slice(0, 2000),
+      publishedAt: clean(record.publishedAt).slice(0, 100),
+      fetchedAt: refreshedAt,
+    });
+  }
+  const researchWatches = [
+    watch,
+    ...state.researchWatches.filter(candidate => candidate.id !== watchId),
+  ].slice(0, 50);
+  const retainedWatchIds = new Set(
+    researchWatches.map(candidate => candidate.id),
+  );
+  const researchRecords = [...recordsBySourceId.values()]
+    .filter(record => retainedWatchIds.has(record.watchId))
+    .toSorted((left, right) => right.fetchedAt.localeCompare(left.fetchedAt))
+    .slice(0, 300);
+  return {
+    ...state,
+    researchWatches,
+    researchRecords,
+    audit: audit(state, 'refreshed', 'research-watch', watchId),
+  };
+};
 export const connectSpecialist = (
   state: LedgerState,
   binding: SpecialistBinding,
@@ -718,6 +883,8 @@ export const deleteEntity = (
     | 'confounder'
     | 'adverse-event'
     | 'saved-view'
+    | 'research-watch'
+    | 'research-record'
     | 'specialist-run',
   entityId: string,
 ): LedgerState => {
@@ -728,7 +895,9 @@ export const deleteEntity = (
       state.administrations.some(x => x.itemId === entityId) ||
       state.orders.some(x => x.itemId === entityId) ||
       state.reconstitutions.some(x => x.itemId === entityId) ||
-      state.adverseEvents.some(x => x.itemId === entityId))
+      state.adverseEvents.some(x => x.itemId === entityId) ||
+      state.researchWatches.some(x => x.itemId === entityId) ||
+      state.researchRecords.some(x => x.itemId === entityId))
   )
     throw new LedgerConflictError(
       'Items with linked history cannot be deleted; discontinue the item instead.',
@@ -741,6 +910,20 @@ export const deleteEntity = (
   )
     throw new LedgerConflictError(
       'Lots with linked history cannot be deleted. Remove the linked records first.',
+    );
+  if (
+    type === 'saved-view' &&
+    state.researchWatches.some(watch => watch.viewId === entityId)
+  )
+    throw new LedgerConflictError(
+      'Research views with source-watch history cannot be deleted. Delete the linked watch records first.',
+    );
+  if (
+    type === 'research-watch' &&
+    state.researchRecords.some(record => record.watchId === entityId)
+  )
+    throw new LedgerConflictError(
+      'Research watches with fetched records cannot be deleted. Delete the linked source records first.',
     );
   const administration =
     type === 'administration'
@@ -762,6 +945,12 @@ export const deleteEntity = (
     confounder: state.confounders.some(entry => entry.id === entityId),
     'adverse-event': state.adverseEvents.some(entry => entry.id === entityId),
     'saved-view': state.savedViews.some(entry => entry.id === entityId),
+    'research-watch': state.researchWatches.some(
+      entry => entry.id === entityId,
+    ),
+    'research-record': state.researchRecords.some(
+      entry => entry.id === entityId,
+    ),
     'specialist-run': state.specialistRuns.some(entry => entry.id === entityId),
   }[type];
   if (!exists) throw new LedgerValidationError('The record was not found.');
@@ -812,6 +1001,14 @@ export const deleteEntity = (
       type === 'saved-view'
         ? state.savedViews.filter(x => x.id !== entityId)
         : state.savedViews,
+    researchWatches:
+      type === 'research-watch'
+        ? state.researchWatches.filter(x => x.id !== entityId)
+        : state.researchWatches,
+    researchRecords:
+      type === 'research-record'
+        ? state.researchRecords.filter(x => x.id !== entityId)
+        : state.researchRecords,
     specialistRuns:
       type === 'specialist-run'
         ? state.specialistRuns.filter(x => x.id !== entityId)
@@ -937,6 +1134,7 @@ const outcomeKinds = new Set<OutcomeKind>([
 const specialistTasks = new Set<SpecialistTask>([
   'research-update',
   'anecdotal-pulse',
+  'log-administration',
   'record-audit',
   'results-review',
   'appointment-summary',
@@ -950,6 +1148,16 @@ const researchEvidenceTypes = new Set([
   'regulatory',
   'expert-commentary',
   'web-x-forums',
+]);
+const researchSources = new Set<ResearchSource>([
+  'pubmed',
+  'clinical-trials',
+  'openfda',
+]);
+const fetchedEvidenceTypes = new Set<ResearchEvidenceType>([
+  'literature',
+  'registered-trial',
+  'regulatory',
 ]);
 const validSchedule = (value: unknown): boolean =>
   isRecord(value) &&
@@ -1117,6 +1325,47 @@ const validSavedView = (value: unknown): boolean =>
     entry => typeof entry === 'string' && researchEvidenceTypes.has(entry),
   ) &&
   (value.evidenceTypes as unknown[]).length > 0;
+const validResearchSourceCursor = (value: unknown): boolean =>
+  isRecord(value) &&
+  hasStrings(value, ['source', 'cursor', 'error', 'reviewedAt']) &&
+  researchSources.has(value.source as ResearchSource) &&
+  typeof value.success === 'boolean' &&
+  hasNumbers(value, ['recordCount']) &&
+  Number.isInteger(Number(value.recordCount)) &&
+  Number(value.recordCount) >= 0;
+const validResearchWatch = (value: unknown): boolean =>
+  isRecord(value) &&
+  hasStrings(value, [
+    'id',
+    'itemId',
+    'viewId',
+    'query',
+    'createdAt',
+    'updatedAt',
+  ]) &&
+  String(value.query).trim().length > 0 &&
+  isArrayOf(value.sources, validResearchSourceCursor) &&
+  (value.sources as unknown[]).length > 0;
+const validResearchRecord = (value: unknown): boolean =>
+  isRecord(value) &&
+  hasStrings(value, [
+    'id',
+    'watchId',
+    'itemId',
+    'source',
+    'sourceRecordId',
+    'evidenceType',
+    'title',
+    'summary',
+    'url',
+    'publishedAt',
+    'fetchedAt',
+  ]) &&
+  researchSources.has(value.source as ResearchSource) &&
+  fetchedEvidenceTypes.has(value.evidenceType as ResearchEvidenceType) &&
+  String(value.sourceRecordId).trim().length > 0 &&
+  String(value.title).trim().length > 0 &&
+  /^https:\/\//i.test(String(value.url));
 const validAudit = (value: unknown): boolean =>
   isRecord(value) &&
   hasStrings(value, ['id', 'occurredAt', 'action', 'entityType', 'entityId']);
@@ -1147,7 +1396,7 @@ const validSpecialistRun = (value: unknown): boolean =>
 export const isLedgerState = (value: unknown): value is LedgerState => {
   if (!isRecord(value)) return false;
   const shapesValid =
-    value.schemaVersion === 3 &&
+    value.schemaVersion === 4 &&
     hasStrings(value, ['ownerLabel', 'jurisdiction']) &&
     (value.role === 'owner' || value.role === 'viewer') &&
     isArrayOf(value.items, validItem) &&
@@ -1159,6 +1408,8 @@ export const isLedgerState = (value: unknown): value is LedgerState => {
     isArrayOf(value.confounders, validConfounder) &&
     isArrayOf(value.adverseEvents, validAdverseEvent) &&
     isArrayOf(value.savedViews, validSavedView) &&
+    isArrayOf(value.researchWatches, validResearchWatch) &&
+    isArrayOf(value.researchRecords, validResearchRecord) &&
     isArrayOf(value.specialistRuns, validSpecialistRun) &&
     isArrayOf(value.audit, validAudit) &&
     (value.specialistBinding === null ||
@@ -1168,6 +1419,10 @@ export const isLedgerState = (value: unknown): value is LedgerState => {
   const unique = (values: readonly string[]): boolean =>
     values.length === new Set(values).size && values.every(Boolean);
   const itemIds = new Set(state.items.map(item => item.id));
+  const viewIds = new Set(state.savedViews.map(view => view.id));
+  const watchById = new Map(
+    state.researchWatches.map(watch => [watch.id, watch]),
+  );
   const lotById = new Map(state.lots.map(lot => [lot.id, lot]));
   const bindingChannel = state.specialistBinding?.channelId ?? null;
   return (
@@ -1181,6 +1436,19 @@ export const isLedgerState = (value: unknown): value is LedgerState => {
     unique(state.confounders.map(confounder => confounder.id)) &&
     unique(state.adverseEvents.map(event => event.id)) &&
     unique(state.savedViews.map(view => view.id)) &&
+    unique(state.researchWatches.map(watch => watch.id)) &&
+    unique(
+      state.researchWatches.map(
+        watch => `${watch.itemId}:${watch.viewId}:${watch.query}`,
+      ),
+    ) &&
+    unique(state.researchRecords.map(record => record.id)) &&
+    unique(
+      state.researchRecords.map(
+        record =>
+          `${record.itemId}:${record.source}:${record.sourceRecordId}`,
+      ),
+    ) &&
     unique(state.specialistRuns.map(run => run.id)) &&
     unique(state.specialistRuns.map(run => run.replayKey)) &&
     unique(state.audit.map(entry => entry.id)) &&
@@ -1214,6 +1482,16 @@ export const isLedgerState = (value: unknown): value is LedgerState => {
         (!event.lotId || lot?.itemId === event.itemId)
       );
     }) &&
+    state.researchWatches.every(
+      watch =>
+        itemIds.has(watch.itemId) &&
+        viewIds.has(watch.viewId) &&
+        unique(watch.sources.map(source => source.source)),
+    ) &&
+    state.researchRecords.every(record => {
+      const watch = watchById.get(record.watchId);
+      return watch?.itemId === record.itemId;
+    }) &&
     state.specialistRuns.every(
       run =>
         bindingChannel !== null &&
@@ -1229,6 +1507,18 @@ export const migrateLedger = (value: unknown): LedgerState => {
       'The archive is not a supported Personal Health Ledger file.',
     );
   const row = value as Record<string, unknown>;
+  if (row.schemaVersion === 3) {
+    const migrated = {
+      ...value,
+      schemaVersion: 4,
+      researchWatches: [],
+      researchRecords: [],
+    };
+    if (isLedgerState(migrated)) return migrated;
+    throw new LedgerValidationError(
+      'The archive is not a supported Personal Health Ledger file.',
+    );
+  }
   const legacyArrays = [
     'items',
     'lots',
@@ -1287,10 +1577,17 @@ export const migrateLedger = (value: unknown): LedgerState => {
   const migrated: LedgerState = {
     ...(value as Omit<
       LedgerState,
-      'schemaVersion' | 'items' | 'specialistBinding' | 'specialistRuns'
+      | 'schemaVersion'
+      | 'items'
+      | 'researchWatches'
+      | 'researchRecords'
+      | 'specialistBinding'
+      | 'specialistRuns'
     >),
-    schemaVersion: 3,
+    schemaVersion: 4,
     items,
+    researchWatches: [],
+    researchRecords: [],
     specialistBinding:
       row.schemaVersion === 2
         ? ((legacy.specialistBinding as SpecialistBinding | null) ?? null)

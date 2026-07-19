@@ -8,13 +8,16 @@
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
     "build:preview": "rsbuild build",
-    "build:miniapp": "rslib build",
+    "build:miniapp": "pnpm build:miniapp:desktop && pnpm build:miniapp:quickjs && pnpm build:miniapp:assemble",
+    "build:miniapp:desktop": "TAP_PACKAGE_TARGET=desktop rslib build",
+    "build:miniapp:quickjs": "TAP_PACKAGE_TARGET=quickjs rslib build",
+    "build:miniapp:assemble": "node scripts/assemble-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "rstest run",
     "validate:manifest": "node scripts/validate-manifest.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.0.1",
+    "@theaiplatform/miniapp-sdk": "0.2.0-pr.6821.02b36a6",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

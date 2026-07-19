@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@rstest/core';
 import {
+  applyResearchRefresh,
   addItem,
   addLot,
   addOutcome,
@@ -130,11 +131,101 @@ describe('ledger domain', () => {
     delete legacy.specialistBinding;
     delete legacy.specialistRuns;
     const migrated = migrateLedger(legacy);
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.specialistBinding).toBeNull();
     expect(migrated.specialistRuns).toHaveLength(0);
+    expect(migrated.researchWatches).toHaveLength(0);
+    expect(migrated.researchRecords).toHaveLength(0);
     expect(migrated.ownerLabel).toBe('Runtime');
     expect(migrated.items[0]?.statusHistory).toHaveLength(1);
+  });
+  it('migrates schema-v3 ledgers to empty research collections', () => {
+    const legacy = {
+      ...createLedger('Runtime', 'US'),
+      schemaVersion: 3,
+    } as unknown as Record<string, unknown>;
+    delete legacy.researchWatches;
+    delete legacy.researchRecords;
+    const migrated = migrateLedger(legacy);
+    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.researchWatches).toEqual([]);
+    expect(migrated.researchRecords).toEqual([]);
+  });
+  it('deduplicates official-source records and advances review receipts', () => {
+    let state = addSavedView(
+      addItem(createLedger('Runtime', 'US'), itemInput()),
+      {
+        name: 'Runtime scope',
+        scope: 'approved-only',
+        evidenceTypes: ['human-clinical'],
+      },
+    );
+    const itemId = state.items[0]!.id;
+    const viewId = state.savedViews[0]!.id;
+    const refresh = (title: string, refreshedAt: string) =>
+      applyResearchRefresh(state, {
+        itemId,
+        viewId,
+        query: 'Runtime item',
+        refreshedAt,
+        records: [
+          {
+            source: 'pubmed',
+            sourceRecordId: '12345',
+            evidenceType: 'literature',
+            title,
+            summary: 'Runtime summary',
+            url: 'https://pubmed.ncbi.nlm.nih.gov/12345/',
+            publishedAt: '2026',
+          },
+        ],
+        sources: [
+          {
+            source: 'pubmed',
+            cursor: '12345',
+            success: true,
+            recordCount: 1,
+            error: '',
+          },
+        ],
+      });
+    state = refresh('First title', '2026-07-18T12:00:00Z');
+    const recordId = state.researchRecords[0]!.id;
+    state = applyResearchRefresh(state, {
+      itemId,
+      viewId,
+      query: 'Runtime item',
+      refreshedAt: '2026-07-19T12:00:00Z',
+      records: [
+        {
+          source: 'pubmed',
+          sourceRecordId: '12345',
+          evidenceType: 'literature',
+          title: 'Updated title',
+          summary: 'Updated summary',
+          url: 'https://pubmed.ncbi.nlm.nih.gov/12345/',
+          publishedAt: '2026',
+        },
+      ],
+      sources: [
+        {
+          source: 'pubmed',
+          cursor: '12345',
+          success: true,
+          recordCount: 1,
+          error: '',
+        },
+      ],
+    });
+    expect(state.researchRecords).toHaveLength(1);
+    expect(state.researchRecords[0]).toMatchObject({
+      id: recordId,
+      title: 'Updated title',
+    });
+    expect(state.researchWatches).toHaveLength(1);
+    expect(state.researchWatches[0]?.updatedAt).toBe(
+      '2026-07-19T12:00:00Z',
+    );
   });
   it('replaces a validated archive without adopting its embedded role', () => {
     const current = createLedger('Current', 'US');
@@ -287,6 +378,13 @@ describe('ledger domain', () => {
     expect(() =>
       recordAdministration(state, { ...input, replayKey: 'other', dose: 2 }),
     ).toThrow('inventory negative');
+    expect(() =>
+      recordAdministration(state, {
+        ...input,
+        replayKey: 'missing-lot',
+        lotId: crypto.randomUUID(),
+      }),
+    ).toThrow('inventory lot from this ledger');
   });
   it('projects a run-out date only from repeated confirmed administrations', () => {
     let state = addItem(createLedger('Runtime', 'US'), itemInput());

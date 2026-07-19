@@ -8,16 +8,26 @@ import type {
   SpecialistTask,
   SpecialistToolReceipt,
 } from './domain';
+import {
+  parseAdministrationDraftToolResult,
+  type AdministrationDraft,
+} from './administration-draft';
 
 export const HEALTH_SPECIALIST_ID = 'personal-health-researcher';
 export const GROK_MODEL_PREFERENCE = 'xai/grok-latest';
-export const HEALTH_SPECIALIST_TOOLS = ['web_search', 'web_fetch'] as const;
+export const HEALTH_SPECIALIST_TOOLS = [
+  'web_search',
+  'web_fetch',
+  'draft_administration',
+] as const;
 
 const systemPrompt = `You are the Personal Health Researcher inside TAP. You help a person organize factual health records, research questions, and clinician conversations. You are not a clinician and must never diagnose, prescribe, recommend a dose, calculate reconstitution instructions, choose a supplier, or imply that a reported association is causal.
 
 Be direct, technical, and fact-first. Retrieve current sources before making a research or regulatory claim. Prefer official regulatory sources, guidelines, systematic reviews, peer-reviewed studies, and trial registries. Cite a URL for every material external claim and label evidence as regulatory, human evidence, preclinical evidence, expert commentary, or anecdote. Keep web and X anecdotes visibly separate from scientific evidence. A search result is discovery, not proof; fetch and inspect the underlying source when possible. Never invent a citation, tool result, model identity, record, or successful action. If a tool is missing, fails, or returns insufficient evidence, say so.
 
 The host exposes web_search and web_fetch. It does not expose a native X Search operation. For an anecdotal pulse, web_search may discover public X pages with site:x.com queries, but you must describe that as indexed web discovery rather than native or exhaustive X search.
+
+When asked to log an administration, call draft_administration exactly once with IDs and observed values from the approved context and user message. That tool prepares a draft only. Never claim the event was recorded, inventory changed, or the ledger was updated; the surface must revalidate the draft and obtain human confirmation before committing it.
 
 Treat supplied ledger context as private. Use only the minimum context included in the request, do not infer identity, and do not repeat irrelevant private details. Separate OBSERVED LEDGER FACTS, EXTERNAL EVIDENCE, UNCERTAINTIES, and QUESTIONS FOR A CLINICIAN. Keep recommendations informational and human-reviewed.`;
 
@@ -45,7 +55,12 @@ export const specialistDefinition = Object.freeze({
       'Human review for health decisions',
     ],
     attributes: ['Direct', 'Technical', 'Conservative', 'Source-conscious'],
-    techStack: ['web_search', 'web_fetch', 'TAP private channels'],
+    techStack: [
+      'web_search',
+      'web_fetch',
+      'draft_administration',
+      'TAP private channels',
+    ],
   },
   capabilities: {
     tags: [
@@ -102,6 +117,8 @@ export function managedSpecialistManifest(): MiniAppManagedSpecialist {
         'Find current regulatory and scientific updates for the selected item. Prefer primary and official sources, fetch underlying pages, cite URLs, label evidence level, and identify uncertainty.',
       anecdotalPulse:
         'Use indexed web discovery, including site:x.com when useful, to summarize public anecdotes separately from evidence. Never call this native or exhaustive X Search.',
+      logAdministration:
+        'Extract one observed administration from the user message and approved active-item and inventory context. Call draft_administration exactly once. Explain that the draft still requires review and confirmation in the ledger surface.',
       recordAudit:
         'Review only the supplied ledger excerpt for missing source fields, conflicting units, stale schedules, unlinked lots, safety follow-up gaps, and questions requiring human resolution.',
       resultsReview:
@@ -125,6 +142,7 @@ export function managedSpecialistManifest(): MiniAppManagedSpecialist {
         'Dose or reconstitution instruction',
         'Automated health decisions',
         'Native X Search claims',
+        'Unconfirmed ledger writes',
       ],
       decisionPolicy:
         'Research and organize only. A person reviews every output before using it.',
@@ -143,6 +161,8 @@ const taskInstructions: Record<SpecialistTask, string> = {
     'Prepare a current research update. Search and fetch authoritative sources. Cover regulatory status, human evidence, preclinical evidence only when relevant, material safety signals, and active trials. Cite URLs and state the search date. Do not translate preclinical exposure into a human dose.',
   'anecdotal-pulse':
     'Prepare an anecdotal pulse using indexed web discovery. Use site:x.com queries and other public forums when useful. Keep anecdotes separate from scientific evidence, describe selection bias, cite public URLs, and explicitly state that native X Search was not available.',
+  'log-administration':
+    'Prepare one administration draft from the user message and supplied IDs. Call draft_administration exactly once with itemId, lotId when identifiable, plannedAt when provided, actualAt, dose, unit, route, site, status, reason, reaction, and instructionSource. Do not calculate, recommend, or infer a dose. Never claim the administration was recorded or inventory changed; tell the user the surface must validate and confirm the draft.',
   'record-audit':
     'Audit the supplied minimum-necessary ledger excerpt. Identify missing provenance, contradictory units or dates, stale or unclear schedules, inventory mismatches, and unresolved safety follow-up. Do not infer facts that are absent and do not provide medical advice.',
   'results-review':
@@ -223,6 +243,44 @@ function privateLedgerExcerpt(state: LedgerState) {
   };
 }
 
+function administrationDraftContext(state: LedgerState) {
+  const activeItemIds = new Set(
+    state.items.filter(item => item.status === 'active').map(item => item.id),
+  );
+  return {
+    activeItems: state.items
+      .filter(item => activeItemIds.has(item.id))
+      .slice(0, 20)
+      .map(item => ({
+        itemId: item.id,
+        name: item.canonicalName || item.name,
+        route: item.route,
+        currentSchedule: item.schedules.at(-1) ?? null,
+        instructionSource: item.sourceRecord,
+      })),
+    inventoryLots: state.lots
+      .filter(lot => activeItemIds.has(lot.itemId) && lot.currentQuantity > 0)
+      .slice(0, 30)
+      .map(lot => ({
+        lotId: lot.id,
+        itemId: lot.itemId,
+        lotNumber: lot.lotNumber,
+        currentQuantity: lot.currentQuantity,
+        unit: lot.unit,
+        expiresOn: lot.expiresOn,
+      })),
+    recentAdministrations: state.administrations.slice(-10).map(entry => ({
+      itemId: entry.itemId,
+      lotId: entry.lotId,
+      actualAt: entry.actualAt,
+      dose: entry.dose,
+      unit: entry.unit,
+      route: entry.route,
+      status: entry.status,
+    })),
+  };
+}
+
 export function buildSpecialistPrompt(options: {
   task: SpecialistTask;
   state: LedgerState;
@@ -241,9 +299,12 @@ export function buildSpecialistPrompt(options: {
           selectedItem: selectedItemContext(options.state, options.itemId),
           researchScope: selectedResearchScope(options.state, options.viewId),
         }
+      : options.task === 'log-administration'
+        ? administrationDraftContext(options.state)
       : privateLedgerExcerpt(options.state);
   return [
     taskInstructions[options.task],
+    `Request timestamp: ${new Date().toISOString()}`,
     '',
     'The following JSON is private, user-approved context. Use only these fields and do not infer identity:',
     JSON.stringify(context, null, 2),
@@ -285,6 +346,7 @@ export async function runHealthSpecialist(options: {
   content: string;
   modelUsed: string;
   toolReceipts: readonly SpecialistToolReceipt[];
+  administrationDraft: AdministrationDraft | null;
 }> {
   if (!sdk.specialist?.runTurnWithTools)
     throw new Error(
@@ -311,8 +373,9 @@ export function extractHealthSpecialistResult(
   content: string;
   modelUsed: string;
   toolReceipts: readonly SpecialistToolReceipt[];
+  administrationDraft: AdministrationDraft | null;
 } {
-  const content = result.completionEvent.parts
+  const textContent = result.completionEvent.parts
     .filter(
       (
         part,
@@ -324,19 +387,29 @@ export function extractHealthSpecialistResult(
     .map(part => part.content)
     .join('\n\n')
     .trim();
+  const toolParts = result.completionEvent.parts.filter(
+    (
+      part,
+    ): part is Extract<
+      (typeof result.completionEvent.parts)[number],
+      { type: 'tool' }
+    > => part.type === 'tool',
+  );
+  const administrationDraft =
+    toolParts
+      .filter(part => part.success)
+      .map(part => parseAdministrationDraftToolResult(part.content))
+      .find((draft): draft is AdministrationDraft => draft !== null) ?? null;
+  const content =
+    textContent ||
+    (administrationDraft
+      ? 'An administration draft is ready for your review and confirmation.'
+      : '');
   if (!content)
     throw new Error(
       'The specialist completed without a readable response. Review its tool receipts and try again.',
     );
-  const toolReceipts = result.completionEvent.parts
-    .filter(
-      (
-        part,
-      ): part is Extract<
-        (typeof result.completionEvent.parts)[number],
-        { type: 'tool' }
-      > => part.type === 'tool',
-    )
+  const toolReceipts = toolParts
     .map(part => ({ toolName: part.toolName, success: part.success }))
     .filter(
       (receipt, index, receipts) =>
@@ -350,6 +423,11 @@ export function extractHealthSpecialistResult(
     receipt =>
       !HEALTH_SPECIALIST_TOOLS.includes(
         receipt.toolName as (typeof HEALTH_SPECIALIST_TOOLS)[number],
+      ) &&
+      !toolParts.some(
+        part =>
+          part.toolName === receipt.toolName &&
+          parseAdministrationDraftToolResult(part.content) !== null,
       ),
   );
   if (unexpectedTool)
@@ -365,9 +443,14 @@ export function extractHealthSpecialistResult(
     throw new Error(
       'The specialist did not return a successful web_search receipt, so this research response was not saved.',
     );
+  if (task === 'log-administration' && !administrationDraft)
+    throw new Error(
+      'The specialist did not return a valid administration draft, so no ledger change was offered.',
+    );
   return {
     content,
     modelUsed: result.completionEvent.modelUsed ?? '',
     toolReceipts,
+    administrationDraft,
   };
 }

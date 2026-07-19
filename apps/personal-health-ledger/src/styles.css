@@ -1651,6 +1651,90 @@ p {
   border-top: 1px solid var(--border);
   padding: 0.4rem 0.55rem;
 }
+.official-research-card {
+  margin-bottom: 1.1rem;
+  overflow: hidden;
+}
+.official-research-card > header {
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--primary) 4%, var(--card));
+}
+.official-research-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+.official-research-controls label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.63rem;
+  font-weight: 700;
+}
+.official-query-consent {
+  margin-top: 0.8rem;
+}
+.official-research-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+.official-research-actions p,
+.official-source-empty {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.58rem;
+  line-height: 1.45;
+}
+.source-receipts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+}
+.source-receipts > span {
+  margin-right: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.58rem;
+}
+.official-source-results {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+.official-source-results a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.65rem 0.7rem;
+  color: inherit;
+  text-decoration: none;
+}
+.official-source-results a:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 4%, var(--card));
+}
+.official-source-results strong,
+.official-source-results small {
+  display: block;
+}
+.official-source-results strong {
+  font-size: 0.64rem;
+}
+.official-source-results small {
+  margin-top: 0.16rem;
+  color: var(--muted-foreground);
+  font-size: 0.54rem;
+}
+.official-source-empty {
+  margin-top: 0.85rem;
+}
 .research-views-section {
   min-width: 0;
 }
@@ -2562,7 +2646,8 @@ p {
     grid-template-columns: 1fr;
   }
   .specialist-capabilities,
-  .specialist-fields {
+  .specialist-fields,
+  .official-research-controls {
     grid-template-columns: 1fr;
   }
   .specialist-capabilities > span {
@@ -2575,11 +2660,16 @@ p {
     padding-bottom: 0;
   }
   .specialist-run-actions,
-  .specialist-result summary {
+  .specialist-result summary,
+  .official-research-actions {
     align-items: stretch;
     flex-direction: column;
   }
   .specialist-run-actions > button {
+    justify-content: center;
+    width: 100%;
+  }
+  .official-research-actions > button {
     justify-content: center;
     width: 100%;
   }

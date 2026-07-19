@@ -10,4 +10,5 @@
 node_modules/
 dist/
 .tap-build/
+.tap-package/
 .tap-receipts/

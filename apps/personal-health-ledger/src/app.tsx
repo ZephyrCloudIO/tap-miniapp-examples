@@ -88,6 +88,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  applyResearchRefresh,
   addSpecialistRun,
   clinicianSummary,
   connectSpecialist,
@@ -97,6 +98,7 @@ import {
   estimateRunOutDate,
   parseLedger,
   replaceLedger,
+  recordAdministration,
   serializeLedger,
   updateItemStatus,
   updateOrderStatus,
@@ -119,6 +121,7 @@ import {
   installHealthSpecialist,
   runHealthSpecialist,
 } from './specialist';
+import { refreshOfficialResearchSources } from './research-sources';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -2222,6 +2225,7 @@ function OutcomeVisualization({ state }: { readonly state: LedgerState }) {
 const specialistTaskLabels: Record<SpecialistTask, string> = {
   'research-update': 'Find Current Evidence',
   'anecdotal-pulse': 'Scan Anecdotal Reports',
+  'log-administration': 'Draft an Administration Entry',
   'record-audit': 'Audit My Record',
   'results-review': 'Review a Result',
   'appointment-summary': 'Prepare for an Appointment',
@@ -2250,9 +2254,25 @@ function ResearchPage({
     'idle' | 'connecting' | 'running'
   >('idle');
   const [specialistError, setSpecialistError] = useState<string | null>(null);
+  const [sourceRefreshStatus, setSourceRefreshStatus] = useState<
+    'idle' | 'running'
+  >('idle');
+  const [sourceRefreshError, setSourceRefreshError] = useState<string | null>(
+    null,
+  );
+  const [sourceQueryApproved, setSourceQueryApproved] = useState(false);
   const binding = state.specialistBinding;
   const needsItem = task === 'research-update' || task === 'anecdotal-pulse';
+  const needsAdministration = task === 'log-administration';
   const workspaceId = context?.workspaceId ?? '';
+  const selectedResearchItem = state.items.find(item => item.id === itemId);
+  const selectedResearchView = state.savedViews.find(view => view.id === viewId);
+  const selectedResearchWatch = state.researchWatches.find(
+    watch => watch.itemId === itemId && watch.viewId === viewId,
+  );
+  const selectedResearchRecords = state.researchRecords
+    .filter(record => record.itemId === itemId)
+    .slice(0, 12);
 
   const connect = async (): Promise<void> => {
     setSpecialistError(null);
@@ -2279,6 +2299,43 @@ function ResearchPage({
       );
     } finally {
       setSpecialistStatus('idle');
+    }
+  };
+
+  const refreshSources = async (): Promise<void> => {
+    const query = (
+      selectedResearchItem?.canonicalName || selectedResearchItem?.name || ''
+    ).trim();
+    if (!query || !selectedResearchView || !sourceQueryApproved) return;
+    setSourceRefreshError(null);
+    setSourceRefreshStatus('running');
+    try {
+      const refresh = await refreshOfficialResearchSources(query);
+      const persistenceError = await mutate(
+        current =>
+          applyResearchRefresh(current, {
+            itemId,
+            viewId,
+            query,
+            refreshedAt: refresh.refreshedAt,
+            records: refresh.records,
+            sources: refresh.sources,
+          }),
+        'Official research sources refreshed',
+      );
+      if (persistenceError)
+        throw new Error(
+          `The sources responded, but their records could not be saved. ${persistenceError}`,
+        );
+      setSourceQueryApproved(false);
+    } catch (cause) {
+      setSourceRefreshError(
+        cause instanceof Error
+          ? cause.message
+          : 'Official research sources could not be refreshed.',
+      );
+    } finally {
+      setSourceRefreshStatus('idle');
     }
   };
 
@@ -2321,6 +2378,36 @@ function ResearchPage({
         throw new Error(
           `The specialist completed the turn, but its response could not be saved to the ledger. ${persistenceError}`,
         );
+      if (result.administrationDraft) {
+        const draft = result.administrationDraft;
+        const administrationInput = {
+          ...draft,
+          replayKey: crypto.randomUUID(),
+        };
+        try {
+          recordAdministration(state, administrationInput);
+        } catch (cause) {
+          throw new Error(
+            `The specialist briefing was saved, but its administration draft failed ledger validation. ${cause instanceof Error ? cause.message : 'Review the supplied values.'}`,
+          );
+        }
+        const item = state.items.find(
+          candidate => candidate.id === draft.itemId,
+        );
+        const lot = state.lots.find(candidate => candidate.id === draft.lotId);
+        requestConfirmation({
+          title: 'Record this administration?',
+          description: `${draft.dose} ${draft.unit} of ${item?.name ?? 'the selected item'} via ${draft.route} at ${formatDateTime(draft.actualAt)} (${draft.status}).${lot ? ` Inventory lot ${lot.lotNumber || lot.id} will be decremented after validation.` : ' No inventory lot will be decremented.'}`,
+          actionLabel: 'Record Administration',
+          tone: 'default',
+          onConfirm: () =>
+            void mutate(
+              current =>
+                recordAdministration(current, administrationInput),
+              'Administration recorded and inventory reconciled',
+            ),
+        });
+      }
       setQuestion('');
       setPrivateContextApproved(false);
     } catch (cause) {
@@ -2358,11 +2445,15 @@ function ResearchPage({
             </summary>
             <p>
               TAP requests <strong>{GROK_MODEL_PREFERENCE}</strong> and applies
-              the workspace’s current model policy. This host exposes{' '}
+              the workspace’s current model policy. Research uses{' '}
               <strong>web_search</strong> and <strong>web_fetch</strong>, not
-              native X Search. The actual model and tool receipts are saved
-              with each response. Private ledger context is sent only after you
-              approve the visible boundary for that request.
+              native X Search. Administration requests use the package’s{' '}
+              <strong>draft_administration</strong> MCP tool, which cannot write
+              ledger data. The actual model and tool receipts are saved with
+              each response. Private ledger context is sent only after you
+              approve the visible boundary for that request. The host may also
+              require you to grant this installed package’s MCP tool to the
+              selected specialist.
             </p>
           </details>
           {specialistError ? (
@@ -2404,7 +2495,9 @@ function ResearchPage({
                 </span>
                 <span>
                   <strong>Allowed tools</strong>
-                  <small>web_search · web_fetch</small>
+                  <small>
+                    web_search · web_fetch · draft_administration
+                  </small>
                 </span>
                 <span>
                   <strong>Channel</strong>
@@ -2507,7 +2600,8 @@ function ResearchPage({
                     ) : null}
                   </div>
                   <label htmlFor="specialist-question">
-                    Focus or Question <span>(optional)</span>
+                    Focus or Question{' '}
+                    <span>{needsAdministration ? '(required)' : '(optional)'}</span>
                     <Textarea
                       id="specialist-question"
                       name="specialist-question"
@@ -2515,7 +2609,11 @@ function ResearchPage({
                       value={question}
                       maxLength={1200}
                       rows={3}
-                      placeholder="Add a precise question, date range, or concern for the specialist to address…"
+                      placeholder={
+                        needsAdministration
+                          ? 'Describe exactly what you took, how much, when, route, and any reaction. The specialist will only prepare a draft.'
+                          : 'Add a precise question, date range, or concern for the specialist to address…'
+                      }
                       onChange={event => setQuestion(event.target.value)}
                     />
                   </label>
@@ -2532,6 +2630,8 @@ function ResearchPage({
                       <small>
                         {needsItem
                           ? 'Send only the selected item’s canonical name, category, jurisdiction, and recorded regulatory status.'
+                          : needsAdministration
+                            ? 'Send active item and schedule IDs, available lot IDs and quantities, and the 10 most recent administrations. Your ledger name is excluded.'
                           : 'Send up to 20 active items and the 20 most recent administrations, outcomes, confounders, and safety events. Your ledger name is excluded.'}
                       </small>
                     </span>
@@ -2545,7 +2645,8 @@ function ResearchPage({
                       disabled={
                         specialistStatus !== 'idle' ||
                         !privateContextApproved ||
-                        (needsItem && (!itemId || !viewId))
+                        (needsItem && (!itemId || !viewId)) ||
+                        (needsAdministration && !question.trim())
                       }
                       onClick={() => void run()}
                     >
@@ -2562,7 +2663,9 @@ function ResearchPage({
                         }
                       />
                       {specialistStatus === 'running'
-                        ? 'Researching…'
+                        ? needsAdministration
+                          ? 'Drafting…'
+                          : 'Researching…'
                         : `Run ${specialistTaskLabels[task]}`}
                     </Button>
                   </div>
@@ -2661,6 +2764,162 @@ function ResearchPage({
                 )}
               </div>
             </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="official-research-card">
+        <CardHeader className="card-header-row">
+          <div>
+            <span className="section-kicker">Official Sources</span>
+            <CardTitle>Refresh the Evidence Watchlist</CardTitle>
+            <CardDescription>
+              Query PubMed, ClinicalTrials.gov, and openFDA through the host’s
+              governed HTTP client, then store deduplicated source records and
+              per-source review receipts.
+            </CardDescription>
+          </div>
+          <Badge variant="outline">Manual refresh</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="official-research-controls">
+            <label htmlFor="official-research-item">
+              Tracked Item
+              <NativeSelect
+                id="official-research-item"
+                name="official-research-item"
+                value={itemId}
+                onChange={event => {
+                  setItemId(event.target.value);
+                  setSourceQueryApproved(false);
+                }}
+              >
+                <option value="">Choose an item…</option>
+                {state.items.map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
+            <label htmlFor="official-research-view">
+              Research View
+              <NativeSelect
+                id="official-research-view"
+                name="official-research-view"
+                value={viewId}
+                onChange={event => {
+                  setViewId(event.target.value);
+                  setSourceQueryApproved(false);
+                }}
+              >
+                <option value="">Choose a saved view…</option>
+                {state.savedViews.map(view => (
+                  <option key={view.id} value={view.id}>
+                    {view.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
+          </div>
+          <label className="privacy-consent official-query-consent">
+            <Checkbox
+              name="source-query-approved"
+              checked={sourceQueryApproved}
+              disabled={readOnly || preview || !selectedResearchItem}
+              onCheckedChange={checked =>
+                setSourceQueryApproved(checked === true)
+              }
+            />
+            <span>
+              <strong>Approve this public-source query</strong>
+              <small>
+                Send only “
+                {selectedResearchItem?.canonicalName ||
+                  selectedResearchItem?.name ||
+                  'choose an item'}
+                ” to eutils.ncbi.nlm.nih.gov, clinicaltrials.gov, and
+                api.fda.gov. No owner label, notes, outcomes, or ledger archive
+                is sent.
+              </small>
+            </span>
+          </label>
+          {sourceRefreshError ? (
+            <Alert variant="destructive" className="specialist-error">
+              <Icon icon={AlertCircle} size="sm" aria-hidden="true" />
+              <AlertTitle>Source Refresh Failed</AlertTitle>
+              <AlertDescription>{sourceRefreshError}</AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="official-research-actions">
+            <p>
+              {preview
+                ? 'Package the app to use host HTTP. Browser preview never contacts these sources.'
+                : 'Each refresh is user-initiated. Recurring scheduling still requires additional SDK support.'}
+            </p>
+            <Button
+              disabled={
+                readOnly ||
+                preview ||
+                sourceRefreshStatus !== 'idle' ||
+                !selectedResearchItem ||
+                !selectedResearchView ||
+                !sourceQueryApproved
+              }
+              onClick={() => void refreshSources()}
+            >
+              <Icon
+                icon={RefreshCw}
+                size="sm"
+                aria-hidden="true"
+                className={
+                  sourceRefreshStatus === 'running' ? 'spin-icon' : undefined
+                }
+              />
+              {sourceRefreshStatus === 'running'
+                ? 'Refreshing…'
+                : 'Refresh Official Sources'}
+            </Button>
+          </div>
+          {selectedResearchWatch ? (
+            <div className="source-receipts" aria-live="polite">
+              <span>
+                Last reviewed {formatDateTime(selectedResearchWatch.updatedAt)}
+              </span>
+              {selectedResearchWatch.sources.map(source => (
+                <Badge
+                  key={source.source}
+                  variant={source.success ? 'secondary' : 'destructive'}
+                >
+                  {titleCase(source.source)} · {source.recordCount}
+                  {source.success ? '' : ' failed'}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+          {selectedResearchRecords.length ? (
+            <div className="official-source-results">
+              {selectedResearchRecords.map(record => (
+                <a
+                  key={record.id}
+                  href={record.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  <span>
+                    <strong>{record.title}</strong>
+                    <small>
+                      {titleCase(record.source)} ·{' '}
+                      {titleCase(record.evidenceType)}
+                    </small>
+                  </span>
+                  <Icon icon={ArrowRight} size="sm" aria-hidden="true" />
+                </a>
+              ))}
+            </div>
+          ) : (
+            <p className="official-source-empty">
+              No persisted source records for the selected item yet.
+            </p>
           )}
         </CardContent>
       </Card>

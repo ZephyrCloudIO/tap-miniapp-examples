@@ -28,7 +28,7 @@
       }
     ]
   },
-  "compatibility": { "tapSdk": "0.0.1", "tapHost": ">=0.1.0" },
+  "compatibility": { "tapSdk": "0.2.0-pr.6821.02b36a6", "tapHost": ">=0.1.0" },
   "targets": {
     "desktop": {
       "remoteName": "tap_personal_health_ledger_desktop",
@@ -44,6 +44,19 @@
         "./ui/desktop": { "integrity": "pending", "runtime": "webview" },
         "./specialists/health": { "integrity": "pending", "runtime": "webview" }
       }
+    },
+    "quickjs": {
+      "remoteName": "tap_personal_health_ledger_quickjs",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./mcp/administration": { "integrity": "pending", "runtime": "quickjs" }
+      }
     }
   },
   "contributions": [
@@ -55,10 +68,18 @@
         "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
       },
       "authorization": {
-        "allOf": ["health-ledger.view"],
+        "allOf": ["health-ledger.view", "network.request"],
         "effects": [
           { "kind": "storage", "resources": ["personal-health-ledger"] },
           { "kind": "channel.write", "resources": ["workspace"] },
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://eutils.ncbi.nlm.nih.gov",
+              "https://clinicaltrials.gov",
+              "https://api.fda.gov"
+            ]
+          },
           {
             "kind": "specialist.manage",
             "resources": ["personal-health-researcher"]
@@ -99,13 +120,43 @@
       }
     },
     {
+      "kind": "mcp.server",
+      "id": "administration",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": {
+          "expose": "./mcp/administration",
+          "runtime": "quickjs"
+        }
+      },
+      "options": {
+        "protocolVersion": "2026-01-26",
+        "implementation": { "type": "package-runtime" },
+        "consumerPolicy": {
+          "contributionIds": ["personal-health-researcher"],
+          "externalConsumers": ["selected-specialists"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "administration-draft",
+      "apiVersion": 1,
+      "options": {
+        "serverContributionId": "administration",
+        "toolName": "draft_administration"
+      }
+    },
+    {
       "kind": "miniapp",
       "id": "personal-health-ledger-app",
       "apiVersion": 1,
       "options": {
         "contributionIds": [
           "personal-health-ledger",
-          "personal-health-researcher"
+          "personal-health-researcher",
+          "administration",
+          "administration-draft"
         ]
       }
     },
@@ -154,6 +205,16 @@
             "autonomyCeiling": "do",
             "consent": "fresh-decision",
             "risk": "write"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["user", "workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "read"
           }
         ],
         "levels": [
@@ -168,7 +229,8 @@
               "health-ledger.view",
               "health-ledger.manage",
               "health-ledger.research",
-              "health-ledger.export"
+              "health-ledger.export",
+              "network.request"
             ],
             "assignableTo": ["human"]
           }

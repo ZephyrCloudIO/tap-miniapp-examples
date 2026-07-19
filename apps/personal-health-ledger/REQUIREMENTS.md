@@ -12,8 +12,9 @@ This checklist is intentionally strict: checked items have executable code and t
 - [x] Confirmation-based manual entry; plans never become administrations automatically.
 - [x] Duplicate/replay rejection, unit mismatch rejection, required actual timestamp, and negative-inventory protection.
 - [x] Deleting an administration requires confirmation and restores its linked inventory arithmetic.
-- [ ] Conversational or voice administration logging with structured read-back — blocked because SDK 0.0.1 exposes specialist turns but no package-local function-tool registration contract that can return a draft to this surface and commit only after its confirmation.
-- [ ] Host reminders and allowed reminder windows — blocked by the absence of reminder/notification scheduling APIs in SDK 0.0.1.
+- [x] Conversational administration logging with structured read-back through a pure package-runtime MCP draft tool; the surface revalidates the result and commits only after confirmation.
+- [ ] Direct voice capture for administration logging — not represented as available because this miniapp has no SDK voice-input contract.
+- [ ] Host reminders and allowed reminder windows — blocked by the absence of reminder/notification scheduling APIs in SDK 0.2.0-pr.6821.02b36a6.
 
 ## Inventory, orders, and reconstitution
 
@@ -41,13 +42,15 @@ This checklist is intentionally strict: checked items have executable code and t
 - [x] Real package-owned managed specialist contribution with a private TAP channel.
 - [x] Grok preference expressed as `xai/grok-latest`; runtime turns use `modelOverride: "auto"` so host policy resolves the allowed current model.
 - [x] Real `web_search` and `web_fetch` tool-backed turns for research updates and anecdotal discovery.
+- [x] Package-runtime `draft_administration` MCP tool with selected-specialist consumer policy, exact QuickJS expose, no host-action access, and confirmation-gated surface commit.
 - [x] Record audit, results review, and appointment-summary specialist tasks use user-approved minimum-necessary ledger excerpts.
 - [x] Each turn requires explicit private-context approval; item research excludes ledger identity, clinician, notes, purpose, full regimen, and outcomes.
 - [x] Research prompts apply the selected saved regulatory/evidence scope and require citations, primary-source retrieval, evidence labels, uncertainty, and no dose extrapolation.
 - [x] Host-reported active model and success/failure tool receipts persist with every completed briefing; cited HTTP(S) URLs are rendered as safe links.
 - [x] Specialist turn responses have runtime IDs, replay protection, channel provenance validation, owner-only mutation, reload persistence, and confirmation-gated deletion.
 - [ ] Native Grok X Search — blocked because the current TAP host tool registry does not expose `x_search`. Anecdotal pulse may use indexed `site:x.com` web discovery and explicitly states that it is not native or exhaustive X Search.
-- [ ] Durable PubMed/PMC, ClinicalTrials.gov, FDA/openFDA feeds, deduplicated research records, watchlists, last-reviewed cursors, and scheduled monitoring — blocked by absent SDK 0.0.1 source-connector, inbound-event, and scheduling contracts. Specialist web discovery is not misrepresented as a durable source feed.
+- [x] User-initiated host-HTTP refresh for PubMed, ClinicalTrials.gov, and FDA/openFDA with deduplicated research records, watchlists, last-reviewed cursors, partial-failure receipts, exact-origin effects, and explicit query approval.
+- [ ] Scheduled monitoring of official sources — blocked by absent SDK inbound-event and scheduling contracts. Manual refresh is not misrepresented as recurring monitoring.
 - [ ] Followed-account refresh cadence and maximum X-search spend — omitted because native X Search is unavailable.
 - [ ] Personal Knowledge Garden publication — omitted because no reviewed private knowledge-write contract is exposed to this miniapp.
 
@@ -55,12 +58,12 @@ This checklist is intentionally strict: checked items have executable code and t
 
 - [x] Packaged execution uses only optimistic-revision TAP storage; it never silently falls back to browser storage.
 - [x] Browser preview uses a visibly separate origin-local key.
-- [x] Schema v3 validates every entity shape, finite numeric boundary, relationship, stable ID uniqueness, replay uniqueness, inventory bound, and specialist channel provenance.
-- [x] Schema-v1/v2 migration preserves records, adds deterministic status-history migration IDs, normalizes specialist receipts, and writes the migrated schema back to the authoritative store.
-- [x] Owner/viewer domain guards, read-only UI, manifest permission levels, and specialist research permission/effects.
+- [x] Schema v4 validates every entity shape, finite numeric boundary, relationship, stable ID uniqueness, replay uniqueness, inventory bound, research-source deduplication, and specialist channel provenance.
+- [x] Schema-v1/v2/v3 migration preserves records, adds deterministic status-history migration IDs, normalizes specialist receipts, initializes research collections, and writes the migrated schema back to the authoritative store.
+- [x] Owner/viewer domain guards, read-only UI, manifest permission levels, host-HTTP exact-origin effects, and specialist/MCP contribution boundaries.
 - [x] Runtime-generated stable entity IDs, immutable audit receipts, visible loading/saving/success/conflict/failure states, and refresh persistence.
 - [x] Destructive operations use SDK confirmation dialogs; linked history fails visibly instead of being silently removed.
-- [ ] Revocable cross-user sharing — not exposed because SDK 0.0.1 provides no package-scoped sharing grant/revocation API for this user-private ledger.
+- [ ] Revocable cross-user sharing — not exposed because SDK 0.2.0-pr.6821.02b36a6 provides no package-scoped sharing grant/revocation API for this user-private ledger.
 
 ## Import, export, and reporting
 
@@ -77,5 +80,5 @@ This checklist is intentionally strict: checked items have executable code and t
 - [x] Quick Add routes to real check-in, measurement, administration, context, and safety records; self-reported check-ins enforce a persisted 0–10 boundary.
 - [x] Unified Journey timeline combines feelings, measurements, administrations, context, safety events, and immutable plan changes with user-controlled filters.
 - [x] Desktop and compact layouts, keyboard focus, semantic headings/landmarks, accessible labels, long-content wrapping, no horizontal overflow, and reduced-motion handling.
-- [x] Runtime-constructed tests cover empty state, creation, validation, migration, persistence serialization, role boundaries, state transitions, replay protection, conflicts, inventory arithmetic, CSV round trip, deletion reversal, prompt minimization, and specialist manifests.
+- [x] Runtime-constructed tests cover empty state, creation, validation, v1/v2/v3 migration, persistence serialization, role boundaries, state transitions, replay protection, conflicts, inventory arithmetic, CSV round trip, deletion reversal, source normalization/deduplication, MCP drafts, prompt minimization, and specialist manifests.
 - [x] Browser preview discloses unavailable host authority and never substitutes simulated specialist output.
