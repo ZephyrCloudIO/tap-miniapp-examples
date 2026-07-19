@@ -33,7 +33,7 @@ export function usePyre(preview: boolean, surfaceContext?: TapFederatedSurfaceMo
   const [state, setState] = useState<PyreState>(emptyState);
   const [revision, setRevision] = useState<number | null>(null);
   const [actor, setActor] = useState<Actor>(previewActor);
-  const [platform, setPlatform] = useState<PlatformStatus>({ actor: previewActor, connected: false, presenceCount: 1, workflows: [] });
+  const [platform, setPlatform] = useState<PlatformStatus>({ actor: previewActor, connected: false, presenceCount: 1, workflows: [], httpAvailable: false, credentials: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string>();

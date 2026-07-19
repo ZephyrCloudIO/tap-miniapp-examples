@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Alert, AlertDescription, Badge, Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, Field, FieldError, FieldLabel, H2, Input, NativeSelect, Textarea } from "@theaiplatform/miniapp-sdk/ui";
+import { Alert, AlertDescription, Badge, Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, Field, FieldError, FieldLabel, Input, MiniAppMetric, MiniAppMetricContent, MiniAppMetricLabel, MiniAppMetricValue, MiniAppSectionHeader, MiniAppSectionHeaderActions, MiniAppSectionHeaderContent, MiniAppSectionHeaderDescription, MiniAppSectionHeaderTitle, NativeSelect, Textarea } from "@theaiplatform/miniapp-sdk/ui";
 import { AlertTriangle, Archive, FileQuestion, Plus } from "lucide-react";
 
 export function FormField({ id, label, error, hint, children }: { id: string; label: string; error?: string; hint?: string; children: ReactNode }) {
@@ -27,11 +27,11 @@ export function EmptyPanel({ icon = "question", title, description, action }: { 
 }
 
 export function Metric({ value, label, tone = "neutral" }: { value: string | number; label: string; tone?: "neutral" | "danger" | "success" | "warning" }) {
-  return <div className={`metric metric-${tone}`}><strong>{value}</strong><span>{label}</span></div>;
+  return <MiniAppMetric className={`metric metric-${tone}`}><MiniAppMetricContent><MiniAppMetricValue>{value}</MiniAppMetricValue><MiniAppMetricLabel>{label}</MiniAppMetricLabel></MiniAppMetricContent></MiniAppMetric>;
 }
 
 export function SectionHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
-  return <div className="section-header"><div className="min-w-0">{eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}<H2>{title}</H2>{description ? <p>{description}</p> : null}</div>{action ? <div className="section-action">{action}</div> : null}</div>;
+  return <MiniAppSectionHeader className="section-header"><MiniAppSectionHeaderContent className="min-w-0">{eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}<MiniAppSectionHeaderTitle>{title}</MiniAppSectionHeaderTitle>{description ? <MiniAppSectionHeaderDescription>{description}</MiniAppSectionHeaderDescription> : null}</MiniAppSectionHeaderContent>{action ? <MiniAppSectionHeaderActions className="section-action">{action}</MiniAppSectionHeaderActions> : null}</MiniAppSectionHeader>;
 }
 
 export function EntityDialog({ open, onOpenChange, title, description, children }: { open: boolean; onOpenChange(open: boolean): void; title: string; description: string; children: ReactNode }) {

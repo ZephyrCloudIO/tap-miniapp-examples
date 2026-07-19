@@ -1,6 +1,27 @@
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
+import type { MiniAppHttpCredentialMetadata, MiniAppHttpResponse } from "@theaiplatform/miniapp-sdk/sdk";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
 import type { Actor, Investigation, PlatformBindings } from "./domain";
+
+export const HTTP_EVIDENCE_ORIGINS = ["https://api.github.com"] as const;
+
+export interface HttpEvidenceRequest {
+  url: string;
+  credentialRef?: string;
+  timeoutMs?: number;
+  responseBodyLimitBytes?: number;
+}
+
+export interface HttpEvidenceCapture {
+  digest: string;
+  finalUrl: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: number;
+  elapsedMs: number;
+  vfsPath: string;
+  receiptPath: string;
+}
 
 export interface PlatformContext {
   preview: boolean;
@@ -15,13 +36,16 @@ export interface PlatformStatus {
   connected: boolean;
   presenceCount: number;
   workflows: Array<{ id: string; name: string; type: string }>;
+  httpAvailable: boolean;
+  credentials: MiniAppHttpCredentialMetadata[];
+  credentialsError?: string;
   error?: string;
 }
 
 export const previewActor: Actor = { id: "preview-lead", displayName: "Alex Morgan" };
 
 export async function bootstrapPlatform(context: PlatformContext): Promise<PlatformStatus> {
-  if (context.preview) return { actor: previewActor, connected: false, presenceCount: 1, workflows: [] };
+  if (context.preview) return { actor: previewActor, connected: false, presenceCount: 1, workflows: [], httpAvailable: false, credentials: [] };
   try {
     const profilePromise = sdk.auth?.getUserProfile();
     const workflowsPromise = sdk.workflows.list(context.workspaceId ? { workspaceId: context.workspaceId } : undefined);
@@ -34,10 +58,108 @@ export async function bootstrapPlatform(context: PlatformContext): Promise<Platf
       : presence
         ? { id: presence.selfParticipantId, displayName: presence.participants.find((p) => p.participantId === presence.selfParticipantId)?.displayName || "TAP user" }
         : { id: "workspace-user", displayName: "Workspace user" };
-    return { actor, connected: true, presenceCount: presence?.participants.length || 1, workflows: workflows.workflows };
+    let credentials: MiniAppHttpCredentialMetadata[] = [];
+    let credentialsError: string | undefined;
+    if (sdk.credentials) {
+      try {
+        credentials = await sdk.credentials.listHttp();
+      } catch (error) {
+        credentialsError = String(error);
+      }
+    }
+    return {
+      actor,
+      connected: true,
+      presenceCount: presence?.participants.length || 1,
+      workflows: workflows.workflows,
+      httpAvailable: Boolean(sdk.http) && sdk.hasHostHttpRequest === true,
+      credentials,
+      credentialsError,
+    };
   } catch (error) {
-    return { actor: { id: "workspace-user", displayName: "Workspace user" }, connected: false, presenceCount: 1, workflows: [], error: String(error) };
+    return { actor: { id: "workspace-user", displayName: "Workspace user" }, connected: false, presenceCount: 1, workflows: [], httpAvailable: false, credentials: [], error: String(error) };
   }
+}
+
+export function validateHttpEvidenceUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Enter a valid evidence endpoint URL.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new Error("Evidence endpoints must use HTTPS without embedded credentials or fragments.");
+  }
+  if (!(HTTP_EVIDENCE_ORIGINS as readonly string[]).includes(url.origin)) {
+    throw new Error(`This package is authorized only for ${HTTP_EVIDENCE_ORIGINS.join(", ")}.`);
+  }
+  return url;
+}
+
+function responseBytes(response: MiniAppHttpResponse): Uint8Array {
+  if (response.bodyText !== null) return new TextEncoder().encode(response.bodyText);
+  if (response.bodyBase64 !== null) {
+    const binary = atob(response.bodyBase64);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  }
+  return new Uint8Array();
+}
+
+async function digestBytes(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer as ArrayBuffer);
+  return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function collectHttpEvidence(
+  investigation: Investigation,
+  context: PlatformContext,
+  evidenceId: string,
+  request: HttpEvidenceRequest,
+): Promise<HttpEvidenceCapture> {
+  if (context.preview) throw new Error("Governed HTTP collection is available only in packaged TAP execution.");
+  if (!sdk.http || sdk.hasHostHttpRequest !== true) throw new Error("This TAP host does not expose governed HTTP collection.");
+  const url = validateHttpEvidenceUrl(request.url);
+  const timeoutMs = Math.min(Math.max(request.timeoutMs ?? 30_000, 1_000), 120_000);
+  const responseBodyLimitBytes = Math.min(Math.max(request.responseBodyLimitBytes ?? 2 * 1024 * 1024, 1), 10 * 1024 * 1024);
+  const response = await sdk.http.request({
+    method: "GET",
+    url: url.href,
+    headers: [
+      { name: "Accept", value: "application/vnd.github+json" },
+      { name: "X-GitHub-Api-Version", value: "2022-11-28" },
+    ],
+    timeoutMs,
+    responseBodyLimitBytes,
+    followRedirects: false,
+  }, request.credentialRef ? { credentialRef: request.credentialRef } : undefined);
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`The evidence endpoint returned HTTP ${response.status} ${response.statusText}.`);
+  }
+  if (response.bodyTruncated) throw new Error("The evidence response exceeded the declared size limit and was not captured.");
+  const bytes = responseBytes(response);
+  const digest = await digestBytes(bytes);
+  const mimeType = response.contentType || (response.bodyKind === "text" ? "text/plain" : "application/octet-stream");
+  const receipt = {
+    sourceSystem: "github-api",
+    locator: response.finalUrl,
+    request: { method: "GET", origin: url.origin, redirects: "disabled", timeoutMs, responseBodyLimitBytes },
+    credentialUsed: Boolean(request.credentialRef),
+    response: { status: response.status, contentType: mimeType, sizeBytes: bytes.byteLength, elapsedMs: response.elapsedMs },
+    collectionTime: new Date().toISOString(),
+    contentDigest: digest,
+    accessDecision: "host grant plus explicit Pyre collection approval",
+  };
+  const paths = await captureEvidenceFile(investigation, context, evidenceId, "github-api-response", bytes, receipt);
+  return {
+    digest,
+    finalUrl: response.finalUrl,
+    mimeType,
+    sizeBytes: bytes.byteLength,
+    status: response.status,
+    elapsedMs: response.elapsedMs,
+    ...paths,
+  };
 }
 
 export function subscribePresence(context: PlatformContext, listener: (count: number) => void): () => void {

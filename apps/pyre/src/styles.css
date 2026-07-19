@@ -138,15 +138,16 @@ code, time, .metric strong, .step-count, .stage-number, .nav-count { font-varian
 .section-header p { max-width: 760px; margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
 .section-action { flex: 0 0 auto; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.metric { display: grid; gap: 3px; min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 13px 15px; }
-.metric strong { overflow: hidden; font-size: 18px; line-height: 1.2; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
-.metric span { color: var(--muted-foreground); font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.metric { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 0; }
+.metric [data-component="mini-app-metric-content"] { display: grid; gap: 3px; padding: 13px 15px; }
+.metric [data-component="mini-app-metric-value"] { overflow: hidden; font-size: 18px; line-height: 1.2; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+.metric [data-component="mini-app-metric-label"] { color: var(--muted-foreground); font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
 .metric-danger { border-color: color-mix(in srgb, #e24b3b 32%, var(--border)); background: color-mix(in srgb, #e24b3b 5%, var(--card)); }
-.metric-danger strong { color: #d4493a; }
+.metric-danger [data-component="mini-app-metric-value"] { color: #d4493a; }
 .metric-success { border-color: color-mix(in srgb, #3ca66d 30%, var(--border)); }
-.metric-success strong { color: #338b5c; }
+.metric-success [data-component="mini-app-metric-value"] { color: #338b5c; }
 .metric-warning { border-color: color-mix(in srgb, #d99528 32%, var(--border)); }
-.metric-warning strong { color: #b47b21; }
+.metric-warning [data-component="mini-app-metric-value"] { color: #b47b21; }
 .empty-panel { min-height: 220px; border: 1px dashed var(--border); background: color-mix(in srgb, var(--muted) 35%, transparent); }
 .entity-dialog { width: min(720px, calc(100vw - 32px)); max-height: min(88vh, 900px); overflow-y: auto; overscroll-behavior: contain; }
 .entity-dialog [data-slot="dialog-description"] { line-height: 1.5; }

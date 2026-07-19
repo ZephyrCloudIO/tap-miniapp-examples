@@ -16,6 +16,7 @@
   "presentation": {
     "name": "Pyre",
     "description": "Evidence-driven, blameless incident investigations and reviewable reports.",
+    "categories": ["business", "data-and-analytics"],
     "iconAssets": []
   },
   "compatibility": {
@@ -44,6 +45,10 @@
         "./specialists/pyre": {
           "integrity": "pending",
           "runtime": "webview"
+        },
+        "./mcp/pyre-mcp": {
+          "integrity": "pending",
+          "runtime": "webview"
         }
       }
     }
@@ -68,6 +73,18 @@
             "kind": "storage",
             "resources": [
               "pyre"
+            ]
+          },
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://api.github.com"
+            ]
+          },
+          {
+            "kind": "credentials",
+            "resources": [
+              "http"
             ]
           },
           {
@@ -115,13 +132,93 @@
       }
     },
     {
+      "kind": "mcp.server",
+      "id": "pyre-mcp",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./mcp/pyre-mcp",
+          "runtime": "webview"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.view"],
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-03-26",
+        "implementation": {
+          "type": "package-runtime"
+        },
+        "consumerPolicy": {
+          "contributionIds": ["pyre-investigation-specialist"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "pyre-list-investigations",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.view"],
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "pyre-mcp",
+        "toolName": "list_investigations",
+        "timeoutMs": 10000,
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "pyre-get-investigation",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.view"],
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "pyre-mcp",
+        "toolName": "get_investigation",
+        "timeoutMs": 10000,
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      }
+    },
+    {
       "kind": "miniapp",
       "id": "pyre-app",
       "apiVersion": 1,
       "options": {
         "contributionIds": [
           "pyre",
-          "pyre-investigation-specialist"
+          "pyre-investigation-specialist",
+          "pyre-mcp",
+          "pyre-list-investigations",
+          "pyre-get-investigation"
         ]
       }
     },
