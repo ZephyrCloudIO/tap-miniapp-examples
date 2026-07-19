@@ -8,7 +8,7 @@
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
     "build:preview": "rsbuild build",
-    "build:target": "rslib build",
+    "build:target": "node scripts/build-targets.mjs",
     "build:miniapp": "pnpm build:target && node scripts/assemble-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "rstest run",

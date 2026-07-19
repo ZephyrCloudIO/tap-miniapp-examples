@@ -16,6 +16,7 @@
   "presentation": {
     "name": "Unofficial Suno Player",
     "description": "Turn approved channel moments into a governed, user-owned soundtrack.",
+    "categories": ["media-and-entertainment", "creativity"],
     "iconAssets": ["assets/player.svg"],
     "assets": [
       {
@@ -45,6 +46,20 @@
       "exposes": {
         "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
         "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    },
+    "workflow-host": {
+      "remoteName": "tap_unofficial_suno_player_workflow_host",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "workflow-host" },
+        "./workflow-host/catalog": { "integrity": "pending", "runtime": "workflow-host" }
       }
     }
   },
@@ -92,10 +107,74 @@
       }
     },
     {
+      "kind": "workflow",
+      "id": "manual-brief-workflow",
+      "apiVersion": 1,
+      "targets": {
+        "workflow-host": { "expose": "./workflow-host/catalog", "runtime": "workflow-host" }
+      },
+      "authorization": { "allOf": ["workflows.invoke"] },
+      "lifecycleScope": "contribution",
+      "options": {
+        "workflowId": "examples-unofficial-suno-player-manual-brief",
+        "exportName": "workflow",
+        "manifest": {
+          "id": "targets/workflow-host/schemas/manual-brief-workflow.schema.json",
+          "integrity": "sha256-1FnOBOyHWqOXHZDXst8hCT80SyAJ3qwL4meSlrhwm6U="
+        },
+        "inputs": [],
+        "outputs": [],
+        "lifecycle": {
+          "retry": "none",
+          "cancellation": "host-managed",
+          "checkpoint": "none",
+          "upgrade": "restart",
+          "rollback": "host-managed"
+        }
+      }
+    },
+    {
+      "kind": "workflow.node",
+      "id": "manual-brief-checkpoint",
+      "apiVersion": 1,
+      "targets": {
+        "workflow-host": { "expose": "./workflow-host/catalog", "runtime": "workflow-host" }
+      },
+      "authorization": { "allOf": ["workflows.invoke"] },
+      "lifecycleScope": "contribution",
+      "options": {
+        "nodeKind": "examples-unofficial-suno-player.manual-brief-checkpoint",
+        "exportName": "node",
+        "config": {
+          "id": "targets/workflow-host/schemas/manual-brief-node-config.schema.json",
+          "integrity": "sha256-AxX8Ejz1s0lehUrGPEeq/3azSFGoe6oHp4NTP5Os/lc="
+        },
+        "inputs": [],
+        "outputs": [],
+        "outcomes": ["ready", "error"],
+        "effect": "pure",
+        "requires": [],
+        "execution": {
+          "maxAttempts": 1,
+          "idempotency": "idempotent",
+          "cancellation": "not-supported",
+          "checkpoint": "none",
+          "upgrade": "restart",
+          "rollback": "host-managed"
+        }
+      }
+    },
+    {
       "kind": "miniapp",
       "id": "unofficial-suno-player-app",
       "apiVersion": 1,
-      "options": { "contributionIds": ["unofficial-suno-player"] }
+      "options": {
+        "contributionIds": [
+          "unofficial-suno-player",
+          "manual-brief-workflow",
+          "manual-brief-checkpoint"
+        ]
+      }
     },
     {
       "kind": "permission.catalog",

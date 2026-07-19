@@ -11,7 +11,9 @@ Direct Suno connectivity is deliberately absent pending provider authorization. 
 - Versioned exact song briefs, duplicate-prompt protection, participant voting and title/mood/genre suggestions, manual-only candidate batches, and audited prompt export.
 - User-selected audio import with local decoding, SHA-256 digest, rights/provenance metadata, brief/batch linkage, scoped visibility review, reactions, personal hides, retirement, and undo.
 - A complete local player with persisted personal controls and seven audio-reactive visualizers. Raw audio and derived analysis never leave the device.
-- Existing TAP workflow list/invoke support, opt-in listening presence, revisioned storage, replay protection, lifecycle checkpoints, and visible failure/conflict states.
+- Existing TAP workflow list/invoke support plus a content-addressed package workflow with a pure manual-brief checkpoint node.
+- Host-managed HTTP and credential-vault capability discovery; only credential display metadata reaches the surface, and no provider request is attempted.
+- Marketplace discovery categories, opt-in listening presence, revisioned storage, replay protection, lifecycle checkpoints, and visible failure/conflict states.
 
 ## Storage and identity boundaries
 
@@ -19,7 +21,7 @@ Packaged execution uses revisioned `sdk.storage`, scoped by TAP to the workspace
 
 Browser preview uses records prefixed `tap-example-unofficial-suno-player-preview` in `localStorage` and a separately named IndexedDB media store. This separation is intentional and visible in the UI.
 
-SDK 0.2.0-pr.6821.02b36a6 exposes JSON storage and write-only VFS, but no readable access-controlled binary artifact API. Packaged imported audio therefore remains playable only for the current surface session; retained metadata shows a truthful re-import requirement after reload. The SDK also lacks global host playback/docking/current-channel subscription, durable shared listening sessions, workflow creation/scheduling, message ineligibility/retention contracts, and Zephyr publication. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the verified checklist and exact blockers.
+SDK 0.2.0-pr.6821.02b36a6 exposes JSON storage and write-only VFS, but no readable access-controlled binary artifact API. Packaged imported audio therefore remains playable only for the current surface session; retained metadata shows a truthful re-import requirement after reload. The package can now declare an ad hoc workflow, Marketplace categories, and host-mediated HTTP/credential readiness. The SDK still lacks recurring-schedule creation, global host playback/docking/current-channel subscription, durable shared listening sessions, message ineligibility/retention contracts, and Zephyr publication. Direct Suno connectivity additionally remains blocked by the missing provider authorization and supported connector. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the verified checklist and exact blockers.
 
 ## Commands
 
@@ -35,4 +37,4 @@ pnpm verify:package
 pnpm dev
 ```
 
-`pnpm build` produces the browser preview in `dist/` and the portable federated TAP package in `tap-package/`.
+`pnpm build` produces the browser preview in `dist/` and a portable federated TAP package in `tap-package/` with desktop and workflow-host targets.

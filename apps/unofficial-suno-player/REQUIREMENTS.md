@@ -5,12 +5,13 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 ## Package and platform contract
 
 - [x] SDK dependency and `compatibility.tapSdk` are exact-pinned to `0.2.0-pr.6821.02b36a6`.
-- [x] Desktop surface is a valid ESM Module Federation target with an idempotent mount/unmount adapter.
+- [x] Desktop surface and deterministic workflow host are valid ESM Module Federation targets; the surface has an idempotent mount/unmount adapter.
 - [x] Surface waits for and reacts to `hostAuthority`; protected work stops when authority is absent.
 - [x] Appearance synchronization applies platform theme and UI scale and is cleaned up on unmount.
 - [x] Manifest permissions, effects, published events, scopes, and contribution bindings match every connected SDK operation.
-- [x] Target build is assembled into one immutable TAP package and both source and emitted manifests validate against the installed schema.
+- [x] Desktop and workflow-host builds are assembled into one immutable TAP package and both source and emitted manifests validate against the installed schema.
 - [x] Packaged artifacts pass portability checks and contain no source maps or machine-local paths.
+- [x] Marketplace discovery categories use the SDK's closed taxonomy and are included in the signed package descriptor.
 
 ## Empty state, identity, scope, and persistence
 
@@ -49,7 +50,9 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Generation never calls private Suno endpoints, replays browser credentials, scrapes Suno, or simulates provider success.
 - [x] Import can link an owned result to the approved brief/batch and records the real human-mediated state.
 - [x] Existing saved TAP workflows can be listed and invoked with explicit payload/status handling; failure never appears successful.
-- [ ] `BLOCKED` Creating or scheduling recurring workflows: SDK `0.2.0-pr.6821.02b36a6` can list/invoke workflows but exposes no create/schedule API.
+- [x] The package contributes a content-addressed ad hoc manual-brief workflow and a schema-bound, pure checkpoint node through the canonical workflow-host ABI.
+- [ ] `BLOCKED` Creating recurring schedules: SDK `0.2.0-pr.6821.02b36a6` supports package-declared workflows but exposes no schedule creation or recurring-trigger API.
+- [x] The surface feature-detects bounded host HTTP and lists metadata-only host credential references without receiving secret fields.
 - [ ] `BLOCKED` Direct Suno account, song, playlist, playback, generation, status, credits, and playlist mutation: no written provider authorization or supported connector is available.
 
 ## Track import, provenance, album, and visibility
@@ -61,7 +64,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Channel album exposes provenance, rights scope, source period, approved themes, brief/batch linkage, reactions, and retained revision/history state.
 - [x] Likes toggle per actor, skips are recorded, hide/unhide affects that actor's queue, and retirement is manager-only with confirmation and undo.
 - [ ] `BLOCKED` Reloadable packaged binary audio/artwork artifacts: SDK `0.2.0-pr.6821.02b36a6` storage is JSON-only and VFS is write-only; no readable channel-artifact API exists.
-- [ ] `BLOCKED` Zephyr Cloud publication: SDK `0.2.0-pr.6821.02b36a6` exposes no publication API or receipt contract.
+- [ ] `BLOCKED` Zephyr Cloud publication: Marketplace categories are now declared, but SDK `0.2.0-pr.6821.02b36a6` exposes no publication API or receipt contract.
 
 ## Player, queue, programming, and visualizers
 
@@ -89,7 +92,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Desktop and compact layouts have no horizontal overflow or clipped primary controls and remain usable in light/dark themes.
 - [x] Semantic landmarks/headings, visible labels, accessible names, keyboard focus, hover states, and reduced-motion behavior are verified.
 - [x] Every visible executable control changes an authoritative source or local playback state; unavailable capabilities are explanatory text with no fake controls.
-- [x] Tests cover empty state, creation/validation, serialization/load/migration, permissions, transitions, voting, replay, conflicts, failure handling, queue selection, reactions, visibility review, retirement/undo, rejected-summary boundaries, and prompt duplication.
+- [x] Tests cover empty state, creation/validation, serialization/load/migration, permissions, transitions, voting, replay, conflicts, failure handling, queue selection, reactions, visibility review, retirement/undo, rejected-summary boundaries, prompt duplication, credential-metadata narrowing, and workflow content integrity.
 - [x] Live browser verification covers empty/onboarding, primary populated flow, secondary brief/context/voting flow, role-specific state, compact layout, error state, and reload persistence.
 - [x] Browser console is clean for development and production bundles, and the repository scan finds no prohibited executable mocks, seeds, stubs, TODO behavior, or hardcoded domain records.
 - [x] The dedicated PR branch was created from `origin/main` in an isolated worktree; its diff contains no reference repositories or reference-repository changes.
