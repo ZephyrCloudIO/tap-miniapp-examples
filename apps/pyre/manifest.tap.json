@@ -1,0 +1,331 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_pyre_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-pyre",
+    "slug": "pyre"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_pyre_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Pyre",
+    "description": "Evidence-driven, blameless incident investigations and reviewable reports.",
+    "categories": ["business", "data-and-analytics"],
+    "iconAssets": []
+  },
+  "compatibility": {
+    "tapSdk": "0.2.0-pr.6821.02b36a6",
+    "tapHost": ">=0.1.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_pyre_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./ui/desktop": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./specialists/pyre": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./mcp/pyre-mcp": {
+          "integrity": "pending",
+          "runtime": "webview"
+        }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "pyre",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./ui/desktop",
+          "runtime": "webview"
+        }
+      },
+      "authorization": {
+        "allOf": [
+          "pyre.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "pyre"
+            ]
+          },
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://api.github.com"
+            ]
+          },
+          {
+            "kind": "credentials",
+            "resources": [
+              "http"
+            ]
+          },
+          {
+            "kind": "host-api",
+            "resources": [
+              "tap.channels",
+              "tap.projects",
+              "tap.presence",
+              "tap.specialists",
+              "tap.storage",
+              "tap.vfs",
+              "tap.workflows"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Pyre",
+        "description": "Investigate incidents with evidence and governed causal analysis.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained"
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "pyre-investigation-specialist",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./specialists/pyre",
+          "runtime": "webview"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.investigate"]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "effects": [
+          {"kind":"host-api","resources":["tap.channels","tap.storage","tap.vfs","tap.workflows"]}
+        ]
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "pyre-mcp",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./mcp/pyre-mcp",
+          "runtime": "webview"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.view"],
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-03-26",
+        "implementation": {
+          "type": "package-runtime"
+        },
+        "consumerPolicy": {
+          "contributionIds": ["pyre-investigation-specialist"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "pyre-list-investigations",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.view"],
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "pyre-mcp",
+        "toolName": "list_investigations",
+        "timeoutMs": 10000,
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "pyre-get-investigation",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["pyre.view"],
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "pyre-mcp",
+        "toolName": "get_investigation",
+        "timeoutMs": 10000,
+        "effects": [
+          {"kind":"storage","resources":["pyre"]}
+        ]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "pyre-app",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": [
+          "pyre",
+          "pyre-investigation-specialist",
+          "pyre-mcp",
+          "pyre-list-investigations",
+          "pyre-get-investigation"
+        ]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "pyre-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "pyre.view",
+            "resource": "tap.pyre:view",
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "pyre.investigate",
+            "resource": "tap.pyre:investigate",
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
+            "autonomyCeiling": "plan",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "pyre.approve",
+            "resource": "tap.pyre:approve",
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "fresh-decision",
+            "risk": "write"
+          }
+        ],
+        "levels": [
+          {
+            "id": "pyre-participant",
+            "actions": [
+              "pyre.view"
+            ],
+            "assignableTo": [
+              "human",
+              "specialist"
+            ]
+          },
+          {
+            "id": "pyre-investigator",
+            "actions": [
+              "pyre.view",
+              "pyre.investigate"
+            ],
+            "assignableTo": [
+              "human",
+              "specialist"
+            ]
+          },
+          {
+            "id": "pyre-reviewer",
+            "actions": [
+              "pyre.view",
+              "pyre.approve"
+            ],
+            "assignableTo": [
+              "human"
+            ]
+          }
+        ],
+        "roleRecommendations": [
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "pyre-participant"
+          }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {"name":"pyre.surface.mounted","schema":"urn:tap:pyre:surface-event:1","schemaVersion":1,"visibility":"workspace","delivery":"ephemeral"},
+      {"name":"pyre.surface.unmounted","schema":"urn:tap:pyre:surface-event:1","schemaVersion":1,"visibility":"workspace","delivery":"ephemeral"}
+    ]
+  },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}

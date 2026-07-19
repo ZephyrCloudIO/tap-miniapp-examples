@@ -1,0 +1,9 @@
+import { Badge, Card, CardContent, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@theaiplatform/miniapp-sdk/ui";
+import { History } from "lucide-react";
+import type { Investigation } from "../domain";
+import { EmptyPanel, Metric, SectionHeader } from "../ui-helpers";
+
+export function AuditView({ investigation }: { investigation: Investigation }) {
+  const actors = new Set(investigation.audit.map((item) => item.actorId)).size;
+  return <div className="view-stack"><SectionHeader eyebrow="ACCOUNTABILITY" title="Revision & Audit History" description="Every edit, review decision, platform operation, approval, and lifecycle change records actor and timestamp." /><div className="metric-grid"><Metric value={investigation.revision} label="Current revision" /><Metric value={investigation.audit.length} label="Audit entries" /><Metric value={actors} label="Contributors" /><Metric value={investigation.reports.length} label="Report snapshots" /></div>{investigation.audit.length ? <Card><CardContent className="table-wrap"><Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Actor</TableHead><TableHead>Action</TableHead><TableHead>Entity</TableHead><TableHead>Summary</TableHead></TableRow></TableHeader><TableBody>{investigation.audit.toReversed().map((item) => <TableRow key={item.id}><TableCell><time>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.at))}</time></TableCell><TableCell>{item.actorId}</TableCell><TableCell><Badge variant="outline">{item.action}</Badge></TableCell><TableCell>{item.entityType}<small>{item.entityId}</small></TableCell><TableCell>{item.summary}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card> : <EmptyPanel title="No Audit Entries" description="The first mutation will appear here." />}</div>;
+}
