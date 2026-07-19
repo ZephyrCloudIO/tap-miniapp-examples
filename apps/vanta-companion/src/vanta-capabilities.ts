@@ -159,7 +159,7 @@ export const VANTA_AUDITOR_SDK_METHODS = [
   'audits.updateInformationRequest',
 ] as const;
 
-export type CapabilitySupport = 'mcp-read' | 'mcp-partial' | 'api-only';
+export type CapabilitySupport = 'mcp-read' | 'mcp-partial' | 'host-api';
 
 export interface VantaCapabilityDomain {
   readonly id: string;
@@ -200,7 +200,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
       'list_test_entities',
     ],
     boundary:
-      'MCP reads controls, frameworks, policies, tests, and entities. Issues and security tasks need a separately authenticated Manage or Build Integrations API transport.',
+      'MCP reads controls, frameworks, policies, tests, and entities. Issues and security tasks can use the human-operated host API bridge with an appropriately scoped credential.',
   },
   {
     id: 'documents-evidence',
@@ -217,18 +217,18 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
       'list_control_documents',
     ],
     boundary:
-      'MCP can inspect and download authorized documents. Upload, submit, link, and evidence mutation endpoints are intentionally not exposed by this specialist.',
+      'MCP can inspect and download authorized documents. Document and evidence mutations remain outside the specialist, but a compliance lead can execute documented endpoints through the confirmed host API bridge.',
   },
   {
     id: 'audit-operations',
     title: 'Audits & information requests',
     description:
       'Audits, controls, evidence, comments, activity, people, vendors, risks, vulnerabilities, and information-request workflows.',
-    support: 'api-only',
+    support: 'host-api',
     analysisKind: null,
     apiFamilies: ['auditors', 'audits', 'information-request'],
     mcpTools: [],
-    boundary: `Covered by the official Auditor SDK ${VANTA_AUDITOR_SDK_VERSION}; unavailable here until a host-managed Vanta bearer credential and per-method execution adapter are configured. No audit result is simulated.`,
+    boundary: `Covered by the official Auditor SDK ${VANTA_AUDITOR_SDK_VERSION}; documented REST endpoints are executable through the host credential bridge. Reads require credential scope and writes require fresh compliance-lead confirmation.`,
   },
   {
     id: 'people-devices',
@@ -250,7 +250,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
     ],
     mcpTools: ['groups', 'list_group_people', 'monitored_computers', 'people'],
     boundary:
-      'MCP reads people, group membership, and monitored computers. Background checks, training, and account-specific endpoints require direct API scopes.',
+      'MCP reads people, group membership, and monitored computers. Background checks, training, and account-specific endpoints are available through the host API bridge when the credential has direct API scope.',
   },
   {
     id: 'vendor-risk',
@@ -278,7 +278,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
       'list_vendor_security_review_documents',
     ],
     boundary:
-      'The allowlist is read-only. Vendor decisions, assignments, status changes, and risk acceptance remain unavailable consequential writes.',
+      'The specialist allowlist is read-only. Vendor decisions, assignments, status changes, and risk acceptance can be sent only as fresh, compliance-lead-confirmed writes through the host API bridge.',
   },
   {
     id: 'vulnerability-management',
@@ -303,7 +303,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
       'vulnerable_assets',
     ],
     boundary:
-      'MCP reads normalized vulnerabilities, remediations, and vulnerable assets. Scanner-specific API families may require direct endpoint access.',
+      'MCP reads normalized vulnerabilities, remediations, and vulnerable assets. Scanner-specific API families can use credential-scoped direct endpoint access through the host bridge.',
   },
   {
     id: 'trust-customer',
@@ -338,7 +338,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
       'list_trust_center_subscribers',
     ],
     boundary:
-      'MCP reads Trust Center state. Questionnaire completion, answer-library verification, access approval, and publication are not in the allowlist.',
+      'MCP reads Trust Center state. Questionnaire completion, answer-library verification, access approval, and publication are outside the specialist allowlist; documented API operations require a fresh host-bridge write confirmation.',
   },
   {
     id: 'integrations-resources',
@@ -350,7 +350,7 @@ export const VANTA_CAPABILITY_DOMAINS: readonly VantaCapabilityDomain[] = [
     apiFamilies: ['integrations'],
     mcpTools: ['integrations', 'integration_resources'],
     boundary:
-      'MCP reads connected integrations and their resources. Pushing custom resources or test outcomes requires a host-managed Build Integrations API credential and an execution adapter that this companion does not configure.',
+      'MCP reads connected integrations and their resources. A compliance lead can push documented custom resources or test outcomes through the host API bridge with a scoped Build Integrations credential.',
   },
 ] as const;
 

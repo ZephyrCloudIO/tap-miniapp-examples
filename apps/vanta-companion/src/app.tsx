@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { sdk } from '@theaiplatform/miniapp-sdk/sdk';
+import {
+  sdk,
+  type MiniAppHttpCredentialMetadata,
+  type MiniAppHttpResponse,
+} from '@theaiplatform/miniapp-sdk/sdk';
 import {
   Alert,
   AlertDescription,
@@ -122,6 +126,18 @@ import {
   fetchWebhookEvents,
   normalizeWebhookApiUrl,
 } from './webhook-client';
+import {
+  VANTA_API_SURFACES,
+  buildVantaApiRequest,
+  formatVantaApiResponse,
+  isSuccessfulVantaResponse,
+  isVantaApiWrite,
+  normalizeVantaApiUrl,
+  type VantaApiDisplayResult,
+  type VantaApiDraft,
+  type VantaApiMethod,
+  type VantaApiSurface,
+} from './vanta-api';
 
 type View =
   | 'overview'
@@ -143,7 +159,7 @@ const navItems: readonly [View, string, typeof LayoutDashboard][] = [
   ['capabilities', 'Vanta coverage', Gauge],
   ['cases', 'Remediation', ListChecks],
   ['evidence', 'Evidence', FileCheck2],
-  ['audit', 'Audit requests', ClipboardCheck],
+  ['audit', 'Vanta API', ClipboardCheck],
   ['workflows', 'Workflows', Workflow],
   ['activity', 'Activity', History],
 ];
@@ -172,6 +188,14 @@ const emptyCaseForm = {
   owner: '',
   dueAt: '',
   notes: '',
+};
+
+const emptyVantaApiDraft: VantaApiDraft = {
+  surface: 'auditor',
+  credentialRef: '',
+  method: 'GET',
+  path: VANTA_API_SURFACES[0].examplePath,
+  body: '',
 };
 
 export function VantaCompanionApp({
@@ -212,6 +236,14 @@ export function VantaCompanionApp({
   const [pendingWebhookApiUrl, setPendingWebhookApiUrl] = useState<
     string | null
   >(null);
+  const [apiCredentials, setApiCredentials] = useState<
+    readonly MiniAppHttpCredentialMetadata[]
+  >([]);
+  const [apiCredentialsLoaded, setApiCredentialsLoaded] = useState(false);
+  const [apiDraft, setApiDraft] = useState<VantaApiDraft>(emptyVantaApiDraft);
+  const [apiResult, setApiResult] = useState<VantaApiDisplayResult | null>(null);
+  const [pendingVantaWrite, setPendingVantaWrite] =
+    useState<VantaApiDraft | null>(null);
 
   useEffect(() => {
     void loadState(preview)
@@ -543,6 +575,116 @@ export function VantaCompanionApp({
           : added > 0
             ? `Imported ${added} verified webhook ${added === 1 ? 'event' : 'events'}`
             : 'Webhook feed is current',
+      );
+    });
+  }
+
+  async function loadVantaCredentials(): Promise<void> {
+    await perform('vanta-credentials', async () => {
+      if (preview) {
+        throw new Error(
+          'Host-managed credentials are available only inside the packaged TAP host.',
+        );
+      }
+      if (!sdk.credentials) {
+        throw new Error(
+          'This TAP host does not expose HTTP credential discovery.',
+        );
+      }
+      const credentials = await sdk.credentials.listHttp();
+      setApiCredentials(credentials);
+      setApiCredentialsLoaded(true);
+      setApiDraft(current => ({
+        ...current,
+        credentialRef: credentials.some(
+          credential => credential.id === current.credentialRef,
+        )
+          ? current.credentialRef
+          : (credentials[0]?.id ?? ''),
+      }));
+      setStatus(
+        credentials.length > 0
+          ? `Found ${credentials.length} host-managed HTTP ${credentials.length === 1 ? 'credential' : 'credentials'}`
+          : 'No host-managed HTTP credentials are available in this workspace',
+      );
+    });
+  }
+
+  function requestVantaApi(draft: VantaApiDraft): void {
+    try {
+      buildVantaApiRequest(draft);
+      if (isVantaApiWrite(draft.method)) {
+        if (state.settings?.role !== 'lead') {
+          throw new Error(
+            'Only a compliance lead can approve a direct Vanta API write.',
+          );
+        }
+        setPendingVantaWrite(draft);
+        setError('');
+        setStatus('Review and confirm the direct Vanta write');
+        return;
+      }
+      void executeVantaApi(draft);
+    } catch (cause) {
+      setError(message(cause));
+      setStatus('Action failed');
+    }
+  }
+
+  async function executeVantaApi(draft: VantaApiDraft): Promise<void> {
+    await perform(`vanta-api:${draft.method}`, async () => {
+      if (preview) {
+        throw new Error(
+          'Host-mediated Vanta API requests are available only inside the packaged TAP host.',
+        );
+      }
+      if (!sdk.http) {
+        throw new Error('This TAP host does not expose bounded HTTP requests.');
+      }
+      const request = buildVantaApiRequest(draft);
+      const write = isVantaApiWrite(draft.method);
+      if (write) setPendingVantaWrite(null);
+      let response: MiniAppHttpResponse;
+      try {
+        response = await sdk.http.request(request, {
+          credentialRef: draft.credentialRef,
+        });
+      } catch (cause) {
+        if (write) {
+          throw new Error(
+            `The Vanta write did not return a response, so its outcome is unknown. Verify the source before retrying. ${message(cause)}`,
+          );
+        }
+        throw cause;
+      }
+      setApiResult(formatVantaApiResponse(response));
+
+      const surface = VANTA_API_SURFACES.find(
+        item => item.id === draft.surface,
+      )!;
+      const endpoint = new URL(request.url);
+      if (
+        isSuccessfulVantaResponse(response) &&
+        write
+      ) {
+        const next = withReceipt(state, {
+          kind: 'vanta-api',
+          sourceId: `${draft.method} ${endpoint.pathname}`,
+          summary: `${surface.label} ${draft.method} ${endpoint.pathname} completed with ${response.status}`,
+          actor: state.settings!.role,
+        });
+        try {
+          await persist(next, `${surface.label} write completed`);
+        } catch (cause) {
+          setError(
+            `Vanta completed the write with ${response.status}, but TAP could not save its receipt. Do not retry the write; reconcile the receipt after checking Vanta. ${message(cause)}`,
+          );
+          setStatus('Vanta write completed; receipt save failed');
+        }
+        return;
+      }
+      setStatus(
+        `${surface.label} returned ${response.status} ${response.statusText}`,
       );
     });
   }
@@ -880,6 +1022,7 @@ export function VantaCompanionApp({
               analyses={state.analyses}
               onRun={kind => void runAnalysis(kind)}
               onSelect={openAnalysis}
+              onOpenApi={() => setView('audit')}
               webhookConfigured={Boolean(state.settings.webhookApiUrl)}
               webhookLastSyncedAt={state.settings.webhookLastSyncedAt}
             />
@@ -912,7 +1055,20 @@ export function VantaCompanionApp({
               onSelect={openAnalysis}
             />
           )}
-          {view === 'audit' && <AuditApiBoundary />}
+          {view === 'audit' && (
+            <VantaApiView
+              preview={preview}
+              role={state.settings.role}
+              credentials={apiCredentials}
+              credentialsLoaded={apiCredentialsLoaded}
+              draft={apiDraft}
+              result={apiResult}
+              busy={busy}
+              onLoadCredentials={() => void loadVantaCredentials()}
+              onDraftChange={setApiDraft}
+              onExecute={requestVantaApi}
+            />
+          )}
           {view === 'workflows' && (
             <WorkflowsView
               state={state}
@@ -1238,6 +1394,42 @@ export function VantaCompanionApp({
         )}
       </AlertDialog>
 
+      <AlertDialog
+        open={pendingVantaWrite !== null}
+        onOpenChange={open => !open && setPendingVantaWrite(null)}
+      >
+        {pendingVantaWrite && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Execute this Vanta write?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This is a fresh decision to modify Vanta through a host-managed
+                credential. TAP will send the request exactly once and retain a
+                receipt without storing the credential, request body, or
+                response body.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="vanta-write-review">
+              <code>
+                {pendingVantaWrite.method}{' '}
+                {normalizeVantaApiUrl(pendingVantaWrite.path)}
+              </code>
+              {pendingVantaWrite.body.trim() && (
+                <pre>{pendingVantaWrite.body.slice(0, 4_000)}</pre>
+              )}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => void executeVantaApi(pendingVantaWrite)}
+              >
+                Execute Vanta write
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
+
       <MiniAppStatusBar
         className="app-status workspace-status"
         tone={error ? 'error' : 'success'}
@@ -1357,7 +1549,7 @@ function Overview({
                   <EmptyDescription>
                     Run the specialist after authorizing Vanta. It retrieves
                     only data returned by the explicit official MCP tool
-                    allowlist and labels API-only blind spots.
+                    allowlist and labels specialist API-only blind spots.
                   </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
@@ -1448,8 +1640,8 @@ const capabilityIcons: Record<string, typeof Gauge> = {
 
 const supportLabel: Record<CapabilitySupport, string> = {
   'mcp-read': 'MCP read',
-  'mcp-partial': 'MCP + API gap',
-  'api-only': 'API only',
+  'mcp-partial': 'MCP + host API',
+  'host-api': 'Host API',
 };
 
 function CapabilitiesView({
@@ -1458,6 +1650,7 @@ function CapabilitiesView({
   analyses,
   onRun,
   onSelect,
+  onOpenApi,
   webhookConfigured,
   webhookLastSyncedAt,
 }: {
@@ -1466,6 +1659,7 @@ function CapabilitiesView({
   analyses: CompanionState['analyses'];
   onRun: (kind: AnalysisKind) => void;
   onSelect: (id: string) => void;
+  onOpenApi: () => void;
   webhookConfigured: boolean;
   webhookLastSyncedAt: string | null;
 }) {
@@ -1480,7 +1674,9 @@ function CapabilitiesView({
             are executable by the specialist.
           </p>
         </div>
-        <Badge variant="outline">Read-only specialist</Badge>
+        <Button variant="outline" onClick={onOpenApi}>
+          <ShieldCheck /> Open API bridge
+        </Button>
       </section>
       <section className="coverage-metrics">
         <Card>
@@ -1510,9 +1706,10 @@ function CapabilitiesView({
       <Alert variant="info" className="coverage-notice">
         <ShieldCheck />
         <AlertDescription>
-          <strong>No capability laundering.</strong> A family can appear here
-          without being executable. Those cards state the credential or host
-          bridge that is missing, and expose no action button.
+          <strong>Two governed execution paths.</strong> The specialist can use
+          only the named read tools. Human-operated REST requests use a separate
+          host credential, and every write requires a fresh compliance-lead
+          decision.
         </AlertDescription>
       </Alert>
       <section className="capability-grid">
@@ -1589,7 +1786,7 @@ function CapabilitiesView({
                     <span>
                       {domain.analysisKind
                         ? 'No specialist run yet'
-                        : 'No executable route'}
+                        : 'Human-operated API route ready'}
                     </span>
                   )}
                   {domain.analysisKind && (
@@ -1605,6 +1802,11 @@ function CapabilitiesView({
                         <Sparkles />
                       )}{' '}
                       Analyze live scope
+                    </Button>
+                  )}
+                  {domain.support === 'host-api' && (
+                    <Button variant="outline" size="sm" onClick={onOpenApi}>
+                      <ShieldCheck /> Open API bridge
                     </Button>
                   )}
                 </div>
@@ -1642,52 +1844,321 @@ function CapabilitiesView({
   );
 }
 
-function AuditApiBoundary() {
+function VantaApiView({
+  preview,
+  role,
+  credentials,
+  credentialsLoaded,
+  draft,
+  result,
+  busy,
+  onLoadCredentials,
+  onDraftChange,
+  onExecute,
+}: {
+  preview: boolean;
+  role: Role;
+  credentials: readonly MiniAppHttpCredentialMetadata[];
+  credentialsLoaded: boolean;
+  draft: VantaApiDraft;
+  result: VantaApiDisplayResult | null;
+  busy: string;
+  onLoadCredentials: () => void;
+  onDraftChange: (draft: VantaApiDraft) => void;
+  onExecute: (draft: VantaApiDraft) => void;
+}) {
+  const surface = VANTA_API_SURFACES.find(item => item.id === draft.surface)!;
+  const write = isVantaApiWrite(draft.method);
+  const working = busy.startsWith('vanta-api:');
+
+  function changeSurface(next: VantaApiSurface): void {
+    const preset = VANTA_API_SURFACES.find(item => item.id === next)!;
+    onDraftChange({
+      ...draft,
+      surface: next,
+      method: 'GET',
+      path: preset.examplePath,
+      body: '',
+    });
+  }
+
+  function changeMethod(method: VantaApiMethod): void {
+    onDraftChange({
+      ...draft,
+      method,
+      body: isVantaApiWrite(method) ? draft.body : '',
+    });
+  }
+
   return (
-    <div className="page">
+    <div className="page vanta-api-page">
       <section className="page-heading">
         <div>
-          <span className="eyebrow">Auditor API boundary</span>
-          <H1>Audit requests</H1>
+          <span className="eyebrow">Host-mediated Vanta API</span>
+          <H1>Direct API bridge</H1>
           <p>
-            The official Auditor SDK is fully inventoried, but it is not
-            connected to a host-managed Vanta credential and execution adapter.
+            Execute documented Auditor, Manage, and Build Integrations API
+            endpoints without exposing a credential to miniapp JavaScript.
           </p>
         </div>
-        <Badge variant="outline">Credential adapter required</Badge>
+        <Badge variant={credentials.length > 0 ? 'success' : 'outline'}>
+          {credentials.length > 0
+            ? 'Credential available'
+            : credentialsLoaded
+              ? 'Credential required'
+              : 'Not inspected'}
+        </Badge>
       </section>
-      <Card className="audit-boundary-card">
-        <Empty>
-          <EmptyHeader>
-            <ClipboardCheck />
-            <EmptyTitle>No executable audit request integration</EmptyTitle>
-            <EmptyDescription>
-              Vanta&apos;s TypeScript SDK {VANTA_AUDITOR_SDK_VERSION} covers
-              audits, evidence, controls, comments, frameworks, tests, auditors,
-              information requests, scoped people, vendors, risks,
-              vulnerabilities, and snapshots. TAP exposes host-mediated HTTP
-              and credential metadata, but this companion has no configured
-              Vanta Auditor credential or per-method execution adapter, so this
-              surface does not fabricate a queue or enable a misleading action.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+      {preview && (
+        <Alert variant="info">
+          <ShieldCheck />
+          <AlertDescription>
+            Browser preview cannot inspect host credentials or send privileged
+            requests. Open the packaged miniapp in TAP to use this bridge.
+          </AlertDescription>
+        </Alert>
+      )}
+      <section className="api-surface-grid" aria-label="Vanta API surfaces">
+        {VANTA_API_SURFACES.map(item => (
+          <Card
+            key={item.id}
+            className={draft.surface === item.id ? 'api-surface-active' : ''}
+          >
+            <CardContent>
+              <strong>{item.label}</strong>
+              <p>{item.description}</p>
+              <code>{item.examplePath}</code>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
+      <div className="api-console-grid">
+        <Card>
+          <CardHeader className="section-card-header">
+            <div>
+              <CardTitle>Request</CardTitle>
+              <CardDescription>
+                Restricted to <code>https://api.vanta.com/v1</code>. The host
+                injects the selected credential after consent.
+              </CardDescription>
+            </div>
+            <Badge variant={write ? 'warning' : 'secondary'}>
+              {write ? 'Fresh decision' : 'Read'}
+            </Badge>
+          </CardHeader>
+          <CardContent className="api-request-content">
+            <FieldGroup>
+              <div className="field-pair">
+                <Field>
+                  <FieldLabel htmlFor="vanta-api-surface">
+                    API surface
+                  </FieldLabel>
+                  <NativeSelect
+                    id="vanta-api-surface"
+                    value={draft.surface}
+                    onChange={event =>
+                      changeSurface(event.target.value as VantaApiSurface)
+                    }
+                  >
+                    {VANTA_API_SURFACES.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="vanta-api-credential">
+                    Host credential
+                  </FieldLabel>
+                  <NativeSelect
+                    id="vanta-api-credential"
+                    value={draft.credentialRef}
+                    onChange={event =>
+                      onDraftChange({
+                        ...draft,
+                        credentialRef: event.target.value,
+                      })
+                    }
+                    disabled={credentials.length === 0}
+                  >
+                    <option value="">
+                      {credentialsLoaded
+                        ? 'Select a Vanta credential'
+                        : 'Load workspace credentials'}
+                    </option>
+                    {credentials.map(credential => (
+                      <option key={credential.id} value={credential.id}>
+                        {credential.displayName} · {credential.credentialType}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+              </div>
+              <Button
+                variant="outline"
+                onClick={onLoadCredentials}
+                disabled={preview || busy === 'vanta-credentials'}
+              >
+                {busy === 'vanta-credentials' ? (
+                  <LoaderCircle className="spin" />
+                ) : (
+                  <RefreshCw />
+                )}{' '}
+                {credentialsLoaded ? 'Reload credentials' : 'Load credentials'}
+              </Button>
+              <div className="api-request-line">
+                <Field>
+                  <FieldLabel htmlFor="vanta-api-method">Method</FieldLabel>
+                  <NativeSelect
+                    id="vanta-api-method"
+                    value={draft.method}
+                    onChange={event =>
+                      changeMethod(event.target.value as VantaApiMethod)
+                    }
+                  >
+                    {['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].map(
+                      method => (
+                        <option key={method} value={method}>
+                          {method}
+                        </option>
+                      ),
+                    )}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="vanta-api-path">
+                    Endpoint path
+                  </FieldLabel>
+                  <Input
+                    id="vanta-api-path"
+                    value={draft.path}
+                    onChange={event =>
+                      onDraftChange({ ...draft, path: event.target.value })
+                    }
+                    placeholder={surface.examplePath}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </Field>
+              </div>
+              {write && (
+                <Field>
+                  <FieldLabel htmlFor="vanta-api-body">
+                    JSON request body <span className="optional">Optional</span>
+                  </FieldLabel>
+                  <Textarea
+                    id="vanta-api-body"
+                    rows={9}
+                    value={draft.body}
+                    onChange={event =>
+                      onDraftChange({ ...draft, body: event.target.value })
+                    }
+                    placeholder={'{\n  "field": "value"\n}'}
+                    spellCheck={false}
+                  />
+                  <FieldDescription>
+                    The body is reviewed again before execution and is never
+                    persisted by this companion.
+                  </FieldDescription>
+                </Field>
+              )}
+              {write && role !== 'lead' && (
+                <Alert variant="info">
+                  <ShieldCheck />
+                  <AlertDescription>
+                    Direct Vanta writes require the compliance-lead role. Reads
+                    remain available subject to the credential&apos;s scopes.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <Button
+                onClick={() => onExecute(draft)}
+                disabled={
+                  preview ||
+                  !draft.credentialRef ||
+                  !draft.path.trim() ||
+                  Boolean(busy) ||
+                  (write && role !== 'lead')
+                }
+              >
+                {working ? (
+                  <LoaderCircle className="spin" />
+                ) : write ? (
+                  <ShieldCheck />
+                ) : (
+                  <ArrowRight />
+                )}{' '}
+                {write ? 'Review write' : 'Execute request'}
+              </Button>
+            </FieldGroup>
+          </CardContent>
+        </Card>
+        <Card className="api-response-card">
+          <CardHeader className="section-card-header">
+            <div>
+              <CardTitle>Response</CardTitle>
+              <CardDescription>
+                Kept in memory only; reload clears source data.
+              </CardDescription>
+            </div>
+            {result && (
+              <Badge
+                variant={
+                  isSuccessfulVantaResponse(result.response)
+                    ? 'success'
+                    : 'warning'
+                }
+              >
+                {result.response.status} {result.response.statusText}
+              </Badge>
+            )}
+          </CardHeader>
+          <CardContent className="api-response-content" aria-live="polite">
+            {result ? (
+              <>
+                <div className="api-response-meta">
+                  <span>{result.response.elapsedMs} ms</span>
+                  <span>{result.response.sizeBytes.toLocaleString()} bytes</span>
+                  <span>{result.response.contentType ?? 'unknown type'}</span>
+                </div>
+                {result.response.bodyTruncated && (
+                  <Alert variant="warning">
+                    <AlertTriangle />
+                    <AlertDescription>
+                      The host truncated this response at the configured size
+                      limit.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <pre tabIndex={0}>{result.body}</pre>
+              </>
+            ) : (
+              <Empty>
+                <EmptyHeader>
+                  <ClipboardCheck />
+                  <EmptyTitle>No API response</EmptyTitle>
+                  <EmptyDescription>
+                    Load a host-managed credential, choose a documented Vanta
+                    endpoint, and execute a request.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      <Card className="sdk-method-card">
         <CardContent>
           <div className="sdk-method-summary">
             <strong>
-              {VANTA_AUDITOR_SDK_METHODS.length} verified SDK methods
+              {VANTA_AUDITOR_SDK_METHODS.length} verified Auditor SDK methods
             </strong>
             <p>
-              Examples: <code>audits.list</code>,{' '}
-              <code>audits.listInformationRequests</code>,{' '}
-              <code>audits.listEvidence</code>,{' '}
-              <code>audits.createCommentForInformationRequest</code>, and{' '}
-              <code>audits.updateEvidence</code>.
-            </p>
-            <p>
-              Required capability: a host-managed Vanta Auditor bearer
-              credential plus an authenticated execution adapter with per-method
-              scopes and fresh approval for writes.
+              The direct bridge can execute the corresponding documented REST
+              endpoints. Manage and Build Integrations calls use the same
+              credential-bound transport because Vanta does not publish SDKs
+              for those surfaces.
             </p>
             <details className="sdk-method-list">
               <summary>Show all verified Auditor SDK methods</summary>

@@ -19,13 +19,13 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] Task-specific prompts for readiness, failing tests, evidence, remediation, recurring workflows, controls, people/devices, vendors/risk, vulnerabilities, Trust Center, integrations/resources, and custom analysis
 - [x] All 43 current top-level Vanta API reference families mapped exactly once in the coverage workspace
 - [x] All 52 public methods from `vanta-auditor-api-sdk@0.9.10` inventoried, including reads and consequential writes
-- [x] Auditor SDK surfaced as API-only with no executable action because no Vanta bearer credential or per-method execution adapter is configured
+- [x] Auditor SDK inventory linked to a host-credential REST adapter with strict Vanta origin/path validation and in-memory responses
 - [x] Vanta webhook Worker verifies raw-body Svix signatures, acknowledges within the request, and durably rejects replays by `svix-id`
 - [x] Access-protected workspace event feed, schema-validated client sync, durable cursor, conflict handling, and visible failure states
 - [x] MCP/API capability boundaries visible per domain; unavailable data is labeled instead of inferred
-- [ ] Direct Auditor API execution — TAP SDK `0.2.0-pr.6821.02b36a6` exposes host-mediated HTTP and credential metadata, but the companion does not yet configure a Vanta bearer credential or execution adapter
-- [ ] Direct Manage Vanta API execution and Vanta writes — blocked by the same missing credential and execution adapter; Vanta does not publish an official Manage API SDK
-- [ ] Direct Build Integrations API execution — blocked by the same missing credential and execution adapter; Vanta does not publish an official Build Integrations SDK
+- [x] Direct Auditor API execution through `sdk.http` and an opaque host-managed credential reference
+- [x] Direct Manage Vanta API reads and writes; writes are compliance-lead-only, require a fresh confirmation, and retain a non-sensitive receipt
+- [x] Direct Build Integrations API execution through the same bounded transport without claiming an unavailable official SDK
 - [x] Webhook ingestion through the companion Cloudflare Worker and D1; the miniapp consumes only verified metadata
 
 ## Real TAP coordination
@@ -50,8 +50,10 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] Empty state, validation, permission-sensitive operations, state transitions, duplicate protection, replay protection, conflict behavior, and persistence parsing tests
 - [x] API-family and MCP-tool inventory completeness tests
 - [x] Specialist regional endpoint, exact tool allowlist, read-only policy, and unavailable-audit prompt tests
+- [x] Host API adapter tests cover destination/path restrictions, credential requirements, JSON bodies, write classification, and response handling
 - [x] Worker integration tests cover signature verification, durable replay handling, stale and invalid deliveries, Access denial/CORS, retention, and oversized IDs
 - [x] Browser screenshots regenerated after the document-scroll, compact-control, status-bar, and webhook-feed UI changes
 - [x] Browser reload preserved the created case, planning transition, endpoint configuration, and receipts
 - [x] Browser warning/error console re-verified clean after desktop, viewer, compact, failure, and reload passes
+- [x] Direct API bridge preview verified at desktop and 390 px mobile widths, including preview isolation and the fresh-write form state
 - [ ] Live Vanta OAuth and source-data retrieval — requires a packaged TAP host and an authorized Vanta Admin account

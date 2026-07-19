@@ -88,6 +88,7 @@ export interface ActionReceipt {
     | 'analysis'
     | 'case'
     | 'case-transition'
+    | 'vanta-api'
     | 'webhook-config'
     | 'webhook-sync';
   readonly sourceId: string;

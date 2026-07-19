@@ -26,7 +26,7 @@ describe('Vanta capability inventory', () => {
     expect(sorted(mapped)).toEqual(sorted(VANTA_MCP_TOOLS));
   });
 
-  it('retains the consequential Auditor SDK surface as API-only', () => {
+  it('routes the consequential Auditor SDK surface through the host API', () => {
     const audit = VANTA_CAPABILITY_DOMAINS.find(
       domain => domain.id === 'audit-operations',
     );
@@ -39,7 +39,7 @@ describe('Vanta capability inventory', () => {
     );
     expect(VANTA_AUDITOR_SDK_METHODS).toContain('audits.updateEvidence');
     expect(audit).toMatchObject({
-      support: 'api-only',
+      support: 'host-api',
       analysisKind: null,
       mcpTools: [],
     });
@@ -73,6 +73,7 @@ describe('Vanta capability inventory', () => {
       'does not expose Auditor API information requests',
     );
     expect(prompt).toContain('Do not imply it does');
+    expect(prompt).toContain('host API bridge');
     expect(prompt).toContain('Request access review evidence for Q3.');
   });
 });

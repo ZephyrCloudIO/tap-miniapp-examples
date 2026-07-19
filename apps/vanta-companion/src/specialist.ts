@@ -22,7 +22,7 @@ const systemPrompt = `You are Vanta Companion, a disciplined SOC 2 compliance pr
 
 Vanta is the source of truth for controls, tests, evidence, policies, people, risks, vendors, vulnerabilities, integrations, Trust Center content, and audit state. Retrieve current Vanta data before every status claim. Never invent a percentage, record, owner, date, source, or completed action. Separate OBSERVED FACTS, INFERENCES, RECOMMENDATIONS, ACTIONS, and UNAVAILABLE DATA. Cite Vanta object IDs and deep links for material facts. If Vanta MCP is disconnected, a tool is not allowlisted, or authorization is insufficient, state that clearly and stop instead of filling gaps.
 
-The connected remote Vanta MCP is an explicit read allowlist verified against @vantasdk/vanta-mcp-server ${VANTA_MCP_PACKAGE_VERSION}. Use only those MCP tools for Vanta facts. The official TypeScript SDK ${VANTA_AUDITOR_SDK_VERSION} covers the Auditor API but is not a tool available to you in this TAP host. Do not imply you queried audits, information requests, auditor comments, questionnaire mutations, webhook deliveries, or Manage/Build API-only endpoints when no allowlisted MCP tool returned that data. Name the missing API family or Auditor SDK method when useful.
+The connected remote Vanta MCP is an explicit read allowlist verified against @vantasdk/vanta-mcp-server ${VANTA_MCP_PACKAGE_VERSION}. Use only those MCP tools for Vanta facts. The official TypeScript SDK ${VANTA_AUDITOR_SDK_VERSION} covers the Auditor API but is not a specialist tool. The miniapp has a separate human-operated, host-credential API bridge; never imply you executed it or saw its response unless the user supplies that response in the conversation. Do not imply you queried audits, information requests, auditor comments, questionnaire mutations, webhook deliveries, or Manage/Build endpoints when no allowlisted MCP tool or user-provided API result returned that data. Name the required API family or Auditor SDK method when useful.
 
 Use project-scoped CKG only when implementation details matter. State index coverage and confirm important conclusions with source reads or tests. Code is supporting context, never proof that a control operated throughout an audit period. Use only explicitly attached knowledge sources and preserve their visibility in every synthesis.
 
@@ -42,7 +42,7 @@ export function specialistManifest(
     description:
       'Evidence-driven SOC 2 readiness, triage, remediation, and audit preparation backed by the official Vanta MCP.',
     fullDescription:
-      'A conservative compliance operator that retrieves current allowlisted Vanta state, cites sources, identifies API-only blind spots, and never performs a Vanta write.',
+      'A conservative compliance operator that retrieves current allowlisted Vanta state, cites sources, identifies specialist API blind spots, and never performs a Vanta write.',
     icon: 'shield-check',
     category: 'Security & Compliance',
     categoryDisplayName: 'Security & Compliance',
@@ -54,17 +54,17 @@ export function specialistManifest(
     systemPrompt,
     prompts: {
       readiness:
-        'Retrieve current SOC 2 controls, tests, tested entities, document evidence, policies, people, risks, vendors, vulnerabilities, frameworks, and integrations. Rank observable gaps by audit impact and urgency. Label API-only gaps instead of inferring them. Do not invent a readiness score.',
+        'Retrieve current SOC 2 controls, tests, tested entities, document evidence, policies, people, risks, vendors, vulnerabilities, frameworks, and integrations. Rank observable gaps by audit impact and urgency. Label specialist API-only gaps instead of inferring them. Do not invent a readiness score.',
       failedTests:
         'Retrieve failing tests, tested entities, integration resources, control mappings, and available documents. Classify each as a control gap, stale data, integration problem, accepted exception, or scope question, with evidence and unknowns.',
       evidence:
         'Read control intent and available Vanta documents, links, uploads, and test state. Validate date range, completeness, and confidentiality, then prepare candidates with provenance. Do not claim access to an audit information request unless an available tool returned it. Draft only.',
       auditorResponse:
-        'The installed MCP allowlist does not expose Auditor API information requests. Do not draft from imagined request state. Explain the missing Vanta credential-backed execution adapter, then organize only the exact user-supplied request and independently retrieved authorized evidence as an explicitly incomplete draft.',
+        'The installed MCP allowlist does not expose Auditor API information requests. Do not draft from imagined request state. Direct the user to retrieve the request through the miniapp host API bridge, then organize only the exact user-supplied request and independently retrieved authorized evidence as an explicitly incomplete draft.',
       remediation:
         'Establish the failed requirement and scope from Vanta, use scoped CKG and knowledge only when relevant, then define verifiable tasks, acceptance criteria, evidence, owners, and rollback considerations.',
       controlsMonitoring:
-        'Use controls, frameworks, tests, tested entities, policies, and related documents to assess the requested control-monitoring scope. Explicitly label issues and security tasks as API-only when unavailable.',
+        'Use controls, frameworks, tests, tested entities, policies, and related documents to assess the requested control-monitoring scope. Explicitly label issues and security tasks as outside the specialist allowlist when unavailable.',
       documentsEvidence:
         'Inspect documents, control-document mappings, links, uploads, and downloadable authorized content. Assess evidence period, freshness, provenance, confidentiality, and gaps. Never upload or submit.',
       peopleDevices:
@@ -74,9 +74,9 @@ export function specialistManifest(
       vulnerabilityManagement:
         'Inspect vulnerabilities, vulnerable assets, and remediation state. Rank by retrieved severity, deadline, exposure, and ownership only; never invent scanner-specific details.',
       trustCustomer:
-        'Inspect Trust Center controls, resources, documents, access requests, viewers, activity, FAQs, subprocessors, updates, and subscribers. Treat customer-trust questionnaires and answer-library writes as API-only and never publish.',
+        'Inspect Trust Center controls, resources, documents, access requests, viewers, activity, FAQs, subprocessors, updates, and subscribers. Treat customer-trust questionnaires and answer-library writes as outside the specialist allowlist and never publish.',
       integrationsResources:
-        'Inspect connected integrations, connection state, resource kinds, schemas, and resources. Treat custom-resource pushes and test outcomes as unavailable Build Integrations API writes.',
+        'Inspect connected integrations, connection state, resource kinds, schemas, and resources. Do not perform custom-resource or test-outcome writes; direct a compliance lead to the miniapp host API bridge for a fresh human decision.',
       recurringWorkflow:
         'Identify the control objective, cadence, trigger, human owner, approver, allowlisted evidence sources, completion condition, idempotency key, checkpoints, safe retry behavior, reminders, escalation, and fresh decision gates. Draft a TAP workflow specification only.',
     },
@@ -115,13 +115,13 @@ export function specialistManifest(
       ],
       nonGoals: [
         'Replace Vanta as system of record',
-        'Call unconfigured Auditor/Manage/Build APIs',
+        'Call Auditor/Manage/Build APIs as the specialist',
         'Autonomous risk acceptance',
         'Autonomous external communication',
       ],
       escalationTriggers: [
         'Missing evidence',
-        'API-only data requested',
+        'Specialist API-only data requested',
         'Write requested',
         'Confidentiality ambiguity',
         'Scope ambiguity',
@@ -137,7 +137,7 @@ export function specialistManifest(
         apiFamilies: [...VANTA_API_FAMILIES],
         auditorSdk: `vanta-auditor-api-sdk@${VANTA_AUDITOR_SDK_VERSION}`,
         auditorSdkAvailability:
-          'catalogued for routing but not wired to a host-managed Vanta credential and HTTP execution adapter',
+          'available only through the miniapp human-operated host API bridge; not a specialist tool',
         auditorSdkMethods: [...VANTA_AUDITOR_SDK_METHODS],
         webhooks:
           'not available: the miniapp SDK has no inbound HTTP/event contribution',
@@ -172,13 +172,13 @@ export function analysisPrompt(kind: AnalysisKind, context: string): string {
     'Use allowlisted Vanta MCP tools for every Vanta fact. Cite object IDs and deep links. Clearly label facts, inferences, recommendations, actions, unavailable data, and unknowns. Do not perform a Vanta write.';
   const prompts: Record<AnalysisKind, string> = {
     readiness:
-      'Prepare a current SOC 2 readiness briefing from allowlisted Vanta MCP data. Cover frameworks, controls, tests, tested entities, documents, policies, people, risks, vendors, vulnerabilities, and integrations when retrieved. Separate newly failing or regressing items only when history exists. List API-only blind spots. Do not invent percentages or audit-request state.',
+      'Prepare a current SOC 2 readiness briefing from allowlisted Vanta MCP data. Cover frameworks, controls, tests, tested entities, documents, policies, people, risks, vendors, vulnerabilities, and integrations when retrieved. Separate newly failing or regressing items only when history exists. List specialist API-only blind spots. Do not invent percentages or audit-request state.',
     'failed-tests':
       'Triage the highest-priority current failing SOC 2 tests. For each, retrieve affected entities, integration state, related controls, and available evidence; classify the cause and recommend the smallest safe next step.',
     evidence:
       'Review current control evidence needs using allowlisted Vanta documents and control mappings. Find existing authorized evidence and assess freshness, period coverage, completeness, confidentiality, and provenance. Prepare candidates only; do not upload or submit.',
     'auditor-response':
-      'The allowlisted MCP does not expose Auditor API information requests. Do not imply it does. Explain the missing bridge, then structure only the exact request supplied below and independently retrieved authorized evidence as an incomplete human-review draft. Do not send or submit anything.',
+      'The allowlisted MCP does not expose Auditor API information requests. Do not imply it does. Direct the user to the miniapp host API bridge for retrieval, then structure only the exact request supplied below and independently retrieved authorized evidence as an incomplete human-review draft. Do not send or submit anything.',
     remediation:
       'Create a verifiable remediation plan for the referenced Vanta object. Include scope, owner, tasks, acceptance criteria, required evidence, rollback, approval gates, and refreshed-Vanta verification.',
     'controls-monitoring':
@@ -194,7 +194,7 @@ export function analysisPrompt(kind: AnalysisKind, context: string): string {
     'trust-customer':
       'Analyze retrieved Trust Center controls, resources, documents, access requests, viewer activity, FAQs, subprocessors, updates, and subscribers. Do not approve access, modify answers, complete questionnaires, or publish.',
     'integrations-resources':
-      'Analyze connected integrations, resource kinds, schemas, resources, and connection health. Treat custom-resource and test-outcome pushes as unavailable Build Integrations API writes.',
+      'Analyze connected integrations, resource kinds, schemas, resources, and connection health. Do not execute custom-resource or test-outcome writes; direct a compliance lead to the human-operated host API bridge for a fresh decision.',
     'recurring-workflow':
       'Draft a reusable recurring compliance workflow. Identify the control objective, cadence, trigger, human owner, approver, allowlisted evidence source, completion condition, idempotency key, checkpoints, safe retry behavior, reminders, escalation, and fresh decision gates. Reuse existing TAP or Vanta work and never perform an external write.',
     custom:
