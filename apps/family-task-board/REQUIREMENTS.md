@@ -94,7 +94,7 @@ This checklist is the completion contract derived from `miniapps/01-family-task-
 
 ## UI and verification
 
-- [x] SDK 0.0.1 UI primitives and appearance synchronization.
+- [x] SDK 0.2.0-pr.6821.02b36a6 UI primitives and appearance synchronization.
 - [x] Empty onboarding and management forms.
 - [x] Responsive desktop and compact layouts.
 - [x] Visible loading, empty, storage-error, and success states.

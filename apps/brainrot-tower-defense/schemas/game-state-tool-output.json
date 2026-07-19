@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brainrot Tower Defense game-state tool output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "source",
+    "sessionId",
+    "channelId",
+    "name",
+    "level",
+    "levelName",
+    "wave",
+    "totalWaves",
+    "status",
+    "baseHealth",
+    "score",
+    "tick",
+    "sequence",
+    "activePlayerCount",
+    "spectatorCount",
+    "livePresenceCount",
+    "defeatedEnemies",
+    "leakedEnemies",
+    "pendingEnemyCount",
+    "members",
+    "defenders",
+    "enemies",
+    "recentActions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "source": { "enum": ["tap-channel-snapshot", "browser-preview"] },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "channelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "level": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "levelName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "wave": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "totalWaves": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "status": {
+      "enum": ["lobby", "between_waves", "running", "paused", "victory", "defeat", "abandoned"]
+    },
+    "baseHealth": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "score": { "type": "integer", "minimum": 0 },
+    "tick": { "type": "integer", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "activePlayerCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "spectatorCount": { "type": "integer", "minimum": 0, "maximum": 512 },
+    "livePresenceCount": { "type": "integer", "minimum": 0, "maximum": 512 },
+    "defeatedEnemies": { "type": "integer", "minimum": 0 },
+    "leakedEnemies": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "pendingEnemyCount": { "type": "integer", "minimum": 0, "maximum": 512 },
+    "members": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["playerId", "displayName", "role", "slot", "ready", "resources", "contribution"],
+        "properties": {
+          "playerId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "role": { "enum": ["host", "player", "spectator", "disconnected"] },
+          "slot": { "type": ["integer", "null"], "minimum": 0, "maximum": 3 },
+          "ready": { "type": "boolean" },
+          "resources": { "type": "integer", "minimum": 0 },
+          "contribution": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "defenders": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ownerId", "kind", "x", "y", "level", "path", "targetPolicy"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "ownerId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "x": { "type": "integer", "minimum": 0, "maximum": 1000 },
+          "y": { "type": "integer", "minimum": 0, "maximum": 562 },
+          "level": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "path": { "type": "string", "maxLength": 80 },
+          "targetPolicy": { "enum": ["first", "last", "strong", "fast"] }
+        }
+      }
+    },
+    "enemies": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "path", "progress", "health", "maxHealth", "slowedTicks", "armor"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "path": { "type": "integer", "minimum": 0, "maximum": 3 },
+          "progress": { "type": "integer", "minimum": 0, "maximum": 1000 },
+          "health": { "type": "integer" },
+          "maxHealth": { "type": "integer", "minimum": 1 },
+          "slowedTicks": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "armor": { "type": "integer", "minimum": 0, "maximum": 255 }
+        }
+      }
+    },
+    "recentActions": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "actor", "label"],
+        "properties": {
+          "sequence": { "type": "integer", "minimum": 0 },
+          "actor": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 160 }
+        }
+      }
+    }
+  }
+}

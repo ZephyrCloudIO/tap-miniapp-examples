@@ -13,15 +13,19 @@ to this miniapp.
   validation, serialization, fixed ticks, seeded variation, and replay guards.
 - [x] Rust release build uses LTO, one codegen unit, aborting panics, and
   `wasm-opt`; WASM is built before Rsbuild/Rslib.
-- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.0.1`.
+- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.2.0-pr.6821.02b36a6`.
 - [x] Desktop federated surface and lifecycle expose are packaged.
 - [x] Hand-authored application/gameplay code is Rust/WASM; the small `.mjs`
-  files are the unavoidable Rslib federation, asset, appearance, and authority
-  adapters.
+  files are the unavoidable Rslib federation, asset, authority, and MCP
+  package-runtime adapters.
 - [x] Browser preview storage is separate; packaged mode has no browser-storage
   fallback.
-- [ ] SDK React UI components — blocked because SDK 0.0.1 has no Rust/custom
-  element bindings and the brief forbids a handwritten JS/TS application layer.
+- [x] SDK portable UI components — the toolbar, runtime badge, TAP save status,
+  and controlled preview-reset confirmation use the supported `/ui/wasm`
+  bridge. Rust owns the serializable model and reducer, checks stale revisions
+  and replayed event IDs, and uses JSON-compatible serialization across the
+  WASM boundary. A clean browser run verified render, open, and cancel behavior
+  with no warning/error logs.
 
 ## Empty start, data, and persistence
 
@@ -201,11 +205,14 @@ are created by the authoritative runtime only when waves spawn them.
   capped at 512 participants for bounded parsing and rendering; four active
   player slots remain enforced.
 - [ ] Secure command-sender binding, authoritative reconnect, and timed slot
-  expiry/disconnect-driven host migration — blocked because SDK 0.0.1 exposes
+  expiry/disconnect-driven host migration — blocked because SDK 0.2.0-pr.6821.02b36a6 exposes
   no platform-owned session command or reconnect-lease primitive and storage
   records contain client-authored identity.
-- [ ] Read-only Chloe game-state tool — omitted because SDK 0.0.1 exposes no
-  public runtime tool-registration API.
+- [x] Read-only Chloe game-state tool — the package-runtime
+  `brainrot-td-state-server` registers `get_game_state` through the SDK `/mcp`
+  entry. It calls the Rust/WASM snapshot export directly, returns a bounded
+  selected-session/channel-state view, and is guarded by the declared
+  `brainrot-td.read-state` permission and validated input/output schemas.
 
 ## Quality and verification
 
@@ -222,8 +229,8 @@ are created by the authoritative runtime only when waves spawn them.
   replay and payload substitution, processed-command receipt validation,
   persisted-ack reconciliation, completion-receipt migration/serialization,
   delayed participant catch-up, cursor rotation, and bounded merge safety.
-- [x] The final native suite contains 141 passing tests: 23 content, 51 core,
-  4 protocol-contract, 27 renderer, 32 web lifecycle/UI helper, and 4 typed TAP
+- [x] The final native suite contains 143 passing tests: 23 content, 51 core,
+  4 protocol-contract, 27 renderer, 34 web lifecycle/UI helper, and 4 typed TAP
   bridge tests. Upgrade coverage includes all four authored costs,
   branch commitment, insufficient resources, duplicate/stale replay, reload at
   level 5, invalid level/path combinations, control recovery, strongest-only
@@ -359,11 +366,11 @@ are created by the authoritative runtime only when waves spawn them.
   painted upper/lower corridors, merge at `(910, 245)`, and share the final
   corridor to `(1000, 250)`. The original and packaged School assets are pinned
   by exact reviewed digests. Movement schema v2 migrates live v0/v1 School
-  enemies by physical position and is idempotent. The 141-test native suite
-  passes (23 content, 51 core, 4 protocol, 27 renderer, 32 web, 4 TAP bridge),
+  enemies by physical position and is idempotent. The 143-test native suite
+  passes (23 content, 51 core, 4 protocol, 27 renderer, 34 web, 4 TAP bridge),
   including both-lane endpoint, monotonic approach, compact scaling, exact leak,
   legacy migration, and reload-validation coverage. The optimized browser and
-  Rslib federated-package builds pass (737,706-byte WASM; 8,973,150 packaged
+  Rslib federated-package builds pass (787,905-byte WASM; 9,023,349 packaged
   static-asset bytes), along with manifest and authored-asset validation. A
   browser-only UI play-through completed Backyard, used the Victory Next control
   to create School, started its first wave, and captured enemies following the

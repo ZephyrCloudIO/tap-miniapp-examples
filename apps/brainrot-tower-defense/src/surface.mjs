@@ -1,4 +1,3 @@
-import { installMiniAppAppearanceSync } from "@theaiplatform/miniapp-sdk/web";
 import {
   mount as mountWasm,
   set_host_authority as setHostAuthority
@@ -20,28 +19,21 @@ function waitForAuthority(authority) {
 }
 
 export async function mount(container, context) {
-  const cleanupAppearance = installMiniAppAppearanceSync();
-  try {
-    await waitForAuthority(context?.hostAuthority);
-    const mounted = await mountWasm(container, context);
-    let granted = Boolean(context.hostAuthority.getSnapshot());
-    setHostAuthority(granted);
-    const unsubscribeAuthority = context.hostAuthority.subscribe(() => {
-      const next = context.hostAuthority.getSnapshot();
-      if (next !== granted) {
-        granted = next;
-        setHostAuthority(next);
-      }
-    });
-    return {
-      async unmount() {
-        unsubscribeAuthority();
-        await mounted.unmount();
-        cleanupAppearance();
-      }
-    };
-  } catch (error) {
-    cleanupAppearance();
-    throw error;
-  }
+  await waitForAuthority(context?.hostAuthority);
+  const mounted = await mountWasm(container, context);
+  let granted = Boolean(context.hostAuthority.getSnapshot());
+  setHostAuthority(granted);
+  const unsubscribeAuthority = context.hostAuthority.subscribe(() => {
+    const next = context.hostAuthority.getSnapshot();
+    if (next !== granted) {
+      granted = next;
+      setHostAuthority(next);
+    }
+  });
+  return {
+    async unmount() {
+      unsubscribeAuthority();
+      await mounted.unmount();
+    }
+  };
 }

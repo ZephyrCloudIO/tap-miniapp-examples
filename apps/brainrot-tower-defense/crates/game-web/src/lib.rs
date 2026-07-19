@@ -10,10 +10,11 @@ use game_protocol::{
     SessionId, SessionSnapshot, SessionStatus, TargetPolicy,
 };
 use game_renderer::Renderer;
-use js_sys::Reflect;
+use js_sys::{Function, Reflect};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     rc::{Rc, Weak},
 };
@@ -30,6 +31,25 @@ const SIMULATION_STEP_MS: f64 = 100.;
 const MAX_CATCH_UP_STEPS: u8 = 5;
 type EventClosure = Closure<dyn FnMut(Event)>;
 type AnimationClosure = Closure<dyn FnMut(f64)>;
+
+#[wasm_bindgen(module = "@theaiplatform/miniapp-sdk/ui/wasm")]
+extern "C" {
+    type JsMiniAppUiRoot;
+
+    #[wasm_bindgen(js_name = createMiniAppUiRoot, catch)]
+    fn create_miniapp_ui_root(
+        container: &Element,
+        model: &JsValue,
+        dispatch: &Function,
+    ) -> Result<JsMiniAppUiRoot, JsValue>;
+
+    #[wasm_bindgen(method, js_name = update, catch)]
+    fn update_miniapp_ui_root(this: &JsMiniAppUiRoot, model: &JsValue) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method, js_name = unmount, catch)]
+    fn unmount_miniapp_ui_root(this: &JsMiniAppUiRoot) -> Result<(), JsValue>;
+}
+
 thread_local! {
     static ACTIVE: RefCell<Option<Rc<App>>> = const { RefCell::new(None) };
     static PHASE: RefCell<&'static str> = const { RefCell::new("created") };
@@ -85,6 +105,187 @@ struct PreviewSave {
     effects: u8,
     #[serde(default)]
     muted: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GameStateToolArguments {
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameStateToolMember<'a> {
+    player_id: &'a str,
+    display_name: &'a str,
+    role: MemberRole,
+    slot: Option<u8>,
+    ready: bool,
+    resources: u32,
+    contribution: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameStateToolDefender<'a> {
+    id: &'a str,
+    owner_id: &'a str,
+    kind: &'a str,
+    x: u16,
+    y: u16,
+    level: u8,
+    path: &'a str,
+    target_policy: TargetPolicy,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameStateToolEnemy<'a> {
+    id: &'a str,
+    kind: &'a str,
+    path: u8,
+    progress: u16,
+    health: i32,
+    max_health: i32,
+    slowed_ticks: u16,
+    armor: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameStateToolRecentAction<'a> {
+    sequence: u64,
+    actor: &'a str,
+    label: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameStateToolSnapshot<'a> {
+    schema_version: u16,
+    source: &'static str,
+    session_id: &'a str,
+    channel_id: &'a str,
+    name: &'a str,
+    level: u8,
+    level_name: &'static str,
+    wave: u8,
+    total_waves: usize,
+    status: SessionStatus,
+    base_health: u16,
+    score: u32,
+    tick: u64,
+    sequence: u64,
+    active_player_count: usize,
+    spectator_count: usize,
+    live_presence_count: usize,
+    defeated_enemies: u32,
+    leaked_enemies: u16,
+    pending_enemy_count: usize,
+    members: Vec<GameStateToolMember<'a>>,
+    defenders: Vec<GameStateToolDefender<'a>>,
+    enemies: Vec<GameStateToolEnemy<'a>>,
+    recent_actions: Vec<GameStateToolRecentAction<'a>>,
+}
+
+fn game_state_tool_snapshot<'a>(
+    snapshot: &'a SessionSnapshot,
+    live_presence_count: usize,
+    runtime: &Runtime,
+) -> GameStateToolSnapshot<'a> {
+    let level = levels()
+        .into_iter()
+        .find(|level| level.id == snapshot.level);
+    let (level_name, total_waves) = level.as_ref().map_or(("Unknown level", 0), |level| {
+        (level.name, level.waves.len())
+    });
+    let active_player_count = snapshot
+        .members
+        .iter()
+        .filter(|member| matches!(member.role, MemberRole::Host | MemberRole::Player))
+        .count();
+    let spectator_count = snapshot
+        .members
+        .iter()
+        .filter(|member| member.role == MemberRole::Spectator)
+        .count();
+    GameStateToolSnapshot {
+        schema_version: 1,
+        source: if matches!(runtime, Runtime::Tap) {
+            "tap-channel-snapshot"
+        } else {
+            "browser-preview"
+        },
+        session_id: &snapshot.session_id.0,
+        channel_id: &snapshot.channel_id,
+        name: &snapshot.name,
+        level: snapshot.level,
+        level_name,
+        wave: snapshot.wave,
+        total_waves,
+        status: snapshot.status,
+        base_health: snapshot.base_health,
+        score: snapshot.score,
+        tick: snapshot.tick,
+        sequence: snapshot.last_sequence,
+        active_player_count,
+        spectator_count,
+        live_presence_count,
+        defeated_enemies: snapshot.defeated_enemies,
+        leaked_enemies: snapshot.leaked_enemies,
+        pending_enemy_count: snapshot.pending_spawns.len(),
+        members: snapshot
+            .members
+            .iter()
+            .map(|member| GameStateToolMember {
+                player_id: &member.player_id.0,
+                display_name: &member.display_name,
+                role: member.role,
+                slot: member.slot,
+                ready: member.ready,
+                resources: member.resources,
+                contribution: member.contribution,
+            })
+            .collect(),
+        defenders: snapshot
+            .defenders
+            .iter()
+            .map(|defender| GameStateToolDefender {
+                id: &defender.id.0,
+                owner_id: &defender.owner.0,
+                kind: &defender.kind,
+                x: defender.x,
+                y: defender.y,
+                level: defender.level,
+                path: &defender.path,
+                target_policy: defender.target_policy,
+            })
+            .collect(),
+        enemies: snapshot
+            .enemies
+            .iter()
+            .map(|enemy| GameStateToolEnemy {
+                id: &enemy.id.0,
+                kind: &enemy.kind,
+                path: enemy.path,
+                progress: enemy.progress,
+                health: enemy.health,
+                max_health: enemy.max_health,
+                slowed_ticks: enemy.slowed_ticks,
+                armor: enemy.armor,
+            })
+            .collect(),
+        recent_actions: snapshot
+            .recent_actions
+            .iter()
+            .map(|action| GameStateToolRecentAction {
+                sequence: action.sequence,
+                actor: &action.actor,
+                label: &action.label,
+            })
+            .collect(),
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -367,8 +568,82 @@ struct AwaitingCommand {
     command: PlayerCommand,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PortableUiTone {
+    Error,
+    Neutral,
+    Success,
+}
+
+impl PortableUiTone {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Neutral => "neutral",
+            Self::Success => "success",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PortableUiState {
+    runtime_label: &'static str,
+    save_status: Option<(&'static str, PortableUiTone)>,
+    show_preview_reset: bool,
+    preview_reset_confirmation_open: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+enum PortableUiEvent {
+    #[serde(rename = "activate")]
+    Activate,
+    #[serde(rename = "open-change")]
+    OpenChange,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+enum PortableUiActionKind {
+    #[serde(rename = "preview.reset.request")]
+    Request,
+    #[serde(rename = "preview.reset.open")]
+    Open,
+    #[serde(rename = "preview.reset.confirm")]
+    Confirm,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PortableUiAction {
+    event_id: String,
+    revision: u64,
+    control_id: String,
+    #[serde(default)]
+    entity_id: Option<String>,
+    action: PortableUiActionKind,
+    event: PortableUiEvent,
+    #[serde(default)]
+    value: Option<Value>,
+}
+
+struct PortableUi {
+    root: JsMiniAppUiRoot,
+    _dispatch: Closure<dyn FnMut(JsValue) -> Result<(), JsValue>>,
+    state: PortableUiState,
+}
+
+impl Drop for PortableUi {
+    fn drop(&mut self) {
+        let _ = self.root.unmount_miniapp_ui_root();
+    }
+}
+
 struct App {
+    mount_root: Element,
     root: Element,
+    portable_ui: RefCell<Option<PortableUi>>,
+    portable_ui_revision: Cell<u64>,
+    portable_ui_event_ids: RefCell<HashSet<String>>,
+    preview_reset_confirmation_open: Cell<bool>,
     document: Document,
     runtime: Runtime,
     channel: String,
@@ -422,6 +697,256 @@ struct AudioEngine {
     master: GainNode,
     music: GainNode,
     effects: GainNode,
+}
+
+fn js_error(message: impl AsRef<str>) -> JsValue {
+    js_sys::Error::new(message.as_ref()).into()
+}
+
+fn portable_ui_error(context: &str, error: JsValue) -> JsValue {
+    let cause = Reflect::get(&error, &JsValue::from_str("cause")).ok();
+    let details = cause
+        .as_ref()
+        .and_then(|value| js_sys::JSON::stringify(value).ok())
+        .and_then(|value| value.as_string())
+        .or_else(|| error.as_string())
+        .unwrap_or_else(|| format!("{error:?}"));
+    js_error(format!("{context}: {details}"))
+}
+
+fn portable_ui_state(app: &App) -> PortableUiState {
+    let save_status = if matches!(app.runtime, Runtime::Preview) {
+        None
+    } else if *app.loading.borrow() {
+        Some(("Loading channel state…", PortableUiTone::Neutral))
+    } else if *app.saving.borrow() {
+        Some(("Saving channel state…", PortableUiTone::Neutral))
+    } else if has_pending_saves(app) {
+        Some((
+            "Changes are pending synchronization",
+            PortableUiTone::Neutral,
+        ))
+    } else if app.error.borrow().is_some() {
+        Some(("Channel save is unavailable", PortableUiTone::Error))
+    } else {
+        Some(("Channel state saved", PortableUiTone::Success))
+    };
+    PortableUiState {
+        runtime_label: if matches!(app.runtime, Runtime::Tap) {
+            "TAP channel"
+        } else {
+            "Browser preview"
+        },
+        save_status,
+        show_preview_reset: matches!(app.runtime, Runtime::Preview)
+            && app.active.borrow().is_none(),
+        preview_reset_confirmation_open: app.preview_reset_confirmation_open.get(),
+    }
+}
+
+fn portable_ui_model(revision: u64, state: &PortableUiState) -> Value {
+    let mut toolbar_children = vec!["app-title", "runtime"];
+    let mut root_ids = vec!["app-toolbar"];
+    let mut nodes = vec![
+        json!({
+            "type": "toolbar",
+            "id": "app-toolbar",
+            "label": "Brainrot Tower Defense controls",
+            "children": toolbar_children
+        }),
+        json!({
+            "type": "heading",
+            "id": "app-title",
+            "level": 5,
+            "text": "Brainrot Tower Defense"
+        }),
+        json!({
+            "type": "badge",
+            "id": "runtime",
+            "text": state.runtime_label,
+            "variant": "secondary"
+        }),
+    ];
+
+    if state.show_preview_reset {
+        toolbar_children.push("preview-reset");
+        nodes[0]["children"] = json!(toolbar_children);
+        nodes.push(json!({
+            "type": "button",
+            "id": "preview-reset",
+            "label": "Reset preview",
+            "action": "preview.reset.request",
+            "variant": "ghost",
+            "disabled": false,
+            "busy": false
+        }));
+        root_ids.push("preview-reset-confirmation");
+        nodes.push(json!({
+            "type": "confirmation",
+            "id": "preview-reset-confirmation",
+            "open": state.preview_reset_confirmation_open,
+            "openChangeAction": "preview.reset.open",
+            "title": "Reset browser preview?",
+            "description": "Delete every browser-preview game and all preview progression. TAP channel data is not affected.",
+            "confirm": {
+                "id": "preview-reset-confirm",
+                "label": "Delete preview data",
+                "action": "preview.reset.confirm",
+                "variant": "destructive",
+                "disabled": false
+            },
+            "cancelLabel": "Keep preview data"
+        }));
+    }
+
+    if let Some((text, tone)) = state.save_status {
+        root_ids.push("save-status");
+        nodes.push(json!({
+            "type": "status-bar",
+            "id": "save-status",
+            "text": text,
+            "tone": tone.as_str()
+        }));
+    }
+
+    json!({
+        "revision": revision,
+        "state": if matches!(state.save_status, Some((_, PortableUiTone::Error))) {
+            "failure"
+        } else if matches!(state.save_status, Some(("Loading channel state…" | "Saving channel state…", _))) {
+            "loading"
+        } else {
+            "idle"
+        },
+        "rootIds": root_ids,
+        "nodes": nodes
+    })
+}
+
+fn sync_portable_ui(app: &App) -> Result<(), JsValue> {
+    let next_state = portable_ui_state(app);
+    let mut portable_ui = app
+        .portable_ui
+        .try_borrow_mut()
+        .map_err(|_| js_error("Portable UI update is already in progress"))?;
+    let Some(portable_ui) = portable_ui.as_mut() else {
+        return Ok(());
+    };
+    if portable_ui.state == next_state {
+        return Ok(());
+    }
+    let revision = app.portable_ui_revision.get().saturating_add(1);
+    let model = portable_ui_model(revision, &next_state)
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|error| js_error(format!("Could not serialize portable UI model: {error}")))?;
+    portable_ui
+        .root
+        .update_miniapp_ui_root(&model)
+        .map_err(|error| portable_ui_error("Could not update portable UI", error))?;
+    portable_ui.state = next_state;
+    app.portable_ui_revision.set(revision);
+    app.portable_ui_event_ids.borrow_mut().clear();
+    Ok(())
+}
+
+fn reset_preview_data(app: &Rc<App>) -> Result<(), String> {
+    preview_storage()
+        .ok_or_else(|| "browser preview storage is unavailable".to_string())?
+        .remove_item(PREVIEW_KEY)
+        .map_err(|error| format!("{error:?}"))?;
+    app.sessions.borrow_mut().clear();
+    *app.progress.borrow_mut() = default_progress(app.player.clone());
+    *app.active.borrow_mut() = None;
+    *app.error.borrow_mut() = None;
+    app.preview_reset_confirmation_open.set(false);
+    Ok(())
+}
+
+fn dispatch_portable_ui_action(app: &Rc<App>, value: JsValue) -> Result<(), JsValue> {
+    let action: PortableUiAction = serde_wasm_bindgen::from_value(value)
+        .map_err(|error| js_error(format!("Malformed portable UI action: {error}")))?;
+    if action.revision != app.portable_ui_revision.get() {
+        return Err(js_error(format!(
+            "Rejected stale portable UI revision {} for current revision {}",
+            action.revision,
+            app.portable_ui_revision.get()
+        )));
+    }
+    let mut event_ids = app.portable_ui_event_ids.borrow_mut();
+    if event_ids.len() >= 256 {
+        return Err(js_error("Portable UI action replay window is full"));
+    }
+    if !event_ids.insert(action.event_id.clone()) {
+        return Err(js_error(format!(
+            "Rejected replayed portable UI action {}",
+            action.event_id
+        )));
+    }
+    drop(event_ids);
+    if action.entity_id.is_some() {
+        return Err(js_error("Preview reset actions cannot target an entity"));
+    }
+
+    match action.action {
+        PortableUiActionKind::Request => {
+            if action.event != PortableUiEvent::Activate || action.control_id != "preview-reset" {
+                return Err(js_error("Invalid preview reset request action"));
+            }
+            app.preview_reset_confirmation_open.set(true);
+            sync_portable_ui(app)
+        }
+        PortableUiActionKind::Open => {
+            if action.event != PortableUiEvent::OpenChange
+                || action.control_id != "preview-reset-confirmation"
+            {
+                return Err(js_error("Invalid preview reset dialog action"));
+            }
+            let open = action
+                .value
+                .and_then(|value| value.as_bool())
+                .ok_or_else(|| js_error("Preview reset dialog action requires a boolean value"))?;
+            app.preview_reset_confirmation_open.set(open);
+            sync_portable_ui(app)
+        }
+        PortableUiActionKind::Confirm => {
+            if action.event != PortableUiEvent::Activate
+                || action.control_id != "preview-reset-confirm"
+            {
+                return Err(js_error("Invalid preview reset confirmation action"));
+            }
+            if let Err(error) = reset_preview_data(app) {
+                *app.error.borrow_mut() = Some(format!(
+                    "Could not reset browser preview storage: {error}. No visible data was cleared."
+                ));
+            }
+            render(app)
+        }
+    }
+}
+
+fn mount_portable_ui(app: &Rc<App>, container: &Element) -> Result<(), JsValue> {
+    let state = portable_ui_state(app);
+    let revision = 1_u64;
+    let model = portable_ui_model(revision, &state)
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|error| js_error(format!("Could not serialize portable UI model: {error}")))?;
+    let weak = Rc::downgrade(app);
+    let dispatch =
+        Closure::<dyn FnMut(JsValue) -> Result<(), JsValue>>::new(move |value: JsValue| {
+            let app = weak
+                .upgrade()
+                .ok_or_else(|| js_error("Portable UI received an action after unmount"))?;
+            dispatch_portable_ui_action(&app, value)
+        });
+    let root = create_miniapp_ui_root(container, &model, dispatch.as_ref().unchecked_ref())
+        .map_err(|error| portable_ui_error("Could not mount portable UI", error))?;
+    app.portable_ui_revision.set(revision);
+    *app.portable_ui.borrow_mut() = Some(PortableUi {
+        root,
+        _dispatch: dispatch,
+        state,
+    });
+    Ok(())
 }
 
 fn normalize_display_name(value: &str) -> String {
@@ -898,7 +1423,7 @@ fn render_live(app: &Rc<App>) -> Result<(), JsValue> {
         draw_canvas_frame(app, &canvas, &snapshot, monotonic_now())?;
     }
     update_presence_dom(app);
-    update_save_status(app);
+    update_save_status(app)?;
     Ok(())
 }
 
@@ -974,23 +1499,8 @@ fn update_live_upgrade_controls(
     Ok(())
 }
 
-fn update_save_status(app: &App) {
-    let Some(status) = app.document.get_element_by_id("btd-save-status") else {
-        return;
-    };
-    let (label, class_name) = if *app.loading.borrow() {
-        ("Loading…", "badge status busy")
-    } else if *app.saving.borrow() {
-        ("Saving…", "badge status busy")
-    } else if has_pending_saves(app) {
-        ("Changes pending", "badge warning")
-    } else if app.error.borrow().is_some() {
-        ("Save unavailable", "badge error-badge")
-    } else {
-        ("Saved", "badge subtle")
-    };
-    status.set_text_content(Some(label));
-    status.set_class_name(class_name);
+fn update_save_status(app: &App) -> Result<(), JsValue> {
+    sync_portable_ui(app)
 }
 
 fn update_audio_levels(app: &App) {
@@ -2074,7 +2584,9 @@ fn flush_saves(app: Rc<App>) {
         muted: *app.muted.borrow(),
     };
     let settings_revision = *app.settings_revision.borrow();
-    update_save_status(&app);
+    if let Err(error) = update_save_status(&app) {
+        web_sys::console::error_1(&error);
+    }
     spawn_local(async move {
         let mut failures = Vec::new();
         let mut persisted_event_sessions = Vec::new();
@@ -3485,70 +3997,6 @@ fn render(app: &Rc<App>) -> Result<(), JsValue> {
     let skip = text(&app.document, "a", "Skip to app content", "skip-link")?;
     skip.set_attribute("href", "#btd-main")?;
     shell.append_child(&skip)?;
-    let header = app.document.create_element("header")?;
-    header.set_class_name("toolbar");
-    let brand = text(&app.document, "span", "B/TD", "brand-mark")?;
-    brand.set_attribute("aria-hidden", "true")?;
-    header.append_child(&brand)?;
-    let title = text(
-        &app.document,
-        "span",
-        "Brainrot Tower Defense",
-        "toolbar-title",
-    )?;
-    header.append_child(&title)?;
-    header.append_text(text(
-        &app.document,
-        "span",
-        if matches!(app.runtime, Runtime::Tap) {
-            "TAP channel"
-        } else {
-            "Browser preview"
-        },
-        "badge runtime-badge",
-    )?)?;
-    if matches!(app.runtime, Runtime::Tap) {
-        let status = text(&app.document, "span", "", "badge subtle")?;
-        status.set_id("btd-save-status");
-        status.set_attribute("role", "status")?;
-        status.set_attribute("aria-live", "polite")?;
-        header.append_child(&status)?;
-    }
-    if matches!(app.runtime, Runtime::Preview) && app.active.borrow().is_none() {
-        let reset = button(&app.document, "Reset preview", "button ghost")?;
-        let a = app.clone();
-        on(app, &reset, "click", move || {
-            if web_sys::window()
-                .and_then(|w| {
-                    w.confirm_with_message("Delete all browser-preview games and progression?")
-                        .ok()
-                })
-                .unwrap_or(false)
-            {
-                let result = preview_storage()
-                    .ok_or_else(|| "browser preview storage is unavailable".to_string())
-                    .and_then(|storage| {
-                        storage
-                            .remove_item(PREVIEW_KEY)
-                            .map_err(|error| format!("{error:?}"))
-                    });
-                if let Err(error) = result {
-                    *a.error.borrow_mut() = Some(format!(
-                        "Could not reset browser preview storage: {error}. No visible data was cleared."
-                    ));
-                    let _ = render(&a);
-                    return;
-                }
-                a.sessions.borrow_mut().clear();
-                *a.progress.borrow_mut() = default_progress(a.player.clone());
-                *a.active.borrow_mut() = None;
-                *a.error.borrow_mut() = None;
-                let _ = render(&a);
-            }
-        })?;
-        header.append_child(&reset)?;
-    }
-    shell.append_child(&header)?;
     if let Some(error) = app.error.borrow().as_ref() {
         let alert = text(&app.document, "div", error, "alert error")?;
         alert.set_attribute("role", "alert")?;
@@ -3639,7 +4087,7 @@ fn render(app: &Rc<App>) -> Result<(), JsValue> {
     }
     shell.append_child(&content)?;
     app.root.append_child(&shell)?;
-    update_save_status(app);
+    update_save_status(app)?;
     update_presence_dom(app);
     let pending_focus = app.pending_focus_id.borrow().clone();
     if let Some(id) = pending_focus
@@ -5160,7 +5608,15 @@ fn create_app(
     events: Option<JsValue>,
     identity: Option<(PlayerId, String)>,
 ) -> Result<Rc<App>, JsValue> {
-    install_styles(&document()?)?;
+    let document = document()?;
+    install_styles(&document)?;
+    root.set_inner_html("");
+    let portable_ui_container = document.create_element("div")?;
+    portable_ui_container.set_class_name("portable-ui-root");
+    let game_root = document.create_element("div")?;
+    game_root.set_class_name("brainrot-game-root");
+    root.append_child(&portable_ui_container)?;
+    root.append_child(&game_root)?;
     let is_tap = matches!(runtime, Runtime::Tap);
     let (saved, preview_error) = if matches!(runtime, Runtime::Preview) {
         match load_preview() {
@@ -5189,8 +5645,13 @@ fn create_app(
         .as_ref()
         .map_or_else(|| default_progress(player.clone()), |s| s.progress.clone());
     let app = Rc::new(App {
-        root,
-        document: document()?,
+        mount_root: root,
+        root: game_root,
+        portable_ui: RefCell::new(None),
+        portable_ui_revision: Cell::new(0),
+        portable_ui_event_ids: RefCell::new(HashSet::new()),
+        preview_reset_confirmation_open: Cell::new(false),
+        document,
         runtime,
         channel,
         player,
@@ -5332,6 +5793,7 @@ fn create_app(
         )?;
     *app.timer.borrow_mut() = Some(timer);
     *app.timer_id.borrow_mut() = Some(timer_id);
+    mount_portable_ui(&app, &portable_ui_container)?;
     render(&app)?;
     install_animation_loop(&app)?;
     Ok(app)
@@ -5393,6 +5855,63 @@ pub async fn mount(container: Element, context: JsValue) -> Result<SurfaceMount,
     Ok(SurfaceMount {})
 }
 
+/// Returns a bounded read-only snapshot for the package-runtime MCP tool.
+///
+/// # Errors
+///
+/// Returns an error when arguments are malformed, the surface is not mounted,
+/// no game is selected, the requested game is outside the mounted channel, or
+/// the bounded snapshot cannot be serialized for the SDK runtime.
+#[wasm_bindgen]
+pub fn get_game_state(arguments: JsValue) -> Result<JsValue, JsValue> {
+    let arguments = if arguments.is_null() || arguments.is_undefined() {
+        GameStateToolArguments::default()
+    } else {
+        serde_wasm_bindgen::from_value::<GameStateToolArguments>(arguments)
+            .map_err(|error| js_error(format!("Malformed game-state tool arguments: {error}")))?
+    };
+    if let Some(session_id) = arguments.session_id.as_deref()
+        && (session_id.trim() != session_id
+            || session_id.is_empty()
+            || session_id.chars().count() > 128
+            || session_id.chars().any(char::is_control))
+    {
+        return Err(js_error("Game-state sessionId is invalid"));
+    }
+
+    ACTIVE.with(|active| {
+        let active = active.borrow();
+        let app = active
+            .as_ref()
+            .ok_or_else(|| js_error("Brainrot Tower Defense is not mounted"))?;
+        let sessions = app.sessions.borrow();
+        let snapshot = if let Some(session_id) = arguments.session_id.as_deref() {
+            sessions
+                .iter()
+                .find(|snapshot| snapshot.session_id.0 == session_id)
+                .ok_or_else(|| js_error("Requested game is not available in this channel"))?
+        } else {
+            let index = (*app.active.borrow())
+                .ok_or_else(|| js_error("No Brainrot Tower Defense game is selected"))?;
+            sessions
+                .get(index)
+                .ok_or_else(|| js_error("Selected game is unavailable"))?
+        };
+        let live_presence_count = app.presence.borrow().as_ref().map_or(0, |presence| {
+            presence
+                .participants
+                .iter()
+                .filter(|participant| {
+                    participant.state.game_id.as_ref() == Some(&snapshot.session_id)
+                })
+                .count()
+        });
+        game_state_tool_snapshot(snapshot, live_presence_count, &app.runtime)
+            .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+            .map_err(|error| js_error(format!("Could not serialize game-state snapshot: {error}")))
+    })
+}
+
 #[wasm_bindgen]
 pub fn set_host_authority(granted: bool) {
     ACTIVE.with(|active| {
@@ -5439,7 +5958,8 @@ impl SurfaceMount {
                 .await
                 .map_err(|error| JsValue::from_str(&error.to_string()))?;
         }
-        app.root.set_inner_html("");
+        app.portable_ui.borrow_mut().take();
+        app.mount_root.set_inner_html("");
         Ok(())
     }
 }
@@ -5767,10 +6287,97 @@ pub async fn lifecycle_uninstall() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_protocol::CompletionCursor;
+    use game_protocol::{CompletionCursor, DefenderState, EnemyState, RecentAction};
 
     fn id(value: &str) -> SessionId {
         SessionId(value.to_string())
+    }
+
+    #[test]
+    fn portable_ui_model_uses_sdk_toolbar_and_controlled_confirmation() {
+        let state = PortableUiState {
+            runtime_label: "Browser preview",
+            save_status: None,
+            show_preview_reset: true,
+            preview_reset_confirmation_open: true,
+        };
+
+        let model = portable_ui_model(7, &state);
+
+        assert_eq!(model["revision"], 7);
+        assert_eq!(
+            model["rootIds"],
+            json!(["app-toolbar", "preview-reset-confirmation"])
+        );
+        assert!(model["nodes"].as_array().is_some_and(|nodes| {
+            nodes.iter().any(|node| {
+                node["type"] == "toolbar"
+                    && node["children"] == json!(["app-title", "runtime", "preview-reset"])
+            }) && nodes.iter().any(|node| {
+                node["type"] == "confirmation"
+                    && node["open"] == true
+                    && node["confirm"]["action"] == "preview.reset.confirm"
+            })
+        }));
+    }
+
+    #[test]
+    fn game_state_tool_snapshot_exposes_bounded_authoritative_gameplay_state() {
+        let player = PlayerId("player-1".into());
+        let mut snapshot = Simulation::create(
+            "channel-1".into(),
+            "Defense".into(),
+            player.clone(),
+            "Player One".into(),
+            7,
+        )
+        .state;
+        snapshot.status = SessionStatus::Running;
+        snapshot.wave = 2;
+        snapshot.base_health = 11;
+        snapshot.score = 420;
+        snapshot.last_sequence = 9;
+        snapshot.defenders.push(DefenderState {
+            id: EntityId("defender-1".into()),
+            owner: player,
+            kind: "zip_zapper".into(),
+            x: 120,
+            y: 220,
+            level: 2,
+            path: "Overclock".into(),
+            cooldown_ticks: 0,
+            target_policy: TargetPolicy::Strong,
+        });
+        snapshot.enemies.push(EnemyState {
+            id: EntityId("enemy-1".into()),
+            kind: "basic".into(),
+            path: 0,
+            progress: 240,
+            health: 35,
+            max_health: 60,
+            slowed_ticks: 2,
+            control_resistance_ticks: 0,
+            armor: 1,
+            reward: 5,
+            leak_damage: 1,
+        });
+        snapshot.recent_actions.push(RecentAction {
+            sequence: 9,
+            actor: "Player One".into(),
+            label: "placed Zip Zapper".into(),
+        });
+
+        let value = serde_json::to_value(game_state_tool_snapshot(&snapshot, 3, &Runtime::Tap))
+            .expect("serialize game-state tool snapshot");
+
+        assert_eq!(value["source"], "tap-channel-snapshot");
+        assert_eq!(value["levelName"], "Backyard Wi-Fi");
+        assert_eq!(value["wave"], 2);
+        assert_eq!(value["baseHealth"], 11);
+        assert_eq!(value["livePresenceCount"], 3);
+        assert_eq!(value["defenders"][0]["targetPolicy"], "strong");
+        assert_eq!(value["enemies"][0]["health"], 35);
+        assert_eq!(value["recentActions"][0]["sequence"], 9);
     }
 
     #[test]
