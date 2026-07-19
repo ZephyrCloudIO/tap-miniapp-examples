@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brainrot Tower Defense lifecycle checkpoint",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["schema_version", "channel_id", "player_id", "active_session_id", "last_sequence"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "channel_id": { "type": "string", "minLength": 1 },
+        "player_id": { "type": "string", "minLength": 1 },
+        "active_session_id": { "type": "string", "minLength": 1 },
+        "last_sequence": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["schema_version", "channel_id", "player_id", "active_session_id", "last_sequence"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "channel_id": { "type": "string", "minLength": 1 },
+        "player_id": { "type": "string", "minLength": 1 },
+        "active_session_id": { "type": "null" },
+        "last_sequence": { "type": "null" }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

@@ -1,6 +1,16 @@
 packages:
   - "apps/*"
 
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@theaiplatform/miniapp-sdk"
+  - "@cloudflare/vitest-pool-workers@0.18.6"
+  - "@types/node@26.1.1"
+  - "miniflare@4.20260714.0"
+  - "vitest@4.1.10"
+  - "wrangler@4.112.0"

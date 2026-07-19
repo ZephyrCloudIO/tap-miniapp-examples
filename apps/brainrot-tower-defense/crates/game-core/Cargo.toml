@@ -1,0 +1,15 @@
+[package]
+name = "game-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+game-content.workspace = true
+game-protocol.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+[dev-dependencies]
+proptest = "1"
+serde_json.workspace = true
+[lints]
+workspace = true

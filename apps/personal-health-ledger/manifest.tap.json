@@ -1,0 +1,277 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_personal_health_ledger_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-personal-health-ledger",
+    "slug": "personal-health-ledger"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_personal_health_ledger_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Personal Health Ledger",
+    "description": "Private regimen, inventory, administration, outcomes, and evidence ledger.",
+    "iconAssets": ["assets/personal-health-ledger.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/personal-health-ledger.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": { "tapSdk": "0.2.0-pr.6821.02b36a6", "tapHost": ">=0.1.0" },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_personal_health_ledger_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" },
+        "./specialists/health": { "integrity": "pending", "runtime": "webview" }
+      }
+    },
+    "quickjs": {
+      "remoteName": "tap_personal_health_ledger_quickjs",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./mcp/administration": { "integrity": "pending", "runtime": "quickjs" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "personal-health-ledger",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["health-ledger.view", "network.request"],
+        "effects": [
+          { "kind": "storage", "resources": ["personal-health-ledger"] },
+          { "kind": "channel.write", "resources": ["workspace"] },
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://eutils.ncbi.nlm.nih.gov",
+              "https://clinicaltrials.gov",
+              "https://api.fda.gov"
+            ]
+          },
+          {
+            "kind": "specialist.manage",
+            "resources": ["personal-health-researcher"]
+          },
+          {
+            "kind": "specialist.invoke",
+            "resources": ["personal-health-researcher"]
+          }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Personal Health Ledger",
+        "description": "Track private health records and prepare clinician-ready summaries.",
+        "placement": "workspace-left",
+        "scope": "user",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained",
+        "iconAssets": ["assets/personal-health-ledger.svg"]
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "personal-health-researcher",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./specialists/health", "runtime": "webview" }
+      },
+      "authorization": { "allOf": ["health-ledger.research"] },
+      "lifecycleScope": "contribution",
+      "options": {
+        "effects": [
+          {
+            "kind": "host-api",
+            "resources": ["tap.channels", "tap.specialists"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "administration",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": {
+          "expose": "./mcp/administration",
+          "runtime": "quickjs"
+        }
+      },
+      "options": {
+        "protocolVersion": "2026-01-26",
+        "implementation": { "type": "package-runtime" },
+        "consumerPolicy": {
+          "contributionIds": ["personal-health-researcher"],
+          "externalConsumers": ["selected-specialists"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "administration-draft",
+      "apiVersion": 1,
+      "options": {
+        "serverContributionId": "administration",
+        "toolName": "draft_administration"
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "personal-health-ledger-app",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": [
+          "personal-health-ledger",
+          "personal-health-researcher",
+          "administration",
+          "administration-draft"
+        ]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "health-ledger-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "health-ledger.view",
+            "resource": "tap.personal-health-ledger:view",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "health-ledger.manage",
+            "resource": "tap.personal-health-ledger:manage",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "plan",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "health-ledger.research",
+            "resource": "tap.specialist:personal-health-researcher",
+            "scopes": ["user", "workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "health-ledger.export",
+            "resource": "tap.personal-health-ledger:export",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["user", "workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "read"
+          }
+        ],
+        "levels": [
+          {
+            "id": "ledger-viewer",
+            "actions": ["health-ledger.view"],
+            "assignableTo": ["human"]
+          },
+          {
+            "id": "ledger-owner",
+            "actions": [
+              "health-ledger.view",
+              "health-ledger.manage",
+              "health-ledger.research",
+              "health-ledger.export",
+              "network.request"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "ledger-owner"
+          }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {
+        "name": "surface.mounted",
+        "schema": "{}",
+        "schemaVersion": 1,
+        "visibility": "user",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "surface.unmounted",
+        "schema": "{}",
+        "schemaVersion": 1,
+        "visibility": "user",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "ledger.changed",
+        "schema": "{}",
+        "schemaVersion": 1,
+        "visibility": "user",
+        "delivery": "ephemeral"
+      }
+    ]
+  },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}
