@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tap-pkg:examples-unofficial-suno-player:event:track-reaction:1",
+  "title": "Unofficial Suno Player track reaction event",
+  "type": "object",
+  "required": ["channelId", "trackId", "reaction"],
+  "additionalProperties": false,
+  "properties": {
+    "channelId": { "type": "string", "minLength": 1 },
+    "trackId": { "type": "string", "minLength": 1 },
+    "reaction": { "enum": ["like", "unlike"] }
+  }
+}

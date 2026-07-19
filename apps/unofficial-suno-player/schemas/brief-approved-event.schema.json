@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tap-pkg:examples-unofficial-suno-player:event:brief-approved:1",
+  "title": "Unofficial Suno Player brief approved event",
+  "type": "object",
+  "required": ["channelId", "briefId", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "channelId": { "type": "string", "minLength": 1 },
+    "briefId": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 }
+  }
+}
