@@ -28,7 +28,7 @@ for (const schema of [
 
 const serialized = JSON.stringify(manifest);
 if (serialized.includes('"pending"')) throw new Error("Assembled package still contains pending integrity values.");
-if (manifest.compatibility?.tapSdk !== "0.2.0-pr.6821.02b36a6") throw new Error("Assembled package TAP SDK compatibility is not exactly 0.2.0-pr.6821.02b36a6.");
+if (manifest.compatibility?.tapSdk !== "0.2.0") throw new Error("Assembled package TAP SDK compatibility is not exactly 0.2.0.");
 
 await assertPortableTapPackageArtifacts({ output: packageRoot, forbiddenRoots: [sourceRoot] });
 console.log(`verified ${required.length} artifacts across ${requiredTargets.length} targets, workflow schemas, resolved integrity, SDK compatibility, and portability`);

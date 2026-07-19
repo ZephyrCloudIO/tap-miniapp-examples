@@ -9,7 +9,7 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] Separate preview `localStorage` and packaged `sdk.storage` implementations
 - [x] Visible loading, saving, success, conflict, empty, permission, and failure states
 - [x] Responsive SDK-component UI with keyboard focus, dark tokens, compact layout, and reduced motion
-- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.2.0-pr.6821.02b36a6` pin, and matching `compatibility.tapSdk`
+- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.2.0` pin, and matching `compatibility.tapSdk`
 
 ## Vanta SDK, API, and MCP
 
@@ -35,14 +35,14 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] User-created remediation cases linked to real Vanta IDs/deep links
 - [x] Validated case state transitions and lead-only source verification confirmation
 - [x] Durable analysis output and audit receipts retained across reload
-- [ ] TAP task delegation — blocked because TAP miniapp SDK `0.2.0-pr.6821.02b36a6` exposes no task API
-- [ ] Reminder/escalation authoring and history — blocked because TAP miniapp SDK `0.2.0-pr.6821.02b36a6` exposes no automation/reminder API
+- [ ] TAP task delegation — blocked because TAP miniapp SDK `0.2.0` exposes no task API
+- [ ] Reminder/escalation authoring and history — blocked because TAP miniapp SDK `0.2.0` exposes no automation/reminder API
 - [ ] Automatic Vanta webhook-triggered TAP workflow invocation — the Worker receives events, but the TAP SDK exposes no authenticated server-side workflow/event bridge; the real UI feed is refreshed on user request
 
 ## Knowledge and code context
 
 - [x] Specialist definition restricts CKG and knowledge access to declared `ckg_*`, `knowledge_*`, and `kg_*` tools and prompts for project scope, provenance, and visibility
-- [ ] Explicit plot attachment/retrieval UI — blocked because TAP miniapp SDK `0.2.0-pr.6821.02b36a6` exposes no knowledge-plot query or attachment API
+- [ ] Explicit plot attachment/retrieval UI — blocked because TAP miniapp SDK `0.2.0` exposes no knowledge-plot query or attachment API
 - [ ] Verified CKG source results in browser preview — requires a packaged TAP host, an indexed scoped project, and authorized source content
 
 ## Verification coverage

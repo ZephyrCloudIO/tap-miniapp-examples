@@ -147,7 +147,7 @@ level-1-to-5 purchase run, production reload, 2048 px desktop layout, 390 px
 compact layout, and clean browser warning/error log are recorded separately in
 the requirements checklist so the native and live evidence remain explicit.
 
-## SDK 0.2.0-pr.6821.02b36a6 blockers resolved
+## SDK 0.2.0 blockers resolved
 
 The app now mounts its portable toolbar, runtime badge, TAP save status, and
 browser-preview reset confirmation through

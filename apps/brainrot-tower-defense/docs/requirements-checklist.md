@@ -13,7 +13,7 @@ to this miniapp.
   validation, serialization, fixed ticks, seeded variation, and replay guards.
 - [x] Rust release build uses LTO, one codegen unit, aborting panics, and
   `wasm-opt`; WASM is built before Rsbuild/Rslib.
-- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.2.0-pr.6821.02b36a6`.
+- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.2.0`.
 - [x] Desktop federated surface and lifecycle expose are packaged.
 - [x] Hand-authored application/gameplay code is Rust/WASM; the small `.mjs`
   files are the unavoidable Rslib federation, asset, authority, and MCP
@@ -205,7 +205,7 @@ are created by the authoritative runtime only when waves spawn them.
   capped at 512 participants for bounded parsing and rendering; four active
   player slots remain enforced.
 - [ ] Secure command-sender binding, authoritative reconnect, and timed slot
-  expiry/disconnect-driven host migration — blocked because SDK 0.2.0-pr.6821.02b36a6 exposes
+  expiry/disconnect-driven host migration — blocked because SDK 0.2.0 exposes
   no platform-owned session command or reconnect-lease primitive and storage
   records contain client-authored identity.
 - [x] Read-only Chloe game-state tool — the package-runtime
