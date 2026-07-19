@@ -19,7 +19,7 @@ Packaged execution uses revisioned `sdk.storage`, scoped by TAP to the workspace
 
 Browser preview uses records prefixed `tap-example-unofficial-suno-player-preview` in `localStorage` and a separately named IndexedDB media store. This separation is intentional and visible in the UI.
 
-SDK 0.0.1 exposes JSON storage and write-only VFS, but no readable access-controlled binary artifact API. Packaged imported audio therefore remains playable only for the current surface session; retained metadata shows a truthful re-import requirement after reload. The SDK also lacks global host playback/docking/current-channel subscription, durable shared listening sessions, workflow creation/scheduling, message ineligibility/retention contracts, and Zephyr publication. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the verified checklist and exact blockers.
+SDK 0.2.0-pr.6821.02b36a6 exposes JSON storage and write-only VFS, but no readable access-controlled binary artifact API. Packaged imported audio therefore remains playable only for the current surface session; retained metadata shows a truthful re-import requirement after reload. The SDK also lacks global host playback/docking/current-channel subscription, durable shared listening sessions, workflow creation/scheduling, message ineligibility/retention contracts, and Zephyr publication. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the verified checklist and exact blockers.
 
 ## Commands
 

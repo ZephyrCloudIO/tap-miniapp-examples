@@ -16,15 +16,9 @@ pnpm test
 
 Target a single example with pnpm's workspace filter, such as `pnpm --filter @tap-examples/family-task-board dev`.
 
-## SDK baseline
+## SDK versions
 
-All example apps created in this repository must exact-pin:
-
-```json
-"@theaiplatform/miniapp-sdk": "0.0.1"
-```
-
-Their TAP descriptors must likewise declare `compatibility.tapSdk` as `0.0.1`. Do not copy the older SDK pin from a reference repository.
+Each example exact-pins the SDK version it was verified against, and its TAP descriptor declares the same version in `compatibility.tapSdk`. The Unofficial Suno Player uses `0.2.0-pr.6821.02b36a6`; the Family Task Board remains on its verified `0.0.1` baseline.
 
 Each example has its own product brief under [`miniapps`](./miniapps). The briefs are ordered for refinement; their status indicates whether the concept has been approved or remains proposed.
 

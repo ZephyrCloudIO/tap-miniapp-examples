@@ -9,7 +9,7 @@ const manifest = JSON.parse(fs.readFileSync(new URL("../manifest.tap.json", impo
 const validate = new Ajv2020({
   allErrors: true,
   strict: false,
-  formats: { uint16: true, uint64: true, uri: true },
+  formats: { uint8: true, uint16: true, uint64: true, uri: true },
 }).compile(schema);
 
 if (!validate(manifest)) {
@@ -31,4 +31,4 @@ for (const schemaId of declaredSchemas) {
   if (!eventSchemas.some((eventSchema) => eventSchema.$id === schemaId)) throw new Error(`Manifest event schema ${schemaId} has no checked source schema.`);
 }
 
-console.log(`manifest.tap.json and ${eventSchemas.length} event schemas are valid against SDK 0.0.1 contracts`);
+console.log(`manifest.tap.json and ${eventSchemas.length} event schemas are valid against SDK 0.2.0-pr.6821.02b36a6 contracts`);

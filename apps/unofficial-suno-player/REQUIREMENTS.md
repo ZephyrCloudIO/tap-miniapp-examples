@@ -4,7 +4,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 
 ## Package and platform contract
 
-- [x] SDK dependency and `compatibility.tapSdk` are exact-pinned to `0.0.1`.
+- [x] SDK dependency and `compatibility.tapSdk` are exact-pinned to `0.2.0-pr.6821.02b36a6`.
 - [x] Desktop surface is a valid ESM Module Federation target with an idempotent mount/unmount adapter.
 - [x] Surface waits for and reacts to `hostAuthority`; protected work stops when authority is absent.
 - [x] Appearance synchronization applies platform theme and UI scale and is cleaned up on unmount.
@@ -36,7 +36,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Summary artifacts record source references/digests, themes, emotional arc, exclusions, sensitive details removed, candidate concepts, provenance, and approval state.
 - [x] Direct quotations require an explicit participant-approval confirmation; privacy/secrets/customer/conflict checks fail closed.
 - [x] Rejected summaries remain auditable and cannot seed a brief.
-- [ ] `BLOCKED` Platform-wide message/thread ineligibility and retention/deletion requests: SDK `0.0.1` exposes timeline reads but no channel-message eligibility metadata, artifact deletion, or retention-request contract. A local flag would not govern other TAP readers.
+- [ ] `BLOCKED` Platform-wide message/thread ineligibility and retention/deletion requests: SDK `0.2.0-pr.6821.02b36a6` exposes timeline reads but no channel-message eligibility metadata, artifact deletion, or retention-request contract. A local flag would not govern other TAP readers.
 
 ## Reviewable song briefs and human-mediated generation
 
@@ -49,7 +49,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Generation never calls private Suno endpoints, replays browser credentials, scrapes Suno, or simulates provider success.
 - [x] Import can link an owned result to the approved brief/batch and records the real human-mediated state.
 - [x] Existing saved TAP workflows can be listed and invoked with explicit payload/status handling; failure never appears successful.
-- [ ] `BLOCKED` Creating or scheduling recurring workflows: SDK `0.0.1` can list/invoke workflows but exposes no create/schedule API.
+- [ ] `BLOCKED` Creating or scheduling recurring workflows: SDK `0.2.0-pr.6821.02b36a6` can list/invoke workflows but exposes no create/schedule API.
 - [ ] `BLOCKED` Direct Suno account, song, playlist, playback, generation, status, credits, and playlist mutation: no written provider authorization or supported connector is available.
 
 ## Track import, provenance, album, and visibility
@@ -60,8 +60,8 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Private draft and channel-only visibility are selectable at import; broader visibility requires a separate review and confirmation.
 - [x] Channel album exposes provenance, rights scope, source period, approved themes, brief/batch linkage, reactions, and retained revision/history state.
 - [x] Likes toggle per actor, skips are recorded, hide/unhide affects that actor's queue, and retirement is manager-only with confirmation and undo.
-- [ ] `BLOCKED` Reloadable packaged binary audio/artwork artifacts: SDK `0.0.1` storage is JSON-only and VFS is write-only; no readable channel-artifact API exists.
-- [ ] `BLOCKED` Zephyr Cloud publication: SDK `0.0.1` exposes no publication API or receipt contract.
+- [ ] `BLOCKED` Reloadable packaged binary audio/artwork artifacts: SDK `0.2.0-pr.6821.02b36a6` storage is JSON-only and VFS is write-only; no readable channel-artifact API exists.
+- [ ] `BLOCKED` Zephyr Cloud publication: SDK `0.2.0-pr.6821.02b36a6` exposes no publication API or receipt contract.
 
 ## Player, queue, programming, and visualizers
 
@@ -73,7 +73,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Idle visualizers do not simulate active music; palette, frame rate, sensitivity, reduced motion, and low-power settings affect rendering.
 - [x] Audio nodes, object URLs, timers, listeners, and analysis buffers are cleaned up when playback or the surface ends.
 - [x] Manual channel switches fade out around a discrete source change and never overlap tracks; the destination remains stopped until the user explicitly plays it.
-- [ ] `BLOCKED` Host-wide playback continuity, dock/side/popup/minimized representations, and automatic current-channel following: SDK `0.0.1` has no global playback-session, docking, popup, or current-channel subscription API.
+- [ ] `BLOCKED` Host-wide playback continuity, dock/side/popup/minimized representations, and automatic current-channel following: SDK `0.2.0-pr.6821.02b36a6` has no global playback-session, docking, popup, or current-channel subscription API.
 
 ## Presence and roles
 
@@ -81,7 +81,7 @@ This checklist is derived from `miniapps/05-unofficial-suno-player.md`. A checke
 - [x] Presence subscribes before join, uses host-stamped identity, renders listeners/paused state, updates playback state, and leaves on teardown.
 - [x] Listener, contributor, and channel-DJ operations fail closed in both UI and domain transitions.
 - [x] Authorization failures from the operation itself remain visible even after an earlier access check.
-- [ ] `BLOCKED` Canonical synchronized channel-session queue/position/control authority: presence is ephemeral and SDK `0.0.1` exposes no durable shared-session primitive.
+- [ ] `BLOCKED` Canonical synchronized channel-session queue/position/control authority: presence is ephemeral and SDK `0.2.0-pr.6821.02b36a6` exposes no durable shared-session primitive.
 
 ## UI, accessibility, and verification
 
