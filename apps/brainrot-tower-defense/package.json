@@ -9,6 +9,7 @@
     "build:preview": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rsbuild build",
     "build:miniapp": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build",
     "build": "pnpm build:preview && pnpm build:miniapp && pnpm check:size",
+    "build:watch": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build --watch",
     "dev": "pnpm validate:content && pnpm wasm && rsbuild dev",
     "typecheck": "cargo check --workspace --all-targets",
     "test": "cargo test --workspace && node scripts/validate-assets.mjs",
