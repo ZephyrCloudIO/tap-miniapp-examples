@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "build:watch": "turbo run build:watch",
     "clean": "turbo run clean",
     "dev": "turbo run dev --parallel",
     "test": "turbo run test",

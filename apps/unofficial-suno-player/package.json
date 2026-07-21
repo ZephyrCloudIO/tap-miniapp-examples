@@ -7,6 +7,7 @@
     "dev": "rsbuild dev",
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
+    "build:watch": "rslib build --watch",
     "build:preview": "rsbuild build",
     "build:target": "node scripts/build-targets.mjs",
     "build:miniapp": "pnpm build:target && node scripts/assemble-package.mjs",

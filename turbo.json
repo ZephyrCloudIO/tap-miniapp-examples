@@ -6,6 +6,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".tap-build/**"]
     },
+    "build:watch": {
+      "cache": false,
+      "persistent": true
+    },
     "clean": {
       "cache": false
     },
