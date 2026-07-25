@@ -1334,7 +1334,11 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
   };
 
   const updatePreferences = async (patch: Partial<PlayerPreferences>, message = "Player preference saved"): Promise<void> => {
-    await commitPreferences(operationId("preferences"), (current) => applyPreferenceOperation(current, operationId("preferences-state"), (value) => ({ ...value, ...patch })), message, true);
+    try {
+      await commitPreferences(operationId("preferences"), (current) => applyPreferenceOperation(current, operationId("preferences-state"), (value) => ({ ...value, ...patch })), message, true);
+    } catch {
+      // commitPreferences has already surfaced the operation failure in the UI.
+    }
   };
 
   if (!authority && !preview) {
