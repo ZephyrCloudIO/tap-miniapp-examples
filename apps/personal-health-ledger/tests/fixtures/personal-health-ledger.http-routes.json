@@ -1,0 +1,126 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+      "query": [
+        { "name": "db", "value": "pubmed" },
+        { "name": "term", "value": "magnesium glycinate" },
+        { "name": "retmode", "value": "json" },
+        { "name": "retmax", "value": "8" },
+        { "name": "sort", "value": "pub date" }
+      ],
+      "headers": [{ "name": "Accept", "value": "application/json" }],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "response": {
+      "finalUrl": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [{ "name": "content-type", "value": "application/json" }],
+      "bodyText": "{\"esearchresult\":{\"idlist\":[\"12345678\"]}}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 41,
+      "elapsedMs": 4,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  },
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+      "query": [
+        { "name": "db", "value": "pubmed" },
+        { "name": "id", "value": "12345678" },
+        { "name": "retmode", "value": "json" }
+      ],
+      "headers": [{ "name": "Accept", "value": "application/json" }],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "response": {
+      "finalUrl": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [{ "name": "content-type", "value": "application/json" }],
+      "bodyText": "{\"result\":{\"12345678\":{\"title\":\"Fixture magnesium evidence\",\"authors\":[{\"name\":\"Ada Example\"}],\"fulljournalname\":\"Fixture Journal\",\"pubdate\":\"2026 Jul\"}}}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 154,
+      "elapsedMs": 4,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  },
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://clinicaltrials.gov/api/v2/studies",
+      "query": [
+        { "name": "query.term", "value": "magnesium glycinate" },
+        { "name": "pageSize", "value": "8" },
+        { "name": "format", "value": "json" }
+      ],
+      "headers": [{ "name": "Accept", "value": "application/json" }],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "response": {
+      "finalUrl": "https://clinicaltrials.gov/api/v2/studies",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [{ "name": "content-type", "value": "application/json" }],
+      "bodyText": "{\"studies\":[{\"protocolSection\":{\"identificationModule\":{\"nctId\":\"NCT00000001\",\"briefTitle\":\"Fixture magnesium trial\"},\"descriptionModule\":{\"briefSummary\":\"A deterministic registered trial fixture.\"},\"statusModule\":{\"studyFirstPostDateStruct\":{\"date\":\"2026-07-01\"}}}}],\"nextPageToken\":\"fixture-page\"}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 299,
+      "elapsedMs": 4,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  },
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://api.fda.gov/drug/label.json",
+      "query": [
+        {
+          "name": "search",
+          "value": "openfda.generic_name:\"magnesium glycinate\""
+        },
+        { "name": "limit", "value": "8" }
+      ],
+      "headers": [{ "name": "Accept", "value": "application/json" }],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "response": {
+      "finalUrl": "https://api.fda.gov/drug/label.json",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [{ "name": "content-type", "value": "application/json" }],
+      "bodyText": "{\"meta\":{\"last_updated\":\"2026-07-24\"},\"results\":[{\"id\":\"fixture-label-1\",\"effective_time\":\"20260701\",\"openfda\":{\"brand_name\":[\"Fixture Magnesium\"],\"generic_name\":[\"magnesium glycinate\"]},\"indications_and_usage\":[\"Fixture label use.\"],\"warnings\":[\"Fixture warning.\"]}]}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 268,
+      "elapsedMs": 4,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  }
+]

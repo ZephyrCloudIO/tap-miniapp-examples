@@ -192,6 +192,11 @@ async function receiveWebhook(request: Request, env: Env): Promise<Response> {
   );
 }
 
+export type AccessVerifier = (
+  request: Request,
+  env: Env,
+) => Promise<JWTPayload>;
+
 async function verifyAccess(request: Request, env: Env): Promise<JWTPayload> {
   const token = request.headers.get('Cf-Access-Jwt-Assertion');
   if (!token) {
@@ -262,8 +267,12 @@ function pageSize(url: URL): number {
   return value;
 }
 
-async function listEvents(request: Request, env: Env): Promise<Response> {
-  const identity = await verifyAccess(request, env);
+async function listEvents(
+  request: Request,
+  env: Env,
+  accessVerifier: AccessVerifier,
+): Promise<Response> {
+  const identity = await accessVerifier(request, env);
   const url = new URL(request.url);
   const limit = pageSize(url);
   const cursorValue = url.searchParams.get('cursor');
@@ -316,8 +325,12 @@ async function listEvents(request: Request, env: Env): Promise<Response> {
   );
 }
 
-async function session(request: Request, env: Env): Promise<Response> {
-  const identity = await verifyAccess(request, env);
+async function session(
+  request: Request,
+  env: Env,
+  accessVerifier: AccessVerifier,
+): Promise<Response> {
+  const identity = await accessVerifier(request, env);
   return json(
     {
       authenticated: true,
@@ -344,7 +357,11 @@ export async function deleteExpiredEvents(env: Env, now = new Date()): Promise<n
   return Number(result.meta.changes ?? 0);
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
+async function route(
+  request: Request,
+  env: Env,
+  accessVerifier: AccessVerifier,
+): Promise<Response> {
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/health') {
     return json({ ok: true, service: 'vanta-companion-api' });
@@ -356,10 +373,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
   }
   if (request.method === 'GET' && url.pathname === '/v1/session') {
-    return session(request, env);
+    return session(request, env, accessVerifier);
   }
   if (request.method === 'GET' && url.pathname === '/v1/events') {
-    return listEvents(request, env);
+    return listEvents(request, env, accessVerifier);
   }
   if (
     ['/health', '/v1/webhooks/vanta', '/v1/session', '/v1/events'].includes(
@@ -381,47 +398,54 @@ function errorResponseHeaders(request: Request, env: Env): HeadersInit {
   }
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    try {
-      return await route(request, env);
-    } catch (error) {
-      const path = new URL(request.url).pathname;
-      if (error instanceof ApiError) {
+export function createVantaCompanionWorker(
+  dependencies: Readonly<{ verifyAccess?: AccessVerifier }> = {},
+) {
+  const accessVerifier = dependencies.verifyAccess ?? verifyAccess;
+  return {
+    async fetch(request: Request, env: Env): Promise<Response> {
+      try {
+        return await route(request, env, accessVerifier);
+      } catch (error) {
+        const path = new URL(request.url).pathname;
+        if (error instanceof ApiError) {
+          return json(
+            { error: error.code, message: error.message },
+            error.status,
+            errorResponseHeaders(request, env),
+          );
+        }
+        console.error(
+          JSON.stringify({
+            message: 'unhandled request failure',
+            path,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
         return json(
-          { error: error.code, message: error.message },
-          error.status,
+          {
+            error: 'internal_error',
+            message: 'The service could not complete the request. Retry shortly.',
+          },
+          500,
           errorResponseHeaders(request, env),
         );
       }
-      console.error(
-        JSON.stringify({
-          message: 'unhandled request failure',
-          path,
-          error: error instanceof Error ? error.message : String(error),
+    },
+    async scheduled(
+      _controller: ScheduledController,
+      env: Env,
+      ctx: ExecutionContext,
+    ): Promise<void> {
+      ctx.waitUntil(
+        deleteExpiredEvents(env).then(deleted => {
+          console.log(
+            JSON.stringify({ message: 'event retention completed', deleted }),
+          );
         }),
       );
-      return json(
-        {
-          error: 'internal_error',
-          message: 'The service could not complete the request. Retry shortly.',
-        },
-        500,
-        errorResponseHeaders(request, env),
-      );
-    }
-  },
-  async scheduled(
-    _controller: ScheduledController,
-    env: Env,
-    ctx: ExecutionContext,
-  ): Promise<void> {
-    ctx.waitUntil(
-      deleteExpiredEvents(env).then(deleted => {
-        console.log(
-          JSON.stringify({ message: 'event retention completed', deleted }),
-        );
-      }),
-    );
-  },
-} satisfies ExportedHandler<Env>;
+    },
+  } satisfies ExportedHandler<Env>;
+}
+
+export default createVantaCompanionWorker();

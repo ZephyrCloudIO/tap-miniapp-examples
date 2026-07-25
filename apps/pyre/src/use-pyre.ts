@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
 import { emptyState, type Actor, type Investigation, type PyreState } from "./domain";
 import { bootstrapPlatform, previewActor, subscribePresence, type PlatformContext, type PlatformStatus } from "./platform";
+import { useRuntimeId } from "./runtime-id";
 import { loadState, saveState, StorageConflictError } from "./storage";
 
 export interface PyreController {
@@ -23,6 +24,7 @@ export interface PyreController {
 }
 
 export function usePyre(preview: boolean, surfaceContext?: TapFederatedSurfaceMountContext): PyreController {
+  const runtimeId = useRuntimeId();
   const context = useMemo<PlatformContext>(() => ({
     preview,
     workspaceId: surfaceContext?.workspaceId,
@@ -43,7 +45,7 @@ export function usePyre(preview: boolean, surfaceContext?: TapFederatedSurfaceMo
     setLoading(true);
     setError(undefined);
     try {
-      const [loaded, status] = await Promise.all([loadState(preview), bootstrapPlatform(context)]);
+      const [loaded, status] = await Promise.all([loadState(preview, runtimeId), bootstrapPlatform(context)]);
       setState(loaded.state);
       setRevision(loaded.revision);
       setPlatform(status);
@@ -54,7 +56,7 @@ export function usePyre(preview: boolean, surfaceContext?: TapFederatedSurfaceMo
     } finally {
       setLoading(false);
     }
-  }, [context, preview]);
+  }, [context, preview, runtimeId]);
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => subscribePresence(context, (presenceCount) => setPlatform((current) => ({ ...current, presenceCount }))), [context]);

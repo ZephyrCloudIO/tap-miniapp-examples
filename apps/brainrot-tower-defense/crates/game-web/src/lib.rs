@@ -650,6 +650,7 @@ struct App {
     player: PlayerId,
     display_name: RefCell<String>,
     authority: RefCell<bool>,
+    interaction_authority: Cell<bool>,
     progress: RefCell<Progress>,
     sessions: RefCell<Vec<SessionSnapshot>>,
     active: RefCell<Option<usize>>,
@@ -701,6 +702,27 @@ struct AudioEngine {
 
 fn js_error(message: impl AsRef<str>) -> JsValue {
     js_sys::Error::new(message.as_ref()).into()
+}
+
+fn configure_id_generator(context: &JsValue) -> Result<(), JsValue> {
+    let entropy = Reflect::get(context, &JsValue::from_str("entropy"))
+        .map_err(|_| js_error("TAP surface entropy is unavailable"))?;
+    let random_uuid = Reflect::get(&entropy, &JsValue::from_str("randomUUID"))
+        .map_err(|_| js_error("TAP surface entropy has no randomUUID function"))?
+        .dyn_into::<Function>()
+        .map_err(|_| js_error("TAP surface entropy randomUUID is invalid"))?;
+    game_protocol::set_id_generator(Some(Box::new(move || {
+        random_uuid
+            .call0(&entropy)
+            .ok()
+            .and_then(|value| value.as_string())
+    })));
+    Ok(())
+}
+
+fn has_interaction_authority(app: &App) -> bool {
+    !matches!(app.runtime, Runtime::Tap)
+        || (*app.authority.borrow() && app.interaction_authority.get())
 }
 
 fn portable_ui_error(context: &str, error: JsValue) -> JsValue {
@@ -2364,9 +2386,10 @@ fn request_save(app: Rc<App>, scope: SaveScope) {
         }
         return;
     }
-    if !*app.authority.borrow() {
-        *app.error.borrow_mut() =
-            Some("TAP host authority is unavailable; no changes were saved.".into());
+    if !has_interaction_authority(&app) {
+        *app.error.borrow_mut() = Some(
+            "Brainrot Tower Defense play permission is not granted; no changes were saved.".into(),
+        );
         let _ = render(&app);
         return;
     }
@@ -3839,9 +3862,9 @@ fn process_session_commands(app: Rc<App>, session_id: String) {
 }
 
 fn issue(app: Rc<App>, kind: CommandKind) {
-    if matches!(app.runtime, Runtime::Tap) && !*app.authority.borrow() {
+    if !has_interaction_authority(&app) {
         *app.error.borrow_mut() = Some(
-            "TAP host authority is unavailable; this action was not queued or applied.".into(),
+            "Brainrot Tower Defense play permission is not granted; this action was not queued or applied.".into(),
         );
         let _ = render(&app);
         return;
@@ -4186,15 +4209,18 @@ fn render_lobbies(app: &Rc<App>, content: &Element) -> Result<(), JsValue> {
             "This channel has 64 games; finish and leave an old game before creating another",
         )?;
     }
-    if matches!(app.runtime, Runtime::Tap) && !*app.authority.borrow() {
+    if !has_interaction_authority(app) {
         create.set_attribute("disabled", "")?;
-        create.set_attribute("title", "TAP host authority is unavailable")?;
+        create.set_attribute(
+            "title",
+            "Brainrot Tower Defense play permission is not granted",
+        )?;
     }
     let a = app.clone();
     on(app, &create, "click", move || {
-        if matches!(a.runtime, Runtime::Tap) && !*a.authority.borrow() {
+        if !has_interaction_authority(&a) {
             *a.error.borrow_mut() =
-                Some("TAP host authority is unavailable; no game was created or saved.".into());
+                Some("Brainrot Tower Defense play permission is not granted; no game was created or saved.".into());
             let _ = render(&a);
             return;
         }
@@ -4585,7 +4611,7 @@ fn render_game(app: &Rc<App>, content: &Element, index: usize) -> Result<(), JsV
     map_plane.append_child(&canvas)?;
     if snapshot.status == SessionStatus::Victory {
         let is_host = snapshot.host == app.player;
-        let authority_available = !matches!(app.runtime, Runtime::Tap) || *app.authority.borrow();
+        let authority_available = has_interaction_authority(app);
         let pending = !app.awaiting_commands.borrow().is_empty();
         let max_level = levels()
             .into_iter()
@@ -4961,7 +4987,7 @@ fn render_levels(app: &Rc<App>, side: &Element, s: &SessionSnapshot) -> Result<(
     Ok(())
 }
 fn defender_authority_available(app: &App) -> bool {
-    !matches!(app.runtime, Runtime::Tap) || *app.authority.borrow()
+    has_interaction_authority(app)
 }
 
 fn render_defender_dock(app: &Rc<App>, hud: &Element, s: &SessionSnapshot) -> Result<(), JsValue> {
@@ -5535,9 +5561,9 @@ fn render_audio(app: &Rc<App>, side: &Element) -> Result<(), JsValue> {
     )?;
     let a = app.clone();
     on(app, &toggle, "click", move || {
-        if matches!(a.runtime, Runtime::Tap) && !*a.authority.borrow() {
+        if !has_interaction_authority(&a) {
             *a.error.borrow_mut() = Some(
-                "TAP host authority is unavailable; audio preferences were not changed.".into(),
+                "Brainrot Tower Defense play permission is not granted; audio preferences were not changed.".into(),
             );
             let _ = render(&a);
             return;
@@ -5579,7 +5605,7 @@ fn render_audio(app: &Rc<App>, side: &Element) -> Result<(), JsValue> {
         input.set_min("0");
         input.set_max("100");
         input.set_value(&value.to_string());
-        if matches!(app.runtime, Runtime::Tap) && !*app.authority.borrow() {
+        if !has_interaction_authority(app) {
             input.set_disabled(true);
         }
         let a = app.clone();
@@ -5657,6 +5683,7 @@ fn create_app(
         player,
         display_name: RefCell::new(display_name),
         authority: RefCell::new(!is_tap),
+        interaction_authority: Cell::new(!is_tap),
         progress: RefCell::new(progress),
         sessions: RefCell::new(saved.as_ref().map_or_else(Vec::new, |s| s.sessions.clone())),
         active: RefCell::new(None),
@@ -5723,15 +5750,17 @@ fn create_app(
             };
             if should_poll {
                 poll_pending_command_acks(&timed);
-                let hosted_sessions: Vec<_> = timed
-                    .sessions
-                    .borrow()
-                    .iter()
-                    .filter(|session| session.host == timed.player)
-                    .map(|session| session.session_id.0.clone())
-                    .collect();
-                for session_id in hosted_sessions {
-                    process_session_commands(timed.clone(), session_id);
+                if has_interaction_authority(&timed) {
+                    let hosted_sessions: Vec<_> = timed
+                        .sessions
+                        .borrow()
+                        .iter()
+                        .filter(|session| session.host == timed.player)
+                        .map(|session| session.session_id.0.clone())
+                        .collect();
+                    for session_id in hosted_sessions {
+                        process_session_commands(timed.clone(), session_id);
+                    }
                 }
                 let is_remote_view = timed
                     .active
@@ -5742,8 +5771,10 @@ fn create_app(
                     poll_tap_state(timed.clone());
                 }
             }
-            for _ in 0..steps_due {
-                advance_hosted_sessions(timed.clone());
+            if has_interaction_authority(&timed) {
+                for _ in 0..steps_due {
+                    advance_hosted_sessions(timed.clone());
+                }
             }
         } else {
             for _ in 0..steps_due {
@@ -5801,6 +5832,7 @@ fn create_app(
 
 #[wasm_bindgen]
 pub fn preview_start() -> Result<(), JsValue> {
+    game_protocol::set_id_generator(None);
     PHASE.with(|phase| *phase.borrow_mut() = "active");
     let doc = document()?;
     if let Some(root) = doc.get_element_by_id("app") {
@@ -5844,13 +5876,20 @@ pub async fn mount(container: Element, context: JsValue) -> Result<SurfaceMount,
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "TAP player".into());
     let display_name = normalize_display_name(&display_name);
-    let app = create_app(
+    configure_id_generator(&context)?;
+    let app = match create_app(
         container,
         Runtime::Tap,
         channel,
         Some(events),
         Some((PlayerId(identity.sub), display_name)),
-    )?;
+    ) {
+        Ok(app) => app,
+        Err(error) => {
+            game_protocol::set_id_generator(None);
+            return Err(error);
+        }
+    };
     ACTIVE.with(|v| *v.borrow_mut() = Some(app.clone()));
     Ok(SurfaceMount {})
 }
@@ -5936,11 +5975,30 @@ pub fn set_host_authority(granted: bool) {
         }
     });
 }
+
+#[wasm_bindgen]
+pub fn set_interaction_authority(granted: bool) {
+    ACTIVE.with(|active| {
+        let Some(app) = active.borrow().as_ref().cloned() else {
+            return;
+        };
+        app.interaction_authority.set(granted);
+        if !granted {
+            *app.error.borrow_mut() = Some(
+                "Brainrot Tower Defense play permission is not granted. Gameplay and saves are disabled."
+                    .into(),
+            );
+        }
+        let _ = render(&app);
+    });
+}
+
 #[wasm_bindgen]
 pub struct SurfaceMount {}
 #[wasm_bindgen]
 impl SurfaceMount {
     pub async fn unmount(&self) -> Result<(), JsValue> {
+        game_protocol::set_id_generator(None);
         let app = ACTIVE.with(|active| active.borrow_mut().take());
         let Some(app) = app else {
             return Ok(());

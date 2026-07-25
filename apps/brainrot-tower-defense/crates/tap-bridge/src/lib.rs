@@ -410,7 +410,7 @@ where
 ///
 /// Decode and scope-validation errors are delivered to `listener` instead of
 /// being swallowed. The SDK subscription itself is synchronous, matching the
-/// installed `0.2.0` declaration.
+/// installed `0.4.1` declaration.
 ///
 /// # Errors
 ///
@@ -500,17 +500,37 @@ struct SendMessageResult {
     client_message_id: String,
 }
 
+async fn can_send_channel_activity() -> Result<bool, BridgeError> {
+    let authorization = api("authorization")?;
+    let options = object(&[
+        ("actionId", "channels.send-message".into()),
+        ("autonomy", "do".into()),
+    ])?;
+    let value = invoke(&authorization, "check", &options.into()).await?;
+    Reflect::get(&value, &JsValue::from_str("allowed"))
+        .map_err(|_| BridgeError::Invalid("authorization decision has no allowed field".into()))?
+        .as_bool()
+        .ok_or_else(|| {
+            BridgeError::Invalid("authorization decision allowed field is not boolean".into())
+        })
+}
+
 /// Posts one idempotent, compact activity row to the scoped TAP channel.
 ///
 /// This uses the public `channels.sendMessage` host operation. The caller must
-/// declare and receive `tap.channels:send-message` authorization.
+/// declare `tap.channels:send-message`. The current decision is checked at the
+/// operation boundary; a denial returns `Ok(None)` without invoking the channel
+/// API.
 pub async fn send_channel_activity(
     channel: &str,
     event: &str,
     snapshot: &SessionSnapshot,
-) -> Result<String, BridgeError> {
+) -> Result<Option<String>, BridgeError> {
     validate_partition(channel, MAX_PRESENCE_ROOM_CHARS, "channel")?;
     validate_partition(event, 80, "event name")?;
+    if !can_send_channel_activity().await? {
+        return Ok(None);
+    }
     let channels = api("channels")?;
     let send = Reflect::get(&channels, &JsValue::from_str("sendMessage"))
         .map_err(|_| BridgeError::Unavailable)?
@@ -579,7 +599,7 @@ pub async fn send_channel_activity(
             "channel message acknowledgement did not match the request".into(),
         ));
     }
-    Ok(result.message_id)
+    Ok(Some(result.message_id))
 }
 
 pub async fn user_identity() -> Result<UserIdentity, BridgeError> {

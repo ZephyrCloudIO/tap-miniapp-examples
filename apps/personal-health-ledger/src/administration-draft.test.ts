@@ -43,8 +43,31 @@ describe('administration draft MCP tool', () => {
 
   it('exports the descriptor-declared runtime tool name', () => {
     expect(Object.keys(mcpServer.tools)).toEqual(['draft_administration']);
+    expect(mcpServer.tools.draft_administration?.inputSchema).toMatchObject({
+      type: 'object',
+      required: [
+        'itemId',
+        'actualAt',
+        'dose',
+        'unit',
+        'route',
+        'status',
+        'instructionSource',
+      ],
+      additionalProperties: false,
+    });
     expect(
       mcpServer.tools.draft_administration?.execute(validInput),
     ).toMatchObject({ valid: true, kind: 'administration-draft' });
+    expect(
+      mcpServer.tools.draft_administration?.execute({
+        ...validInput,
+        dose: 0,
+      }),
+    ).toMatchObject({
+      valid: false,
+      draft: null,
+      kind: 'administration-draft',
+    });
   });
 });

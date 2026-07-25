@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { Alert, AlertDescription, Button, Card, CardContent, FieldGroup, H1, Progress } from "@theaiplatform/miniapp-sdk/ui";
 import { ArrowRight, CheckCircle2, Flame, LockKeyhole, Network, ShieldCheck } from "lucide-react";
-import { runtimeId, splitList, timestamp, validateIncident, validateSourceLinks, type Actor, type Investigation, type PyreState } from "./domain";
+import {
+  PYRE_INVESTIGATE_ACTION,
+  type PyreAuthorityGuard,
+} from "./authority";
+import { splitList, timestamp, validateIncident, validateSourceLinks, type Actor, type Investigation, type PyreState } from "./domain";
+import { useRuntimeId } from "./runtime-id";
 import { FormField, SelectInput, TextAreaInput, TextInput } from "./ui-helpers";
 
 interface IntakeForm {
@@ -19,7 +24,8 @@ interface IntakeForm {
 
 const initial: IntakeForm = { title: "", statement: "", impact: "", businessImpact: "", severity: "unassessed", start: "", detected: "", systems: "", regions: "", sourceLinks: "" };
 
-export function Onboarding({ state, actor, saving, error, onCreate }: { state: PyreState; actor: Actor; saving: boolean; error?: string; onCreate(incident: Investigation): Promise<boolean> }) {
+export function Onboarding({ state, actor, saving, error, authorize, onCreate }: { state: PyreState; actor: Actor; saving: boolean; error?: string; authorize: PyreAuthorityGuard; onCreate(incident: Investigation): Promise<boolean> }) {
+  const runtimeId = useRuntimeId();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState<string[]>([]);
@@ -34,6 +40,7 @@ export function Onboarding({ state, actor, saving, error, onCreate }: { state: P
     const linkErrors = validateSourceLinks(sourceLinks);
     setErrors(linkErrors);
     if (linkErrors.length) return;
+    if (!(await authorize(PYRE_INVESTIGATE_ACTION))) return;
     const at = timestamp();
     const incidentId = runtimeId("inc");
     const incident: Investigation = {
@@ -81,6 +88,7 @@ export function Onboarding({ state, actor, saving, error, onCreate }: { state: P
       <CardContent>
         <div className="step-heading"><div><span className="eyebrow">NEW INVESTIGATION</span><h2>{step === 1 ? "Describe the observed incident" : "Set the initial scope"}</h2></div><span className="step-count">{step} / 2</span></div>
         <Progress value={step * 50} aria-label={`Intake step ${step} of 2`} />
+        {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         {step === 1 ? <FieldGroup>
           <FormField id="incident-title" label="Incident title" error={errors.find((item) => item.includes("title"))}><TextInput id="incident-title" name="incident-title" value={form.title} onChange={(event) => set("title", event.target.value)} placeholder="Checkout requests returning 503…" /></FormField>
           <FormField id="problem-statement" label="Observable problem statement" error={errors.find((item) => item.includes("observable"))} hint="Describe what was observed. Avoid assigning cause or blame."><TextAreaInput id="problem-statement" name="problem-statement" value={form.statement} onChange={(event) => set("statement", event.target.value)} placeholder="Customers received HTTP 503 responses while…" /></FormField>
@@ -96,7 +104,6 @@ export function Onboarding({ state, actor, saving, error, onCreate }: { state: P
             <FormField id="start-time" label="Incident start"><TextInput id="start-time" name="start-time" type="datetime-local" value={form.start} onChange={(event) => set("start", event.target.value)} /></FormField>
             <FormField id="detected-time" label="Detection time"><TextInput id="detected-time" name="detected-time" type="datetime-local" value={form.detected} onChange={(event) => set("detected", event.target.value)} /></FormField>
           </div>
-          {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
           <div className="dialog-actions"><Button type="button" variant="outline" onClick={() => setStep(1)}>Back</Button><Button type="button" onClick={() => void create()} disabled={saving}>{saving ? "Creating…" : <><CheckCircle2 aria-hidden="true" />Create Investigation</>}</Button></div>
         </FieldGroup>}
       </CardContent>

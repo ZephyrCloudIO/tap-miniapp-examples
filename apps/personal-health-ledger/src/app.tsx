@@ -102,6 +102,7 @@ import {
   serializeLedger,
   updateItemStatus,
   updateOrderStatus,
+  withLedgerEntropy,
   withRole,
   type LedgerState,
   type OrderStatus,
@@ -122,6 +123,11 @@ import {
   runHealthSpecialist,
 } from './specialist';
 import { refreshOfficialResearchSources } from './research-sources';
+import {
+  checkLedgerAction,
+  requireLedgerAction,
+  type LedgerAction,
+} from './authorization';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -249,6 +255,13 @@ interface ConfirmationRequest {
 type RequestConfirmation = (request: ConfirmationRequest) => void;
 
 const closedDialog: DialogState = { kind: null };
+const ledgerActions = ['manage', 'research', 'export'] as const satisfies
+  readonly LedgerAction[];
+const previewActionAccess = {
+  manage: true,
+  research: true,
+  export: true,
+} as const satisfies Readonly<Record<LedgerAction, boolean>>;
 
 export function HealthLedgerApp({ preview = false, context }: AppProps) {
   const [state, setState] = useState<LedgerState | null>(null);
@@ -257,6 +270,9 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionAccess, setActionAccess] = useState<Readonly<
+    Record<LedgerAction, boolean>
+  > | null>(() => (preview ? previewActionAccess : null));
   const [notice, setNotice] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState>(closedDialog);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -268,6 +284,61 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
     return NAVIGATION.some(item => item.value === hash) ? hash : 'overview';
   });
   const importRef = useRef<HTMLInputElement>(null);
+  const randomUUID = useCallback(
+    () => context?.entropy.randomUUID() ?? crypto.randomUUID(),
+    [context],
+  );
+  const checkAction = useCallback(
+    async (action: LedgerAction): Promise<boolean> =>
+      preview || checkLedgerAction(action),
+    [preview],
+  );
+  const requireAction = useCallback(
+    async (action: LedgerAction): Promise<void> => {
+      if (!preview) await requireLedgerAction(action);
+    },
+    [preview],
+  );
+  const requireResearchAccess = useCallback(async (): Promise<void> => {
+    await requireAction('research');
+    await requireAction('manage');
+  }, [requireAction]);
+
+  useEffect(() => {
+    if (preview) {
+      setActionAccess(previewActionAccess);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      ledgerActions.map(
+        async action => [action, await checkAction(action)] as const,
+      ),
+    )
+      .then(entries => {
+        if (!cancelled) {
+          setActionAccess(
+            Object.fromEntries(entries) as Record<LedgerAction, boolean>,
+          );
+        }
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setActionAccess({
+          manage: false,
+          research: false,
+          export: false,
+        });
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'TAP could not verify optional health-ledger authority.',
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkAction, preview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,6 +399,7 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
       setSaving(true);
       setError(null);
       try {
+        await requireAction('manage');
         const revision = await saveLedger(next, preview, revisionRef.current);
         revisionRef.current = revision;
         stateRef.current = next;
@@ -359,7 +431,7 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
       setSaving(false);
       return null;
     },
-    [context, preview],
+    [context, preview, requireAction],
   );
 
   const mutate = useCallback(
@@ -370,7 +442,10 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
       const current = stateRef.current;
       if (!current) return 'The ledger is not available. Reload and try again.';
       try {
-        return await commit(operation(current), message);
+        return await commit(
+          withLedgerEntropy(randomUUID, () => operation(current)),
+          message,
+        );
       } catch (cause) {
         const operationError =
           cause instanceof Error ? cause.message : 'The operation failed.';
@@ -378,7 +453,7 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
         return operationError;
       }
     },
-    [commit],
+    [commit, randomUUID],
   );
 
   const reload = useCallback(() => {
@@ -404,16 +479,19 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
     globalThis.history?.replaceState(null, '', `#${next}`);
   }, []);
 
-  if (!loaded) return <LoadingScreen />;
+  if (!loaded || !actionAccess) return <LoadingScreen />;
   if (!state) {
     return (
       <Onboarding
         error={error}
         saving={saving}
+        canManage={actionAccess.manage}
         onCreate={async (ownerLabel, jurisdiction) => {
           try {
             const commitError = await commit(
-              createLedger(ownerLabel, jurisdiction),
+              withLedgerEntropy(randomUUID, () =>
+                createLedger(ownerLabel, jurisdiction),
+              ),
               'Private ledger created',
             );
             if (!commitError) window.scrollTo({ top: 0, behavior: 'auto' });
@@ -429,7 +507,12 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
     );
   }
 
-  const readOnly = state.role === 'viewer';
+  const roleReadOnly = state.role === 'viewer';
+  const canManage = !roleReadOnly && actionAccess.manage;
+  const canResearch =
+    !roleReadOnly && actionAccess.manage && actionAccess.research;
+  const canExport = !roleReadOnly && actionAccess.export;
+  const readOnly = !canManage;
   const page = PAGE_COPY[activeTab] ?? PAGE_COPY.overview!;
   const openDialog = (
     kind: Exclude<EntryKind, null>,
@@ -484,7 +567,13 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
           </span>
           <div className="profile-copy">
             <strong>{state.ownerLabel}</strong>
-            <span>{readOnly ? 'Viewer access' : 'Ledger owner'}</span>
+            <span>
+              {roleReadOnly
+                ? 'Viewer access'
+                : canManage
+                  ? 'Ledger owner'
+                  : 'View-only authority'}
+            </span>
           </div>
           <Badge variant={readOnly ? 'outline' : 'secondary'}>
             {readOnly ? 'View' : 'Owner'}
@@ -603,6 +692,8 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
               openDialog={openDialog}
               preview={preview}
               context={context}
+              researchAllowed={canResearch}
+              requireResearch={requireResearchAccess}
               mutate={mutate}
               requestConfirmation={setConfirmation}
             />
@@ -610,7 +701,10 @@ export function HealthLedgerApp({ preview = false, context }: AppProps) {
           <TabsContent value="reports" className="page-panel">
             <ReportsPage
               state={state}
-              readOnly={readOnly}
+              readOnly={roleReadOnly}
+              canManage={canManage}
+              canExport={canExport}
+              requireExport={() => requireAction('export')}
               preview={preview}
               context={context}
               importRef={importRef}
@@ -821,10 +915,12 @@ function LoadingScreen() {
 function Onboarding({
   error,
   saving,
+  canManage,
   onCreate,
 }: {
   readonly error: string | null;
   readonly saving: boolean;
+  readonly canManage: boolean;
   readonly onCreate: (owner: string, jurisdiction: string) => Promise<void>;
 }) {
   return (
@@ -915,7 +1011,7 @@ function Onboarding({
                 {error}
               </p>
             ) : null}
-            <Button type="submit" size="lg" disabled={saving}>
+            <Button type="submit" size="lg" disabled={saving || !canManage}>
               {saving ? 'Creating Ledger…' : 'Create Private Ledger'}{' '}
               {!saving ? (
                 <Icon icon={ArrowRight} size="sm" aria-hidden="true" />
@@ -925,8 +1021,9 @@ function Onboarding({
           <div className="onboarding-security">
             <Icon icon={ShieldCheck} size="sm" aria-hidden="true" />
             <span>
-              Packaged records use TAP’s workspace-and-package-scoped storage.
-              Browser preview data stays separate.
+              {canManage
+                ? 'Packaged records use TAP’s workspace-and-package-scoped storage. Browser preview data stays separate.'
+                : 'This surface can be viewed, but TAP has not granted authority to create or change a ledger.'}
             </span>
           </div>
         </CardContent>
@@ -2237,11 +2334,15 @@ function ResearchPage({
   openDialog,
   preview,
   context,
+  researchAllowed,
+  requireResearch,
   mutate,
   requestConfirmation,
 }: PageCommonProps & {
   readonly preview: boolean;
   readonly context: TapFederatedSurfaceMountContext | undefined;
+  readonly researchAllowed: boolean;
+  readonly requireResearch: () => Promise<void>;
   readonly mutate: Mutation;
   readonly requestConfirmation: RequestConfirmation;
 }) {
@@ -2265,6 +2366,8 @@ function ResearchPage({
   const needsItem = task === 'research-update' || task === 'anecdotal-pulse';
   const needsAdministration = task === 'log-administration';
   const workspaceId = context?.workspaceId ?? '';
+  const randomUUID = (): string =>
+    context?.entropy.randomUUID() ?? crypto.randomUUID();
   const selectedResearchItem = state.items.find(item => item.id === itemId);
   const selectedResearchView = state.savedViews.find(view => view.id === viewId);
   const selectedResearchWatch = state.researchWatches.find(
@@ -2278,6 +2381,7 @@ function ResearchPage({
     setSpecialistError(null);
     setSpecialistStatus('connecting');
     try {
+      await requireResearch();
       const installed = await installHealthSpecialist(workspaceId);
       const persistenceError = await mutate(
         current =>
@@ -2310,6 +2414,7 @@ function ResearchPage({
     setSourceRefreshError(null);
     setSourceRefreshStatus('running');
     try {
+      await requireResearch();
       const refresh = await refreshOfficialResearchSources(query);
       const persistenceError = await mutate(
         current =>
@@ -2341,10 +2446,11 @@ function ResearchPage({
 
   const run = async (): Promise<void> => {
     if (!binding) return;
-    const replayKey = crypto.randomUUID();
     setSpecialistError(null);
     setSpecialistStatus('running');
     try {
+      await requireResearch();
+      const replayKey = randomUUID();
       const prompt = buildSpecialistPrompt({
         task,
         state,
@@ -2382,10 +2488,12 @@ function ResearchPage({
         const draft = result.administrationDraft;
         const administrationInput = {
           ...draft,
-          replayKey: crypto.randomUUID(),
+          replayKey: randomUUID(),
         };
         try {
-          recordAdministration(state, administrationInput);
+          withLedgerEntropy(randomUUID, () =>
+            recordAdministration(state, administrationInput),
+          );
         } catch (cause) {
           throw new Error(
             `The specialist briefing was saved, but its administration draft failed ledger validation. ${cause instanceof Error ? cause.message : 'Review the supplied values.'}`,
@@ -2463,6 +2571,16 @@ function ResearchPage({
               <AlertDescription>{specialistError}</AlertDescription>
             </Alert>
           ) : null}
+          {!preview && !researchAllowed ? (
+            <Alert className="specialist-error">
+              <Icon icon={LockKeyhole} size="sm" aria-hidden="true" />
+              <AlertTitle>Research Access Unavailable</AlertTitle>
+              <AlertDescription>
+                TAP has not granted the package authority to run research or
+                send private context.
+              </AlertDescription>
+            </Alert>
+          ) : null}
           {preview ? (
             <div className="specialist-unavailable">
               <span>
@@ -2507,7 +2625,7 @@ function ResearchPage({
               {!readOnly ? (
                 <Button
                   onClick={() => void connect()}
-                  disabled={specialistStatus !== 'idle'}
+                  disabled={!researchAllowed || specialistStatus !== 'idle'}
                 >
                   <Icon
                     icon={
@@ -2643,6 +2761,7 @@ function ResearchPage({
                     </p>
                     <Button
                       disabled={
+                        !researchAllowed ||
                         specialistStatus !== 'idle' ||
                         !privateContextApproved ||
                         (needsItem && (!itemId || !viewId)) ||
@@ -2825,7 +2944,12 @@ function ResearchPage({
             <Checkbox
               name="source-query-approved"
               checked={sourceQueryApproved}
-              disabled={readOnly || preview || !selectedResearchItem}
+              disabled={
+                readOnly ||
+                preview ||
+                !researchAllowed ||
+                !selectedResearchItem
+              }
               onCheckedChange={checked =>
                 setSourceQueryApproved(checked === true)
               }
@@ -2860,6 +2984,7 @@ function ResearchPage({
               disabled={
                 readOnly ||
                 preview ||
+                !researchAllowed ||
                 sourceRefreshStatus !== 'idle' ||
                 !selectedResearchItem ||
                 !selectedResearchView ||
@@ -3083,6 +3208,9 @@ function LinkedSpecialistContent({ value }: { readonly value: string }) {
 function ReportsPage({
   state,
   readOnly,
+  canManage,
+  canExport,
+  requireExport,
   preview,
   context,
   importRef,
@@ -3092,6 +3220,9 @@ function ReportsPage({
 }: {
   readonly state: LedgerState;
   readonly readOnly: boolean;
+  readonly canManage: boolean;
+  readonly canExport: boolean;
+  readonly requireExport: () => Promise<void>;
   readonly preview: boolean;
   readonly context: TapFederatedSurfaceMountContext | undefined;
   readonly importRef: React.RefObject<HTMLInputElement | null>;
@@ -3145,12 +3276,28 @@ function ReportsPage({
         </aside>
       </div>
     );
+  const exportFile = async (
+    name: string,
+    value: string,
+    type: string,
+  ): Promise<void> => {
+    setPlatformStatus(null);
+    try {
+      await requireExport();
+      download(name, value, type);
+    } catch (cause) {
+      setPlatformStatus(
+        cause instanceof Error ? cause.message : 'The export was not allowed.',
+      );
+    }
+  };
   const saveToVfs = async () => {
     if (!context?.conversationId || !sdk.vfs) {
       setPlatformStatus('TAP VFS is not available in this surface context.');
       return;
     }
     try {
+      await requireExport();
       await sdk.vfs.writeFile(
         context.conversationId,
         `personal-health-ledger/clinician-summary-${todayIso()}.txt`,
@@ -3194,12 +3341,20 @@ function ReportsPage({
             </CardDescription>
           </CardHeader>
           <CardContent className="export-options">
+            {!canExport ? (
+              <p className="storage-boundary" role="status">
+                <Icon icon={LockKeyhole} size="sm" aria-hidden="true" />
+                TAP has not granted this package authority to export the
+                ledger.
+              </p>
+            ) : null}
             <ExportOption
               icon={FileText}
               title="Printable HTML"
               description="Clinician-friendly layout"
+              disabled={!canExport}
               onClick={() =>
-                download(
+                void exportFile(
                   `clinician-summary-${todayIso()}.html`,
                   html,
                   'text/html',
@@ -3210,8 +3365,9 @@ function ReportsPage({
               icon={Download}
               title="Plain Text"
               description="Portable concise summary"
+              disabled={!canExport}
               onClick={() =>
-                download(
+                void exportFile(
                   `clinician-summary-${todayIso()}.txt`,
                   summary,
                   'text/plain',
@@ -3222,16 +3378,22 @@ function ReportsPage({
               icon={ClipboardList}
               title="Administration CSV"
               description="Structured event history"
+              disabled={!canExport}
               onClick={() =>
-                download(`health-ledger-${todayIso()}.csv`, csv, 'text/csv')
+                void exportFile(
+                  `health-ledger-${todayIso()}.csv`,
+                  csv,
+                  'text/csv',
+                )
               }
             />
             <ExportOption
               icon={Box}
               title="Complete Archive"
               description="Machine-readable JSON"
+              disabled={!canExport}
               onClick={() =>
-                download(
+                void exportFile(
                   `health-ledger-${todayIso()}.json`,
                   serializeLedger(state),
                   'application/json',
@@ -3242,6 +3404,7 @@ function ReportsPage({
               icon={LockKeyhole}
               title="Save to TAP VFS"
               description="Requires an active conversation"
+              disabled={!canExport}
               onClick={() => void saveToVfs()}
             />
             {platformStatus ? (
@@ -3266,6 +3429,7 @@ function ReportsPage({
               aria-label="JSON archive file"
               accept="application/json,.json"
               className="sr-only"
+              disabled={!canManage}
               onChange={event => {
                 const file = event.target.files?.[0];
                 if (!file) return;
@@ -3295,6 +3459,7 @@ function ReportsPage({
             <Button
               variant="outline"
               className="full-width"
+              disabled={!canManage}
               onClick={() => importRef.current?.click()}
             >
               Choose JSON Archive…
@@ -3305,6 +3470,7 @@ function ReportsPage({
               aria-label="Administration CSV file"
               accept="text/csv,.csv"
               className="sr-only"
+              disabled={!canManage}
               onChange={event => {
                 const file = event.target.files?.[0];
                 if (!file) return;
@@ -3332,6 +3498,7 @@ function ReportsPage({
             <Button
               variant="outline"
               className="full-width import-secondary"
+              disabled={!canManage}
               onClick={() => csvImportRef.current?.click()}
             >
               Choose Administration CSV…
@@ -3353,15 +3520,22 @@ function ExportOption({
   icon,
   title,
   description,
+  disabled,
   onClick,
 }: {
   readonly icon: typeof Download;
   readonly title: string;
   readonly description: string;
+  readonly disabled: boolean;
   readonly onClick: () => void;
 }) {
   return (
-    <button type="button" className="export-option" onClick={onClick}>
+    <button
+      type="button"
+      className="export-option"
+      disabled={disabled}
+      onClick={onClick}
+    >
       <span>
         <Icon icon={icon} size="sm" aria-hidden="true" />
       </span>

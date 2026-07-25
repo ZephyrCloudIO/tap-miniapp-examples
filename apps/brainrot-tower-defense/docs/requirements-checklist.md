@@ -13,7 +13,7 @@ to this miniapp.
   validation, serialization, fixed ticks, seeded variation, and replay guards.
 - [x] Rust release build uses LTO, one codegen unit, aborting panics, and
   `wasm-opt`; WASM is built before Rsbuild/Rslib.
-- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.2.0`.
+- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.4.1`.
 - [x] Desktop federated surface and lifecycle expose are packaged.
 - [x] Hand-authored application/gameplay code is Rust/WASM; the small `.mjs`
   files are the unavoidable Rslib federation, asset, authority, and MCP
@@ -205,7 +205,7 @@ are created by the authoritative runtime only when waves spawn them.
   capped at 512 participants for bounded parsing and rendering; four active
   player slots remain enforced.
 - [ ] Secure command-sender binding, authoritative reconnect, and timed slot
-  expiry/disconnect-driven host migration — blocked because SDK 0.2.0 exposes
+  expiry/disconnect-driven host migration — blocked because SDK 0.4.1 exposes
   no platform-owned session command or reconnect-lease primitive and storage
   records contain client-authored identity.
 - [x] Read-only Chloe game-state tool — the package-runtime
@@ -229,8 +229,8 @@ are created by the authoritative runtime only when waves spawn them.
   replay and payload substitution, processed-command receipt validation,
   persisted-ack reconciliation, completion-receipt migration/serialization,
   delayed participant catch-up, cursor rotation, and bounded merge safety.
-- [x] The final native suite contains 143 passing tests: 23 content, 51 core,
-  4 protocol-contract, 27 renderer, 34 web lifecycle/UI helper, and 4 typed TAP
+- [x] The final native suite contains 144 passing tests: 23 content, 51 core,
+  5 protocol-contract, 27 renderer, 34 web lifecycle/UI helper, and 4 typed TAP
   bridge tests. Upgrade coverage includes all four authored costs,
   branch commitment, insufficient resources, duplicate/stale replay, reload at
   level 5, invalid level/path combinations, control recovery, strongest-only
@@ -246,9 +246,14 @@ are created by the authoritative runtime only when waves spawn them.
 - [x] Presence bridge validation, durable outbox replay, concurrent progression
   merge, and channel-index merge tests.
 - [x] Content validation is a mandatory browser/federated build step.
-- [ ] Automated browser harness for input, renderer startup, audio, lifecycle,
-  presence, and restoration — live browser interaction exists, but the brief's
-  automated browser suite is not implemented.
+- [x] Schema-v2 Surface Test Lab coverage declares one desktop cell, three
+  deterministic permission profiles, and seven directly discovered cases for
+  mount provenance, storage/presence hydration, durable events, channel cards,
+  exact reset/replay entropy, synthetic post-projection revocation, and
+  channel-message-only denial.
+- [ ] Host-driven execution of those browser cases still requires an
+  authenticated Miniapp Test Lab session. Local typechecking and credential-free
+  discovery do not claim to substitute for that run.
 - [x] The product owner explicitly waived byte and frame-time budgets in favor
   of game quality. Bundle-size measurements remain informational diagnostics;
   live consecutive-frame verification confirms the animation loop advances,

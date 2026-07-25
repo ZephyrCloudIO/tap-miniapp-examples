@@ -1,15 +1,23 @@
 import { useMemo, useState } from "react";
 import { Alert, AlertDescription, Badge, Button, Card, CardContent, FieldGroup, Separator } from "@theaiplatform/miniapp-sdk/ui";
 import { AlertTriangle, Check, Clock3, Edit3, GitCompareArrows, Plus, ShieldQuestion, TimerReset, X } from "lucide-react";
-import { auditMutation, canEdit, canReview, runtimeId, timestamp, type Actor, type Investigation, type TimelineEvent } from "../domain";
+import {
+  PYRE_APPROVE_ACTION,
+  PYRE_INVESTIGATE_ACTION,
+  type PyreAuthorityGuard,
+} from "../authority";
+import { canEdit, canReview, timestamp, type Actor, type Investigation, type TimelineEvent } from "../domain";
+import { useAuditMutation, useRuntimeId } from "../runtime-id";
 import { AddButton, EmptyPanel, EntityDialog, FormField, Metric, PermissionNotice, SectionHeader, SelectInput, StatusBadge, TextAreaInput, TextInput } from "../ui-helpers";
 
-interface Props { investigation: Investigation; actor: Actor; saving: boolean; onUpdate(next: Investigation, notice: string): Promise<boolean> }
+interface Props { investigation: Investigation; actor: Actor; saving: boolean; authorize: PyreAuthorityGuard; onUpdate(next: Investigation, notice: string): Promise<boolean> }
 const blank = { timestamp: "", originalTimestamp: "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, type: "incident" as TimelineEvent["type"], actor: "", description: "", confidence: "uncertain" as TimelineEvent["confidence"], evidenceIds: [] as string[] };
 const fmt = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 const duration = (from?: string, to?: string) => { if (!from || !to) return "—"; const mins = Math.max(0, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 60000)); return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`; };
 
-export function TimelineView({ investigation, actor, saving, onUpdate }: Props) {
+export function TimelineView({ investigation, actor, saving, authorize, onUpdate }: Props) {
+  const auditMutation = useAuditMutation();
+  const runtimeId = useRuntimeId();
   const editable = canEdit(investigation, actor.id), reviewer = canReview(investigation, actor.id);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<TimelineEvent>();
@@ -21,12 +29,14 @@ export function TimelineView({ investigation, actor, saving, onUpdate }: Props) 
   const startEdit = (event: TimelineEvent) => { setEditing(event); setForm({ timestamp: event.timestamp.slice(0, 16), originalTimestamp: event.originalTimestamp, timezone: event.timezone, type: event.type, actor: event.actor, description: event.description, confidence: event.confidence, evidenceIds: event.evidenceIds }); setOpen(true); };
   const save = async () => {
     if (!form.timestamp || !form.description.trim()) return;
+    if (!(await authorize(PYRE_INVESTIGATE_ACTION))) return;
     const row: TimelineEvent = { id: runtimeId("event"), ...form, originalTimestamp: form.originalTimestamp || form.timestamp, reviewStatus: "proposed", supersedesId: editing?.id };
     const timeline = editing ? [...investigation.timeline, row] : [...investigation.timeline, row];
     const next = auditMutation({ ...investigation, timeline }, actor.id, editing ? "timeline.corrected" : "timeline.created", "timeline-event", row.id, editing ? `Correction proposed for ${editing.description}` : row.description, editing, row);
     if (await onUpdate(next, editing ? "Timeline correction added without overwriting the prior event." : "Timeline event added for review.")) reset();
   };
   const review = async (event: TimelineEvent, status: "confirmed" | "disputed") => {
+    if (!(await authorize(PYRE_APPROVE_ACTION))) return;
     const next = auditMutation({ ...investigation, timeline: investigation.timeline.map((item) => item.id === event.id ? { ...item, reviewStatus: status, confidence: status === "disputed" ? "disputed" as const : item.confidence } : item) }, actor.id, `timeline.${status}`, "timeline-event", event.id, `${event.description} marked ${status}`);
     await onUpdate(next, `Timeline event marked ${status}.`);
   };

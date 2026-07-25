@@ -1,14 +1,22 @@
 import { useState } from "react";
 import { Alert, AlertDescription, Badge, Button, Card, CardContent, FieldGroup, Progress } from "@theaiplatform/miniapp-sdk/ui";
 import { AlertTriangle, CalendarDays, CheckCircle2, CircleDot, ClipboardCheck, Plus, ShieldCheck, UserRoundCheck } from "lucide-react";
-import { auditMutation, canEdit, canReview, runtimeId, type Actor, type CorrectiveAction, type Investigation } from "../domain";
+import {
+  PYRE_APPROVE_ACTION,
+  PYRE_INVESTIGATE_ACTION,
+  type PyreAuthorityGuard,
+} from "../authority";
+import { canEdit, canReview, type Actor, type CorrectiveAction, type Investigation } from "../domain";
+import { useAuditMutation, useRuntimeId } from "../runtime-id";
 import { AddButton, EmptyPanel, EntityDialog, FormField, Metric, PermissionNotice, SectionHeader, SelectInput, StatusBadge, TextAreaInput, TextInput } from "../ui-helpers";
 
-interface Props { investigation: Investigation; actor: Actor; saving: boolean; onUpdate(next: Investigation, notice: string): Promise<boolean> }
+interface Props { investigation: Investigation; actor: Actor; saving: boolean; authorize: PyreAuthorityGuard; onUpdate(next: Investigation, notice: string): Promise<boolean> }
 const blank = { title: "", factorId: "", category: "prevention" as CorrectiveAction["category"], priority: "medium" as CorrectiveAction["priority"], owner: "", dueDate: "", acceptanceCriteria: "", verificationMethod: "", requiredEvidence: "" };
 const columns: Array<{ status: CorrectiveAction["status"]; label: string }> = [{ status: "open", label: "Planned" }, { status: "in-progress", label: "In Progress" }, { status: "awaiting-verification", label: "Verify" }, { status: "verified", label: "Complete" }];
 
-export function ActionsView({ investigation, actor, saving, onUpdate }: Props) {
+export function ActionsView({ investigation, actor, saving, authorize, onUpdate }: Props) {
+  const auditMutation = useAuditMutation();
+  const runtimeId = useRuntimeId();
   const editable = canEdit(investigation, actor.id), reviewer = canReview(investigation, actor.id);
   const [open, setOpen] = useState(false);
   const [verify, setVerify] = useState<CorrectiveAction>();
@@ -19,15 +27,18 @@ export function ActionsView({ investigation, actor, saving, onUpdate }: Props) {
   const unassigned = investigation.actions.filter((item) => !item.owner.trim()).length;
   const create = async () => {
     if (!form.title.trim() || !form.owner.trim() || !form.acceptanceCriteria.trim() || !form.verificationMethod.trim()) return;
+    if (!(await authorize(PYRE_INVESTIGATE_ACTION))) return;
     const row: CorrectiveAction = { id: runtimeId("action"), title: form.title.trim(), factorId: form.factorId || undefined, category: form.category, priority: form.priority, owner: form.owner.trim(), dueDate: form.dueDate || undefined, acceptanceCriteria: form.acceptanceCriteria.trim(), verificationMethod: form.verificationMethod.trim(), requiredEvidence: form.requiredEvidence.trim(), evidenceIds: [], status: "open" };
     if (await onUpdate(auditMutation({ ...investigation, actions: [...investigation.actions, row] }, actor.id, "action.created", "corrective-action", row.id, row.title), "Corrective action created.")) { setOpen(false); setForm(blank); }
   };
   const move = async (item: CorrectiveAction, status: CorrectiveAction["status"]) => {
+    if (!(await authorize(PYRE_INVESTIGATE_ACTION))) return;
     const actions = investigation.actions.map((action) => action.id === item.id ? { ...action, status } : action);
     await onUpdate(auditMutation({ ...investigation, actions }, actor.id, "action.status-changed", "corrective-action", item.id, `${item.status} → ${status}`, item.status, status), `Action moved to ${status.replace("-", " ")}.`);
   };
   const completeVerification = async () => {
     if (!verify || !verification.receipt.trim() || !verification.evidenceIds.length) return;
+    if (!(await authorize(PYRE_APPROVE_ACTION))) return;
     const actions = investigation.actions.map((action) => action.id === verify.id ? { ...action, status: "verified" as const, completionReceipt: verification.receipt.trim(), evidenceIds: verification.evidenceIds, effectiveness: verification.effectiveness } : action);
     const next = auditMutation({ ...investigation, actions }, actor.id, "action.verified", "corrective-action", verify.id, `${verify.title} verified as ${verification.effectiveness}`);
     if (await onUpdate(next, "Action verification recorded with evidence.")) { setVerify(undefined); setVerification({ receipt: "", evidenceIds: [], effectiveness: "effective" }); }

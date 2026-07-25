@@ -18,17 +18,22 @@ export function mount(
     <VantaCompanionApp
       hostWorkspaceId={context.workspaceId ?? ''}
       hostChannelId={context.channelId ?? ''}
+      randomUUID={context.entropy.randomUUID}
+      hostContext={context}
     />,
   );
-  void context.events.publish('surface.mounted', {
+  void context.events.publish('vanta-companion.surface.mounted', {
     contributionId: context.contributionId,
     instanceId: context.instanceId,
   });
+  let mounted = true;
   return {
     unmount() {
+      if (!mounted) return;
+      mounted = false;
       stop();
       root.unmount();
-      void context.events.publish('surface.unmounted', {
+      void context.events.publish('vanta-companion.surface.unmounted', {
         contributionId: context.contributionId,
         instanceId: context.instanceId,
       });

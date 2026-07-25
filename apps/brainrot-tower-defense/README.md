@@ -114,6 +114,8 @@ python3 -m pip install -r scripts/requirements-assets.txt
 python3 scripts/build-enemy-atlas.py
 pnpm test
 pnpm typecheck
+pnpm typecheck:tap
+pnpm test:tap:list
 pnpm lint
 pnpm format:check
 pnpm validate:manifest
@@ -126,7 +128,7 @@ informational diagnostics, not a quality budget or acceptance threshold: game
 quality, route readability, art, and audio are not constrained by a byte cap.
 
 Release `0.1.4` is declared in both `package.json` and `manifest.tap.json`. Its
-native evidence is 143 passing tests: 23 content, 51 core, 4 protocol, 27
+native evidence is 144 passing tests: 23 content, 51 core, 5 protocol, 27
 renderer, 34 web, and 4 TAP bridge tests. In addition to the complete economy,
 upgrade, replay, and permission suite, this release locks School Hallway Rush to
 its reviewed two-entrance map contract: both painted lanes converge on a shared
@@ -147,7 +149,7 @@ level-1-to-5 purchase run, production reload, 2048 px desktop layout, 390 px
 compact layout, and clean browser warning/error log are recorded separately in
 the requirements checklist so the native and live evidence remain explicit.
 
-## SDK 0.2.0 blockers resolved
+## SDK 0.4.1 integration
 
 The app now mounts its portable toolbar, runtime badge, TAP save status, and
 browser-preview reset confirmation through
@@ -163,6 +165,17 @@ calls the Rust/WASM snapshot export directly and returns a bounded,
 schema-validated view of the selected channel game under the
 `brainrot-td.read-state` permission. The manifest, server-specific federation
 expose, and input/output schemas are validated together during the build.
+Surface Test Lab cannot yet invoke a package-runtime MCP expose as a
+selected-specialist consumer, so the descriptor carries an expiring
+`brainrot-td.read-state` waiver instead of presenting the Rust snapshot test as
+end-to-end MCP evidence.
+
+Only `brainrot-td.play` is required to project the game surface.
+`channels.send-message` is declared as an on-demand action and checked
+independently, so denying channel activity cards does not disable gameplay,
+storage, presence, or durable package events. The Test Lab all-denied case is a
+synthetic post-projection authority revocation: denying the required play action
+before projection would prevent a production surface from mounting.
 
 ## Remaining platform and distribution blockers
 

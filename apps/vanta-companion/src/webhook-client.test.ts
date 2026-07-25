@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@rstest/core';
 import {
+  fetchWebhookEvents,
   normalizeWebhookApiUrl,
   parseWebhookEventPage,
 } from './webhook-client';
@@ -40,5 +41,38 @@ describe('webhook client boundary', () => {
         'workspace-1',
       ),
     ).toThrow('duplicate');
+  });
+
+  it('requests the bounded event feed with Access cookies and a cursor', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const page = await fetchWebhookEvents({
+      apiUrl: 'https://events.example.com',
+      workspaceId: 'workspace-1',
+      cursor: 'cursor-1',
+      fetchImpl: async (input, init) => {
+        requests.push({ url: String(input), init });
+        return Response.json({
+          workspaceId: 'workspace-1',
+          events: [],
+          nextCursor: 'cursor-2',
+          hasMore: false,
+        });
+      },
+    });
+
+    expect(requests).toEqual([
+      {
+        url: 'https://events.example.com/v1/events?limit=100&cursor=cursor-1',
+        init: {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        },
+      },
+    ]);
+    expect(page).toMatchObject({
+      workspaceId: 'workspace-1',
+      nextCursor: 'cursor-2',
+      hasMore: false,
+    });
   });
 });

@@ -1,0 +1,79 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_family_task_board_0001",
+      "namespace": "family-task-board",
+      "key": "household/main",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 2,
+        "familyName": "Rivera",
+        "members": [
+          {
+            "id": "fixture-parent-alex",
+            "name": "Alex",
+            "role": "parent",
+            "avatar": "A",
+            "color": "coral"
+          },
+          {
+            "id": "fixture-kid-sam",
+            "name": "Sam",
+            "role": "kid",
+            "avatar": "S",
+            "color": "violet"
+          }
+        ],
+        "tasks": [
+          {
+            "id": "fixture-task-laundry",
+            "title": "Fold the laundry",
+            "assigneeId": "fixture-kid-sam",
+            "kind": "required",
+            "stars": 3,
+            "dueLabel": "Before dinner",
+            "durationMinutes": 15,
+            "status": "open"
+          }
+        ],
+        "events": [
+          {
+            "id": "fixture-event-soccer",
+            "memberId": "fixture-kid-sam",
+            "title": "Soccer practice",
+            "timeLabel": "16:30",
+            "tone": "purple"
+          }
+        ],
+        "ledger": [
+          {
+            "id": "fixture-ledger-allowance",
+            "memberId": "fixture-kid-sam",
+            "actorId": "fixture-parent-alex",
+            "type": "bonus",
+            "delta": 5,
+            "note": "Fixture allowance",
+            "createdAt": "2026-07-24T12:00:00.000Z"
+          }
+        ],
+        "shop": [
+          {
+            "id": "fixture-reward-game",
+            "title": "Game time",
+            "description": "Thirty minutes of game time",
+            "cost": 4,
+            "icon": "🎮",
+            "inventory": null
+          }
+        ],
+        "purchases": [],
+        "transfers": [],
+        "settings": {
+          "transferLimit": 8,
+          "parentApprovalThreshold": 4
+        }
+      }
+    }
+  ]
+}

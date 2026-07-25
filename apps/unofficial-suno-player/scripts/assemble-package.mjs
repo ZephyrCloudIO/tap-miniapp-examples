@@ -1,14 +1,15 @@
 import { assembleTapPackage, assertPortableTapPackageArtifacts } from "@theaiplatform/miniapp-sdk/rspack";
+import { fileURLToPath } from "node:url";
 
-const packageRoot = new URL("../tap-package", import.meta.url).pathname;
-const sourceRoot = new URL("..", import.meta.url).pathname;
+const packageRoot = fileURLToPath(new URL("../tap-package", import.meta.url));
+const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 
 await assembleTapPackage({
-  manifest: new URL("../manifest.tap.json", import.meta.url).pathname,
+  manifest: fileURLToPath(new URL("../manifest.tap.json", import.meta.url)),
   output: packageRoot,
   targets: {
-    desktop: new URL("../.tap-build/desktop", import.meta.url).pathname,
-    "workflow-host": new URL("../.tap-build/workflow-host", import.meta.url).pathname,
+    desktop: fileURLToPath(new URL("../.tap-build/desktop", import.meta.url)),
+    "workflow-host": fileURLToPath(new URL("../.tap-build/workflow-host", import.meta.url)),
   },
 });
 

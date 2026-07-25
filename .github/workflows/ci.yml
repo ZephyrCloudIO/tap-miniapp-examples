@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: SDK, capability, build, and test validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install stable Rust with the WASM target
+        run: |
+          rustup toolchain install stable \
+            --profile minimal \
+            --component rustfmt \
+            --component clippy \
+            --target wasm32-unknown-unknown
+          rustup default stable
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the pinned WASM packager
+        run: |
+          if [ "$(wasm-pack --version 2>/dev/null || true)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked --force
+          fi
+          wasm-pack --version
+
+      - name: Verify SDK pins and Test Lab capability coverage
+        run: pnpm verify:tap
+
+      - name: Verify Brainrot Rust formatting and lints
+        run: |
+          pnpm --dir apps/brainrot-tower-defense run format:check
+          pnpm --dir apps/brainrot-tower-defense run lint
+
+      - name: Typecheck and test every workspace
+        run: |
+          pnpm typecheck
+          pnpm test:unit
+
+      - name: Build every example without publication credentials
+        run: pnpm build

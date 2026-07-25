@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 
 const require = createRequire(import.meta.url);
@@ -18,7 +19,7 @@ if (!validate(manifest)) {
   process.exit(1);
 }
 
-const schemaDirectory = new URL("../schemas", import.meta.url).pathname;
+const schemaDirectory = fileURLToPath(new URL("../schemas", import.meta.url));
 const eventSchemas = fs.readdirSync(schemaDirectory)
   .filter((name) => name.endsWith(".schema.json"))
   .map((name) => JSON.parse(fs.readFileSync(path.join(schemaDirectory, name), "utf8")));
@@ -39,7 +40,7 @@ const canonicalJson = (value) => {
   }
   return JSON.stringify(value);
 };
-const workflowSchemaDirectory = new URL("../workflow-schemas", import.meta.url).pathname;
+const workflowSchemaDirectory = fileURLToPath(new URL("../workflow-schemas", import.meta.url));
 const workflowReferences = manifest.contributions.flatMap((contribution) => {
   if (contribution.kind === "workflow") return [contribution.options.manifest, ...contribution.options.inputs.map((port) => port.schema), ...contribution.options.outputs.map((port) => port.schema)];
   if (contribution.kind === "workflow.node") return [contribution.options.config, ...contribution.options.inputs.map((port) => port.schema), ...contribution.options.outputs.map((port) => port.schema)];
@@ -53,4 +54,4 @@ for (const reference of workflowReferences) {
   if (integrity !== reference.integrity) throw new Error(`Workflow schema ${reference.id} does not match its canonical integrity.`);
 }
 
-console.log(`manifest.tap.json, ${eventSchemas.length} event schemas, and ${workflowReferences.length} workflow schema references are valid against SDK 0.2.0 contracts`);
+console.log(`manifest.tap.json, ${eventSchemas.length} event schemas, and ${workflowReferences.length} workflow schema references are valid against SDK 0.4.1 contracts`);

@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": true,
+    "noEmit": true,
+    "tsBuildInfoFile": ".turbo/typecheck.tap.tsbuildinfo"
+  },
+  "include": [
+    "tests/e2e/**/*.ts",
+    "tests/e2e/**/*.tsx",
+    "rstest.tap.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".tap-build",
+    ".tap-legacy",
+    ".turbo"
+  ]
+}

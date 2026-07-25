@@ -11,10 +11,13 @@
     "build:preview": "rsbuild build",
     "build:miniapp": "rslib build",
     "typecheck": "tsc --noEmit",
-    "test": "rstest run"
+    "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
+    "test": "rstest run",
+    "test:tap": "rstest run --config ./rstest.tap.config.ts",
+    "test:tap:list": "rstest list --config ./rstest.tap.config.ts"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.2.0",
+    "@theaiplatform/miniapp-sdk": "0.4.1",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
@@ -24,10 +27,12 @@
     "@rsbuild/core": "^2.1.5",
     "@rsbuild/plugin-react": "2.1.0",
     "@rslib/core": "^0.23.2",
-    "@rstest/core": "^0.9.10",
+    "@rstest/core": "0.11.3",
+    "@rstest/playwright": "0.11.3",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "playwright": "^1.61.0",
     "typescript": "^6.0.3"
   }
 }

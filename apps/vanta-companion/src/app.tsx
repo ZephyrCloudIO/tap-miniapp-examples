@@ -4,6 +4,7 @@ import {
   type MiniAppHttpCredentialMetadata,
   type MiniAppHttpResponse,
 } from '@theaiplatform/miniapp-sdk/sdk';
+import type { TapFederatedSurfaceMountContext } from '@theaiplatform/miniapp-sdk/surface';
 import {
   Alert,
   AlertDescription,
@@ -96,6 +97,7 @@ import {
   emptyState,
   mergeWebhookEvents,
   recordIdempotentReceipt,
+  runtimeUuid,
   transitionCase,
   withReceipt,
   type AnalysisKind,
@@ -127,6 +129,11 @@ import {
   normalizeWebhookApiUrl,
 } from './webhook-client';
 import {
+  VANTA_ANALYZE_ACTION,
+  VANTA_COORDINATE_ACTION,
+  requireVantaAuthority,
+} from './authority';
+import {
   VANTA_API_SURFACES,
   buildVantaApiRequest,
   formatVantaApiResponse,
@@ -138,6 +145,7 @@ import {
   type VantaApiMethod,
   type VantaApiSurface,
 } from './vanta-api';
+import { openVantaSource } from './vanta-navigation';
 
 type View =
   | 'overview'
@@ -152,6 +160,8 @@ export interface VantaCompanionProps {
   readonly preview?: boolean;
   readonly hostWorkspaceId?: string;
   readonly hostChannelId?: string;
+  readonly randomUUID?: () => string;
+  readonly hostContext?: TapFederatedSurfaceMountContext;
 }
 
 const navItems: readonly [View, string, typeof LayoutDashboard][] = [
@@ -202,6 +212,8 @@ export function VantaCompanionApp({
   preview = false,
   hostWorkspaceId = '',
   hostChannelId = '',
+  randomUUID = runtimeUuid,
+  hostContext,
 }: VantaCompanionProps) {
   const [state, setState] = useState<CompanionState>(emptyState());
   const [revision, setRevision] = useState<number | null>(null);
@@ -302,6 +314,11 @@ export function VantaCompanionApp({
 
   async function onboard(): Promise<void> {
     await perform('onboard', async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
       const settings = createSettings({
         role,
         workspaceId,
@@ -317,6 +334,11 @@ export function VantaCompanionApp({
   async function connectSpecialist(): Promise<void> {
     if (!state.settings) return;
     await perform('connect', async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
       if (preview)
         throw new Error(
           'Vanta MCP connection is available only inside the packaged TAP host.',
@@ -352,6 +374,7 @@ export function VantaCompanionApp({
             'Installed the Vanta SOC 2 specialist and joined its private operations channel',
           actor: settings.role,
         },
+        randomUUID,
       );
       await persist(
         next,
@@ -366,6 +389,11 @@ export function VantaCompanionApp({
       return;
     }
     await perform(`analysis:${kind}`, async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_ANALYZE_ACTION,
+      );
       const result = await runSpecialistAnalysis({
         workspaceId: state.settings!.workspaceId,
         channelId: state.settings!.channelId!,
@@ -383,6 +411,7 @@ export function VantaCompanionApp({
           sourceChannelId: state.settings!.channelId!,
         },
         state.settings!.role,
+        randomUUID,
       );
       await persist(next, `${analysisTitle[kind]} completed`);
       setSelectedAnalysisId(next.analyses[0]!.id);
@@ -399,7 +428,17 @@ export function VantaCompanionApp({
   async function submitCase(): Promise<void> {
     if (!state.settings) return;
     await perform('case', async () => {
-      const next = createCase(state, caseForm, state.settings!.role);
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
+      const next = createCase(
+        state,
+        caseForm,
+        state.settings!.role,
+        randomUUID,
+      );
       await persist(next, 'Remediation case created');
       setCaseForm(emptyCaseForm);
       setCaseDialog(false);
@@ -413,11 +452,17 @@ export function VantaCompanionApp({
   ): Promise<void> {
     if (!state.settings) return;
     await perform(`transition:${item.id}`, async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
       const updated = transitionCase(
         state,
         item.id,
         next,
         state.settings!.role,
+        randomUUID,
       );
       await persist(
         updated,
@@ -430,6 +475,11 @@ export function VantaCompanionApp({
   async function createCaseChannel(item: RemediationCase): Promise<void> {
     if (!state.settings) return;
     await perform(`channel:${item.id}`, async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
       const result = await sdk.channels.create({
         workspaceId: state.settings!.workspaceId,
         name: `SOC 2 · ${item.title}`,
@@ -451,13 +501,17 @@ export function VantaCompanionApp({
           state.settings!.specialistId,
         );
       let next = attachCaseChannel(state, item.id, result.roomId);
-      next = recordIdempotentReceipt(next, {
-        kind: 'channel',
-        sourceId: result.roomId,
-        summary: `Created private remediation channel for ${item.vantaObjectId}`,
-        actor: state.settings!.role,
-        idempotencyKey: `case-channel:${item.id}:${result.roomId}`,
-      });
+      next = recordIdempotentReceipt(
+        next,
+        {
+          kind: 'channel',
+          sourceId: result.roomId,
+          summary: `Created private remediation channel for ${item.vantaObjectId}`,
+          actor: state.settings!.role,
+          idempotencyKey: `case-channel:${item.id}:${result.roomId}`,
+        },
+        randomUUID,
+      );
       await persist(next, 'Private remediation channel created and seeded');
     });
   }
@@ -465,6 +519,11 @@ export function VantaCompanionApp({
   async function invokeCaseWorkflow(item: RemediationCase): Promise<void> {
     if (!state.settings) return;
     await perform(`workflow:${item.id}`, async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
       const available = await sdk.workflows.list({
         workspaceId: state.settings!.workspaceId,
       });
@@ -491,23 +550,33 @@ export function VantaCompanionApp({
         );
       const runId = result.runId ?? `${workflow.id}:${result.status}`;
       let next = attachWorkflowRun(state, item.id, runId);
-      next = recordIdempotentReceipt(next, {
-        kind: 'workflow',
-        sourceId: runId,
-        summary: `Invoked ${workflow.name} for ${item.vantaObjectId}`,
-        actor: state.settings!.role,
-        idempotencyKey: `workflow:${runId}`,
-      });
+      next = recordIdempotentReceipt(
+        next,
+        {
+          kind: 'workflow',
+          sourceId: runId,
+          summary: `Invoked ${workflow.name} for ${item.vantaObjectId}`,
+          actor: state.settings!.role,
+          idempotencyKey: `workflow:${runId}`,
+        },
+        randomUUID,
+      );
       await persist(next, `${workflow.name} started`);
     });
   }
 
   async function persistWebhookEndpoint(apiUrl: string): Promise<void> {
     if (!state.settings) return;
+    await requireVantaAuthority(
+      hostContext,
+      preview,
+      VANTA_COORDINATE_ACTION,
+    );
     const next = configureWebhookApi(
       state,
       apiUrl,
       state.settings.role,
+      randomUUID,
     );
     await persist(next, 'Webhook API endpoint saved');
     setWebhookApiDraft(apiUrl);
@@ -557,6 +626,11 @@ export function VantaCompanionApp({
       return;
     }
     await perform('webhook-sync', async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_COORDINATE_ACTION,
+      );
       const page = await fetchWebhookEvents({
         apiUrl: state.settings!.webhookApiUrl!,
         workspaceId: state.settings!.workspaceId,
@@ -566,6 +640,7 @@ export function VantaCompanionApp({
         state,
         { events: page.events, cursor: page.nextCursor },
         state.settings!.role,
+        randomUUID,
       );
       const added = next.webhookEvents.length - state.webhookEvents.length;
       await persist(
@@ -581,6 +656,11 @@ export function VantaCompanionApp({
 
   async function loadVantaCredentials(): Promise<void> {
     await perform('vanta-credentials', async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        VANTA_ANALYZE_ACTION,
+      );
       if (preview) {
         throw new Error(
           'Host-managed credentials are available only inside the packaged TAP host.',
@@ -633,6 +713,13 @@ export function VantaCompanionApp({
 
   async function executeVantaApi(draft: VantaApiDraft): Promise<void> {
     await perform(`vanta-api:${draft.method}`, async () => {
+      await requireVantaAuthority(
+        hostContext,
+        preview,
+        isVantaApiWrite(draft.method)
+          ? VANTA_COORDINATE_ACTION
+          : VANTA_ANALYZE_ACTION,
+      );
       if (preview) {
         throw new Error(
           'Host-mediated Vanta API requests are available only inside the packaged TAP host.',
@@ -667,12 +754,16 @@ export function VantaCompanionApp({
         isSuccessfulVantaResponse(response) &&
         write
       ) {
-        const next = withReceipt(state, {
-          kind: 'vanta-api',
-          sourceId: `${draft.method} ${endpoint.pathname}`,
-          summary: `${surface.label} ${draft.method} ${endpoint.pathname} completed with ${response.status}`,
-          actor: state.settings!.role,
-        });
+        const next = withReceipt(
+          state,
+          {
+            kind: 'vanta-api',
+            sourceId: `${draft.method} ${endpoint.pathname}`,
+            summary: `${surface.label} ${draft.method} ${endpoint.pathname} completed with ${response.status}`,
+            actor: state.settings!.role,
+          },
+          randomUUID,
+        );
         try {
           await persist(next, `${surface.label} write completed`);
         } catch (cause) {
@@ -687,6 +778,17 @@ export function VantaCompanionApp({
         `${surface.label} returned ${response.status} ${response.statusText}`,
       );
     });
+  }
+
+  function openVantaSourceLink(url: string): void {
+    try {
+      openVantaSource(url);
+      setError('');
+      setStatus('Vanta source opened in a new window');
+    } catch (cause) {
+      setError(message(cause));
+      setStatus('Action failed');
+    }
   }
 
   if (!state.settings) {
@@ -1318,9 +1420,7 @@ export function VantaCompanionApp({
             </div>
             <Button
               variant="outline"
-              onClick={() =>
-                sdk.navigation.open({ path: selectedCase.vantaUrl })
-              }
+              onClick={() => openVantaSourceLink(selectedCase.vantaUrl)}
             >
               <ExternalLink /> Open Vanta source
             </Button>

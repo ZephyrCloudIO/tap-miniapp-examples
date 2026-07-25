@@ -1,0 +1,709 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_unofficial_suno_player_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "unofficial-suno-player-desktop": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 6929,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-post-projection-revoked": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "synthetic:post-projection-all-denied",
+      "deniedActions": [
+        "*"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6930,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-storage-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:storage.write",
+      "deniedActions": [
+        "storage.write"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6931,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-presence-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:presence.write",
+      "deniedActions": [
+        "presence.write"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6932,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-channel-read-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.read",
+      "deniedActions": [
+        "channels.read"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6933,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-channel-send-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.send-message",
+      "deniedActions": [
+        "channels.send-message"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6934,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-profile-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:profile.read",
+      "deniedActions": [
+        "profile.read"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6935,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-specialist-list-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:specialists.list",
+      "deniedActions": [
+        "specialists.list"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6936,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-workflow-invoke-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.invoke",
+      "deniedActions": [
+        "workflows.invoke"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6937,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-channel-list-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.list",
+      "deniedActions": [
+        "channels.list"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6938,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-workflow-list-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.list",
+      "deniedActions": [
+        "workflows.list"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6939,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "unofficial-suno-player-desktop-credentials-read-denied": {
+      "surface": "unofficial-suno-player",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.read",
+      "deniedActions": [
+        "credentials.read"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/unofficial-suno-player.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6940,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "unofficial-suno-player-desktop-positive",
+      "profile": "unofficial-suno-player-desktop",
+      "testMatch": [
+        "tests/e2e/tap-surface.smoke.test.ts",
+        "tests/e2e/unofficial-suno-player-positive.test.ts"
+      ],
+      "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
+        "action:channels.send-message",
+        "action:credentials.read",
+        "action:profile.read",
+        "action:specialists.invoke",
+        "action:specialists.list",
+        "action:suno-player.view",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.credentials:read",
+        "effect:host-api:tap.profile:read",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.specialists:list",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:presence:unofficial-suno-player",
+        "effect:storage:unofficial-suno-player"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-post-projection-revoked",
+      "profile": "unofficial-suno-player-desktop-post-projection-revoked",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-all-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:suno-player.view"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-storage-denied",
+      "profile": "unofficial-suno-player-desktop-storage-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-storage-denied.test.ts"
+      ],
+      "capabilities": [
+        "effect:storage:unofficial-suno-player"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-presence-denied",
+      "profile": "unofficial-suno-player-desktop-presence-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-presence-denied.test.ts"
+      ],
+      "capabilities": [
+        "effect:presence:unofficial-suno-player"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-channel-read-denied",
+      "profile": "unofficial-suno-player-desktop-channel-read-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-channel-read-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:channels.read",
+        "effect:host-api:tap.channels:read"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-channel-send-denied",
+      "profile": "unofficial-suno-player-desktop-channel-send-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-channel-send-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:channels.send-message",
+        "effect:host-api:tap.channels:send-message"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-profile-denied",
+      "profile": "unofficial-suno-player-desktop-profile-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-profile-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:profile.read",
+        "effect:host-api:tap.profile:read"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-specialist-list-denied",
+      "profile": "unofficial-suno-player-desktop-specialist-list-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-specialist-list-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:specialists.list",
+        "effect:host-api:tap.specialists:list"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-workflow-invoke-denied",
+      "profile": "unofficial-suno-player-desktop-workflow-invoke-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-workflow-invoke-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:workflows.invoke",
+        "effect:host-api:tap.workflows:invoke"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-channel-list-denied",
+      "profile": "unofficial-suno-player-desktop-channel-list-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-channel-list-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:channels.list",
+        "effect:host-api:tap.channels:list"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-workflow-list-denied",
+      "profile": "unofficial-suno-player-desktop-workflow-list-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-workflow-list-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:workflows.list",
+        "effect:host-api:tap.workflows:list"
+      ]
+    },
+    {
+      "id": "unofficial-suno-player-desktop-credentials-read-denied",
+      "profile": "unofficial-suno-player-desktop-credentials-read-denied",
+      "testMatch": [
+        "tests/e2e/unofficial-suno-player-credentials-read-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:credentials.read",
+        "effect:host-api:tap.credentials:read"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "action:specialists.invoke",
+      "reason": "Surface Test Lab 0.4.1 does not project seeded workspace specialists through sdk.specialist.listWorkspace, so no real specialist can be selected for a truthful run-turn success or denial case; prompt/result parsing remains unit-tested.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.specialists:invoke",
+      "reason": "The exact specialists.invoke host boundary cannot be exercised until Surface Test Lab projects a selectable seeded workspace specialist; the app keeps the control disabled instead of fabricating an invocation.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    }
+  ]
+}

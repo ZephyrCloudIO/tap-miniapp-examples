@@ -269,6 +269,30 @@ export interface LedgerState {
 export class LedgerValidationError extends Error {}
 export class LedgerPermissionError extends Error {}
 export class LedgerConflictError extends Error {}
+
+type LedgerRandomUuid = () => string;
+const platformRandomUuid: LedgerRandomUuid = () =>
+  globalThis.crypto.randomUUID();
+let activeRandomUuid: LedgerRandomUuid = platformRandomUuid;
+
+/**
+ * Run one synchronous domain transition with the surface's host-owned entropy.
+ * Production mounts keep cryptographically strong UUIDs while Test Lab can
+ * replay the exact same transition after a fixture reset.
+ */
+export const withLedgerEntropy = <Result>(
+  randomUUID: LedgerRandomUuid,
+  operation: () => Result,
+): Result => {
+  const previous = activeRandomUuid;
+  activeRandomUuid = randomUUID;
+  try {
+    return operation();
+  } finally {
+    activeRandomUuid = previous;
+  }
+};
+
 const clean = (value: string): string => value.trim();
 const required = (value: string, label: string): string => {
   const result = clean(value);
@@ -280,7 +304,8 @@ const positive = (value: number, label: string): number => {
     throw new LedgerValidationError(`${label} must be greater than zero.`);
   return value;
 };
-const id = (): string => globalThis.crypto.randomUUID();
+export const nextLedgerId = (): string => activeRandomUuid();
+const id = nextLedgerId;
 const timestamp = (): string => new Date().toISOString();
 const guard = (state: LedgerState): void => {
   if (state.role !== 'owner')

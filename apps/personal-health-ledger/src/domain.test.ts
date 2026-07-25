@@ -20,6 +20,7 @@ import {
   recordAdministration,
   replaceLedger,
   serializeLedger,
+  withLedgerEntropy,
   updateItemStatus,
   updateOrderStatus,
   withRole,
@@ -81,6 +82,19 @@ describe('ledger domain', () => {
     expect(state.items[0]?.id).toBeTruthy();
     expect(state.items[0]?.schedules[0]?.id).toBeTruthy();
     expect(state.audit).toHaveLength(1);
+  });
+  it('uses scoped surface entropy for reproducible domain transitions', () => {
+    const ids = ['fixture-item', 'fixture-status', 'fixture-schedule', 'fixture-audit'];
+    const state = withLedgerEntropy(
+      () => ids.shift() ?? 'fixture-overflow',
+      () => addItem(createLedger('Runtime', 'US'), itemInput()),
+    );
+    expect(state.items[0]).toMatchObject({
+      id: 'fixture-item',
+      statusHistory: [{ id: 'fixture-status' }],
+      schedules: [{ id: 'fixture-schedule' }],
+    });
+    expect(state.audit[0]?.id).toBe('fixture-audit');
   });
   it('preserves schedule history and tracks regimen state transitions', () => {
     let state = addItem(createLedger('Runtime', 'US'), itemInput());

@@ -1,0 +1,66 @@
+{
+  "workflows": [
+    {
+      "workflowId": "vanta-fixture-remediation",
+      "name": "SOC 2 remediation",
+      "type": "remediation",
+      "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "result": {
+        "success": true,
+        "status": "started",
+        "message": "Fixture remediation accepted.",
+        "runId": "vanta-fixture-run-1"
+      }
+    }
+  ],
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_vanta_companion_0001",
+      "namespace": "vanta-companion",
+      "key": "workspace/state-v3",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 3,
+        "settings": {
+          "schemaVersion": 3,
+          "role": "lead",
+          "workspaceId": "tap-fixture-workspace-v1",
+          "channelId": null,
+          "projectId": "vanta-fixture-project",
+          "specialistId": null,
+          "region": "us",
+          "timezone": "UTC",
+          "webhookApiUrl": null,
+          "webhookCursor": null,
+          "webhookLastSyncedAt": null,
+          "updatedAt": "2026-07-24T11:55:00.000Z"
+        },
+        "cases": [
+          {
+            "id": "vanta-case-branch-protection",
+            "title": "Review branch protection",
+            "objectType": "test",
+            "vantaObjectId": "test-branch-protection",
+            "vantaUrl": "https://app.vanta.com/tests/test-branch-protection",
+            "criterion": "CC6.1",
+            "owner": "Ada Auditor",
+            "dueAt": "2026-07-31",
+            "status": "open",
+            "notes": "Confirm the protected-branch policy and retain source evidence.",
+            "channelId": null,
+            "workflowRunId": null,
+            "createdAt": "2026-07-24T11:50:00.000Z",
+            "updatedAt": "2026-07-24T11:50:00.000Z"
+          }
+        ],
+        "analyses": [],
+        "receipts": [],
+        "webhookEvents": [],
+        "processedKeys": []
+      }
+    }
+  ],
+  "specialists": []
+}

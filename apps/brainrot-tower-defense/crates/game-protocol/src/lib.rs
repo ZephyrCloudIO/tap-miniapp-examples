@@ -1,7 +1,39 @@
 //! Versioned multiplayer commands, snapshots, identifiers, and events.
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use thiserror::Error;
 use uuid::Uuid;
+
+/// Runtime-supplied identifier source used by the mounted TAP surface.
+///
+/// Production TAP mounts provide cryptographic UUIDs while Test Lab mounts
+/// provide the SDK's deterministic, frame-scoped UUID stream.
+pub type IdGenerator = Box<dyn FnMut() -> Option<String>>;
+
+thread_local! {
+    static ID_GENERATOR: RefCell<Option<IdGenerator>> = RefCell::new(None);
+}
+
+/// Replaces the identifier source for this single-threaded WASM runtime.
+///
+/// Passing `None` restores the `uuid` crate's cryptographic generator.
+pub fn set_id_generator(generator: Option<IdGenerator>) {
+    ID_GENERATOR.with(|slot| {
+        *slot.borrow_mut() = generator;
+    });
+}
+
+fn generated_id() -> String {
+    let supplied = ID_GENERATOR.with(|slot| {
+        slot.try_borrow_mut()
+            .ok()
+            .and_then(|mut generator| generator.as_mut().and_then(|next| next()))
+    });
+    supplied
+        .and_then(|value| Uuid::parse_str(&value).ok())
+        .unwrap_or_else(Uuid::new_v4)
+        .to_string()
+}
 
 macro_rules! id_type {
     ($name:ident) => {
@@ -11,7 +43,7 @@ macro_rules! id_type {
         impl $name {
             #[must_use]
             pub fn new() -> Self {
-                Self(Uuid::new_v4().to_string())
+                Self(generated_id())
             }
         }
         impl Default for $name {
@@ -431,6 +463,22 @@ mod tests {
             serde_json::from_value::<CommandKind>(encoded).expect("deserialize command"),
             CommandKind::AdvanceLevel
         );
+    }
+
+    #[test]
+    fn identifiers_use_and_validate_the_runtime_generator() {
+        let mut generated = [
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002",
+        ]
+        .into_iter();
+        set_id_generator(Some(Box::new(move || generated.next().map(str::to_owned))));
+
+        assert_eq!(SessionId::new().0, "00000000-0000-4000-8000-000000000001");
+        assert_eq!(CommandId::new().0, "00000000-0000-4000-8000-000000000002");
+        assert!(Uuid::parse_str(&EntityId::new().0).is_ok());
+
+        set_id_generator(None);
     }
 
     #[test]

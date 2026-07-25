@@ -24,6 +24,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@theaiplatform/miniapp-sdk/ui";
+import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
 import {
   CalendarDays,
   Check,
@@ -40,7 +41,7 @@ import {
   Settings2,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   addStarAdjustment,
   addEvent,
@@ -63,6 +64,7 @@ import {
   type FamilyState,
   type RewardStatus,
 } from "./domain";
+import { canManageFamily, waitForHostAuthority } from "./authority";
 import { loadFamilyState, saveFamilyState } from "./storage";
 
 const kidMembers = (state: FamilyState): readonly FamilyMember[] =>
@@ -87,64 +89,138 @@ const StarPill = ({ value }: { value: number }) => (
 );
 
 interface AppProps {
+  readonly context?: TapFederatedSurfaceMountContext;
   readonly preview?: boolean;
 }
 
-export function FamilyTaskBoardApp({ preview = false }: AppProps) {
+type FamilyStateMutation = (
+  current: FamilyState | null,
+) => FamilyState | null;
+
+type ApplyFamilyMutation = (
+  mutation: (current: FamilyState) => FamilyState,
+) => void;
+
+export function FamilyTaskBoardApp({ context, preview = false }: AppProps) {
   const [state, setState] = useState<FamilyState | null>(null);
   const [activeMemberId, setActiveMemberId] = useState("");
   const [activeTab, setActiveTab] = useState("today");
   const [notice, setNotice] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [manageAllowed, setManageAllowed] = useState(preview);
+  const [mutationPending, setMutationPending] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void loadFamilyState(preview)
-      .then((stored) => {
-        if (!cancelled && stored) {
-          setState(stored);
-          setActiveMemberId(stored.members[0]?.id ?? "");
-        }
-      })
-      .catch(() => { if (!cancelled) setStorageError("The household could not be loaded from TAP storage."); })
-      .finally(() => { if (!cancelled) setLoaded(true); });
-    return () => {
-      cancelled = true;
-    };
-  }, [preview]);
-
-  useEffect(() => {
-    if (!loaded || !state) return;
-    const timeout = globalThis.setTimeout(() => {
-      void saveFamilyState(state, preview)
-        .then(() => setStorageError(null))
-        .catch(() => setStorageError("Changes could not be saved to TAP storage."));
-    }, 250);
-    return () => globalThis.clearTimeout(timeout);
-  }, [loaded, preview, state]);
-
-  const kids = useMemo(() => state ? kidMembers(state) : [], [state]);
+  const stateRef = useRef<FamilyState | null>(null);
+  const mutationPendingRef = useRef(false);
 
   const announce = useCallback((message: string) => {
     setNotice(message);
     globalThis.setTimeout(() => setNotice(null), 2800);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await waitForHostAuthority(context);
+      const [storedResult, manageResult] = await Promise.allSettled([
+        loadFamilyState(preview),
+        canManageFamily(context, preview),
+      ]);
+      if (cancelled) return;
+      if (storedResult.status === "fulfilled") {
+        const stored = storedResult.value;
+        if (stored) {
+          stateRef.current = stored;
+          setState(stored);
+          setActiveMemberId(stored.members[0]?.id ?? "");
+        }
+      } else {
+        setStorageError("The household could not be loaded from TAP storage.");
+      }
+      setManageAllowed(
+        manageResult.status === "fulfilled" && manageResult.value,
+      );
+      setLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [context, preview]);
+
+  useEffect(() => {
+    if (preview || !context) return;
+    return context.hostAuthority.subscribe(() => {
+      if (!context.hostAuthority.getSnapshot()) {
+        setManageAllowed(false);
+        return;
+      }
+      void canManageFamily(context, false).then(setManageAllowed);
+    });
+  }, [context, preview]);
+
+  useEffect(() => {
+    if (!manageAllowed && activeTab === "manage") setActiveTab("today");
+  }, [activeTab, manageAllowed]);
+
+  const kids = useMemo(() => state ? kidMembers(state) : [], [state]);
+
+  const persistMutation = useCallback(
+    async (mutation: FamilyStateMutation): Promise<boolean> => {
+      if (mutationPendingRef.current) return false;
+      mutationPendingRef.current = true;
+      setMutationPending(true);
+      try {
+        const allowed = await canManageFamily(context, preview);
+        setManageAllowed(allowed);
+        if (!allowed) {
+          announce("TAP has granted view-only access to this family board.");
+          return false;
+        }
+        const current = stateRef.current;
+        const next = mutation(current);
+        if (!next || next === current) return false;
+        const writeAllowed = await canManageFamily(context, preview);
+        setManageAllowed(writeAllowed);
+        if (!writeAllowed) {
+          announce("TAP has granted view-only access to this family board.");
+          return false;
+        }
+        await saveFamilyState(next, preview);
+        stateRef.current = next;
+        setState(next);
+        setStorageError(null);
+        return true;
+      } catch {
+        setStorageError("Changes could not be saved to TAP storage.");
+        return false;
+      } finally {
+        mutationPendingRef.current = false;
+        setMutationPending(false);
+      }
+    },
+    [announce, context, preview],
+  );
+
   const submitTask = useCallback(
     (taskId: string) => {
-      setState((current) => current ? updateTaskStatus(current, taskId, "submitted") : current);
-      announce("Chore sent for parent approval.");
+      void persistMutation((current) =>
+        current ? updateTaskStatus(current, taskId, "submitted") : current,
+      ).then((changed) => {
+        if (changed) announce("Chore sent for parent approval.");
+      });
     },
-    [announce],
+    [announce, persistMutation],
   );
 
   const approveTask = useCallback(
     (taskId: string) => {
-      setState((current) => current ? updateTaskStatus(current, taskId, "approved") : current);
-      announce("Chore approved and stars awarded.");
+      void persistMutation((current) =>
+        current ? updateTaskStatus(current, taskId, "approved") : current,
+      ).then((changed) => {
+        if (changed) announce("Chore approved and stars awarded.");
+      });
     },
-    [announce],
+    [announce, persistMutation],
   );
 
   const buyReward = useCallback(
@@ -154,26 +230,48 @@ export function FamilyTaskBoardApp({ preview = false }: AppProps) {
       if (!activeMember || activeMember.role !== "kid") return;
       const item = state.shop.find((candidate) => candidate.id === itemId);
       if (item && starBalance(state, activeMember.id) >= item.cost) {
-        setState((current) => current ? purchaseReward(current, activeMember.id, itemId) : current);
-        announce(`${item.title} requested. A parent can approve it next.`);
+        void persistMutation((current) =>
+          current
+            ? purchaseReward(current, activeMember.id, itemId)
+            : current,
+        ).then((changed) => {
+          if (changed) {
+            announce(`${item.title} requested. A parent can approve it next.`);
+          }
+        });
       } else {
         announce("You need a few more stars for that reward.");
       }
     },
-    [activeMemberId, announce, state],
+    [activeMemberId, announce, persistMutation, state],
   );
 
   if (!loaded) return <div className="loading-state">Loading household…</div>;
   if (storageError && !preview && !state) return <div className="loading-state" role="alert">{storageError}</div>;
-  if (!state) return <Onboarding preview={preview} onCreate={(familyName, parentName) => {
-    const created = createFamily(familyName, parentName);
-    setState(created);
-    setActiveMemberId(created.members[0]!.id);
-    setActiveTab("manage");
-  }} />;
+  if (!state) {
+    return (
+      <Onboarding
+        canManage={manageAllowed && !mutationPending}
+        preview={preview}
+        onCreate={(familyName, parentName) => {
+          let parentId = "";
+          void persistMutation(() => {
+            const created = createFamily(familyName, parentName);
+            parentId = created.members[0]!.id;
+            return created;
+          }).then((changed) => {
+            if (!changed) return;
+            setActiveMemberId(parentId);
+            setActiveTab("manage");
+          });
+        }}
+      />
+    );
+  }
 
   const activeMember = state.members.find((member) => member.id === activeMemberId) ?? state.members[0]!;
   const activeKids = activeMember.role === "kid" ? [activeMember] : kids;
+  const canManage = manageAllowed && !mutationPending;
 
   return (
     <div className="family-app">
@@ -207,6 +305,11 @@ export function FamilyTaskBoardApp({ preview = false }: AppProps) {
           <Database size={15} /> Preview data is persisted in this browser.
         </MiniAppStatusBar>
       ) : null}
+      {!preview && !manageAllowed ? (
+        <MiniAppStatusBar className="preview-banner" tone="neutral">
+          View-only access. TAP has not granted household management.
+        </MiniAppStatusBar>
+      ) : null}
 
       <main>
         <section className="welcome-row">
@@ -227,13 +330,14 @@ export function FamilyTaskBoardApp({ preview = false }: AppProps) {
             <TabsTrigger value="family"><Users size={16} /> Family</TabsTrigger>
             <TabsTrigger value="shop"><ShoppingBag size={16} /> Star Shop</TabsTrigger>
             <TabsTrigger value="transfers"><HandCoins size={16} /> Transfers</TabsTrigger>
-            {activeMember.role === "parent" ? <TabsTrigger value="manage"><Settings2 size={16} /> Manage</TabsTrigger> : null}
+            {activeMember.role === "parent" && canManage ? <TabsTrigger value="manage"><Settings2 size={16} /> Manage</TabsTrigger> : null}
           </TabsList>
 
           <TabsContent value="today">
             <TodayView
               activeMember={activeMember}
               activeKids={activeKids}
+              canManage={canManage}
               state={state}
               onSubmit={submitTask}
               onApprove={approveTask}
@@ -243,14 +347,47 @@ export function FamilyTaskBoardApp({ preview = false }: AppProps) {
             <FamilyView state={state} kids={kids} />
           </TabsContent>
           <TabsContent value="shop">
-            <ShopView state={state} activeMember={activeMember} onBuy={buyReward} onTransition={(purchaseId, status) => setState((current) => current ? transitionPurchase(current, purchaseId, status, activeMember.id) : current)} />
+            <ShopView
+              state={state}
+              activeMember={activeMember}
+              canManage={canManage}
+              onBuy={buyReward}
+              onTransition={(purchaseId, status) => {
+                void persistMutation((current) =>
+                  current
+                    ? transitionPurchase(
+                        current,
+                        purchaseId,
+                        status,
+                        activeMember.id,
+                      )
+                    : current,
+                );
+              }}
+            />
           </TabsContent>
           <TabsContent value="transfers">
-            <TransfersView state={state} activeMember={activeMember} onChange={setState} />
+            <TransfersView
+              state={state}
+              activeMember={activeMember}
+              canManage={canManage}
+              onChange={(mutation) => {
+                void persistMutation((current) =>
+                  current ? mutation(current) : current,
+                );
+              }}
+            />
           </TabsContent>
-          {activeMember.role === "parent" ? (
+          {activeMember.role === "parent" && canManage ? (
             <TabsContent value="manage">
-              <ManageView state={state} onChange={setState} />
+              <ManageView
+                state={state}
+                onChange={(mutation) => {
+                  void persistMutation((current) =>
+                    current ? mutation(current) : current,
+                  );
+                }}
+              />
             </TabsContent>
           ) : null}
         </Tabs>
@@ -265,12 +402,14 @@ export function FamilyTaskBoardApp({ preview = false }: AppProps) {
 function TodayView({
   activeMember,
   activeKids,
+  canManage,
   state,
   onSubmit,
   onApprove,
 }: {
   readonly activeMember: FamilyMember;
   readonly activeKids: readonly FamilyMember[];
+  readonly canManage: boolean;
   readonly state: FamilyState;
   readonly onSubmit: (taskId: string) => void;
   readonly onApprove: (taskId: string) => void;
@@ -316,10 +455,10 @@ function TodayView({
                       <ItemActions>
                         <StarPill value={task.stars} />
                       {task.status === "open" && activeMember.role === "kid" ? (
-                        <Button size="sm" variant="outline" onClick={() => onSubmit(task.id)}>Mark done</Button>
+                        <Button disabled={!canManage} size="sm" variant="outline" onClick={() => onSubmit(task.id)}>Mark done</Button>
                       ) : null}
                       {task.status === "submitted" && activeMember.role === "parent" ? (
-                        <Button size="sm" onClick={() => onApprove(task.id)}>Approve</Button>
+                        <Button disabled={!canManage} size="sm" onClick={() => onApprove(task.id)}>Approve</Button>
                       ) : null}
                       {task.status === "submitted" && activeMember.role === "kid" ? (
                         <Badge variant="outline">Waiting</Badge>
@@ -397,11 +536,13 @@ function FamilyView({
 function ShopView({
   state,
   activeMember,
+  canManage,
   onBuy,
   onTransition,
 }: {
   readonly state: FamilyState;
   readonly activeMember: FamilyMember;
+  readonly canManage: boolean;
   readonly onBuy: (itemId: string) => void;
   readonly onTransition: (purchaseId: string, status: RewardStatus) => void;
 }) {
@@ -420,7 +561,7 @@ function ShopView({
             <Card key={item.id} className="shop-card">
               <CardHeader><span className="reward-icon">{item.icon}</span><CardTitle>{item.title}</CardTitle><CardDescription>{item.description}</CardDescription></CardHeader>
               <CardContent>
-                <div className="shop-card__footer"><StarPill value={item.cost} /><Button size="sm" disabled={!affordable} onClick={() => onBuy(item.id)}>{activeMember.role === "kid" ? "Get reward" : "Kid purchase"}</Button></div>
+                <div className="shop-card__footer"><StarPill value={item.cost} /><Button size="sm" disabled={!canManage || !affordable} onClick={() => onBuy(item.id)}>{activeMember.role === "kid" ? "Get reward" : "Kid purchase"}</Button></div>
               </CardContent>
             </Card>
           );
@@ -433,7 +574,7 @@ function ShopView({
             {pending.map((purchase) => {
               const member = state.members.find((candidate) => candidate.id === purchase.memberId)!;
               const item = state.shop.find((candidate) => candidate.id === purchase.itemId)!;
-              return <div className="redemption-row" key={purchase.id}><Avatar member={member} small /><div><strong>{item.title}</strong><span>{member.name} · {purchase.status}</span></div><div className="purchase-actions">{activeMember.role === "parent" && purchase.status === "requested" ? <><Button size="sm" onClick={() => onTransition(purchase.id, "approved")}>Approve</Button><Button size="sm" variant="outline" onClick={() => onTransition(purchase.id, "declined")}>Decline</Button></> : null}{activeMember.role === "parent" && purchase.status === "approved" ? <><Button size="sm" onClick={() => onTransition(purchase.id, "ready")}>Mark ready</Button><Button size="sm" variant="outline" onClick={() => onTransition(purchase.id, "refunded")}>Refund</Button></> : null}{activeMember.role === "parent" && purchase.status === "ready" ? <><Button size="sm" onClick={() => onTransition(purchase.id, "consumed")}><CircleCheckBig size={15} /> Mark used</Button><Button size="sm" variant="outline" onClick={() => onTransition(purchase.id, "refunded")}>Refund</Button></> : null}{activeMember.role === "kid" && purchase.status === "requested" ? <Button size="sm" variant="outline" onClick={() => onTransition(purchase.id, "cancelled")}>Cancel</Button> : null}<Badge variant="outline">{purchase.status}</Badge></div></div>;
+              return <div className="redemption-row" key={purchase.id}><Avatar member={member} small /><div><strong>{item.title}</strong><span>{member.name} · {purchase.status}</span></div><div className="purchase-actions">{activeMember.role === "parent" && purchase.status === "requested" ? <><Button disabled={!canManage} size="sm" onClick={() => onTransition(purchase.id, "approved")}>Approve</Button><Button disabled={!canManage} size="sm" variant="outline" onClick={() => onTransition(purchase.id, "declined")}>Decline</Button></> : null}{activeMember.role === "parent" && purchase.status === "approved" ? <><Button disabled={!canManage} size="sm" onClick={() => onTransition(purchase.id, "ready")}>Mark ready</Button><Button disabled={!canManage} size="sm" variant="outline" onClick={() => onTransition(purchase.id, "refunded")}>Refund</Button></> : null}{activeMember.role === "parent" && purchase.status === "ready" ? <><Button disabled={!canManage} size="sm" onClick={() => onTransition(purchase.id, "consumed")}><CircleCheckBig size={15} /> Mark used</Button><Button disabled={!canManage} size="sm" variant="outline" onClick={() => onTransition(purchase.id, "refunded")}>Refund</Button></> : null}{activeMember.role === "kid" && purchase.status === "requested" ? <Button disabled={!canManage} size="sm" variant="outline" onClick={() => onTransition(purchase.id, "cancelled")}>Cancel</Button> : null}<Badge variant="outline">{purchase.status}</Badge></div></div>;
             })}
           </CardContent>
         </Card>
@@ -442,7 +583,15 @@ function ShopView({
   );
 }
 
-function Onboarding({ preview, onCreate }: { readonly preview: boolean; readonly onCreate: (familyName: string, parentName: string) => void }) {
+function Onboarding({
+  canManage,
+  preview,
+  onCreate,
+}: {
+  readonly canManage: boolean;
+  readonly preview: boolean;
+  readonly onCreate: (familyName: string, parentName: string) => void;
+}) {
   const [familyName, setFamilyName] = useState("");
   const [parentName, setParentName] = useState("");
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -455,42 +604,43 @@ function Onboarding({ preview, onCreate }: { readonly preview: boolean; readonly
         <CardHeader><span className="brand-mark"><House size={22} /></span><div><CardTitle>Create your family board</CardTitle><CardDescription>No sample records are created. Start with your real household data.</CardDescription></div></CardHeader>
         <CardContent>
           <form className="data-form" onSubmit={submit}>
-            <label>Family name<Input name="familyName" autoComplete="organization" value={familyName} onChange={(event) => setFamilyName(event.target.value)} required /></label>
-            <label>Your name<Input name="parentName" autoComplete="name" value={parentName} onChange={(event) => setParentName(event.target.value)} required /></label>
-            <Button type="submit">Create household</Button>
+            <label>Family name<Input name="familyName" autoComplete="organization" value={familyName} onChange={(event) => setFamilyName(event.target.value)} disabled={!canManage} required /></label>
+            <label>Your name<Input name="parentName" autoComplete="name" value={parentName} onChange={(event) => setParentName(event.target.value)} disabled={!canManage} required /></label>
+            <Button disabled={!canManage} type="submit">Create household</Button>
           </form>
           {preview ? <p className="storage-note">This preview persists to browser storage. The packaged miniapp persists through TAP storage.</p> : null}
+          {!preview && !canManage ? <p className="storage-note">TAP has granted view-only access. Household creation is unavailable.</p> : null}
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function ManageView({ state, onChange }: { readonly state: FamilyState; readonly onChange: (state: FamilyState) => void }) {
+function ManageView({ state, onChange }: { readonly state: FamilyState; readonly onChange: ApplyFamilyMutation }) {
   const kids = state.members.filter((member) => member.role === "kid");
   const submitMember = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get("name") ?? "").trim();
-    if (name) { onChange(addMember(state, name, "kid")); event.currentTarget.reset(); }
+    if (name) { onChange((current) => addMember(current, name, "kid")); event.currentTarget.reset(); }
   };
   const submitTask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    onChange(addTask(state, { title: String(form.get("title")), assigneeId: String(form.get("assigneeId")), kind: String(form.get("kind")) as "required" | "extra", stars: Number(form.get("stars")), dueLabel: String(form.get("dueLabel")), durationMinutes: Number(form.get("durationMinutes")) })); event.currentTarget.reset();
+    onChange((current) => addTask(current, { title: String(form.get("title")), assigneeId: String(form.get("assigneeId")), kind: String(form.get("kind")) as "required" | "extra", stars: Number(form.get("stars")), dueLabel: String(form.get("dueLabel")), durationMinutes: Number(form.get("durationMinutes")) })); event.currentTarget.reset();
   };
   const submitEvent = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    onChange(addEvent(state, { title: String(form.get("title")), memberId: String(form.get("memberId")), timeLabel: String(form.get("timeLabel")) })); event.currentTarget.reset();
+    onChange((current) => addEvent(current, { title: String(form.get("title")), memberId: String(form.get("memberId")), timeLabel: String(form.get("timeLabel")) })); event.currentTarget.reset();
   };
   const submitReward = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const inventory = String(form.get("inventory") ?? "");
-    onChange(addShopItem(state, { title: String(form.get("title")), description: String(form.get("description")), cost: Number(form.get("cost")), icon: String(form.get("icon")), inventory: inventory ? Number(inventory) : null })); event.currentTarget.reset();
+    onChange((current) => addShopItem(current, { title: String(form.get("title")), description: String(form.get("description")), cost: Number(form.get("cost")), icon: String(form.get("icon")), inventory: inventory ? Number(inventory) : null })); event.currentTarget.reset();
   };
   const submitAdjustment = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    onChange(addStarAdjustment(state, state.members.find((member) => member.role === "parent")!.id, String(form.get("memberId")), Number(form.get("delta")), String(form.get("note")))); event.currentTarget.reset();
+    onChange((current) => addStarAdjustment(current, current.members.find((member) => member.role === "parent")!.id, String(form.get("memberId")), Number(form.get("delta")), String(form.get("note")))); event.currentTarget.reset();
   };
   const submitTransferSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const limit = String(form.get("transferLimit") ?? ""); const threshold = String(form.get("parentApprovalThreshold") ?? "");
-    onChange(updateTransferSettings(state, limit ? Number(limit) : null, threshold ? Number(threshold) : null));
+    onChange((current) => updateTransferSettings(current, limit ? Number(limit) : null, threshold ? Number(threshold) : null));
   };
   return (
     <div className="manage-grid">
@@ -504,18 +654,28 @@ function ManageView({ state, onChange }: { readonly state: FamilyState; readonly
   );
 }
 
-function TransfersView({ state, activeMember, onChange }: { readonly state: FamilyState; readonly activeMember: FamilyMember; readonly onChange: (state: FamilyState) => void }) {
+function TransfersView({
+  state,
+  activeMember,
+  canManage,
+  onChange,
+}: {
+  readonly state: FamilyState;
+  readonly activeMember: FamilyMember;
+  readonly canManage: boolean;
+  readonly onChange: ApplyFamilyMutation;
+}) {
   const kids = state.members.filter((member) => member.role === "kid");
   const relevant = activeMember.role === "parent" ? state.transfers : state.transfers.filter((transfer) => transfer.senderId === activeMember.id || transfer.receiverId === activeMember.id);
   const propose = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    onChange(proposeTransfer(state, activeMember.id, String(form.get("receiverId")), Number(form.get("amount")), String(form.get("note")))); event.currentTarget.reset();
+    onChange((current) => proposeTransfer(current, activeMember.id, String(form.get("receiverId")), Number(form.get("amount")), String(form.get("note")))); event.currentTarget.reset();
   };
   return <div className="transfer-layout">
-    {activeMember.role === "kid" ? <Card><CardHeader><CardTitle>Send stars</CardTitle><CardDescription>The stars move only after you confirm and the other child accepts.</CardDescription></CardHeader><CardContent><form className="data-form" onSubmit={propose}><label>Send to<NativeSelect name="receiverId" required><option value="">Select a child</option>{kids.filter((kid) => kid.id !== activeMember.id).map((kid) => <option value={kid.id} key={kid.id}>{kid.name}</option>)}</NativeSelect></label><label>Stars<Input name="amount" type="number" inputMode="numeric" min="1" max={state.settings.transferLimit ?? undefined} required /></label><label>Note<Input name="note" autoComplete="off" required /></label><Button type="submit">Propose transfer</Button></form></CardContent></Card> : null}
+    {activeMember.role === "kid" ? <Card><CardHeader><CardTitle>Send stars</CardTitle><CardDescription>The stars move only after you confirm and the other child accepts.</CardDescription></CardHeader><CardContent><form className="data-form" onSubmit={propose}><label>Send to<NativeSelect disabled={!canManage} name="receiverId" required><option value="">Select a child</option>{kids.filter((kid) => kid.id !== activeMember.id).map((kid) => <option value={kid.id} key={kid.id}>{kid.name}</option>)}</NativeSelect></label><label>Stars<Input disabled={!canManage} name="amount" type="number" inputMode="numeric" min="1" max={state.settings.transferLimit ?? undefined} required /></label><label>Note<Input disabled={!canManage} name="note" autoComplete="off" required /></label><Button disabled={!canManage} type="submit">Propose transfer</Button></form></CardContent></Card> : null}
     <Card><CardHeader><CardTitle>{activeMember.role === "parent" ? "Transfer history" : "Your transfers"}</CardTitle><CardDescription>Every proposal and confirmation remains visible for review.</CardDescription></CardHeader><CardContent className="transfer-list">{relevant.length === 0 ? <p className="empty-copy">No transfers yet.</p> : relevant.map((transfer) => {
       const sender = state.members.find((member) => member.id === transfer.senderId)!; const receiver = state.members.find((member) => member.id === transfer.receiverId)!;
-      return <Item key={transfer.id} variant="outline"><ItemContent><ItemTitle>{sender.name} → {receiver.name} · {transfer.amount} stars</ItemTitle><ItemDescription>{transfer.note}</ItemDescription></ItemContent><ItemActions><Badge variant="outline">{transfer.status}</Badge>{activeMember.id === transfer.senderId && transfer.status === "proposed" ? <Button size="sm" onClick={() => onChange(confirmTransferBySender(state, transfer.id, activeMember.id))}>Confirm send</Button> : null}{activeMember.id === transfer.receiverId && transfer.status === "sender-confirmed" ? <><Button size="sm" onClick={() => onChange(acceptTransferByReceiver(state, transfer.id, activeMember.id))}>Accept</Button><Button size="sm" variant="outline" onClick={() => onChange(declineTransfer(state, transfer.id, activeMember.id))}>Decline</Button></> : null}{activeMember.role === "parent" && transfer.status === "awaiting-parent" ? <Button size="sm" onClick={() => onChange(approveTransferByParent(state, transfer.id, activeMember.id))}>Approve</Button> : null}</ItemActions></Item>;
+      return <Item key={transfer.id} variant="outline"><ItemContent><ItemTitle>{sender.name} → {receiver.name} · {transfer.amount} stars</ItemTitle><ItemDescription>{transfer.note}</ItemDescription></ItemContent><ItemActions><Badge variant="outline">{transfer.status}</Badge>{activeMember.id === transfer.senderId && transfer.status === "proposed" ? <Button disabled={!canManage} size="sm" onClick={() => onChange((current) => confirmTransferBySender(current, transfer.id, activeMember.id))}>Confirm send</Button> : null}{activeMember.id === transfer.receiverId && transfer.status === "sender-confirmed" ? <><Button disabled={!canManage} size="sm" onClick={() => onChange((current) => acceptTransferByReceiver(current, transfer.id, activeMember.id))}>Accept</Button><Button disabled={!canManage} size="sm" variant="outline" onClick={() => onChange((current) => declineTransfer(current, transfer.id, activeMember.id))}>Decline</Button></> : null}{activeMember.role === "parent" && transfer.status === "awaiting-parent" ? <Button disabled={!canManage} size="sm" onClick={() => onChange((current) => approveTransferByParent(current, transfer.id, activeMember.id))}>Approve</Button> : null}</ItemActions></Item>;
     })}</CardContent></Card>
   </div>;
 }

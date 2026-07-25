@@ -24,6 +24,10 @@
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "outputs": []
+    },
+    "typecheck:tap": {
+      "dependsOn": ["^typecheck:tap"],
+      "outputs": [".turbo/typecheck.tap.tsbuildinfo"]
     }
   }
 }

@@ -28,7 +28,7 @@
       }
     ]
   },
-  "compatibility": { "tapSdk": "0.2.0", "tapHost": ">=0.1.0" },
+  "compatibility": { "tapSdk": "0.4.1", "tapHost": ">=0.1.0" },
   "targets": {
     "desktop": {
       "remoteName": "tap_personal_health_ledger_desktop",
@@ -67,11 +67,26 @@
       "targets": {
         "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
       },
+      "publishes": [
+        "surface.mounted",
+        "surface.unmounted",
+        "ledger.changed"
+      ],
       "authorization": {
-        "allOf": ["health-ledger.view", "network.request"],
+        "allOf": ["health-ledger.view"],
+        "onDemand": [
+          "health-ledger.manage",
+          "health-ledger.research",
+          "health-ledger.export",
+          "network.request",
+          "channels.create",
+          "channels.manage-specialists",
+          "specialists.manage",
+          "specialists.invoke",
+          "vfs.write"
+        ],
         "effects": [
           { "kind": "storage", "resources": ["personal-health-ledger"] },
-          { "kind": "channel.write", "resources": ["workspace"] },
           {
             "kind": "external-network",
             "resources": [
@@ -81,12 +96,14 @@
             ]
           },
           {
-            "kind": "specialist.manage",
-            "resources": ["personal-health-researcher"]
-          },
-          {
-            "kind": "specialist.invoke",
-            "resources": ["personal-health-researcher"]
+            "kind": "host-api",
+            "resources": [
+              "tap.channels:create",
+              "tap.channels:manage-specialists",
+              "tap.specialists:manage",
+              "tap.specialists:invoke",
+              "tap.vfs:write"
+            ]
           }
         ]
       },
@@ -215,6 +232,56 @@
             "autonomyCeiling": "do",
             "consent": "fresh-decision",
             "risk": "read"
+          },
+          {
+            "id": "channels.create",
+            "resource": "tap.channels:create",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "channels.manage-specialists",
+            "resource": "tap.channels:manage-specialists",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "specialists.manage",
+            "resource": "tap.specialists:manage",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "specialists.invoke",
+            "resource": "tap.specialists:invoke",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "vfs.write",
+            "resource": "tap.vfs:write",
+            "scopes": ["channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
           }
         ],
         "levels": [
@@ -230,7 +297,12 @@
               "health-ledger.manage",
               "health-ledger.research",
               "health-ledger.export",
-              "network.request"
+              "network.request",
+              "channels.create",
+              "channels.manage-specialists",
+              "specialists.manage",
+              "specialists.invoke",
+              "vfs.write"
             ],
             "assignableTo": ["human"]
           }

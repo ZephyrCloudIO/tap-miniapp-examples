@@ -29,51 +29,58 @@ function boundedInvestigation(investigation: Investigation) {
   };
 }
 
-export const pyreMcpServer = defineMcpServer({
-  tools: {
-    list_investigations: {
-      description: "List Pyre investigations in the active workspace with lifecycle and evidence counts.",
-      inputSchema: { type: "object", additionalProperties: false },
-      async execute() {
-        const { state } = await loadState(false);
-        return toJson({
-          activeId: state.activeId ?? null,
-          investigations: state.investigations.map((investigation) => ({
-            id: investigation.id,
-            title: investigation.title,
-            statement: investigation.statement,
-            severity: investigation.severity,
-            status: investigation.status,
-            phase: investigation.phase,
-            revision: investigation.revision,
-            evidenceCount: investigation.evidence.length,
-            timelineEventCount: investigation.timeline.length,
-            openQuestionCount: investigation.questions.filter((question) => question.status === "open").length,
-            openActionCount: investigation.actions.filter((action) => action.status !== "verified" && action.status !== "cancelled").length,
-            updatedAt: investigation.updatedAt,
-          })),
-        });
-      },
-    },
-    get_investigation: {
-      description: "Get reviewed structured Pyre investigation state without report body duplication or raw VFS artifact contents.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: { investigationId: { type: "string", minLength: 1 } },
-        required: ["investigationId"],
-      },
-      async execute(arguments_) {
-        const investigationId = investigationIdFrom(arguments_);
-        const { state } = await loadState(false);
-        const investigation = state.investigations.find((item) => item.id === investigationId);
-        return investigation
-          ? toJson({ found: true, investigation: boundedInvestigation(investigation) })
-          : toJson({ found: false, investigationId });
-      },
-    },
-  },
-});
+type PyreStateLoader = () => ReturnType<typeof loadState>;
 
+export function createPyreMcpServer(
+  load: PyreStateLoader = () => loadState(false),
+) {
+  return defineMcpServer({
+    tools: {
+      list_investigations: {
+        description: "List Pyre investigations in the active workspace with lifecycle and evidence counts.",
+        inputSchema: { type: "object", additionalProperties: false },
+        async execute() {
+          const { state } = await load();
+          return toJson({
+            activeId: state.activeId ?? null,
+            investigations: state.investigations.map((investigation) => ({
+              id: investigation.id,
+              title: investigation.title,
+              statement: investigation.statement,
+              severity: investigation.severity,
+              status: investigation.status,
+              phase: investigation.phase,
+              revision: investigation.revision,
+              evidenceCount: investigation.evidence.length,
+              timelineEventCount: investigation.timeline.length,
+              openQuestionCount: investigation.questions.filter((question) => question.status === "open").length,
+              openActionCount: investigation.actions.filter((action) => action.status !== "verified" && action.status !== "cancelled").length,
+              updatedAt: investigation.updatedAt,
+            })),
+          });
+        },
+      },
+      get_investigation: {
+        description: "Get reviewed structured Pyre investigation state without report body duplication or raw VFS artifact contents.",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: { investigationId: { type: "string", minLength: 1 } },
+          required: ["investigationId"],
+        },
+        async execute(arguments_) {
+          const investigationId = investigationIdFrom(arguments_);
+          const { state } = await load();
+          const investigation = state.investigations.find((item) => item.id === investigationId);
+          return investigation
+            ? toJson({ found: true, investigation: boundedInvestigation(investigation) })
+            : toJson({ found: false, investigationId });
+        },
+      },
+    },
+  });
+}
+
+export const pyreMcpServer = createPyreMcpServer();
 export const tools = pyreMcpServer.tools;
 export default pyreMcpServer;

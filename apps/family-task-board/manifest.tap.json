@@ -27,7 +27,7 @@
     }]
   },
   "compatibility": {
-    "tapSdk": "0.2.0",
+    "tapSdk": "0.4.1",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -56,6 +56,7 @@
       },
       "authorization": {
         "allOf": ["family-task-board.view"],
+        "onDemand": ["family-task-board.manage"],
         "effects": [{ "kind": "storage", "resources": ["family-task-board"] }]
       },
       "lifecycleScope": "mount",
@@ -97,7 +98,7 @@
             "scopes": ["workspace"],
             "directActors": ["human"],
             "delegatedActors": ["specialist"],
-            "autonomyCeiling": "plan",
+            "autonomyCeiling": "do",
             "consent": "fresh-decision",
             "risk": "write"
           }

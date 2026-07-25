@@ -1,0 +1,130 @@
+{
+  "channels": [
+      {
+        "roomId": "tap-fixture-channel-v1",
+        "title": "Fixture listening room",
+        "archived": false,
+        "access": {
+          "isParticipant": true,
+          "capabilities": ["read", "write", "manage"]
+        },
+        "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "messages": [
+        {
+          "messageId": "fixture-message-kickoff",
+          "body": "The team celebrated a calm launch and wants an instrumental victory theme.",
+          "author": {
+            "displayName": "Fixture Producer"
+          },
+          "sequence": 1,
+          "createdAt": "2026-07-24T11:30:00.000Z"
+        },
+        {
+          "messageId": "fixture-message-review",
+          "body": "Keep private names and customer details out of every song brief.",
+          "author": {
+            "displayName": "Fixture Reviewer"
+          },
+          "sequence": 2,
+          "createdAt": "2026-07-24T11:45:00.000Z"
+        }
+      ],
+      "specialistIds": []
+    }
+  ],
+  "workflows": [
+    {
+      "workflowId": "fixture-manual-brief-workflow",
+      "name": "Prepare reviewable song summary",
+      "type": "manual-brief",
+      "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "result": {
+        "success": true,
+        "status": "completed",
+        "message": "Fixture summary preparation completed",
+        "runId": "fixture-manual-brief-run"
+      }
+    }
+  ],
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_unofficial_suno_player_0001",
+      "namespace": "unofficial-suno-player",
+      "key": "channel/tap-fixture-channel-v1/state",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 3,
+        "channelId": "tap-fixture-channel-v1",
+        "enabled": true,
+        "consent": {
+          "conversationContextEnabled": false,
+          "notifiedAt": null
+        },
+        "summaries": [],
+        "briefs": [],
+        "briefVotes": [],
+        "batches": [],
+        "tracks": [],
+        "queue": [],
+        "policy": {
+          "approvalMode": "manual-only",
+          "replenishmentPaused": false,
+          "lowWatermark": 3,
+          "songsPerBatch": 2,
+          "repetitionLimit": 3,
+          "maxGenerationsPerWeek": 6,
+          "creditBudget": 0,
+          "quietHoursEnabled": false,
+          "quietHoursStart": "22:00",
+          "quietHoursEnd": "07:00",
+          "instrumentalOnlyDuringQuietHours": false
+        },
+        "appliedOperationIds": [],
+        "updatedAt": "2026-07-24T12:00:00.000Z"
+      }
+    }
+  ],
+  "presence": [
+    {
+      "packageId": "tap_pkg_examples_unofficial_suno_player_0001",
+      "namespace": "unofficial-suno-player",
+      "room": "channel/tap-fixture-channel-v1/listening",
+      "selfParticipantId": "tap-fixture-user-v1",
+      "participants": [
+        {
+          "participantId": "fixture-listener-reviewer",
+          "displayName": "Fixture Listener",
+          "state": {
+            "listening": false,
+            "trackId": null
+          },
+          "updatedAtMs": 1784894400000
+        }
+      ]
+    }
+  ],
+  "specialists": [
+    {
+      "id": "fixture-suno-specialist",
+      "value": {
+        "id": "fixture-suno-specialist",
+        "slug": "fixture-suno-specialist",
+        "displayName": "Fixture Song Summary Specialist",
+        "description": "Deterministic specialist seed used to expose Test Lab discovery coverage.",
+        "tags": [
+          "fixture",
+          "music"
+        ],
+        "version": "1.0.0",
+        "availability": "private",
+        "canRunLocally": true,
+        "category": "creative",
+        "categoryDisplayName": "Creative",
+        "requiredCapabilities": null
+      }
+    }
+  ]
+}

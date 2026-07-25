@@ -217,7 +217,11 @@ export interface Actor {
 }
 
 export const emptyState = (): PyreState => ({ schemaVersion: SCHEMA_VERSION, investigations: [] });
-export const runtimeId = (prefix: string): string => `${prefix}_${crypto.randomUUID()}`;
+export type RuntimeIdFactory = (prefix: string) => string;
+export const runtimeId = (
+  prefix: string,
+  randomUUID: () => string = () => crypto.randomUUID(),
+): string => `${prefix}_${randomUUID()}`;
 export const timestamp = (): string => new Date().toISOString();
 export const splitList = (value: string): string[] => [...new Set(value.split(",").map((part) => part.trim()).filter(Boolean))];
 
@@ -256,6 +260,7 @@ export function auditMutation(
   summary: string,
   before?: unknown,
   after?: unknown,
+  idFactory: RuntimeIdFactory = runtimeId,
 ): Investigation {
   const at = timestamp();
   return {
@@ -264,12 +269,17 @@ export function auditMutation(
     revision: investigation.revision + 1,
     audit: [
       ...investigation.audit,
-      { id: runtimeId("audit"), at, actorId, action, entityType, entityId, summary, before, after },
+      { id: idFactory("audit"), at, actorId, action, entityType, entityId, summary, before, after },
     ],
   };
 }
 
-export function transitionInvestigation(investigation: Investigation, next: Phase, actorId: string): Investigation {
+export function transitionInvestigation(
+  investigation: Investigation,
+  next: Phase,
+  actorId: string,
+  idFactory: RuntimeIdFactory = runtimeId,
+): Investigation {
   if (!canEdit(investigation, actorId) && !canReview(investigation, actorId)) {
     throw new Error("Your investigation role cannot change the lifecycle stage.");
   }
@@ -294,6 +304,7 @@ export function transitionInvestigation(investigation: Investigation, next: Phas
     `${investigation.phase} → ${next}`,
     investigation.phase,
     next,
+    idFactory,
   );
 }
 
@@ -391,7 +402,10 @@ export function isPyreState(value: unknown): value is PyreState {
   return record.schemaVersion === SCHEMA_VERSION && Array.isArray(record.investigations);
 }
 
-export function migrateState(value: unknown): PyreState {
+export function migrateState(
+  value: unknown,
+  idFactory: RuntimeIdFactory = runtimeId,
+): PyreState {
   if (isPyreState(value)) return value;
   if (!value || typeof value !== "object") return emptyState();
   const legacy = value as { schemaVersion?: unknown; investigations?: unknown[]; activeId?: unknown };
@@ -403,7 +417,7 @@ export function migrateState(value: unknown): PyreState {
     const memberEntries = old.members && !Array.isArray(old.members) ? Object.entries(old.members) : [];
     const migrated: Investigation = {
       schemaVersion: 2,
-      id: String(old.id || runtimeId("inc")),
+      id: String(old.id || idFactory("inc")),
       title: String(old.title || "Untitled incident"),
       statement: String(old.statement || "Problem statement not established."),
       severity: ["SEV-1", "SEV-2", "SEV-3", "SEV-4"].includes(old.severity) ? old.severity : "unassessed",
@@ -459,12 +473,12 @@ export function migrateState(value: unknown): PyreState {
         : [],
       questions: Array.isArray(old.questions)
         ? old.questions.map((question: any) => typeof question === "string"
-          ? { id: runtimeId("question"), text: question, status: "open", createdAt }
+          ? { id: idFactory("question"), text: question, status: "open", createdAt }
           : question)
         : [],
       decisions: Array.isArray(old.decisions)
         ? old.decisions.map((decision: any) => typeof decision === "string"
-          ? { id: runtimeId("decision"), text: decision, rationale: "", decidedBy: String(old.createdBy || "unknown"), decidedAt: createdAt }
+          ? { id: idFactory("decision"), text: decision, rationale: "", decidedBy: String(old.createdBy || "unknown"), decidedAt: createdAt }
           : decision)
         : [],
       reports: [],

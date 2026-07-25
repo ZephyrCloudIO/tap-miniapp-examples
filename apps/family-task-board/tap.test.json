@@ -1,0 +1,128 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_family_task_board_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "family-task-board-desktop": {
+      "surface": "family-task-board",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/family-task-board.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:family-task-board"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 6929,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "family-task-board-desktop-post-projection-revoked": {
+      "surface": "family-task-board",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "synthetic:post-projection-all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/family-task-board.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:family-task-board"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6930,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "family-task-board-desktop-manage-denied": {
+      "surface": "family-task-board",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:family-task-board.manage",
+      "deniedActions": ["family-task-board.manage"],
+      "fixtureFiles": ["tests/fixtures/family-task-board.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:family-task-board"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6931,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "family-task-board-desktop-positive",
+      "profile": "family-task-board-desktop",
+      "testMatch": [
+        "tests/e2e/family-task-board-storage.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:family-task-board.manage",
+        "action:family-task-board.view",
+        "effect:storage:family-task-board"
+      ]
+    },
+    {
+      "id": "family-task-board-desktop-storage-denied",
+      "profile": "family-task-board-desktop-post-projection-revoked",
+      "testMatch": [
+        "tests/e2e/family-task-board-storage-denied.test.ts"
+      ],
+      "capabilities": ["effect:storage:family-task-board"]
+    },
+    {
+      "id": "family-task-board-desktop-manage-denied",
+      "profile": "family-task-board-desktop-manage-denied",
+      "testMatch": [
+        "tests/e2e/family-task-board-manage-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:family-task-board.manage",
+        "action:family-task-board.view",
+        "effect:storage:family-task-board"
+      ]
+    }
+  ],
+  "waivers": []
+}
