@@ -11,10 +11,16 @@
     "build:watch": "turbo run build:watch",
     "clean": "turbo run clean",
     "dev": "turbo run dev --parallel",
-    "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "test": "pnpm run test:unit && pnpm run verify:tap",
+    "test:unit": "turbo run test",
+    "test:tap:static": "node --test scripts/tap-test-discovery.test.mjs scripts/tap-test-policy.test.mjs scripts/tap-test-runtime.test.mjs && node scripts/verify-tap-tests.mjs",
+    "typecheck": "turbo run typecheck",
+    "typecheck:tap": "turbo run typecheck:tap --filter=./apps/*",
+    "verify": "pnpm run typecheck && pnpm run test",
+    "verify:tap": "pnpm run test:tap:static && pnpm run typecheck:tap"
   },
   "devDependencies": {
-    "turbo": "2.10.5"
+    "turbo": "2.10.5",
+    "typescript": "^6.0.3"
   }
 }

@@ -9,7 +9,10 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] Separate preview `localStorage` and packaged `sdk.storage` implementations
 - [x] Visible loading, saving, success, conflict, empty, permission, and failure states
 - [x] Responsive SDK-component UI with keyboard focus, dark tokens, compact layout, and reduced motion
-- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.2.0` pin, and matching `compatibility.tapSdk`
+- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.4.1` pin, and matching `compatibility.tapSdk`
+- [x] View-only mount prerequisite with product and host operations declared on demand
+- [x] `vanta-companion.coordinate` and `vanta-companion.analyze` enforced through fail-closed host authorization checks before side effects
+- [x] Surface mount/unmount events declared and scoped to the Vanta contribution
 
 ## Vanta SDK, API, and MCP
 
@@ -35,14 +38,14 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] User-created remediation cases linked to real Vanta IDs/deep links
 - [x] Validated case state transitions and lead-only source verification confirmation
 - [x] Durable analysis output and audit receipts retained across reload
-- [ ] TAP task delegation — blocked because TAP miniapp SDK `0.2.0` exposes no task API
-- [ ] Reminder/escalation authoring and history — blocked because TAP miniapp SDK `0.2.0` exposes no automation/reminder API
+- [ ] TAP task delegation — blocked because TAP miniapp SDK `0.4.1` exposes no task API
+- [ ] Reminder/escalation authoring and history — blocked because TAP miniapp SDK `0.4.1` exposes no automation/reminder API
 - [ ] Automatic Vanta webhook-triggered TAP workflow invocation — the Worker receives events, but the TAP SDK exposes no authenticated server-side workflow/event bridge; the real UI feed is refreshed on user request
 
 ## Knowledge and code context
 
 - [x] Specialist definition restricts CKG and knowledge access to declared `ckg_*`, `knowledge_*`, and `kg_*` tools and prompts for project scope, provenance, and visibility
-- [ ] Explicit plot attachment/retrieval UI — blocked because TAP miniapp SDK `0.2.0` exposes no knowledge-plot query or attachment API
+- [ ] Explicit plot attachment/retrieval UI — blocked because TAP miniapp SDK `0.4.1` exposes no knowledge-plot query or attachment API
 - [ ] Verified CKG source results in browser preview — requires a packaged TAP host, an indexed scoped project, and authorized source content
 
 ## Verification coverage
@@ -51,7 +54,9 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] API-family and MCP-tool inventory completeness tests
 - [x] Specialist regional endpoint, exact tool allowlist, read-only policy, and unavailable-audit prompt tests
 - [x] Host API adapter tests cover destination/path restrictions, credential requirements, JSON bodies, write classification, and response handling
-- [x] Worker integration tests cover signature verification, durable replay handling, stale and invalid deliveries, Access denial/CORS, retention, and oversized IDs
+- [x] Worker integration tests cover signature verification, durable replay handling, stale and invalid deliveries, authenticated Access sessions, exact-origin CORS denial, cursor pagination, retention, and oversized IDs
+- [x] Schema-v2 Miniapp Test Lab matrix covers deterministic desktop provenance/remount, storage hydration, specialist and MCP manifest installation, channels, workflow discovery/invocation, credential discovery, and isolated product/host authority denials
+- [x] Credential-use coverage declares the exact `credentials.use` / `tap.credentials:use` action-resource pair and carries `effect:credentials:http`; the metadata-only bearer fixture is listed, selected, and denied before native HTTP without exposing or fabricating secret material.
 - [x] Browser screenshots regenerated after the document-scroll, compact-control, status-bar, and webhook-feed UI changes
 - [x] Browser reload preserved the created case, planning transition, endpoint configuration, and receipts
 - [x] Browser warning/error console re-verified clean after desktop, viewer, compact, failure, and reload passes

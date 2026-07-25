@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": true,
+    "noEmit": true,
+    "tsBuildInfoFile": ".turbo/typecheck.tap.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["tests/e2e/**/*.ts", "rstest.tap.config.ts"]
+}

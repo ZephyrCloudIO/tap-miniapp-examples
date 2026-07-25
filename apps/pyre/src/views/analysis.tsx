@@ -1,13 +1,21 @@
 import { useMemo, useState } from "react";
 import { Alert, AlertDescription, Badge, Button, Card, CardContent, FieldGroup, Progress, Separator } from "@theaiplatform/miniapp-sdk/ui";
 import { AlertTriangle, Check, GitBranch, Lightbulb, Plus, Scale, ShieldQuestion, Sparkles, Split, X } from "lucide-react";
-import { auditMutation, canEdit, canReview, runtimeId, splitList, type Actor, type Investigation, type WhyNode } from "../domain";
+import {
+  PYRE_APPROVE_ACTION,
+  PYRE_INVESTIGATE_ACTION,
+  type PyreAuthorityGuard,
+} from "../authority";
+import { canEdit, canReview, splitList, type Actor, type Investigation, type WhyNode } from "../domain";
+import { useAuditMutation, useRuntimeId } from "../runtime-id";
 import { AddButton, EmptyPanel, EntityDialog, FormField, Metric, PermissionNotice, SectionHeader, SelectInput, StatusBadge, TextAreaInput, TextInput } from "../ui-helpers";
 
-interface Props { investigation: Investigation; actor: Actor; saving: boolean; onUpdate(next: Investigation, notice: string): Promise<boolean> }
+interface Props { investigation: Investigation; actor: Actor; saving: boolean; authorize: PyreAuthorityGuard; onUpdate(next: Investigation, notice: string): Promise<boolean> }
 const blank = { parentId: "", question: "Why did this observed condition occur?", answer: "", confidence: "unverified" as WhyNode["confidence"], supportingEvidenceIds: [] as string[], contradictingEvidenceIds: [] as string[], assumptions: "", alternatives: "", openQuestionIds: [] as string[], decision: "continue" as WhyNode["decision"], factorType: "contributing factor" as WhyNode["factorType"], counterfactual: "" };
 
-export function AnalysisView({ investigation, actor, saving, onUpdate }: Props) {
+export function AnalysisView({ investigation, actor, saving, authorize, onUpdate }: Props) {
+  const auditMutation = useAuditMutation();
+  const runtimeId = useRuntimeId();
   const editable = canEdit(investigation, actor.id), reviewer = canReview(investigation, actor.id);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blank);
@@ -18,12 +26,14 @@ export function AnalysisView({ investigation, actor, saving, onUpdate }: Props) 
   const openFor = (parentId = "") => { setForm({ ...blank, parentId }); setOpen(true); };
   const create = async () => {
     if (!form.answer.trim() || !form.question.trim()) return;
+    if (!(await authorize(PYRE_INVESTIGATE_ACTION))) return;
     const row: WhyNode = { id: runtimeId("why"), parentId: form.parentId || undefined, question: form.question.trim(), answer: form.answer.trim(), confidence: form.confidence, supportingEvidenceIds: form.supportingEvidenceIds, contradictingEvidenceIds: form.contradictingEvidenceIds, assumptions: splitList(form.assumptions), alternatives: splitList(form.alternatives), openQuestionIds: form.openQuestionIds, authorId: actor.id, reviewerIds: [], reviewStatus: "proposed", decision: form.decision, factorType: form.factorType, counterfactual: form.counterfactual.trim() };
     const evidence = investigation.evidence.map((item) => ({ ...item, supportsClaimIds: row.supportingEvidenceIds.includes(item.id) ? [...new Set([...item.supportsClaimIds, row.id])] : item.supportsClaimIds, contradictsClaimIds: row.contradictingEvidenceIds.includes(item.id) ? [...new Set([...item.contradictsClaimIds, row.id])] : item.contradictsClaimIds }));
     const next = auditMutation({ ...investigation, whys: [...investigation.whys, row], evidence }, actor.id, "why.created", "causal-claim", row.id, row.answer);
     if (await onUpdate(next, "Causal claim added as a proposed hypothesis.")) { setOpen(false); setForm(blank); }
   };
   const review = async (node: WhyNode, status: "accepted" | "rejected") => {
+    if (!(await authorize(PYRE_APPROVE_ACTION))) return;
     const whys = investigation.whys.map((item) => item.id === node.id ? { ...item, reviewStatus: status, reviewerIds: [...new Set([...item.reviewerIds, actor.id])] } : item);
     await onUpdate(auditMutation({ ...investigation, whys }, actor.id, `why.${status}`, "causal-claim", node.id, `${node.answer} ${status}`), `Causal claim ${status}.`);
   };

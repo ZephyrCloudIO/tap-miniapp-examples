@@ -30,7 +30,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.2.0",
+    "tapSdk": "0.4.1",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -79,11 +79,12 @@
         "player.brief.approved"
       ],
       "authorization": {
-        "allOf": [
-          "suno-player.view",
+        "allOf": ["suno-player.view"],
+        "onDemand": [
           "channels.list",
           "channels.read",
           "channels.send-message",
+          "credentials.read",
           "profile.read",
           "specialists.list",
           "specialists.invoke",
@@ -92,7 +93,21 @@
         ],
         "effects": [
           { "kind": "storage", "resources": ["unofficial-suno-player"] },
-          { "kind": "presence", "resources": ["unofficial-suno-player"] }
+          { "kind": "presence", "resources": ["unofficial-suno-player"] },
+          {
+            "kind": "host-api",
+            "resources": [
+              "tap.channels:list",
+              "tap.channels:read",
+              "tap.channels:send-message",
+              "tap.credentials:read",
+              "tap.profile:read",
+              "tap.specialists:list",
+              "tap.specialists:invoke",
+              "tap.workflows:list",
+              "tap.workflows:invoke"
+            ]
+          }
         ]
       },
       "lifecycleScope": "mount",
@@ -223,6 +238,16 @@
             "risk": "write"
           },
           {
+            "id": "credentials.read",
+            "resource": "tap.credentials:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
             "id": "profile.read",
             "resource": "tap.profile:read",
             "scopes": ["workspace"],
@@ -281,6 +306,7 @@
               "channels.list",
               "channels.read",
               "channels.send-message",
+              "credentials.read",
               "profile.read",
               "specialists.list",
               "specialists.invoke",

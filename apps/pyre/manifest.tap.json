@@ -20,7 +20,7 @@
     "iconAssets": []
   },
   "compatibility": {
-    "tapSdk": "0.2.0",
+    "tapSdk": "0.4.1",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -64,9 +64,29 @@
           "runtime": "webview"
         }
       },
+      "publishes": [
+        "pyre.surface.mounted",
+        "pyre.surface.unmounted"
+      ],
       "authorization": {
-        "allOf": [
-          "pyre.view"
+        "allOf": ["pyre.view"],
+        "onDemand": [
+          "pyre.investigate",
+          "pyre.approve",
+          "profile.read",
+          "credentials.read",
+          "credentials.use",
+          "network.request",
+          "projects.create",
+          "projects.update",
+          "channels.create",
+          "channels.send-message",
+          "channels.manage-specialists",
+          "specialists.manage",
+          "vfs.provision-project-chat",
+          "vfs.write",
+          "workflows.list",
+          "workflows.invoke"
         ],
         "effects": [
           {
@@ -88,15 +108,24 @@
             ]
           },
           {
+            "kind": "presence",
+            "resources": [
+              "pyre"
+            ]
+          },
+          {
             "kind": "host-api",
             "resources": [
-              "tap.channels",
-              "tap.projects",
-              "tap.presence",
-              "tap.specialists",
-              "tap.storage",
-              "tap.vfs",
-              "tap.workflows"
+              "tap.channels:create",
+              "tap.channels:send-message",
+              "tap.channels:manage-specialists",
+              "tap.projects:create",
+              "tap.projects:update",
+              "tap.specialists:manage",
+              "tap.vfs:provision-project-chat",
+              "tap.vfs:write",
+              "tap.workflows:list",
+              "tap.workflows:invoke"
             ]
           }
         ]
@@ -273,13 +302,156 @@
             "autonomyCeiling": "listen",
             "consent": "fresh-decision",
             "risk": "write"
+          },
+          {
+            "id": "profile.read",
+            "resource": "tap.profile:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "credentials.read",
+            "resource": "tap.credentials:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "credentials.use",
+            "resource": "tap.credentials:use",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "read"
+          },
+          {
+            "id": "projects.create",
+            "resource": "tap.projects:create",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "projects.update",
+            "resource": "tap.projects:update",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "channels.create",
+            "resource": "tap.channels:create",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "channels.send-message",
+            "resource": "tap.channels:send-message",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "channels.manage-specialists",
+            "resource": "tap.channels:manage-specialists",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "specialists.manage",
+            "resource": "tap.specialists:manage",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "vfs.provision-project-chat",
+            "resource": "tap.vfs:provision-project-chat",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "vfs.write",
+            "resource": "tap.vfs:write",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "workflows.list",
+            "resource": "tap.workflows:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.invoke",
+            "resource": "tap.workflows:invoke",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
           }
         ],
         "levels": [
           {
             "id": "pyre-participant",
             "actions": [
-              "pyre.view"
+              "pyre.view",
+              "profile.read",
+              "credentials.read",
+              "workflows.list"
             ],
             "assignableTo": [
               "human",
@@ -290,7 +462,21 @@
             "id": "pyre-investigator",
             "actions": [
               "pyre.view",
-              "pyre.investigate"
+              "pyre.investigate",
+              "profile.read",
+              "credentials.read",
+              "credentials.use",
+              "network.request",
+              "projects.create",
+              "projects.update",
+              "channels.create",
+              "channels.send-message",
+              "channels.manage-specialists",
+              "specialists.manage",
+              "vfs.provision-project-chat",
+              "vfs.write",
+              "workflows.list",
+              "workflows.invoke"
             ],
             "assignableTo": [
               "human",
@@ -301,7 +487,10 @@
             "id": "pyre-reviewer",
             "actions": [
               "pyre.view",
-              "pyre.approve"
+              "pyre.approve",
+              "profile.read",
+              "credentials.read",
+              "workflows.list"
             ],
             "assignableTo": [
               "human"

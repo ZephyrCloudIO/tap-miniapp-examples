@@ -1,0 +1,34 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://api.vanta.com/v1/audits",
+      "query": [
+        { "name": "pageSize", "value": "10" }
+      ],
+      "headers": [
+        { "name": "Accept", "value": "application/json" }
+      ],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 1048576,
+      "followRedirects": false
+    },
+    "response": {
+      "finalUrl": "https://api.vanta.com/v1/audits?pageSize=10",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        { "name": "content-type", "value": "application/json" }
+      ],
+      "bodyText": "{\"results\":[{\"id\":\"audit-fixture-1\",\"status\":\"in_progress\"}]}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 61,
+      "elapsedMs": 4,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  }
+]

@@ -14,7 +14,7 @@ This checklist is intentionally strict: checked items have executable code and t
 - [x] Deleting an administration requires confirmation and restores its linked inventory arithmetic.
 - [x] Conversational administration logging with structured read-back through a pure package-runtime MCP draft tool; the surface revalidates the result and commits only after confirmation.
 - [ ] Direct voice capture for administration logging — not represented as available because this miniapp has no SDK voice-input contract.
-- [ ] Host reminders and allowed reminder windows — blocked by the absence of reminder/notification scheduling APIs in SDK 0.2.0.
+- [ ] Host reminders and allowed reminder windows — blocked by the absence of reminder/notification scheduling APIs in SDK 0.4.1.
 
 ## Inventory, orders, and reconstitution
 
@@ -60,10 +60,10 @@ This checklist is intentionally strict: checked items have executable code and t
 - [x] Browser preview uses a visibly separate origin-local key.
 - [x] Schema v4 validates every entity shape, finite numeric boundary, relationship, stable ID uniqueness, replay uniqueness, inventory bound, research-source deduplication, and specialist channel provenance.
 - [x] Schema-v1/v2/v3 migration preserves records, adds deterministic status-history migration IDs, normalizes specialist receipts, initializes research collections, and writes the migrated schema back to the authoritative store.
-- [x] Owner/viewer domain guards, read-only UI, manifest permission levels, host-HTTP exact-origin effects, and specialist/MCP contribution boundaries.
+- [x] Owner/viewer domain guards, read-only UI, view-only mount authority, runtime `health-ledger.manage`/`research`/`export` checks, exact storage/network/host effects, and specialist/MCP contribution boundaries.
 - [x] Runtime-generated stable entity IDs, immutable audit receipts, visible loading/saving/success/conflict/failure states, and refresh persistence.
 - [x] Destructive operations use SDK confirmation dialogs; linked history fails visibly instead of being silently removed.
-- [ ] Revocable cross-user sharing — not exposed because SDK 0.2.0 provides no package-scoped sharing grant/revocation API for this user-private ledger.
+- [ ] Revocable cross-user sharing — not exposed because SDK 0.4.1 provides no package-scoped sharing grant/revocation API for this user-private ledger.
 
 ## Import, export, and reporting
 

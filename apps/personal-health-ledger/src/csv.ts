@@ -1,5 +1,6 @@
 import {
   LedgerValidationError,
+  nextLedgerId,
   recordAdministration,
   type AdministrationStatus,
   type LedgerState,
@@ -149,7 +150,7 @@ export function importAdministrationsCsv(
         `CSV row ${rowIndex + 2} has an unsupported administration status.`,
       );
     return recordAdministration(current, {
-      replayKey: record.replay_key || crypto.randomUUID(),
+      replayKey: record.replay_key || nextLedgerId(),
       itemId: item.id,
       lotId: lot?.id ?? '',
       plannedAt: record.planned_at,

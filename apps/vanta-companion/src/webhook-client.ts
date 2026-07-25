@@ -95,6 +95,7 @@ export async function fetchWebhookEvents(input: {
   readonly apiUrl: string;
   readonly workspaceId: string;
   readonly cursor: string | null;
+  readonly fetchImpl?: typeof fetch;
 }): Promise<WebhookEventPage> {
   const baseUrl = normalizeWebhookApiUrl(input.apiUrl);
   const url = new URL('/v1/events', baseUrl);
@@ -102,7 +103,7 @@ export async function fetchWebhookEvents(input: {
   if (input.cursor) url.searchParams.set('cursor', input.cursor);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await (input.fetchImpl ?? fetch)(url, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     });

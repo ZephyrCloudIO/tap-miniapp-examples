@@ -23,10 +23,27 @@ descriptor declares the same version in `compatibility.tapSdk`. All current
 miniapps are verified against:
 
 ```json
-"@theaiplatform/miniapp-sdk": "0.2.0"
+"@theaiplatform/miniapp-sdk": "0.4.1"
 ```
 
 Do not copy an older SDK pin from a reference repository.
+
+## Miniapp Test Lab
+
+Every descriptor-backed example includes a schema-v2 `tap.test.json`,
+SDK-owned Rstest configuration, deterministic fixtures, and capability-focused
+positive and denial cases. Validate the complete static inventory without a
+host session:
+
+```bash
+pnpm verify:tap
+```
+
+The repository gate runs the SDK `doctor`, `list`, `matrix`, and
+`scaffold --check` commands for every example, verifies exact SDK and runner
+pins, compares Rstest discovery with direct source declarations, and
+typechecks the host-driven suites. Executing those browser cases remains owned
+by TAP Miniapp Test Lab and requires its authenticated session file.
 
 Each example has its own product brief under [`miniapps`](./miniapps). The briefs are ordered for refinement; their status indicates whether the concept has been approved or remains proposed.
 

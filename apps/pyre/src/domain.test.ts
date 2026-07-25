@@ -10,6 +10,7 @@ import {
   isPyreState,
   migrateState,
   reportReadiness,
+  runtimeId,
   transitionInvestigation,
   validateIncident,
   validateSourceLinks,
@@ -40,6 +41,10 @@ const makeIncident = (role: Role = "lead"): Investigation => ({
 
 describe("Pyre domain", () => {
   it("starts with no domain records", () => expect(emptyState()).toEqual({ schemaVersion: 2, investigations: [] }));
+  it("uses explicitly supplied runtime entropy without mutating the fallback", () => {
+    expect(runtimeId("evidence", () => "surface-entropy")).toBe("evidence_surface-entropy");
+    expect(runtimeId("fallback")).toMatch(/^fallback_[0-9a-f-]{36}$/u);
+  });
   it("validates intake boundaries", () => expect(validateIncident({ title: "x", statement: "guess", impact: "" })).toHaveLength(3));
   it("accepts observable incident intake", () => expect(validateIncident(makeIncident())).toEqual([]));
   it("accepts HTTP source links and rejects unsafe or malformed links", () => {

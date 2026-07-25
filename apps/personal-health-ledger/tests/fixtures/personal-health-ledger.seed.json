@@ -1,0 +1,77 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_personal_health_ledger_0001",
+      "namespace": "personal-health-ledger",
+      "key": "private/ledger-v1",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 4,
+        "ownerLabel": "Test Lab Ledger",
+        "jurisdiction": "US",
+        "role": "owner",
+        "items": [
+          {
+            "id": "fixture-item-magnesium",
+            "name": "Magnesium Glycinate",
+            "canonicalName": "magnesium glycinate",
+            "category": "supplement",
+            "status": "active",
+            "jurisdiction": "US",
+            "regulatoryStatus": "User-entered supplement",
+            "form": "capsule",
+            "route": "oral",
+            "concentration": "",
+            "purpose": "Fixture record",
+            "clinician": "",
+            "sourceRecord": "Fixture product label",
+            "startedOn": "2026-07-01",
+            "notes": "",
+            "clinicianQuestions": "What evidence should I review?",
+            "schedules": [
+              {
+                "id": "fixture-schedule-magnesium",
+                "effectiveFrom": "2026-07-01",
+                "effectiveTo": "",
+                "cadence": "once daily",
+                "dose": 1,
+                "unit": "capsule",
+                "source": "Fixture product label"
+              }
+            ],
+            "statusHistory": [
+              {
+                "id": "fixture-status-magnesium",
+                "status": "active",
+                "effectiveFrom": "2026-07-01",
+                "effectiveTo": "",
+                "source": "user entry"
+              }
+            ]
+          }
+        ],
+        "lots": [],
+        "administrations": [],
+        "orders": [],
+        "reconstitutions": [],
+        "outcomes": [],
+        "confounders": [],
+        "adverseEvents": [],
+        "savedViews": [
+          {
+            "id": "fixture-view-approved",
+            "name": "Approved Evidence",
+            "scope": "approved-only",
+            "evidenceTypes": ["human-clinical", "regulatory"]
+          }
+        ],
+        "researchWatches": [],
+        "researchRecords": [],
+        "specialistBinding": null,
+        "specialistRuns": [],
+        "audit": []
+      }
+    }
+  ]
+}

@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertPortableTapPackageArtifacts } from "@theaiplatform/miniapp-sdk/rspack";
 
-const packageRoot = new URL("../tap-package", import.meta.url).pathname;
-const sourceRoot = new URL("..", import.meta.url).pathname;
+const packageRoot = fileURLToPath(new URL("../tap-package", import.meta.url));
+const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const manifestPath = path.join(packageRoot, "manifest.tap.json");
 
 if (!fs.existsSync(manifestPath)) throw new Error("TAP package manifest is missing; run build:miniapp first.");
@@ -28,7 +29,7 @@ for (const schema of [
 
 const serialized = JSON.stringify(manifest);
 if (serialized.includes('"pending"')) throw new Error("Assembled package still contains pending integrity values.");
-if (manifest.compatibility?.tapSdk !== "0.2.0") throw new Error("Assembled package TAP SDK compatibility is not exactly 0.2.0.");
+if (manifest.compatibility?.tapSdk !== "0.4.1") throw new Error("Assembled package TAP SDK compatibility is not exactly 0.4.1.");
 
 await assertPortableTapPackageArtifacts({ output: packageRoot, forbiddenRoots: [sourceRoot] });
 console.log(`verified ${required.length} artifacts across ${requiredTargets.length} targets, workflow schemas, resolved integrity, SDK compatibility, and portability`);

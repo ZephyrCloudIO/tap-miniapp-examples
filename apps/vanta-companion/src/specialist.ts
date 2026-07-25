@@ -46,7 +46,7 @@ export function specialistManifest(
     icon: 'shield-check',
     category: 'Security & Compliance',
     categoryDisplayName: 'Security & Compliance',
-    version: '0.2.0',
+    version: '0.4.1',
     schemaVersion: '1.1.0',
     maintainers: [
       { name: 'The AI Platform', email: 'examples@theaiplatform.app' },

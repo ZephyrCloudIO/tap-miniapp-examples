@@ -36,6 +36,7 @@ import {
   addReconstitution,
   addSavedView,
   addScheduleVersion,
+  nextLedgerId,
   recordAdministration,
   type AdministrationStatus,
   type Category,
@@ -246,7 +247,7 @@ function EntryForm({
       void submitOperation(
         current =>
           recordAdministration(current, {
-            replayKey: crypto.randomUUID(),
+            replayKey: nextLedgerId(),
             itemId: text(form, 'itemId'),
             lotId: text(form, 'lotId'),
             plannedAt: text(form, 'plannedAt'),

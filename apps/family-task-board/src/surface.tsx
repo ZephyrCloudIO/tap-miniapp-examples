@@ -15,11 +15,7 @@ export function mount(
 ): TapFederatedSurfaceMount {
   const stopAppearanceSync = installMiniAppAppearanceSync();
   const root = createRoot(container);
-  root.render(<FamilyTaskBoardApp />);
-  void context.events.publish("surface.mounted", {
-    contributionId: context.contributionId,
-    instanceId: context.instanceId,
-  });
+  root.render(<FamilyTaskBoardApp context={context} />);
 
   let mounted = true;
   return {
@@ -28,10 +24,6 @@ export function mount(
       mounted = false;
       stopAppearanceSync();
       root.unmount();
-      void context.events.publish("surface.unmounted", {
-        contributionId: context.contributionId,
-        instanceId: context.instanceId,
-      });
     },
   };
 }

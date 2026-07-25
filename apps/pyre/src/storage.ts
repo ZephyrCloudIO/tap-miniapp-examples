@@ -1,5 +1,5 @@
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
-import { emptyState, isPyreState, migrateState, type PyreState } from "./domain";
+import { emptyState, isPyreState, migrateState, runtimeId, type PyreState, type RuntimeIdFactory } from "./domain";
 
 const address = { namespace: "pyre", key: "investigations/v2" } as const;
 const legacyAddress = { namespace: "pyre", key: "investigations/v1" } as const;
@@ -30,31 +30,34 @@ export function mapStorageWriteError(error: unknown): unknown {
   return message.includes("revision") || message.includes("conflict") ? new StorageConflictError() : error;
 }
 
-function parse(raw: unknown, source: string): PyreState {
+function parse(raw: unknown, source: string, idFactory: RuntimeIdFactory): PyreState {
   if (raw === null || raw === undefined) return emptyState();
   try {
     const decoded = typeof raw === "string" ? JSON.parse(raw) : raw;
     const schemaVersion = decoded && typeof decoded === "object" ? (decoded as { schemaVersion?: unknown }).schemaVersion : undefined;
     if (!isPyreState(decoded) && schemaVersion !== 1) throw new Error("unsupported or malformed schema");
-    return migrateState(decoded);
+    return migrateState(decoded, idFactory);
   } catch (error) {
     throw new StorageDataError(`${source} contains invalid Pyre data. Restore a valid revision or clear the damaged preview workspace. ${String(error)}`);
   }
 }
 
-export async function loadState(preview: boolean): Promise<LoadedState> {
+export async function loadState(
+  preview: boolean,
+  idFactory: RuntimeIdFactory = runtimeId,
+): Promise<LoadedState> {
   if (preview) {
     const storage = globalThis.localStorage;
     if (!storage) throw new StorageDataError("Browser preview storage is unavailable. Enable local storage and reload Pyre.");
     const current = storage.getItem(previewKey);
-    if (current) return { state: parse(current, "Browser preview storage"), revision: null };
+    if (current) return { state: parse(current, "Browser preview storage", idFactory), revision: null };
     const legacy = storage.getItem(previewLegacyKey);
-    return { state: parse(legacy, "Legacy browser preview storage"), revision: null };
+    return { state: parse(legacy, "Legacy browser preview storage", idFactory), revision: null };
   }
   const current = await sdk.storage.get(address);
-  if (current.value !== null) return { state: parse(current.value, "TAP storage"), revision: current.revision };
+  if (current.value !== null) return { state: parse(current.value, "TAP storage", idFactory), revision: current.revision };
   const legacy = await sdk.storage.get(legacyAddress);
-  return { state: parse(legacy.value, "Legacy TAP storage"), revision: null };
+  return { state: parse(legacy.value, "Legacy TAP storage", idFactory), revision: null };
 }
 
 export async function saveState(state: PyreState, revision: number | null, preview: boolean): Promise<number | null> {

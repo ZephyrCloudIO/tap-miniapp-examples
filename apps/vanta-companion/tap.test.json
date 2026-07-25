@@ -1,0 +1,563 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_vanta_companion_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "vanta-companion-desktop": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": ["tests/fixtures/vanta-companion.http-routes.json"],
+      "requiredOrigins": ["https://api.vanta.com"],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:external-network:https://api.vanta.com",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.specialists:manage",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:mcp.oauth:https://mcp.aus.vanta.com/mcp",
+        "effect:mcp.oauth:https://mcp.eu.vanta.com/mcp",
+        "effect:mcp.oauth:https://mcp.vanta.com/mcp",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": ["vanta-api"],
+      "httpCredentialFixtures": [
+        {
+          "slot": "vanta-api",
+          "credentialType": "http_bearer",
+          "displayName": "Test Lab Vanta bearer",
+          "metadataFields": {}
+        }
+      ],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 6929,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-post-projection-revoked": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "synthetic:post-projection-all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:vanta-companion"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6930,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-specialists-manage-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:specialists.manage",
+      "deniedActions": ["specialists.manage"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.specialists:manage",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6931,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-channels-create-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.create",
+      "deniedActions": ["channels.create"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.specialists:manage",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6932,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-channels-manage-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.manage-specialists",
+      "deniedActions": ["channels.manage-specialists"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.specialists:manage",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6933,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-channels-send-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.send-message",
+      "deniedActions": ["channels.send-message"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6934,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-workflows-invoke-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.invoke",
+      "deniedActions": ["workflows.invoke"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6935,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-specialists-invoke-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:specialists.invoke",
+      "deniedActions": ["specialists.invoke"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.connected.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.specialists:invoke",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6936,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-credentials-read-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.read",
+      "deniedActions": ["credentials.read"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6937,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-credentials-use-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.use",
+      "deniedActions": ["credentials.use"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": ["tests/fixtures/vanta-companion.http-routes.json"],
+      "requiredOrigins": ["https://api.vanta.com"],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:external-network:https://api.vanta.com",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": ["vanta-api"],
+      "httpCredentialFixtures": [
+        {
+          "slot": "vanta-api",
+          "credentialType": "http_bearer",
+          "displayName": "Test Lab Vanta bearer",
+          "metadataFields": {}
+        }
+      ],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6941,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-coordinate-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:vanta-companion.coordinate",
+      "deniedActions": ["vanta-companion.coordinate"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:vanta-companion"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6938,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-analyze-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:vanta-companion.analyze",
+      "deniedActions": ["vanta-companion.analyze"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.connected.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:vanta-companion"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6939,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "vanta-companion-desktop-workflows-list-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.list",
+      "deniedActions": ["workflows.list"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6940,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "vanta-companion-desktop-positive",
+      "profile": "vanta-companion-desktop",
+      "testMatch": [
+        "tests/e2e/vanta-companion-positive.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:channels.create",
+        "action:channels.manage-specialists",
+        "action:channels.send-message",
+        "action:credentials.read",
+        "action:credentials.use",
+        "action:network.request",
+        "action:specialists.invoke",
+        "action:specialists.manage",
+        "action:vanta-companion.analyze",
+        "action:vanta-companion.coordinate",
+        "action:vanta-companion.view",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:credentials:http",
+        "effect:external-network:https://*",
+        "effect:external-network:https://api.vanta.com",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.specialists:manage",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:mcp.oauth:https://mcp.aus.vanta.com/mcp",
+        "effect:mcp.oauth:https://mcp.eu.vanta.com/mcp",
+        "effect:mcp.oauth:https://mcp.vanta.com/mcp",
+        "effect:storage:vanta-companion"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-storage-denied",
+      "profile": "vanta-companion-desktop-post-projection-revoked",
+      "testMatch": ["tests/e2e/vanta-companion-storage-denied.test.ts"],
+      "capabilities": ["effect:storage:vanta-companion"]
+    },
+    {
+      "id": "vanta-companion-desktop-specialists-manage-denied",
+      "profile": "vanta-companion-desktop-specialists-manage-denied",
+      "testMatch": ["tests/e2e/vanta-companion-specialists-manage-denied.test.ts"],
+      "capabilities": [
+        "action:specialists.manage",
+        "effect:host-api:tap.specialists:manage"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-channels-create-denied",
+      "profile": "vanta-companion-desktop-channels-create-denied",
+      "testMatch": ["tests/e2e/vanta-companion-channels-create-denied.test.ts"],
+      "capabilities": [
+        "action:channels.create",
+        "effect:host-api:tap.channels:create"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-channels-manage-denied",
+      "profile": "vanta-companion-desktop-channels-manage-denied",
+      "testMatch": ["tests/e2e/vanta-companion-channels-manage-denied.test.ts"],
+      "capabilities": [
+        "action:channels.manage-specialists",
+        "effect:host-api:tap.channels:manage-specialists"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-channels-send-denied",
+      "profile": "vanta-companion-desktop-channels-send-denied",
+      "testMatch": ["tests/e2e/vanta-companion-channels-send-denied.test.ts"],
+      "capabilities": [
+        "action:channels.send-message",
+        "effect:host-api:tap.channels:send-message"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-workflows-invoke-denied",
+      "profile": "vanta-companion-desktop-workflows-invoke-denied",
+      "testMatch": ["tests/e2e/vanta-companion-workflows-invoke-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.invoke",
+        "effect:host-api:tap.workflows:invoke"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-specialists-invoke-denied",
+      "profile": "vanta-companion-desktop-specialists-invoke-denied",
+      "testMatch": ["tests/e2e/vanta-companion-specialists-invoke-denied.test.ts"],
+      "capabilities": [
+        "action:specialists.invoke",
+        "effect:host-api:tap.specialists:invoke"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-credentials-read-denied",
+      "profile": "vanta-companion-desktop-credentials-read-denied",
+      "testMatch": ["tests/e2e/vanta-companion-credentials-read-denied.test.ts"],
+      "capabilities": ["action:credentials.read"]
+    },
+    {
+      "id": "vanta-companion-desktop-credentials-use-denied",
+      "profile": "vanta-companion-desktop-credentials-use-denied",
+      "testMatch": ["tests/e2e/vanta-companion-credentials-use-denied.test.ts"],
+      "capabilities": [
+        "action:credentials.use",
+        "effect:credentials:http"
+      ]
+    },
+    {
+      "id": "vanta-companion-desktop-coordinate-denied",
+      "profile": "vanta-companion-desktop-coordinate-denied",
+      "testMatch": ["tests/e2e/vanta-companion-coordinate-denied.test.ts"],
+      "capabilities": ["action:vanta-companion.coordinate"]
+    },
+    {
+      "id": "vanta-companion-desktop-analyze-denied",
+      "profile": "vanta-companion-desktop-analyze-denied",
+      "testMatch": ["tests/e2e/vanta-companion-analyze-denied.test.ts"],
+      "capabilities": ["action:vanta-companion.analyze"]
+    },
+    {
+      "id": "vanta-companion-desktop-workflows-list-denied",
+      "profile": "vanta-companion-desktop-workflows-list-denied",
+      "testMatch": ["tests/e2e/vanta-companion-workflows-list-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.list",
+        "effect:host-api:tap.workflows:list"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "action:network.request",
+      "reason": "Metadata-only credential fixtures now exercise listing and the pre-native credentials.use boundary, but HTTP route scripts cannot parameterize the runtime-selected opaque alias for a credential-bound network denial row.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:external-network:https://api.vanta.com",
+      "reason": "The credential-use denial proves no request escapes after network authority; a credential-bound route denial still needs HTTP script substitution for the runtime-selected opaque alias.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:external-network:https://*",
+      "reason": "This effect covers user-configured Cloudflare Access Worker origins and user-directed Vanta deep links; Surface Test Lab intercepts sdk.http but cannot safely exercise arbitrary browser-origin fetches or navigation.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:mcp.oauth:https://mcp.vanta.com/mcp",
+      "reason": "OAuth requires a live Vanta administrator account; Test Lab verifies the exact managed-specialist MCP template and allowlist without performing OAuth.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:mcp.oauth:https://mcp.eu.vanta.com/mcp",
+      "reason": "OAuth requires a live Vanta administrator account; Test Lab verifies the exact regional MCP template without performing OAuth.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:mcp.oauth:https://mcp.aus.vanta.com/mcp",
+      "reason": "OAuth requires a live Vanta administrator account; Test Lab verifies the exact regional MCP template without performing OAuth.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    }
+  ]
+}

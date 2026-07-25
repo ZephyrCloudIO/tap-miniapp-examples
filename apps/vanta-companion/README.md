@@ -27,6 +27,17 @@ pnpm typecheck
 pnpm test
 pnpm validate:manifest
 pnpm build
+pnpm typecheck:tap
+pnpm test:tap:list
 ```
+
+Run `pnpm test:tap` from a Miniapp Test Lab session. The schema-v2 matrix
+exercises the desktop surface with deterministic storage, workflow, channel,
+specialist, and HTTP route fixtures plus isolated denial profiles. Only
+`vanta-companion.view` is required to project the surface; callable product and
+host actions are declared under `authorization.onDemand` and checked at the
+operation boundary. The all-denied storage case is explicitly modeled as
+post-projection authority revocation, since denying the required view action
+would prevent an initial production mount.
 
 See [REQUIREMENTS.md](./REQUIREMENTS.md) for verified coverage and blocked product-brief requirements.

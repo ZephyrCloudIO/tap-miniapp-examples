@@ -5,9 +5,12 @@ import {
   waitOnExecutionContext,
 } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import worker from '../src/index';
+import worker, { createVantaCompanionWorker } from '../src/index';
 
 const secret = 'whsec_dGVzdC13ZWJob29rLXNlY3JldC0zMi1ieXRlcy1sb25n';
+const authorizedWorker = createVantaCompanionWorker({
+  verifyAccess: async () => ({ sub: 'fixture-user' }),
+});
 
 async function signature(
   body: string,
@@ -138,6 +141,82 @@ describe('Vanta webhook receiver', () => {
     expect(await response.json()).toMatchObject({
       error: 'access_login_required',
     });
+  });
+
+  it('returns a successful Access session with exact-origin CORS', async () => {
+    const response = await authorizedWorker.fetch(
+      new Request('https://api.example/v1/session', {
+        headers: { Origin: 'http://localhost:3000' },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(
+      'http://localhost:3000',
+    );
+    expect(await response.json()).toEqual({
+      authenticated: true,
+      subject: 'fixture-user',
+      workspaceId: env.WORKSPACE_ID,
+      webhookReceiver: true,
+    });
+  });
+
+  it('paginates the authorized event feed without losing a boundary row', async () => {
+    for (const row of [
+      ['msg-page-1', 'control.updated', '2026-07-24T12:00:00.000Z'],
+      ['msg-page-2', 'test.updated', '2026-07-24T12:00:01.000Z'],
+    ] as const) {
+      await env.EVENTS.prepare(
+        `INSERT INTO webhook_events
+          (message_id, workspace_id, event_type, occurred_at, received_at, payload_json)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(row[0], env.WORKSPACE_ID, row[1], null, row[2], '{}')
+        .run();
+    }
+
+    const first = await authorizedWorker.fetch(
+      new Request('https://api.example/v1/events?limit=1', {
+        headers: { Origin: 'http://localhost:3000' },
+      }),
+      env,
+    );
+    const firstPage = await first.json<{
+      events: Array<{ id: string }>;
+      nextCursor: string;
+      hasMore: boolean;
+    }>();
+    expect(firstPage.events.map(event => event.id)).toEqual(['msg-page-1']);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).toMatch(/\S/u);
+
+    const second = await authorizedWorker.fetch(
+      new Request(
+        `https://api.example/v1/events?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+        { headers: { Origin: 'http://localhost:3000' } },
+      ),
+      env,
+    );
+    const secondPage = await second.json<{
+      events: Array<{ id: string }>;
+      hasMore: boolean;
+    }>();
+    expect(secondPage.events.map(event => event.id)).toEqual(['msg-page-2']);
+    expect(secondPage.hasMore).toBe(false);
+  });
+
+  it('denies an authenticated request from an unconfigured origin', async () => {
+    const response = await authorizedWorker.fetch(
+      new Request('https://api.example/v1/events', {
+        headers: { Origin: 'https://untrusted.example' },
+      }),
+      env,
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(await response.json()).toMatchObject({ error: 'origin_denied' });
   });
 
   it('rejects oversized message IDs before persistence', async () => {

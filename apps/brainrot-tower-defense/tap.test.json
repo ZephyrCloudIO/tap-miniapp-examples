@@ -1,0 +1,161 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_brainrot_td_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "brainrot-td-desktop": {
+      "surface": "brainrot-td",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/brainrot-td.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:send-message",
+        "effect:presence:brainrot-td",
+        "effect:storage:brainrot-td",
+        "effect:storage:brainrot-td-commands",
+        "effect:storage:brainrot-td-progress"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 6929,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "brainrot-td-desktop-post-projection-revoked": {
+      "surface": "brainrot-td",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "synthetic:post-projection-all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/brainrot-td.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:presence:brainrot-td",
+        "effect:storage:brainrot-td",
+        "effect:storage:brainrot-td-commands",
+        "effect:storage:brainrot-td-progress"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6930,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "brainrot-td-desktop-channel-messaging-denied": {
+      "surface": "brainrot-td",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.send-message",
+      "deniedActions": ["channels.send-message"],
+      "fixtureFiles": ["tests/fixtures/brainrot-td.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:send-message",
+        "effect:presence:brainrot-td",
+        "effect:storage:brainrot-td",
+        "effect:storage:brainrot-td-commands",
+        "effect:storage:brainrot-td-progress"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6931,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "brainrot-td-desktop-positive",
+      "profile": "brainrot-td-desktop",
+      "testMatch": [
+        "tests/e2e/brainrot-td-capabilities.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:brainrot-td.play",
+        "action:channels.send-message",
+        "effect:host-api:tap.channels:send-message",
+        "effect:presence:brainrot-td",
+        "effect:storage:brainrot-td",
+        "effect:storage:brainrot-td-commands",
+        "effect:storage:brainrot-td-progress"
+      ]
+    },
+    {
+      "id": "brainrot-td-desktop-post-projection-revoked",
+      "profile": "brainrot-td-desktop-post-projection-revoked",
+      "testMatch": ["tests/e2e/brainrot-td-denied.test.ts"],
+      "capabilities": [
+        "action:brainrot-td.play",
+        "effect:presence:brainrot-td",
+        "effect:storage:brainrot-td",
+        "effect:storage:brainrot-td-commands",
+        "effect:storage:brainrot-td-progress"
+      ]
+    },
+    {
+      "id": "brainrot-td-desktop-channel-messaging-denied",
+      "profile": "brainrot-td-desktop-channel-messaging-denied",
+      "testMatch": [
+        "tests/e2e/brainrot-td-channel-messaging-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:channels.send-message",
+        "effect:host-api:tap.channels:send-message"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "action:brainrot-td.read-state",
+      "reason": "Surface Test Lab 0.4.1 mounts the UI expose but cannot invoke package-runtime MCP server contributions as a selected-specialist consumer, so it cannot produce a real host receipt for get_game_state. Rust tests cover bounded snapshot serialization, and the build validates the MCP server/tool/schema binding, but neither substitutes for an end-to-end MCP invocation.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    }
+  ]
+}

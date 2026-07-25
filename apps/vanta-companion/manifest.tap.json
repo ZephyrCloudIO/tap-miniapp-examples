@@ -29,7 +29,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.2.0",
+    "tapSdk": "0.4.1",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -58,21 +58,41 @@
       },
       "authorization": {
         "allOf": ["vanta-companion.view"],
+        "onDemand": [
+          "vanta-companion.coordinate",
+          "vanta-companion.analyze",
+          "channels.create",
+          "channels.send-message",
+          "channels.manage-specialists",
+          "workflows.list",
+          "workflows.invoke",
+          "specialists.manage",
+          "specialists.invoke",
+          "credentials.read",
+          "credentials.use",
+          "network.request"
+        ],
         "effects": [
           { "kind": "storage", "resources": ["vanta-companion"] },
           {
             "kind": "external-network",
-            "resources": ["https://*"]
-          },
-          { "kind": "channel.write", "resources": ["workspace"] },
-          { "kind": "workflow.invoke", "resources": ["workspace"] },
-          {
-            "kind": "specialist.manage",
-            "resources": ["vanta-soc2-companion"]
+            "resources": ["https://api.vanta.com", "https://*"]
           },
           {
-            "kind": "specialist.invoke",
-            "resources": ["vanta-soc2-companion"]
+            "kind": "credentials",
+            "resources": ["http"]
+          },
+          {
+            "kind": "host-api",
+            "resources": [
+              "tap.channels:create",
+              "tap.channels:send-message",
+              "tap.channels:manage-specialists",
+              "tap.workflows:list",
+              "tap.workflows:invoke",
+              "tap.specialists:manage",
+              "tap.specialists:invoke"
+            ]
           },
           {
             "kind": "mcp.oauth",
@@ -84,6 +104,10 @@
           }
         ]
       },
+      "publishes": [
+        "vanta-companion.surface.mounted",
+        "vanta-companion.surface.unmounted"
+      ],
       "lifecycleScope": "mount",
       "options": {
         "displayName": "Vanta Companion",
@@ -123,7 +147,7 @@
             "scopes": ["workspace", "channel"],
             "directActors": ["human"],
             "delegatedActors": ["specialist"],
-            "autonomyCeiling": "plan",
+            "autonomyCeiling": "do",
             "consent": "fresh-decision",
             "risk": "write"
           },
@@ -136,6 +160,106 @@
             "autonomyCeiling": "plan",
             "consent": "none",
             "risk": "read"
+          },
+          {
+            "id": "channels.create",
+            "resource": "tap.channels:create",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "channels.send-message",
+            "resource": "tap.channels:send-message",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "channels.manage-specialists",
+            "resource": "tap.channels:manage-specialists",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "workflows.list",
+            "resource": "tap.workflows:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.invoke",
+            "resource": "tap.workflows:invoke",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
+          },
+          {
+            "id": "specialists.manage",
+            "resource": "tap.specialists:manage",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "write"
+          },
+          {
+            "id": "specialists.invoke",
+            "resource": "tap.specialists:invoke",
+            "scopes": ["workspace", "channel", "project"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
+          },
+          {
+            "id": "credentials.read",
+            "resource": "tap.credentials:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "credentials.use",
+            "resource": "tap.credentials:use",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "fresh-decision",
+            "risk": "consequential"
           }
         ],
         "levels": [
@@ -149,7 +273,17 @@
             "actions": [
               "vanta-companion.view",
               "vanta-companion.analyze",
-              "vanta-companion.coordinate"
+              "vanta-companion.coordinate",
+              "channels.create",
+              "channels.send-message",
+              "channels.manage-specialists",
+              "workflows.list",
+              "workflows.invoke",
+              "specialists.manage",
+              "specialists.invoke",
+              "credentials.read",
+              "credentials.use",
+              "network.request"
             ],
             "assignableTo": ["human"]
           },
@@ -158,7 +292,17 @@
             "actions": [
               "vanta-companion.view",
               "vanta-companion.analyze",
-              "vanta-companion.coordinate"
+              "vanta-companion.coordinate",
+              "channels.create",
+              "channels.send-message",
+              "channels.manage-specialists",
+              "workflows.list",
+              "workflows.invoke",
+              "specialists.manage",
+              "specialists.invoke",
+              "credentials.read",
+              "credentials.use",
+              "network.request"
             ],
             "assignableTo": ["human"]
           }
@@ -173,7 +317,24 @@
       }
     }
   ],
-  "events": { "publishes": [] },
+  "events": {
+    "publishes": [
+      {
+        "name": "vanta-companion.surface.mounted",
+        "schema": "urn:tap:vanta-companion:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "vanta-companion.surface.unmounted",
+        "schema": "urn:tap:vanta-companion:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      }
+    ]
+  },
   "lifecycle": {
     "checkpoint": "retained",
     "lifecycleExpose": "./tap/lifecycle"

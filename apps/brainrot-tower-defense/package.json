@@ -12,7 +12,10 @@
     "build:watch": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build --watch",
     "dev": "pnpm validate:content && pnpm wasm && rsbuild dev",
     "typecheck": "cargo check --workspace --all-targets",
+    "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
     "test": "cargo test --workspace && node scripts/validate-assets.mjs",
+    "test:tap": "rstest run --config ./rstest.tap.config.ts",
+    "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
     "lint": "cargo clippy --workspace --all-targets -- -D warnings",
     "format:check": "cargo fmt --all -- --check",
     "validate:manifest": "node scripts/validate-manifest.mjs",
@@ -20,13 +23,18 @@
     "check:size": "node scripts/check-size.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.2.0"
+    "@theaiplatform/miniapp-sdk": "0.4.1"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.0",
     "@rsbuild/core": "^2.1.5",
     "@rslib/core": "^0.23.2",
     "@rspack/core": "2.1.4",
-    "ajv": "^8.20.0"
+    "@rstest/core": "0.11.3",
+    "@rstest/playwright": "0.11.3",
+    "@types/node": "^24.13.2",
+    "ajv": "^8.20.0",
+    "playwright": "^1.61.0",
+    "typescript": "^6.0.3"
   }
 }

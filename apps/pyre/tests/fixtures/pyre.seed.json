@@ -1,0 +1,200 @@
+{
+  "projects": [
+    {
+      "id": "pyre-fixture-project",
+      "name": "Pyre — Checkout API elevated errors",
+      "discoverable": false,
+      "channelIds": ["pyre-fixture-channel"],
+      "archivedChannelIds": []
+    }
+  ],
+  "channels": [
+    {
+      "roomId": "pyre-fixture-channel",
+      "title": "pyre-fixture-checkout",
+      "archived": false,
+      "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "messages": [],
+      "specialistIds": []
+    }
+  ],
+  "workflows": [
+    {
+      "workflowId": "pyre-fixture-collection",
+      "name": "Collect checkout evidence",
+      "type": "evidence-collection",
+      "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "result": {
+        "success": true,
+        "runId": "pyre-fixture-run",
+        "message": "Fixture evidence collection accepted."
+      }
+    }
+  ],
+  "vfsDirectories": [
+    {
+      "conversationId": "pyre-fixture-conversation",
+      "path": "/pyre/inc_fixture_checkout"
+    },
+    {
+      "conversationId": "pyre-fixture-conversation",
+      "path": "/pyre/inc_fixture_checkout/evidence"
+    },
+    {
+      "conversationId": "pyre-fixture-conversation",
+      "path": "/pyre/inc_fixture_checkout/reports"
+    },
+    {
+      "conversationId": "pyre-fixture-conversation",
+      "path": "/pyre/inc_fixture_checkout/receipts"
+    }
+  ],
+  "vfsFiles": [],
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_pyre_0001",
+      "namespace": "pyre",
+      "key": "investigations/v2",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 2,
+        "activeId": "inc_fixture_checkout",
+        "investigations": [
+          {
+            "schemaVersion": 2,
+            "id": "inc_fixture_checkout",
+            "title": "Checkout API elevated errors",
+            "statement": "Customers received elevated HTTP 503 responses while submitting checkout requests.",
+            "severity": "SEV-2",
+            "status": "investigating",
+            "impact": "Some customers could not complete purchases.",
+            "businessImpact": "Order completion declined during the incident window.",
+            "systems": ["checkout-api", "payment-router"],
+            "regions": ["us-east-1"],
+            "times": {
+              "start": "2026-07-24T11:30:00.000Z",
+              "detected": "2026-07-24T11:35:00.000Z"
+            },
+            "sourceLinks": [
+              "https://status.example.com/incidents/checkout-503"
+            ],
+            "phase": "evidence collection",
+            "createdAt": "2026-07-24T11:40:00.000Z",
+            "updatedAt": "2026-07-24T11:55:00.000Z",
+            "createdBy": "tap-fixture-user-v1",
+            "members": [
+              {
+                "id": "tap-fixture-user-v1",
+                "displayName": "Miniapp Test Fixture User",
+                "role": "lead",
+                "joinedAt": "2026-07-24T11:40:00.000Z"
+              },
+              {
+                "id": "workspace-user",
+                "displayName": "Workspace user",
+                "role": "lead",
+                "joinedAt": "2026-07-24T11:40:00.000Z"
+              }
+            ],
+            "evidence": [
+              {
+                "id": "evidence_fixture_alert",
+                "title": "Checkout error-rate alert",
+                "kind": "alert",
+                "source": "https://status.example.com/incidents/checkout-503",
+                "description": "The deterministic alert marks the first elevated 503 window.",
+                "collectedAt": "2026-07-24T11:36:00.000Z",
+                "collectedBy": "Miniapp Test Fixture User",
+                "visibility": "investigation",
+                "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "reliability": "Fixture alert with synchronized timestamps",
+                "systems": ["checkout-api"],
+                "supportsClaimIds": [],
+                "contradictsClaimIds": [],
+                "timelineEventIds": ["event_fixture_detected"],
+                "immutableSnapshot": false,
+                "collectionStatus": "reference"
+              }
+            ],
+            "timeline": [
+              {
+                "id": "event_fixture_detected",
+                "timestamp": "2026-07-24T11:35:00.000Z",
+                "originalTimestamp": "2026-07-24 11:35:00 UTC",
+                "timezone": "UTC",
+                "type": "detection",
+                "actor": "checkout-monitor",
+                "description": "The checkout error-rate alert crossed its threshold.",
+                "confidence": "confirmed",
+                "evidenceIds": ["evidence_fixture_alert"],
+                "reviewStatus": "confirmed"
+              }
+            ],
+            "whys": [],
+            "actions": [],
+            "questions": [
+              {
+                "id": "question_fixture_scope",
+                "text": "Did the error affect every payment route?",
+                "owner": "Miniapp Test Fixture User",
+                "status": "open",
+                "createdAt": "2026-07-24T11:50:00.000Z"
+              }
+            ],
+            "decisions": [],
+            "reports": [],
+            "audit": [
+              {
+                "id": "audit_fixture_created",
+                "at": "2026-07-24T11:40:00.000Z",
+                "actorId": "tap-fixture-user-v1",
+                "action": "investigation.created",
+                "entityType": "investigation",
+                "entityId": "inc_fixture_checkout",
+                "summary": "Fixture investigation created"
+              }
+            ],
+            "revision": 2,
+            "bindings": {
+              "projectId": "pyre-fixture-project",
+              "channelId": "pyre-fixture-channel",
+              "vfsConversationId": "pyre-fixture-conversation",
+              "vfsRoot": "/pyre/inc_fixture_checkout"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "presence": [
+    {
+      "packageId": "tap_pkg_examples_pyre_0001",
+      "namespace": "pyre",
+      "room": "tap-fixture-workspace-v1",
+      "selfParticipantId": "tap-fixture-user-v1",
+      "participants": [
+        {
+          "participantId": "tap-fixture-user-v1",
+          "displayName": "Miniapp Test Fixture User",
+          "state": {
+            "view": "investigations"
+          },
+          "updatedAtMs": 1784894400000
+        },
+        {
+          "participantId": "pyre-fixture-reviewer",
+          "displayName": "Fixture Reviewer",
+          "state": {
+            "view": "reports"
+          },
+          "updatedAtMs": 1784894400000
+        }
+      ]
+    }
+  ],
+  "checkpoints": [],
+  "specialists": []
+}
