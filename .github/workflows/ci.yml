@@ -33,17 +33,13 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install stable Rust with the WASM target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/brainrot-tower-defense -> target
-          cache-on-failure: true
-          cache-bin: true
+        run: |
+          rustup toolchain install stable \
+            --profile minimal \
+            --component rustfmt \
+            --component clippy \
+            --target wasm32-unknown-unknown
+          rustup default stable
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
