@@ -19,7 +19,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -43,7 +43,7 @@
       },
       "artifacts": {
         "trace": "failure-only",
-        "screenshots": "failure-only",
+        "screenshots": "always",
         "maxBytes": 8388608
       }
     },
@@ -51,7 +51,7 @@
       "surface": "unofficial-suno-player",
       "target": "desktop",
       "mode": "surface",
-      "permissionScenario": "synthetic:post-projection-all-denied",
+      "permissionScenario": "all-denied",
       "deniedActions": [
         "*"
       ],
@@ -64,7 +64,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -109,7 +109,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -154,7 +154,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -199,7 +199,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -244,7 +244,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -289,7 +289,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -334,7 +334,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -379,7 +379,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -424,7 +424,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -469,7 +469,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -514,7 +514,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:list",
         "effect:host-api:tap.specialists:invoke",
@@ -565,7 +565,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
-        "effect:host-api:tap.credentials:read",
+        "effect:credentials:http",
         "effect:host-api:tap.profile:read",
         "effect:host-api:tap.specialists:invoke",
         "effect:host-api:tap.specialists:list",
@@ -592,6 +592,11 @@
         "tests/e2e/unofficial-suno-player-storage-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
+        "action:credentials.read",
+        "action:profile.read",
+        "action:suno-player.view",
         "effect:storage:unofficial-suno-player"
       ]
     },
@@ -602,6 +607,11 @@
         "tests/e2e/unofficial-suno-player-presence-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
+        "action:credentials.read",
+        "action:profile.read",
+        "action:suno-player.view",
         "effect:presence:unofficial-suno-player"
       ]
     },
@@ -612,7 +622,10 @@
         "tests/e2e/unofficial-suno-player-channel-read-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
         "action:channels.read",
+        "action:profile.read",
+        "action:suno-player.view",
         "effect:host-api:tap.channels:read"
       ]
     },
@@ -623,7 +636,13 @@
         "tests/e2e/unofficial-suno-player-channel-send-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
         "action:channels.send-message",
+        "action:profile.read",
+        "action:specialists.list",
+        "action:suno-player.view",
+        "action:workflows.list",
         "effect:host-api:tap.channels:send-message"
       ]
     },
@@ -634,7 +653,10 @@
         "tests/e2e/unofficial-suno-player-profile-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
         "action:profile.read",
+        "action:suno-player.view",
         "effect:host-api:tap.profile:read"
       ]
     },
@@ -645,7 +667,12 @@
         "tests/e2e/unofficial-suno-player-specialist-list-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
+        "action:profile.read",
         "action:specialists.list",
+        "action:suno-player.view",
+        "action:workflows.list",
         "effect:host-api:tap.specialists:list"
       ]
     },
@@ -656,7 +683,13 @@
         "tests/e2e/unofficial-suno-player-workflow-invoke-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
+        "action:profile.read",
+        "action:specialists.list",
+        "action:suno-player.view",
         "action:workflows.invoke",
+        "action:workflows.list",
         "effect:host-api:tap.workflows:invoke"
       ]
     },
@@ -668,6 +701,9 @@
       ],
       "capabilities": [
         "action:channels.list",
+        "action:channels.read",
+        "action:profile.read",
+        "action:suno-player.view",
         "effect:host-api:tap.channels:list"
       ]
     },
@@ -678,6 +714,11 @@
         "tests/e2e/unofficial-suno-player-workflow-list-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
+        "action:profile.read",
+        "action:specialists.list",
+        "action:suno-player.view",
         "action:workflows.list",
         "effect:host-api:tap.workflows:list"
       ]
@@ -689,15 +730,24 @@
         "tests/e2e/unofficial-suno-player-credentials-read-denied.test.ts"
       ],
       "capabilities": [
+        "action:channels.list",
+        "action:channels.read",
         "action:credentials.read",
-        "effect:host-api:tap.credentials:read"
+        "action:profile.read",
+        "action:suno-player.view",
+        "effect:credentials:http"
       ]
     }
   ],
   "waivers": [
     {
+      "capability": "effect:credentials:http",
+      "reason": "This surface lists metadata-only references through credentials.read but never uses a credential or issues HTTP. Positive coverage asserts the empty metadata result and zero requests, while the credentials.read denial row verifies the read boundary; declaring credentials.use only to manufacture a secret-use denial would misrepresent the app.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
       "capability": "action:specialists.invoke",
-      "reason": "Surface Test Lab 0.4.1 does not project seeded workspace specialists through sdk.specialist.listWorkspace, so no real specialist can be selected for a truthful run-turn success or denial case; prompt/result parsing remains unit-tested.",
+      "reason": "Surface Test Lab 0.4.2 does not project seeded workspace specialists through sdk.specialist.listWorkspace, so no real specialist can be selected for a truthful run-turn success or denial case; prompt/result parsing remains unit-tested.",
       "expiresAt": "2027-01-31T00:00:00Z"
     },
     {

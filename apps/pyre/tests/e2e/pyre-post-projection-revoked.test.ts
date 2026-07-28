@@ -4,6 +4,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  expectMatchingAlert,
   hasAuthorizationDecision,
 } from "./pyre-test-support";
 
@@ -14,7 +15,7 @@ test("fails closed when runtime authority is revoked after surface projection", 
   expectExactProvenance(tap, {
     allowedOrigins: [],
     matrixEntryId: "pyre-desktop-post-projection-revoked",
-    permissionScenario: "synthetic:post-projection-all-denied",
+    permissionScenario: "all-denied",
     profileId: "pyre-desktop-post-projection-revoked",
     seed: 6930,
     theme: "dark",
@@ -24,7 +25,8 @@ test("fails closed when runtime authority is revoked after surface projection", 
       exact: true,
     }),
   ).toBeVisible();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /Pyre could not load this workspace.*not grant this platform action/iu,
   );
 

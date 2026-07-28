@@ -1,9 +1,26 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { pluginModuleFederation } from "@module-federation/rsbuild-plugin";
 import type { RsbuildPlugin } from "@rsbuild/core";
+import { pluginReact } from "@rsbuild/plugin-react";
 import { defineConfig } from "@rslib/core";
 import { tapLib } from "@theaiplatform/miniapp-sdk/rspack";
+
+const require = createRequire(import.meta.url);
+const reactPackageRoot = dirname(require.resolve("react/package.json"));
+const reactDomPackageRoot = dirname(require.resolve("react-dom/package.json"));
+
+const singleReactRuntimePlugin: RsbuildPlugin = {
+  name: "unofficial-suno-player:single-react-runtime",
+  setup(api) {
+    api.modifyBundlerChain((chain) => {
+      chain.resolve.alias
+        .set("react", reactPackageRoot)
+        .set("react-dom", reactDomPackageRoot);
+    });
+  },
+};
 
 if (process.env.ZEPHYR_PUBLISH === "true") throw new Error("Build the complete TAP package before publishing.");
 
@@ -88,5 +105,14 @@ library.output = {
   sourceMap: false,
   minify: true,
 };
+if (packageTarget === "desktop") {
+  // The SDK UI resolves its optional React peer through pnpm's virtual store,
+  // while this app imports React from its workspace path. Canonicalize both
+  // graphs so hooks and ReactDOM always use the same private dispatcher.
+  library.plugins = [...(library.plugins ?? []), singleReactRuntimePlugin];
+}
 
-export default defineConfig({ lib: [library] });
+export default defineConfig({
+  plugins: packageTarget === "desktop" ? [pluginReact()] : [],
+  lib: [library],
+});

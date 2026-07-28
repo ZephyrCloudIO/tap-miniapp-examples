@@ -3,13 +3,13 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
-  CHANNEL_ID,
-  CHANNEL_STORAGE_KEY,
   PACKAGE_ID,
   SEEDED_SPECIALIST_ID,
   STORAGE_NAMESPACE,
   WORKFLOW_ID,
+  channelListeningRoom,
   channelStorageRecord,
+  channelStorageKey,
   expectExactProvenance,
   expectReadySurface,
   hasAuthorizationDecision,
@@ -92,14 +92,14 @@ test("hydrates channel state through the declared identity, channel, and storage
   ).toHaveLength(2);
 
   const snapshot = await tap.fixture.snapshot();
-  expect(channelStorageRecord(snapshot)).toEqual(
+  expect(channelStorageRecord(snapshot, tap.channelId)).toEqual(
     expect.objectContaining({
-      key: CHANNEL_STORAGE_KEY,
+      key: channelStorageKey(tap.channelId),
       namespace: STORAGE_NAMESPACE,
       packageId: PACKAGE_ID,
       revision: 1,
       value: expect.objectContaining({
-        channelId: CHANNEL_ID,
+        channelId: tap.channelId,
         enabled: true,
       }),
     }),
@@ -145,7 +145,7 @@ test("notifies the channel before consent and reads only an explicitly requested
   ).toBeVisible();
 
   const snapshot = await tap.fixture.snapshot();
-  expect(channelStorageRecord(snapshot)).toEqual(
+  expect(channelStorageRecord(snapshot, tap.channelId)).toEqual(
     expect.objectContaining({
       revision: 2,
       value: expect.objectContaining({
@@ -158,7 +158,7 @@ test("notifies the channel before consent and reads only an explicitly requested
   );
   expect(
     snapshot.state.channels.find(
-      (channel) => channel.roomId === CHANNEL_ID,
+      (channel) => channel.roomId === tap.channelId,
     )?.messages,
   ).toEqual(
     expect.arrayContaining([
@@ -214,7 +214,7 @@ test("lists and invokes a deterministic saved workflow while making the speciali
       workflowList: true,
     });
 
-  const specialistSelect = surface.getByLabel("Specialist");
+  const specialistSelect = surface.getByLabel("Specialist", { exact: true });
   await expect(specialistSelect).toBeDisabled();
   expect(await specialistSelect.locator("option").allTextContents()).toEqual([
     "Select a TAP specialist",
@@ -262,11 +262,11 @@ test("persists opt-in listening presence through separately governed storage and
   tap,
 }) => {
   await openSettings(surface);
-  await surface
-    .getByRole("checkbox", {
-      name: /Broadcast my listening or paused state/u,
-    })
-    .check();
+  const presenceCheckbox = surface.getByRole("checkbox", {
+    name: /Broadcast my listening or paused state/u,
+  });
+  await presenceCheckbox.click();
+  await expect(presenceCheckbox).toBeChecked();
 
   await expect
     .poll(async () => {
@@ -274,8 +274,13 @@ test("persists opt-in listening presence through separately governed storage and
       const listeningRoom = snapshot.state.presence.find(
         (entry) =>
           entry.namespace === STORAGE_NAMESPACE &&
-          entry.room === `channel/${CHANNEL_ID}/listening`,
+          entry.room === channelListeningRoom(tap.channelId),
       );
+      const selfParticipantId = listeningRoom?.selfParticipantId ?? "";
+      const participantIds =
+        listeningRoom?.participants.map(
+          (participant) => participant.participantId,
+        ) ?? [];
       return {
         preferenceBroadcast:
           preferenceStorageRecords(snapshot).some(
@@ -285,41 +290,24 @@ test("persists opt-in listening presence through separately governed storage and
               !Array.isArray(entry.value) &&
               Reflect.get(entry.value, "broadcastPresence") === true,
           ),
-        participantIds: [
-          ...(listeningRoom?.participants.map(
-            (participant) => participant.participantId,
-          ) ?? []),
-        ].sort(),
+        fixtureListenerPresent: participantIds.includes(
+          "fixture-listener-reviewer",
+        ),
+        participantCount: participantIds.length,
+        selfParticipantId,
+        selfParticipantPresent:
+          selfParticipantId.length > 0 &&
+          participantIds.includes(selfParticipantId),
       };
     })
     .toEqual({
       preferenceBroadcast: true,
-      participantIds: [
-        "fixture-listener-reviewer",
-        "tap-fixture-user-v1",
-      ],
+      fixtureListenerPresent: true,
+      participantCount: 2,
+      selfParticipantId: expect.stringMatching(/\S/u),
+      selfParticipantPresent: true,
     });
 
-  await expect
-    .poll(async () => {
-      const credentialLedger = await tap.fixture.ledger.read();
-      return {
-        credentialsRead: hasAuthorizationDecision(credentialLedger.entries, {
-          actionId: "credentials.read",
-          allowed: true,
-          kind: "platform",
-        }),
-        credentialsList: hasOperation(
-          credentialLedger.entries,
-          "native",
-          "credentials.list",
-        ),
-      };
-    })
-    .toEqual({
-      credentialsRead: true,
-      credentialsList: true,
-    });
   const ledger = await tap.fixture.ledger.read();
   expect(
     hasAuthorizationDecision(ledger.entries, {
@@ -338,13 +326,43 @@ test("persists opt-in listening presence through separately governed storage and
   expect(hasOperation(ledger.entries, "platform", "presence.join")).toBe(true);
 });
 
-test("replays fixed clock and entropy across a full fixture reset", async ({
+test("discovers an empty metadata-only credential vault without issuing HTTP", async ({
+  surface,
+  tap,
+}) => {
+  await openSettings(surface);
+  await expect(
+    surface.getByText(
+      "0 metadata-only HTTP credential references are visible. Secret values never enter miniapp JavaScript.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+
+  const ledger = await tap.fixture.ledger.read();
+  expect(
+    hasAuthorizationDecision(ledger.entries, {
+      actionId: "credentials.read",
+      allowed: true,
+      kind: "platform",
+    }),
+  ).toBe(true);
+  expect(hasOperation(ledger.entries, "native", "credentials.list")).toBe(true);
+  expect(await tap.fixture.http.requests()).toEqual({
+    dropped: 0,
+    requests: [],
+  });
+});
+
+test("keeps fixed clock while allocating distinct host-scoped entropy after a full fixture reset", async ({
   surface,
   tap,
 }) => {
   const enableAndRead = async (): Promise<{
-    readonly channel: unknown;
-    readonly notice: unknown;
+    readonly normalized: {
+      readonly channel: unknown;
+      readonly notice: unknown;
+    };
+    readonly operationId: string;
   }> => {
     await openContext(surface);
     await surface
@@ -357,11 +375,58 @@ test("replays fixed clock and entropy across a full fixture reset", async ({
       surface.getByText("Enabled with notice", { exact: true }),
     ).toBeVisible();
     const snapshot = await tap.fixture.snapshot();
+    const channel = channelStorageRecord(snapshot, tap.channelId);
+    const notice = snapshot.state.channels
+      .find((candidate) => candidate.roomId === tap.channelId)
+      ?.messages.at(-1);
+    const channelValue =
+      typeof channel?.value === "object" &&
+      channel.value !== null &&
+      !Array.isArray(channel.value)
+        ? channel.value
+        : null;
+    const appliedOperationIds = channelValue
+      ? Reflect.get(channelValue, "appliedOperationIds")
+      : null;
+    expect(channel).toEqual(
+      expect.objectContaining({
+        key: channelStorageKey(tap.channelId),
+        value: expect.objectContaining({
+          channelId: tap.channelId,
+        }),
+      }),
+    );
+    expect(notice).toEqual(
+      expect.objectContaining({
+        body: expect.stringMatching(/\S/u),
+        messageId: expect.stringMatching(/\S/u),
+      }),
+    );
+    expect(appliedOperationIds).toEqual([
+      expect.stringMatching(
+        /^enable-context-state:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+      ),
+    ]);
+    if (
+      !channel ||
+      !channelValue ||
+      !Array.isArray(appliedOperationIds) ||
+      typeof appliedOperationIds[0] !== "string"
+    ) {
+      throw new Error("The channel operation ID was not persisted.");
+    }
     return {
-      channel: channelStorageRecord(snapshot),
-      notice: snapshot.state.channels
-        .find((channel) => channel.roomId === CHANNEL_ID)
-        ?.messages.at(-1),
+      normalized: {
+        channel: {
+          ...channel,
+          value: {
+            ...channelValue,
+            appliedOperationIds: [],
+          },
+        },
+        notice,
+      },
+      operationId: appliedOperationIds[0],
     };
   };
 
@@ -370,5 +435,6 @@ test("replays fixed clock and entropy across a full fixture reset", async ({
   await expectReadySurface(surface);
   const second = await enableAndRead();
 
-  expect(second).toEqual(first);
+  expect(second.normalized).toEqual(first.normalized);
+  expect(second.operationId).not.toBe(first.operationId);
 });

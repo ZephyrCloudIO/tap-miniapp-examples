@@ -8,7 +8,7 @@ import {
 
 export const PACKAGE_ID = 'tap_pkg_examples_personal_health_ledger_0001';
 export const SURFACE_ID = 'personal-health-ledger';
-export const SDK_VERSION = '0.4.1';
+export const SDK_VERSION = '0.4.2';
 export const RUNNER_VERSION = '0.11.3';
 export const FIXED_NOW = '2026-07-24T12:00:00Z';
 export const NETWORK_ORIGINS = [
@@ -54,7 +54,8 @@ export function expectExactProvenance(
     allowedNetworkOrigins: expected.allowedNetworkOrigins ?? [],
     artifacts: {
       trace: 'failure-only',
-      screenshots: 'failure-only',
+      screenshots:
+        expected.permissionScenario === 'default' ? 'always' : 'failure-only',
     },
     credentialAliases: [],
     environment: {
@@ -136,6 +137,32 @@ export function hasPlatformAuthorizationDecision(
       Reflect.get(entry.detail, 'autonomy') === expected.autonomy &&
       Reflect.get(entry.detail, 'allowed') === expected.allowed,
   );
+}
+
+function objectDetail(
+  value: unknown,
+): Readonly<Record<string, unknown>> | null {
+  return typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : null;
+}
+
+export function packageEventLocalName(
+  entry: TapMiniappTestFixtureLedger['entries'][number],
+): string | null {
+  if (
+    entry.kind !== 'event' ||
+    entry.operation !== 'tap.fixture.package-event'
+  ) {
+    return null;
+  }
+  const detail = objectDetail(entry.detail);
+  const payload = objectDetail(detail?.payload);
+  const metadata = objectDetail(payload?.metadata);
+  const localName = objectDetail(metadata?.localName);
+  return typeof localName?.text === 'string' ? localName.text : null;
 }
 
 export function storedLedger(

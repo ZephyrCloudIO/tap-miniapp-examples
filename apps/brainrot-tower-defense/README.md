@@ -11,10 +11,10 @@ The app starts empty. Browser-preview records come only from user interaction
 and use the distinct `tap-example.brainrot-td.preview.v1` local-storage key.
 Packaged execution exclusively uses revision-checked TAP storage and never
 falls back to browser storage. Channel sessions, player progression, audio
-settings, command queues, presence, durable events, and compact channel
-activity cards use real TAP capabilities declared in `manifest.tap.json`.
+settings, command queues, presence, and durable game milestones use real TAP
+capabilities declared in `manifest.tap.json`.
 Session records carry a post-commit event outbox, so a host interruption between
-state, acknowledgement, event, and activity-card writes remains visibly
+state, acknowledgement, and package-event publication remains visibly
 retryable instead of silently reporting success.
 Every accepted gameplay command also appends a bounded authoritative
 processed-command receipt containing its command ID, exact payload fingerprint,
@@ -149,7 +149,7 @@ level-1-to-5 purchase run, production reload, 2048 px desktop layout, 390 px
 compact layout, and clean browser warning/error log are recorded separately in
 the requirements checklist so the native and live evidence remain explicit.
 
-## SDK 0.4.1 integration
+## SDK integration
 
 The app now mounts its portable toolbar, runtime badge, TAP save status, and
 browser-preview reset confirmation through
@@ -161,21 +161,37 @@ remain Rust-owned.
 
 The requested read-only specialist game-state capability is now packaged as the
 `brainrot-td-state-server` MCP server with the `get_game_state` tool. Its handler
-calls the Rust/WASM snapshot export directly and returns a bounded,
-schema-validated view of the selected channel game under the
-`brainrot-td.read-state` permission. The manifest, server-specific federation
-expose, and input/output schemas are validated together during the build.
+executes in a dedicated QuickJS target, obtains the trusted canonical user and
+nullable channel identities from `sdk.mcp.getExecutionContext()`, and reads only
+the exact
+`brainrot-td:mcp/users/{userId}/channels/{channelId}/current` address
+preauthorized by the tool's `storageReads` contract. The webview uses the
+host-canonical `context.userId` for both that projection key and the gameplay
+player identifier. Until the host provides a display-name primitive supported
+in channel panels, the gameplay session uses the bounded fallback `TAP player`;
+host-stamped presence still identifies participants. It maintains the record as
+a versioned, 256 KiB-capped projection without changing the primary
+multi-session game storage. Entity lists use deterministic count and byte caps,
+and the tool returns explicit truncation flags and full totals.
+Missing user/channel context, stale-schema, cross-user, cross-channel,
+malformed, or extra-field state fails closed. The QuickJS graph does not import
+the browser/WASM runtime. The manifest, server-specific federation expose,
+input/output schemas, exact storage selector, storage effects, and assembled
+runtime closure are validated together during the build.
 Surface Test Lab cannot yet invoke a package-runtime MCP expose as a
-selected-specialist consumer, so the descriptor carries an expiring
-`brainrot-td.read-state` waiver instead of presenting the Rust snapshot test as
-end-to-end MCP evidence.
+selected-specialist consumer. Because the descriptor matrix is scoped to UI
+surface authority, it does not claim or waive `brainrot-td.read-state`;
+deterministic storage-boundary tests and package-closure verification remain
+explicitly non-end-to-end MCP evidence.
 
-Only `brainrot-td.play` is required to project the game surface.
-`channels.send-message` is declared as an on-demand action and checked
-independently, so denying channel activity cards does not disable gameplay,
-storage, presence, or durable package events. The Test Lab all-denied case is a
-synthetic post-projection authority revocation: denying the required play action
-before projection would prevent a production surface from mounting.
+Only `brainrot-td.play` is required to project the game surface. The mounted
+context's validated canonical `userId` is both the stable gameplay `PlayerId`
+and the projection identity, so mount does not depend on a profile host action.
+Milestones use the surface's declared durable package events. Channel-panel
+surfaces do not expose `channels.sendMessage`, so the descriptor and runtime do
+not request it. The Test Lab all-denied case is a synthetic post-projection
+authority revocation: denying the required play action before projection would
+prevent a production surface from mounting.
 
 ## Remaining platform and distribution blockers
 
@@ -186,10 +202,11 @@ grant for that source artwork. Public distribution therefore requires rights
 clearance or replacement original art; the example does not claim ownership or
 a permissive license for the referenced card graphics or character designs.
 
-Finally, TAP storage and presence do not expose a host-stamped caller identity
-for cross-client commands. Presence identity is host-stamped but presence state
-is explicitly informative, not authoritative. The example uses CAS queues and
-canonical simulation validation, but cannot securely bind a stored command to
-its sender or implement secure disconnect-slot expiry without a platform-owned
-session/command primitive. These boundaries are tracked in
-`docs/requirements-checklist.md`.
+Finally, the webview mount and package-runtime MCP bridge now expose the same
+host-canonical user identity alongside the host-stamped channel identity, but
+TAP storage still cannot securely bind a cross-client game command to its
+purported sender. Presence identity is host-stamped but presence state is
+explicitly informative, not authoritative. The example uses CAS queues and
+canonical simulation validation, but cannot securely implement command-sender
+binding or disconnect-slot expiry without a platform-owned session/command
+primitive. These boundaries are tracked in `docs/requirements-checklist.md`.

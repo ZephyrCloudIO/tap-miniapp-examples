@@ -25,9 +25,22 @@ test("reports credential discovery as unavailable without leaking metadata", asy
     surface.getByText("Credential discovery failed", { exact: true }),
   ).toBeVisible();
   await expect(
-    surface.getByText(/credentials\.read.*run did not grant/iu),
+    surface.getByText(
+      "This target does not expose HTTP credential discovery.",
+      { exact: true },
+    ),
   ).toBeVisible();
 
+  await expect
+    .poll(async () => {
+      const ledger = await tap.fixture.ledger.read();
+      return hasAuthorizationDecision(ledger.entries, {
+        actionId: "credentials.read",
+        allowed: false,
+        kind: "platform",
+      });
+    })
+    .toBe(true);
   const ledger = await tap.fixture.ledger.read();
   expect(
     hasAuthorizationDecision(ledger.entries, {

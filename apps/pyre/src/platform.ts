@@ -4,6 +4,30 @@ import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk
 import type { Actor, Investigation, PlatformBindings } from "./domain";
 
 export const HTTP_EVIDENCE_ORIGINS = ["https://api.github.com"] as const;
+const VFS_CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
+
+export function pyreVfsRoot(investigationId: string): string {
+  const normalizedId = investigationId.trim();
+  if (!normalizedId) {
+    throw new Error("The investigation ID cannot be empty.");
+  }
+  return normalizePyreVfsRoot(`pyre/${encodeURIComponent(normalizedId)}`);
+}
+
+export function normalizePyreVfsRoot(value: string): string {
+  const relative = value.startsWith("/") ? value.slice(1) : value;
+  if (
+    !relative.startsWith("pyre/") ||
+    relative.includes("\\") ||
+    VFS_CONTROL_CHARACTER.test(relative) ||
+    relative
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error("The Pyre VFS root is invalid.");
+  }
+  return relative;
+}
 
 export interface HttpEvidenceRequest {
   url: string;
@@ -39,46 +63,88 @@ export interface PlatformStatus {
   httpAvailable: boolean;
   credentials: MiniAppHttpCredentialMetadata[];
   credentialsError?: string;
+  profileError?: string;
+  workflowsError?: string;
+  presenceError?: string;
   error?: string;
+}
+
+export interface SettledCapability<T> {
+  value?: T;
+  error?: string;
+}
+
+export async function settleCapability<T>(
+  operation: () => T | Promise<T>,
+): Promise<SettledCapability<T>> {
+  try {
+    return { value: await operation() };
+  } catch (error) {
+    return { error: String(error) };
+  }
 }
 
 export const previewActor: Actor = { id: "preview-lead", displayName: "Alex Morgan" };
 
 export async function bootstrapPlatform(context: PlatformContext): Promise<PlatformStatus> {
   if (context.preview) return { actor: previewActor, connected: false, presenceCount: 1, workflows: [], httpAvailable: false, credentials: [] };
-  try {
-    const profilePromise = sdk.auth?.getUserProfile();
-    const workflowsPromise = sdk.workflows.list(context.workspaceId ? { workspaceId: context.workspaceId } : undefined);
-    const presencePromise = context.workspaceId
-      ? sdk.presence.join({ namespace: "pyre", room: context.workspaceId, state: { view: "investigations" } })
-      : undefined;
-    const [profile, workflows, presence] = await Promise.all([profilePromise, workflowsPromise, presencePromise]);
-    const actor: Actor = profile
-      ? { id: profile.sub, displayName: profile.name || profile.preferredUsername || profile.email || "TAP user" }
-      : presence
-        ? { id: presence.selfParticipantId, displayName: presence.participants.find((p) => p.participantId === presence.selfParticipantId)?.displayName || "TAP user" }
-        : { id: "workspace-user", displayName: "Workspace user" };
-    let credentials: MiniAppHttpCredentialMetadata[] = [];
-    let credentialsError: string | undefined;
-    if (sdk.credentials) {
-      try {
-        credentials = await sdk.credentials.listHttp();
-      } catch (error) {
-        credentialsError = String(error);
+  const [profileResult, workflowsResult, presenceResult, credentialsResult] =
+    await Promise.all([
+      settleCapability(() => sdk.auth?.getUserProfile()),
+      settleCapability(() =>
+        sdk.workflows.list(
+          context.workspaceId ? { workspaceId: context.workspaceId } : undefined,
+        ),
+      ),
+      settleCapability(() =>
+        context.workspaceId
+          ? sdk.presence.join({
+              namespace: "pyre",
+              room: context.workspaceId,
+              state: { view: "investigations" },
+            })
+          : undefined,
+      ),
+      settleCapability(() => sdk.credentials?.listHttp()),
+    ]);
+  const profile = profileResult.value;
+  const workflows = workflowsResult.value;
+  const presence = presenceResult.value;
+  const actor: Actor = profile
+    ? {
+        id: profile.sub,
+        displayName:
+          profile.name ||
+          profile.preferredUsername ||
+          profile.email ||
+          "TAP user",
       }
-    }
-    return {
-      actor,
-      connected: true,
-      presenceCount: presence?.participants.length || 1,
-      workflows: workflows.workflows,
-      httpAvailable: Boolean(sdk.http) && sdk.hasHostHttpRequest === true,
-      credentials,
-      credentialsError,
-    };
-  } catch (error) {
-    return { actor: { id: "workspace-user", displayName: "Workspace user" }, connected: false, presenceCount: 1, workflows: [], httpAvailable: false, credentials: [], error: String(error) };
-  }
+    : presence
+      ? {
+          id: presence.selfParticipantId,
+          displayName:
+            presence.participants.find(
+              (participant) =>
+                participant.participantId === presence.selfParticipantId,
+            )?.displayName || "TAP user",
+        }
+      : { id: "workspace-user", displayName: "Workspace user" };
+  return {
+    actor,
+    connected: [
+      profileResult,
+      workflowsResult,
+      presenceResult,
+    ].some((result) => result.error === undefined),
+    presenceCount: presence?.participants.length || 1,
+    workflows: workflows?.workflows ?? [],
+    httpAvailable: Boolean(sdk.http) && sdk.hasHostHttpRequest === true,
+    credentials: credentialsResult.value ?? [],
+    credentialsError: credentialsResult.error,
+    profileError: profileResult.error,
+    workflowsError: workflowsResult.error,
+    presenceError: presenceResult.error,
+  };
 }
 
 export function validateHttpEvidenceUrl(value: string): URL {
@@ -126,8 +192,8 @@ export async function collectHttpEvidence(
     method: "GET",
     url: url.href,
     headers: [
-      { name: "Accept", value: "application/vnd.github+json" },
-      { name: "X-GitHub-Api-Version", value: "2022-11-28" },
+      { name: "accept", value: "application/vnd.github+json" },
+      { name: "x-github-api-version", value: "2022-11-28" },
     ],
     timeoutMs,
     responseBodyLimitBytes,
@@ -198,7 +264,7 @@ export async function provisionInvestigation(
   let vfsRoot: string | undefined;
   if (sdk.vfs && context.conversationId) {
     await sdk.vfs.provisionProjectChat({ conversationId: context.conversationId, projectId: project.projectId });
-    vfsRoot = `/pyre/${investigation.id}`;
+    vfsRoot = pyreVfsRoot(investigation.id);
     await sdk.vfs.mkdir(context.conversationId, `${vfsRoot}/evidence`);
     await sdk.vfs.mkdir(context.conversationId, `${vfsRoot}/reports`);
     await sdk.vfs.mkdir(context.conversationId, `${vfsRoot}/receipts`);
@@ -284,9 +350,10 @@ export async function captureEvidenceFile(
   if (!sdk.vfs || !investigation.bindings.vfsConversationId || !investigation.bindings.vfsRoot) {
     throw new Error("VFS evidence capture requires a provisioned project conversation in packaged TAP execution.");
   }
+  const vfsRoot = normalizePyreVfsRoot(investigation.bindings.vfsRoot);
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const vfsPath = `${investigation.bindings.vfsRoot}/evidence/${evidenceId}-${safeName}`;
-  const receiptPath = `${investigation.bindings.vfsRoot}/receipts/${evidenceId}.json`;
+  const vfsPath = `${vfsRoot}/evidence/${evidenceId}-${safeName}`;
+  const receiptPath = `${vfsRoot}/receipts/${evidenceId}.json`;
   await sdk.vfs.writeFile(investigation.bindings.vfsConversationId, vfsPath, bytes);
   await sdk.vfs.writeFile(
     investigation.bindings.vfsConversationId,
@@ -301,9 +368,12 @@ export async function invokeCollectionWorkflow(
   investigation: Investigation,
   payload: Record<string, unknown>,
 ): Promise<{ runId?: string | null; message: string }> {
+  const vfsRoot = investigation.bindings.vfsRoot
+    ? normalizePyreVfsRoot(investigation.bindings.vfsRoot)
+    : null;
   const result = await sdk.workflows.invokeSaved({
     workflowId,
-    payload: { incidentId: investigation.id, vfsRoot: investigation.bindings.vfsRoot || null, ...payload },
+    payload: { incidentId: investigation.id, vfsRoot, ...payload },
   });
   if (!result.success) throw new Error(result.error || result.message || "The collection workflow failed.");
   return { runId: result.runId, message: result.message };

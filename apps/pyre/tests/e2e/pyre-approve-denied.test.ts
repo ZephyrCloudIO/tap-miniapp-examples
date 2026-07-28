@@ -5,6 +5,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  expectMatchingAlert,
   hasAuthorizationDecision,
   STORAGE_KEY,
   STORAGE_NAMESPACE,
@@ -57,7 +58,8 @@ test("denies report approval without changing the persisted draft", async ({
     .getByRole("button", { name: "Dismiss notification", exact: true })
     .click();
   await surface.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /does not allow this miniapp to approve investigation decisions/iu,
   );
 

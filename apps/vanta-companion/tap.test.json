@@ -48,14 +48,14 @@
       },
       "artifacts": {
         "trace": "failure-only",
-        "screenshots": "failure-only"
+        "screenshots": "always"
       }
     },
     "vanta-companion-desktop-post-projection-revoked": {
       "surface": "vanta-companion",
       "target": "desktop",
       "mode": "surface",
-      "permissionScenario": "synthetic:post-projection-all-denied",
+      "permissionScenario": "all-denied",
       "deniedActions": ["*"],
       "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
       "httpRouteFiles": [],
@@ -314,6 +314,43 @@
         "screenshots": "failure-only"
       }
     },
+    "vanta-companion-desktop-http-denied": {
+      "surface": "vanta-companion",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "http-denied",
+      "deniedActions": ["network.request"],
+      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
+      "httpRouteFiles": ["tests/fixtures/vanta-companion.http-routes.json"],
+      "requiredOrigins": ["https://api.vanta.com"],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:external-network:https://api.vanta.com",
+        "effect:storage:vanta-companion"
+      ],
+      "credentialSlots": ["vanta-api"],
+      "httpCredentialFixtures": [
+        {
+          "slot": "vanta-api",
+          "credentialType": "http_bearer",
+          "displayName": "Test Lab Vanta bearer",
+          "metadataFields": {}
+        }
+      ],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6942,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
     "vanta-companion-desktop-coordinate-denied": {
       "surface": "vanta-companion",
       "target": "desktop",
@@ -443,6 +480,7 @@
       "testMatch": ["tests/e2e/vanta-companion-specialists-manage-denied.test.ts"],
       "capabilities": [
         "action:specialists.manage",
+        "action:vanta-companion.coordinate",
         "effect:host-api:tap.specialists:manage"
       ]
     },
@@ -452,7 +490,10 @@
       "testMatch": ["tests/e2e/vanta-companion-channels-create-denied.test.ts"],
       "capabilities": [
         "action:channels.create",
-        "effect:host-api:tap.channels:create"
+        "action:specialists.manage",
+        "action:vanta-companion.coordinate",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.specialists:manage"
       ]
     },
     {
@@ -460,8 +501,13 @@
       "profile": "vanta-companion-desktop-channels-manage-denied",
       "testMatch": ["tests/e2e/vanta-companion-channels-manage-denied.test.ts"],
       "capabilities": [
+        "action:channels.create",
         "action:channels.manage-specialists",
-        "effect:host-api:tap.channels:manage-specialists"
+        "action:specialists.manage",
+        "action:vanta-companion.coordinate",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.specialists:manage"
       ]
     },
     {
@@ -469,7 +515,10 @@
       "profile": "vanta-companion-desktop-channels-send-denied",
       "testMatch": ["tests/e2e/vanta-companion-channels-send-denied.test.ts"],
       "capabilities": [
+        "action:channels.create",
         "action:channels.send-message",
+        "action:vanta-companion.coordinate",
+        "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:send-message"
       ]
     },
@@ -478,8 +527,11 @@
       "profile": "vanta-companion-desktop-workflows-invoke-denied",
       "testMatch": ["tests/e2e/vanta-companion-workflows-invoke-denied.test.ts"],
       "capabilities": [
+        "action:vanta-companion.coordinate",
         "action:workflows.invoke",
-        "effect:host-api:tap.workflows:invoke"
+        "action:workflows.list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
       ]
     },
     {
@@ -488,6 +540,7 @@
       "testMatch": ["tests/e2e/vanta-companion-specialists-invoke-denied.test.ts"],
       "capabilities": [
         "action:specialists.invoke",
+        "action:vanta-companion.analyze",
         "effect:host-api:tap.specialists:invoke"
       ]
     },
@@ -495,14 +548,21 @@
       "id": "vanta-companion-desktop-credentials-read-denied",
       "profile": "vanta-companion-desktop-credentials-read-denied",
       "testMatch": ["tests/e2e/vanta-companion-credentials-read-denied.test.ts"],
-      "capabilities": ["action:credentials.read"]
+      "capabilities": [
+        "action:credentials.read",
+        "action:vanta-companion.analyze",
+        "effect:credentials:http"
+      ]
     },
     {
       "id": "vanta-companion-desktop-credentials-use-denied",
       "profile": "vanta-companion-desktop-credentials-use-denied",
       "testMatch": ["tests/e2e/vanta-companion-credentials-use-denied.test.ts"],
       "capabilities": [
+        "action:credentials.read",
         "action:credentials.use",
+        "action:network.request",
+        "action:vanta-companion.analyze",
         "effect:credentials:http"
       ]
     },
@@ -511,6 +571,19 @@
       "profile": "vanta-companion-desktop-coordinate-denied",
       "testMatch": ["tests/e2e/vanta-companion-coordinate-denied.test.ts"],
       "capabilities": ["action:vanta-companion.coordinate"]
+    },
+    {
+      "id": "vanta-companion-desktop-http-denied",
+      "profile": "vanta-companion-desktop-http-denied",
+      "testMatch": ["tests/e2e/vanta-companion-http-denied.test.ts"],
+      "capabilities": [
+        "action:credentials.read",
+        "action:credentials.use",
+        "action:network.request",
+        "action:vanta-companion.analyze",
+        "effect:credentials:http",
+        "effect:external-network:https://api.vanta.com"
+      ]
     },
     {
       "id": "vanta-companion-desktop-analyze-denied",
@@ -523,22 +596,13 @@
       "profile": "vanta-companion-desktop-workflows-list-denied",
       "testMatch": ["tests/e2e/vanta-companion-workflows-list-denied.test.ts"],
       "capabilities": [
+        "action:vanta-companion.coordinate",
         "action:workflows.list",
         "effect:host-api:tap.workflows:list"
       ]
     }
   ],
   "waivers": [
-    {
-      "capability": "action:network.request",
-      "reason": "Metadata-only credential fixtures now exercise listing and the pre-native credentials.use boundary, but HTTP route scripts cannot parameterize the runtime-selected opaque alias for a credential-bound network denial row.",
-      "expiresAt": "2027-01-31T00:00:00Z"
-    },
-    {
-      "capability": "effect:external-network:https://api.vanta.com",
-      "reason": "The credential-use denial proves no request escapes after network authority; a credential-bound route denial still needs HTTP script substitution for the runtime-selected opaque alias.",
-      "expiresAt": "2027-01-31T00:00:00Z"
-    },
     {
       "capability": "effect:external-network:https://*",
       "reason": "This effect covers user-configured Cloudflare Access Worker origins and user-directed Vanta deep links; Surface Test Lab intercepts sdk.http but cannot safely exercise arbitrary browser-origin fetches or navigation.",

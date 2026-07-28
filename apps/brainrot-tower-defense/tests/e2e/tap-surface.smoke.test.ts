@@ -18,6 +18,10 @@ test("mounts the exact desktop cell with reproducible provenance", async ({
     surface.getByRole("button", { name: "Create game", exact: true }),
   ).toBeEnabled();
   await tap.control.remountSurface();
+  const root = surface.locator("#tap-root");
+  await expect(root).toBeVisible();
+  await expect(root.locator(":scope > *").first()).toBeAttached();
+  await expect(surface.locator("#tap-error")).toBeHidden();
   await expect(
     surface.getByRole("heading", {
       level: 1,

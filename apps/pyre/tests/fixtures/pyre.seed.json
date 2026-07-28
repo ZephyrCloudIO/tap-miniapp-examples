@@ -35,20 +35,20 @@
   ],
   "vfsDirectories": [
     {
-      "conversationId": "pyre-fixture-conversation",
-      "path": "/pyre/inc_fixture_checkout"
+      "conversationId": "pyre-fixture-channel",
+      "path": "pyre/inc_fixture_checkout"
     },
     {
-      "conversationId": "pyre-fixture-conversation",
-      "path": "/pyre/inc_fixture_checkout/evidence"
+      "conversationId": "pyre-fixture-channel",
+      "path": "pyre/inc_fixture_checkout/evidence"
     },
     {
-      "conversationId": "pyre-fixture-conversation",
-      "path": "/pyre/inc_fixture_checkout/reports"
+      "conversationId": "pyre-fixture-channel",
+      "path": "pyre/inc_fixture_checkout/reports"
     },
     {
-      "conversationId": "pyre-fixture-conversation",
-      "path": "/pyre/inc_fixture_checkout/receipts"
+      "conversationId": "pyre-fixture-channel",
+      "path": "pyre/inc_fixture_checkout/receipts"
     }
   ],
   "vfsFiles": [],
@@ -161,8 +161,8 @@
             "bindings": {
               "projectId": "pyre-fixture-project",
               "channelId": "pyre-fixture-channel",
-              "vfsConversationId": "pyre-fixture-conversation",
-              "vfsRoot": "/pyre/inc_fixture_checkout"
+              "vfsConversationId": "pyre-fixture-channel",
+              "vfsRoot": "pyre/inc_fixture_checkout"
             }
           }
         ]

@@ -3,6 +3,7 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
+  expectMatchingAlert,
   FIXTURE_CHANNEL_ID,
   hasAuthorizationDecision,
   openPlatform,
@@ -18,7 +19,8 @@ test("does not append or persist a checkpoint when channel messaging is denied",
   await surface
     .getByRole("button", { name: "Post Checkpoint", exact: true })
     .click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /Channel checkpoint failed.*permission is not granted/iu,
   );
 

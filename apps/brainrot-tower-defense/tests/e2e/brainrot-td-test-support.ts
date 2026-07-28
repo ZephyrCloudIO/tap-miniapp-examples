@@ -9,8 +9,9 @@ export const PACKAGE_ID = "tap_pkg_examples_brainrot_td_0001";
 export const SURFACE_ID = "brainrot-td";
 export const FIXTURE_USER_ID = "tap-fixture-user-v1";
 export const FIXTURE_USER_NAME = "Miniapp Test Fixture User";
+export const FALLBACK_PLAYER_NAME = "TAP player";
 export const FIXED_NOW = "2026-01-01T00:00:00Z";
-export const SDK_VERSION = "0.4.1";
+export const SDK_VERSION = "0.4.2";
 export const HOST_CONTRACT_VERSION = "1";
 export const RUNNER_VERSION = "0.11.3";
 
@@ -22,34 +23,28 @@ const UUID_V4 =
 const ARTIFACTS = {
   trace: "failure-only",
   screenshots: "failure-only",
-  maxBytes: 8_388_608,
+  maxBytes: 16_777_216,
 } as const;
 
 export type BrainrotRunKind =
   | "positive"
-  | "post-projection-revoked"
-  | "channel-messaging-denied";
+  | "post-projection-revoked";
 
 export function expectExactProvenance(
   tap: TapMiniappTestFixture,
   kind: BrainrotRunKind,
 ): void {
   const positive = kind === "positive";
-  const postProjectionRevoked = kind === "post-projection-revoked";
-  const seed = positive ? 6929 : postProjectionRevoked ? 6930 : 6931;
+  const seed = positive ? 6929 : 6930;
   const profileId = positive
     ? "brainrot-td-desktop"
-    : postProjectionRevoked
-      ? "brainrot-td-desktop-post-projection-revoked"
-      : "brainrot-td-desktop-channel-messaging-denied";
+    : "brainrot-td-desktop-post-projection-revoked";
   const matrixEntryId = positive
     ? "brainrot-td-desktop-positive"
     : profileId;
   const permissionScenario = positive
     ? "default"
-    : postProjectionRevoked
-      ? "synthetic:post-projection-all-denied"
-      : "deny:channels.send-message";
+    : "all-denied";
   expect({
     adapterVersion: tap.adapterVersion,
     allowedNetworkOrigins: tap.allowedNetworkOrigins,
@@ -71,7 +66,10 @@ export function expectExactProvenance(
   }).toEqual({
     adapterVersion: SDK_VERSION,
     allowedNetworkOrigins: [],
-    artifacts: ARTIFACTS,
+    artifacts: {
+      ...ARTIFACTS,
+      screenshots: positive ? "always" : "failure-only",
+    },
     credentialAliases: [],
     dataScope: "fixture",
     environment: {

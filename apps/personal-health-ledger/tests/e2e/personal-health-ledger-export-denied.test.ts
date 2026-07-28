@@ -34,7 +34,7 @@ test('disables every denied export before download or VFS effects', async ({
     'Save to TAP VFS',
   ]) {
     await expect(
-      surface.getByRole('button', { name: new RegExp(name, 'u') }),
+      surface.getByRole('button', { name, exact: true }),
     ).toBeDisabled();
   }
 

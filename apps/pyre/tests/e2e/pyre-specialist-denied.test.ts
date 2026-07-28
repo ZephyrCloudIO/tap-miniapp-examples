@@ -3,6 +3,7 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
+  expectMatchingAlert,
   FIXTURE_CHANNEL_ID,
   hasAuthorizationDecision,
   openPlatform,
@@ -16,7 +17,8 @@ test("does not create or join a managed specialist when management is denied", a
   await surface
     .getByRole("button", { name: "Install & Join", exact: true })
     .click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /Specialist installation failed.*permission is not granted/iu,
   );
 

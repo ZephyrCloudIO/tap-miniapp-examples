@@ -5,7 +5,7 @@ interface NodeInvocation {
   config: Readonly<Record<string, JsonValue>>;
 }
 
-const WORKFLOW_ID = "examples-unofficial-suno-player-manual-brief";
+const WORKFLOW_ID = "examples-unofficial-suno-player.manual-brief";
 const WORKFLOW_MANIFEST = [
   `id: ${WORKFLOW_ID}`,
   "name: Prepare a manual song brief",
@@ -31,14 +31,14 @@ export const node = ({ inputs, config }: NodeInvocation) => Object.freeze(
 const files = Object.freeze([Object.freeze({
   path: `${WORKFLOW_ID}/${WORKFLOW_ID}.yaml`,
   content: WORKFLOW_MANIFEST,
-  integrity: "sha256-CCON5Mxc8Nr0cXpEcc7KAeImE4CldZM44wrydUh6aI0=",
+  integrity: "sha256-5Id6gaM9hZJKUIc5fUQvMpDU1PAcNWwYDrAgffkm+Lc=",
 })]);
 
 export const workflow = Object.freeze({
   apiVersion: 1,
   workflowId: WORKFLOW_ID,
   files,
-  integrity: "sha256-kdU2UERTp4GQzFkRue1khJg0gdBuz6+fR5HBMuZVhzA=",
+  integrity: "sha256-Yhp8R5Lqb4ZcPS6KQ0yBgxgtXROIA40BIz24QuqtoP4=",
 });
 
 export default Object.freeze({ workflow, node });

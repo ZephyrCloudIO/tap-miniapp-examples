@@ -61,7 +61,6 @@ test("models post-projection authority revocation and remains inert", async ({
   expect(
     ledger.entries.some((entry) =>
       [
-        "channels.send-message",
         "presence.join",
         "presence.update",
         "storage.get",

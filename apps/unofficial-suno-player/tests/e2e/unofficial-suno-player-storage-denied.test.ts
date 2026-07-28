@@ -47,6 +47,6 @@ test("does not persist listening preferences when storage writes are denied", as
   const snapshot = await tap.fixture.snapshot();
   const ledger = await tap.fixture.ledger.read();
   expect(hasOperation(ledger.entries, "platform", "storage.set")).toBe(false);
-  expect(channelStorageRecord(snapshot)?.revision).toBe(1);
+  expect(channelStorageRecord(snapshot, tap.channelId)?.revision).toBe(1);
   expect(preferenceStorageRecords(snapshot)).toEqual([]);
 });

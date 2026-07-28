@@ -13,12 +13,12 @@ export const GITHUB_ORIGIN = "https://api.github.com";
 export const GITHUB_EVIDENCE_URL =
   `${GITHUB_ORIGIN}/repos/ZephyrCloudIO/fixture/commits/main`;
 export const GITHUB_CREDENTIAL_DISPLAY_NAME = "Test Lab GitHub bearer";
+export const GITHUB_CREDENTIAL_SLOT = "github-evidence";
 export const STORAGE_NAMESPACE = "pyre";
 export const STORAGE_KEY = "investigations/v2";
 export const FIXTURE_INCIDENT_ID = "inc_fixture_checkout";
 export const FIXTURE_CHANNEL_ID = "pyre-fixture-channel";
 export const FIXTURE_WORKFLOW_ID = "pyre-fixture-collection";
-export const FIXTURE_CONVERSATION_ID = "pyre-fixture-conversation";
 export const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
@@ -29,6 +29,15 @@ const ARTIFACTS = {
 
 type TapSurface = TapRstestFixtures["surface"];
 
+function objectDetail(
+  value: unknown,
+): Readonly<Record<string, unknown>> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Readonly<Record<string, unknown>>;
+}
+
 export async function expectReadySurface(surface: TapSurface): Promise<void> {
   await expect(
     surface.getByRole("heading", {
@@ -36,6 +45,15 @@ export async function expectReadySurface(surface: TapSurface): Promise<void> {
       name: "Checkout API elevated errors",
     }),
   ).toBeVisible();
+}
+
+export async function expectMatchingAlert(
+  surface: TapSurface,
+  expected: string | RegExp,
+): Promise<void> {
+  const alert = surface.getByRole("alert").filter({ hasText: expected });
+  await expect(alert).toHaveCount(1);
+  await expect(alert).toContainText(expected);
 }
 
 export function expectExactProvenance(
@@ -82,9 +100,15 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.4.1",
+    adapterVersion: "0.4.2",
     allowedNetworkOrigins: expected.allowedOrigins ?? [GITHUB_ORIGIN],
-    artifacts: ARTIFACTS,
+    artifacts: {
+      ...ARTIFACTS,
+      screenshots:
+        expected.permissionScenario === "default"
+          ? "always"
+          : "failure-only",
+    },
     credentialAliases: expected.credentialAliases ?? [],
     dataScope: "fixture",
     environment,
@@ -163,6 +187,22 @@ export function hasAnyAuthorizationDecision(
   );
 }
 
+export function packageEventLocalName(
+  entry: TapMiniappTestFixtureLedger["entries"][number],
+): string | null {
+  if (
+    entry.kind !== "event" ||
+    entry.operation !== "tap.fixture.package-event"
+  ) {
+    return null;
+  }
+  const detail = objectDetail(entry.detail);
+  const payload = objectDetail(detail?.payload);
+  const metadata = objectDetail(payload?.metadata);
+  const localName = objectDetail(metadata?.localName);
+  return typeof localName?.text === "string" ? localName.text : null;
+}
+
 export async function openPlatform(surface: TapSurface): Promise<void> {
   await expectReadySurface(surface);
   await surface
@@ -175,10 +215,18 @@ export async function openPlatform(surface: TapSurface): Promise<void> {
 export async function configureFixtureWorkflow(
   surface: TapSurface,
 ): Promise<void> {
-  await surface
-    .getByRole("button", { name: "Configure Collection", exact: true })
-    .click();
-  await surface.getByLabel("Saved workflow").selectOption(FIXTURE_WORKFLOW_ID);
+  const configureButton = surface.getByRole("button", {
+    name: "Configure Collection",
+    exact: true,
+  });
+  await expect(configureButton).toBeEnabled();
+  await configureButton.click();
+  const workflow = surface.getByLabel("Saved workflow");
+  await expect(
+    workflow.locator(`option[value="${FIXTURE_WORKFLOW_ID}"]`),
+  ).toHaveCount(1);
+  await workflow.selectOption(FIXTURE_WORKFLOW_ID);
+  await expect(workflow).toHaveValue(FIXTURE_WORKFLOW_ID);
   await surface
     .getByLabel("Claim or timeline gap")
     .fill("Determine whether the deployment preceded the elevated errors.");
@@ -191,6 +239,39 @@ export async function configureFixtureWorkflow(
       name: /Approve this bounded collection scope/u,
     })
     .check();
+  await expect(
+    surface.getByRole("button", { name: "Invoke Workflow", exact: true }),
+  ).toBeEnabled();
+}
+
+export async function selectFixtureCredential(
+  surface: TapSurface,
+  credentialAlias: string,
+): Promise<void> {
+  const credential = surface.getByLabel("Host credential");
+  const option = credential.getByRole("option", {
+    name: `${GITHUB_CREDENTIAL_DISPLAY_NAME} · http bearer`,
+    exact: true,
+  });
+  await expect(option).toHaveCount(1);
+  await expect(option).toHaveAttribute("value", credentialAlias);
+  await credential.selectOption(credentialAlias);
+  await expect(credential).toHaveValue(credentialAlias);
+}
+
+export async function expectFixtureHttpCredentialBound(
+  tap: TapMiniappTestFixture,
+  credentialAlias: string,
+): Promise<void> {
+  const snapshot = await tap.fixture.snapshot();
+  const routes = snapshot.state.httpScripts.filter(
+    (script) =>
+      script.request.method === "GET" &&
+      script.request.url === GITHUB_EVIDENCE_URL,
+  );
+  expect(routes).toHaveLength(1);
+  expect(routes[0]?.credentialRef).toBe(credentialAlias);
+  expect(routes[0]?.credentialRef).not.toBe(GITHUB_CREDENTIAL_SLOT);
 }
 
 export async function openHttpCollection(surface: TapSurface): Promise<void> {
@@ -210,11 +291,14 @@ export async function openHttpCollection(surface: TapSurface): Promise<void> {
       name: /Approve this exact read-only request/u,
     })
     .check();
+  await expect(
+    surface.getByRole("button", { name: "Collect & Capture", exact: true }),
+  ).toBeEnabled();
 }
 
 export async function seedUnprovisioned(
   tap: TapMiniappTestFixture,
-): Promise<void> {
+) {
   const snapshot = await tap.fixture.snapshot();
   const seed = structuredClone(snapshot.state) as unknown as {
     projects: unknown[];
@@ -258,4 +342,5 @@ export async function seedUnprovisioned(
     );
   }
   await tap.fixture.seed(seed as unknown as TapMiniappTestFixtureSeed);
+  return (await tap.fixture.snapshot()).state;
 }

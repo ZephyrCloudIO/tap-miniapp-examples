@@ -3,7 +3,6 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
-  CHANNEL_ID,
   channelStorageRecord,
   expectExactProvenance,
   hasAuthorizationDecision,
@@ -34,7 +33,7 @@ test("does not persist consent when the required channel notice is denied", asyn
   ).toBeVisible();
 
   const snapshot = await tap.fixture.snapshot();
-  expect(channelStorageRecord(snapshot)).toEqual(
+  expect(channelStorageRecord(snapshot, tap.channelId)).toEqual(
     expect.objectContaining({
       revision: 1,
       value: expect.objectContaining({
@@ -47,7 +46,7 @@ test("does not persist consent when the required channel notice is denied", asyn
   );
   expect(
     snapshot.state.channels.find(
-      (channel) => channel.roomId === CHANNEL_ID,
+      (channel) => channel.roomId === tap.channelId,
     )?.messages,
   ).toHaveLength(2);
 

@@ -12,6 +12,11 @@ import { Onboarding } from "./onboarding";
 import { canEdit, canReview, phases, roleFor, transitionInvestigation, type Actor, type Investigation, type Phase } from "./domain";
 import { useRuntimeId } from "./runtime-id";
 import { usePyre } from "./use-pyre";
+import {
+  parsePyreViewHash,
+  type PyreView,
+  withPyreViewHash,
+} from "./view-location";
 import { OverviewView } from "./views/overview";
 import { EvidenceView } from "./views/evidence";
 import { TimelineView } from "./views/timeline";
@@ -21,12 +26,11 @@ import { ReportsView } from "./views/reports";
 import { PlatformView } from "./views/platform";
 import { AuditView } from "./views/audit";
 
-type View = "overview" | "evidence" | "timeline" | "analysis" | "actions" | "reports" | "platform" | "audit";
 function MiniAppIconButton(props: Omit<React.ComponentProps<typeof SdkIconButton>, "icon"> & { icon?: React.ComponentProps<typeof SdkIconButton>["icon"]; children?: React.ReactNode }) {
   const { children, icon, label, ...rest } = props;
   return children ? <Button aria-label={label} size="icon" variant="ghost" {...rest}>{children}</Button> : icon ? <SdkIconButton icon={icon} label={label} {...rest} /> : null;
 }
-const views: Array<{ id: View; label: string; icon: React.ReactNode }> = [
+const views: Array<{ id: PyreView; label: string; icon: React.ReactNode }> = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard aria-hidden="true" /> },
   { id: "evidence", label: "Evidence", icon: <FileSearch aria-hidden="true" /> },
   { id: "timeline", label: "Timeline", icon: <TimerReset aria-hidden="true" /> },
@@ -37,15 +41,14 @@ const views: Array<{ id: View; label: string; icon: React.ReactNode }> = [
   { id: "audit", label: "Audit Log", icon: <History aria-hidden="true" /> },
 ];
 
-function initialView(): View {
-  const value = new URLSearchParams(globalThis.location?.search).get("view");
-  return views.some((view) => view.id === value) ? value as View : "overview";
+function initialView(): PyreView {
+  return parsePyreViewHash(globalThis.location?.hash ?? "");
 }
 
 export function PyreApp({ preview = false, surfaceContext }: { preview?: boolean; surfaceContext?: TapFederatedSurfaceMountContext }) {
   const runtimeId = useRuntimeId();
   const controller = usePyre(preview, surfaceContext);
-  const [view, setViewState] = useState<View>(initialView);
+  const [view, setViewState] = useState<PyreView>(initialView);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [stageError, setStageError] = useState<string>();
@@ -60,14 +63,20 @@ export function PyreApp({ preview = false, surfaceContext }: { preview?: boolean
       return false;
     }
   };
-  const setView = (next: View) => {
+  const setView = (next: PyreView) => {
     setViewState(next);
-    const url = new URL(globalThis.location.href);
-    url.searchParams.set("view", next);
-    globalThis.history.replaceState(null, "", url);
+    globalThis.history.replaceState(
+      null,
+      "",
+      withPyreViewHash(globalThis.location.href, next),
+    );
     setMobileNav(false);
   };
-  useEffect(() => { const onPop = () => setViewState(initialView()); globalThis.addEventListener("popstate", onPop); return () => globalThis.removeEventListener("popstate", onPop); }, []);
+  useEffect(() => {
+    const onHashChange = () => setViewState(initialView());
+    globalThis.addEventListener("hashchange", onHashChange);
+    return () => globalThis.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   if (controller.loading) return <main id="main-content" className="loading-shell"><div className="loading-mark"><Flame aria-hidden="true" /></div><div><Skeleton className="skeleton-title" /><Skeleton className="skeleton-line" /></div><div className="loading-grid"><Skeleton /><Skeleton /><Skeleton /></div><p>Loading investigation workspace…</p></main>;
   if (!controller.active) return <Onboarding state={controller.state} actor={controller.actor} saving={controller.saving} error={authorityError || controller.error} authorize={authorize} onCreate={async (incident) => controller.save({ ...controller.state, investigations: [...controller.state.investigations, incident], activeId: incident.id }, "Investigation created and saved.")} />;
@@ -102,14 +111,14 @@ export function PyreApp({ preview = false, surfaceContext }: { preview?: boolean
     </aside>
     <div className="workspace-shell">
       <header className="command-header"><MiniAppIconButton className="mobile-menu" label="Open navigation" onClick={() => setMobileNav(true)}><Menu aria-hidden="true" /></MiniAppIconButton><div className="command-title"><div className="title-row"><h1>{investigation.title}</h1><Badge variant={investigation.status === "resolved" ? "default" : "secondary"}>{investigation.status}</Badge><Badge variant="outline">{investigation.severity}</Badge></div><p>{investigation.statement}</p></div><div className="command-actions">{preview ? <label className="identity-select"><span>Viewing as</span><select value={controller.actor.id} onChange={(event) => { const selected = investigation.members.find((item) => item.id === event.target.value); controller.setPreviewActor(selected ? { id: selected.id, displayName: selected.displayName } : { id: "external-stakeholder", displayName: "External stakeholder" }); }}><option value="external-stakeholder">External stakeholder</option>{investigation.members.map((member) => <option value={member.id} key={member.id}>{member.displayName} · {member.role}</option>)}</select></label> : null}<div className="actor-chip"><span className="avatar">{controller.actor.displayName.slice(0, 2).toUpperCase()}</span><div><strong>{controller.actor.displayName}</strong><small>{role}</small></div></div></div></header>
-      <div className="stage-bar"><div className="stage-copy"><span className="stage-number">{currentStage + 1}</span><div><small>CURRENT STAGE</small><strong>{investigation.phase}</strong></div></div><div className="stage-track">{phases.map((phase, index) => <div className={index < currentStage ? "complete" : index === currentStage ? "current" : ""} key={phase}><span>{index < currentStage ? <Check aria-hidden="true" /> : index + 1}</span><small>{phase}</small></div>)}</div>{investigation.phase === "review" ? <Tooltip><TooltipTrigger asChild><Button disabled><ShieldCheck aria-hidden="true" />Publish</Button></TooltipTrigger><TooltipContent>Zephyr Cloud publication is not exposed by TAP SDK 0.4.1.</TooltipContent></Tooltip> : nextPhase ? <Button disabled={!canAdvance || controller.saving} onClick={() => void advance()}>{controller.saving ? "Saving…" : <><span className="desktop-advance">Advance to {nextPhase}</span><span className="mobile-advance">Advance</span><ArrowRight aria-hidden="true" /></>}</Button> : null}</div>
+      <div className="stage-bar"><div className="stage-copy"><span className="stage-number">{currentStage + 1}</span><div><small>CURRENT STAGE</small><strong>{investigation.phase}</strong></div></div><div className="stage-track">{phases.map((phase, index) => <div className={index < currentStage ? "complete" : index === currentStage ? "current" : ""} key={phase}><span>{index < currentStage ? <Check aria-hidden="true" /> : index + 1}</span><small>{phase}</small></div>)}</div>{investigation.phase === "review" ? <Tooltip><TooltipTrigger asChild><Button disabled><ShieldCheck aria-hidden="true" />Publish</Button></TooltipTrigger><TooltipContent>Zephyr Cloud publication is not exposed by TAP SDK 0.4.2.</TooltipContent></Tooltip> : nextPhase ? <Button disabled={!canAdvance || controller.saving} onClick={() => void advance()}>{controller.saving ? "Saving…" : <><span className="desktop-advance">Advance to {nextPhase}</span><span className="mobile-advance">Advance</span><ArrowRight aria-hidden="true" /></>}</Button> : null}</div>
       <div className="message-region" aria-live="polite">{controller.notice ? <Alert><Check aria-hidden="true" /><AlertDescription>{controller.notice}</AlertDescription><button aria-label="Dismiss notification" onClick={controller.clearMessage}><X aria-hidden="true" /></button></Alert> : null}{authorityError ? <Alert variant="destructive"><AlertTriangle aria-hidden="true" /><AlertDescription>{authorityError}</AlertDescription><button aria-label="Dismiss authorization error" onClick={() => setAuthorityError(undefined)}><X aria-hidden="true" /></button></Alert> : null}{stageError ? <Alert variant="destructive"><AlertTriangle aria-hidden="true" /><AlertDescription>{stageError}</AlertDescription><button aria-label="Dismiss lifecycle error" onClick={() => setStageError(undefined)}><X aria-hidden="true" /></button></Alert> : null}{controller.error ? <Alert variant="destructive"><AlertTriangle aria-hidden="true" /><AlertDescription>{controller.error}</AlertDescription><Button size="sm" variant="outline" onClick={() => void controller.reload()}><RefreshCw aria-hidden="true" />Reload</Button></Alert> : null}</div>
       <ScrollArea className="workspace-scroll"><main id="main-content" className="workspace-content">{view === "overview" ? <OverviewView investigation={investigation} actor={controller.actor} saving={controller.saving} authorize={authorize} onUpdate={controller.updateIncident} onDelete={deleteIncident} /> : view === "evidence" ? <EvidenceView investigation={investigation} actor={controller.actor} saving={controller.saving} context={controller.context} authorize={authorize} onUpdate={controller.updateIncident} /> : view === "timeline" ? <TimelineView investigation={investigation} actor={controller.actor} saving={controller.saving} authorize={authorize} onUpdate={controller.updateIncident} /> : view === "analysis" ? <AnalysisView investigation={investigation} actor={controller.actor} saving={controller.saving} authorize={authorize} onUpdate={controller.updateIncident} /> : view === "actions" ? <ActionsView investigation={investigation} actor={controller.actor} saving={controller.saving} authorize={authorize} onUpdate={controller.updateIncident} /> : view === "reports" ? <ReportsView investigation={investigation} actor={controller.actor} saving={controller.saving} authorize={authorize} onUpdate={controller.updateIncident} /> : view === "platform" ? <PlatformView investigation={investigation} actor={controller.actor} saving={controller.saving} context={controller.context} platform={controller.platform} authorize={authorize} onUpdate={controller.updateIncident} /> : <AuditView investigation={investigation} />}</main></ScrollArea>
     </div>
   </div></TooltipProvider>;
 }
 
-function NavCount({ view, investigation }: { view: View; investigation: Investigation }) {
+function NavCount({ view, investigation }: { view: PyreView; investigation: Investigation }) {
   const value = view === "evidence" ? investigation.evidence.length : view === "timeline" ? investigation.timeline.length : view === "analysis" ? investigation.whys.length : view === "actions" ? investigation.actions.filter((item) => item.status !== "verified").length : view === "reports" ? investigation.reports.length : view === "audit" ? investigation.audit.length : 0;
-  return value ? <span className="nav-count">{value}</span> : null;
+  return value ? <span aria-hidden="true" className="nav-count">{value}</span> : null;
 }

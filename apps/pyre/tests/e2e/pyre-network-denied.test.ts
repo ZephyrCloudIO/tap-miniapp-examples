@@ -3,6 +3,7 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
+  expectMatchingAlert,
   hasAuthorizationDecision,
   openHttpCollection,
   openPlatform,
@@ -19,8 +20,9 @@ test("blocks denied GitHub HTTP before consuming a route or writing VFS", async 
   await surface
     .getByRole("button", { name: "Collect & Capture", exact: true })
     .click();
-  await expect(surface.getByRole("alert")).toContainText(
-    /Governed HTTP evidence collection failed.*not grant this platform action/iu,
+  await expectMatchingAlert(
+    surface,
+    /Governed HTTP evidence collection failed.*did not allow this network origin/iu,
   );
 
   expect((await tap.fixture.http.requests()).requests).toEqual([]);
@@ -35,7 +37,8 @@ test("blocks denied GitHub HTTP before consuming a route or writing VFS", async 
   expect(
     hasAuthorizationDecision((await tap.fixture.ledger.read()).entries, {
       actionId: "network.request",
-      allowed: false,
+      allowed: true,
+      autonomy: "do",
       kind: "platform",
     }),
   ).toBe(true);

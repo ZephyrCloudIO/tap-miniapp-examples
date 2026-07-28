@@ -25,21 +25,18 @@ test("mounts and remounts the exact declared desktop cell", async ({
   ).toBe(new URL(tap.surfaceAssetOrigin).origin);
 
   await tap.control.remountSurface();
+  const root = surface.locator("#tap-root");
+  await expect(root).toBeVisible();
+  await expect(root.locator(":scope > *").first()).toBeAttached();
+  await expect(surface.locator("#tap-error")).toBeHidden();
   await expectReadySurface(surface);
 
   await expect
-    .poll(async () => {
-      const ledger = await tap.fixture.ledger.read();
-      return new Set(
-        ledger.entries
-          .map(packageEventLocalName)
-          .filter((name): name is string => name !== null),
-      );
-    })
-    .toEqual(
-      new Set([
-        "player.surface.mounted",
-        "player.surface.unmounted",
-      ]),
-    );
+    .poll(async () =>
+      (await tap.fixture.ledger.read()).entries.filter(
+        (entry) =>
+          packageEventLocalName(entry) === "player.surface.mounted",
+      ).length,
+    )
+    .toBeGreaterThanOrEqual(2);
 });

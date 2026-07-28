@@ -34,7 +34,7 @@ test('denies all three official origins before any native request or write', asy
     }),
   ).toBeVisible();
   await expect(surface.getByRole('alert')).toContainText(
-    /http-denied permission scenario blocks sdk\.http\.request/iu,
+    /The Miniapp Test run did not allow this network origin/iu,
   );
 
   expect(await tap.fixture.http.requests()).toEqual({

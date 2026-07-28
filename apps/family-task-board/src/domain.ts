@@ -47,11 +47,16 @@ export const addShopItem = (state: FamilyState, input: Omit<ShopItem, "id">): Fa
 export const starBalance = (state: FamilyState, memberId: string): number => state.ledger.reduce((total, entry) => total + (entry.memberId === memberId ? entry.delta : 0), 0);
 export const tasksFor = (state: FamilyState, memberId: string): readonly FamilyTask[] => state.tasks.filter((task) => task.assigneeId === memberId);
 
-export const updateTaskStatus = (state: FamilyState, taskId: string, status: TaskStatus): FamilyState => {
+export const updateTaskStatus = (
+  state: FamilyState,
+  taskId: string,
+  status: TaskStatus,
+  actorId: string,
+): FamilyState => {
   const task = state.tasks.find((candidate) => candidate.id === taskId);
   if (!task || task.status === status) return state;
   const award = status === "approved" && task.status !== "approved";
-  return { ...state, tasks: state.tasks.map((candidate) => candidate.id === taskId ? { ...candidate, status } : candidate), ledger: award ? [...state.ledger, { id: id(), memberId: task.assigneeId, actorId: task.assigneeId, type: "chore", delta: task.stars, note: task.title, createdAt: now(), relatedTaskId: task.id }] : state.ledger };
+  return { ...state, tasks: state.tasks.map((candidate) => candidate.id === taskId ? { ...candidate, status } : candidate), ledger: award ? [...state.ledger, { id: id(), memberId: task.assigneeId, actorId, type: "chore", delta: task.stars, note: task.title, createdAt: now(), relatedTaskId: task.id }] : state.ledger };
 };
 
 export const addStarAdjustment = (state: FamilyState, actorId: string, memberId: string, delta: number, note: string): FamilyState => ({

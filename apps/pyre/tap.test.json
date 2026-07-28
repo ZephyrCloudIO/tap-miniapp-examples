@@ -11,7 +11,9 @@
       "permissionScenario": "default",
       "deniedActions": [],
       "fixtureFiles": ["tests/fixtures/pyre.seed.json"],
-      "httpRouteFiles": ["tests/fixtures/pyre.github.http-routes.json"],
+      "httpRouteFiles": [
+        "tests/fixtures/pyre.github.credential.http-routes.json"
+      ],
       "requiredOrigins": ["https://api.github.com"],
       "requiredEffects": [
         "effect:credentials:http",
@@ -49,14 +51,14 @@
       },
       "artifacts": {
         "trace": "failure-only",
-        "screenshots": "failure-only"
+        "screenshots": "always"
       }
     },
     "pyre-desktop-post-projection-revoked": {
       "surface": "pyre",
       "target": "desktop",
       "mode": "surface",
-      "permissionScenario": "synthetic:post-projection-all-denied",
+      "permissionScenario": "all-denied",
       "deniedActions": ["*"],
       "fixtureFiles": ["tests/fixtures/pyre.seed.json"],
       "httpRouteFiles": [],
@@ -349,7 +351,9 @@
       "permissionScenario": "deny:credentials.use",
       "deniedActions": ["credentials.use"],
       "fixtureFiles": ["tests/fixtures/pyre.seed.json"],
-      "httpRouteFiles": ["tests/fixtures/pyre.github.http-routes.json"],
+      "httpRouteFiles": [
+        "tests/fixtures/pyre.github.credential.http-routes.json"
+      ],
       "requiredOrigins": ["https://api.github.com"],
       "requiredEffects": [
         "effect:credentials:http",
@@ -531,6 +535,7 @@
       "testMatch": ["tests/e2e/pyre-projects-denied.test.ts"],
       "capabilities": [
         "action:projects.create",
+        "action:pyre.investigate",
         "effect:host-api:tap.projects:create"
       ]
     },
@@ -540,6 +545,7 @@
       "testMatch": ["tests/e2e/pyre-channel-denied.test.ts"],
       "capabilities": [
         "action:channels.send-message",
+        "action:pyre.investigate",
         "effect:host-api:tap.channels:send-message"
       ]
     },
@@ -548,6 +554,7 @@
       "profile": "pyre-desktop-specialist-denied",
       "testMatch": ["tests/e2e/pyre-specialist-denied.test.ts"],
       "capabilities": [
+        "action:pyre.investigate",
         "action:specialists.manage",
         "effect:host-api:tap.specialists:manage"
       ]
@@ -557,6 +564,7 @@
       "profile": "pyre-desktop-vfs-denied",
       "testMatch": ["tests/e2e/pyre-vfs-denied.test.ts"],
       "capabilities": [
+        "action:pyre.investigate",
         "action:vfs.write",
         "effect:host-api:tap.vfs:write"
       ]
@@ -566,7 +574,9 @@
       "profile": "pyre-desktop-workflow-denied",
       "testMatch": ["tests/e2e/pyre-workflow-denied.test.ts"],
       "capabilities": [
+        "action:pyre.investigate",
         "action:workflows.invoke",
+        "action:workflows.list",
         "effect:host-api:tap.workflows:invoke"
       ]
     },
@@ -576,6 +586,7 @@
       "testMatch": ["tests/e2e/pyre-network-denied.test.ts"],
       "capabilities": [
         "action:network.request",
+        "action:pyre.investigate",
         "effect:external-network:https://api.github.com"
       ]
     },
@@ -590,7 +601,10 @@
       "profile": "pyre-desktop-credentials-use-denied",
       "testMatch": ["tests/e2e/pyre-credentials-use-denied.test.ts"],
       "capabilities": [
+        "action:credentials.read",
         "action:credentials.use",
+        "action:network.request",
+        "action:pyre.investigate",
         "effect:credentials:http"
       ]
     },
@@ -604,7 +618,10 @@
       "id": "pyre-desktop-approve-denied",
       "profile": "pyre-desktop-approve-denied",
       "testMatch": ["tests/e2e/pyre-approve-denied.test.ts"],
-      "capabilities": ["action:pyre.approve"]
+      "capabilities": [
+        "action:pyre.approve",
+        "action:pyre.investigate"
+      ]
     }
   ],
   "waivers": []

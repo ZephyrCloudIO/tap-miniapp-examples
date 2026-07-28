@@ -20,6 +20,7 @@ test('blocks denied research before network or specialist effects', async ({
     theme: 'dark',
   });
 
+  const initialSnapshot = await tap.fixture.snapshot();
   await openResearch(surface);
   await expect(
     surface.getByRole('heading', {
@@ -65,7 +66,7 @@ test('blocks denied research before network or specialist effects', async ({
   ).toBe(false);
 
   const snapshot = await tap.fixture.snapshot();
-  expect(snapshot.state.channels).toEqual([]);
-  expect(snapshot.state.specialists).toEqual([]);
+  expect(snapshot.state.channels).toEqual(initialSnapshot.state.channels);
+  expect(snapshot.state.specialists).toEqual(initialSnapshot.state.specialists);
   expect(snapshot.state.storage[0]?.revision).toBe(1);
 });

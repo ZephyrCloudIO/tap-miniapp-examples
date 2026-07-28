@@ -11,6 +11,7 @@ test('denies product coordination before any host side effect', async ({
   surface,
   tap,
 }) => {
+  const before = await tap.fixture.snapshot();
   expectExactProvenance(tap, {
     profileId: 'vanta-companion-desktop-coordinate-denied',
     matrixEntryId: 'vanta-companion-desktop-coordinate-denied',
@@ -40,8 +41,8 @@ test('denies product coordination before any host side effect', async ({
   }
 
   const snapshot = await tap.fixture.snapshot();
-  expect(snapshot.state.specialists).toEqual([]);
-  expect(snapshot.state.channels).toEqual([]);
+  expect(snapshot.state.specialists).toEqual(before.state.specialists);
+  expect(snapshot.state.channels).toEqual(before.state.channels);
   expect(Reflect.get(storedState(snapshot), 'settings')).toMatchObject({
     specialistId: null,
     channelId: null,

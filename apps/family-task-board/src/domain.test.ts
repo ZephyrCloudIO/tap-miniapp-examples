@@ -19,8 +19,28 @@ describe("family task board domain", () => {
   });
   it("awards a task once", () => {
     const { state, kid } = household();
-    const approved = updateTaskStatus(state, state.tasks[0]!.id, "approved");
-    expect(starBalance(updateTaskStatus(approved, state.tasks[0]!.id, "approved"), kid.id)).toBe(3);
+    const parent = state.members[0]!;
+    const approved = updateTaskStatus(
+      state,
+      state.tasks[0]!.id,
+      "approved",
+      parent.id,
+    );
+    const replayed = updateTaskStatus(
+      approved,
+      state.tasks[0]!.id,
+      "approved",
+      parent.id,
+    );
+    expect(starBalance(replayed, kid.id)).toBe(3);
+    expect(replayed.ledger).toEqual([
+      expect.objectContaining({
+        actorId: parent.id,
+        memberId: kid.id,
+        relatedTaskId: state.tasks[0]!.id,
+        type: "chore",
+      }),
+    ]);
   });
   it("purchases from persisted ledger data", () => {
     const { state, kid } = household();

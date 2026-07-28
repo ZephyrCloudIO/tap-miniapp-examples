@@ -4,11 +4,12 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
-  GITHUB_CREDENTIAL_DISPLAY_NAME,
+  expectMatchingAlert,
   hasAuthorizationDecision,
   openHttpCollection,
   openPlatform,
   requireSingleCredentialAlias,
+  selectFixtureCredential,
   STORAGE_KEY,
   STORAGE_NAMESPACE,
 } from "./pyre-test-support";
@@ -30,24 +31,20 @@ test("denies the selected credential before HTTP or VFS side effects", async ({
   await openPlatform(surface);
   await openHttpCollection(surface);
 
-  const credential = surface.getByLabel("Host credential");
-  await credential.selectOption(credentialAlias);
-  await expect(credential).toHaveValue(credentialAlias);
-  await expect(
-    credential.getByRole("option", {
-      name: `${GITHUB_CREDENTIAL_DISPLAY_NAME} · http bearer`,
-      exact: true,
-    }),
-  ).toHaveAttribute("value", credentialAlias);
+  await selectFixtureCredential(surface, credentialAlias);
   await surface
     .getByRole("checkbox", {
       name: /Approve this exact read-only request/u,
     })
     .check();
+  await expect(
+    surface.getByRole("button", { name: "Collect & Capture", exact: true }),
+  ).toBeEnabled();
   await surface
     .getByRole("button", { name: "Collect & Capture", exact: true })
     .click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /Governed HTTP evidence collection failed.*platform permission is not granted/iu,
   );
 

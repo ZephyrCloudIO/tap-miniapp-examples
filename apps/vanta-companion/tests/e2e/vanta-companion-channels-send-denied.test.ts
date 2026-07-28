@@ -31,6 +31,13 @@ test('does not attach a case after its channel seed message is denied', async ({
   const entries = (await tap.fixture.ledger.read()).entries;
   expect(
     hasHostAuthorizationDecision(entries, {
+      actionId: 'vanta-companion.coordinate',
+      autonomy: 'do',
+      allowed: true,
+    }),
+  ).toBe(true);
+  expect(
+    hasHostAuthorizationDecision(entries, {
       actionId: 'channels.create',
       autonomy: 'do',
       allowed: true,
@@ -44,7 +51,11 @@ test('does not attach a case after its channel seed message is denied', async ({
     }),
   ).toBe(true);
   const snapshot = await tap.fixture.snapshot();
-  expect(snapshot.state.channels).toEqual([
+  expect(
+    snapshot.state.channels.filter(
+      channel => channel.title === 'SOC 2 · Review branch protection',
+    ),
+  ).toEqual([
     expect.objectContaining({
       title: 'SOC 2 · Review branch protection',
       messages: [],

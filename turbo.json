@@ -4,7 +4,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".tap-build/**"]
+      "outputs": ["dist/**", ".tap-build/**", ".tap-package/**", "tap-package/**"]
     },
     "build:watch": {
       "cache": false,

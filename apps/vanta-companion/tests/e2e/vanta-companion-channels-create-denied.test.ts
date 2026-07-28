@@ -23,13 +23,18 @@ test('surfaces the managed-specialist side effect when channel creation is denie
   );
 
   const entries = (await tap.fixture.ledger.read()).entries;
-  expect(
-    hasHostAuthorizationDecision(entries, {
-      actionId: 'specialists.manage',
-      autonomy: 'do',
-      allowed: true,
-    }),
-  ).toBe(true);
+  for (const actionId of [
+    'vanta-companion.coordinate',
+    'specialists.manage',
+  ] as const) {
+    expect(
+      hasHostAuthorizationDecision(entries, {
+        actionId,
+        autonomy: 'do',
+        allowed: true,
+      }),
+    ).toBe(true);
+  }
   expect(
     hasHostAuthorizationDecision(entries, {
       actionId: 'channels.create',
@@ -41,7 +46,11 @@ test('surfaces the managed-specialist side effect when channel creation is denie
   expect(
     snapshot.state.specialists.some(item => item.id === 'vanta-soc2-companion'),
   ).toBe(true);
-  expect(snapshot.state.channels).toEqual([]);
+  expect(
+    snapshot.state.channels.filter(
+      channel => channel.title === 'Vanta SOC 2 operations',
+    ),
+  ).toEqual([]);
   expect(Reflect.get(storedState(snapshot), 'settings')).toMatchObject({
     specialistId: null,
     channelId: null,

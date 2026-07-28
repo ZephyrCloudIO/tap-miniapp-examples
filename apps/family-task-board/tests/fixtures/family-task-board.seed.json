@@ -23,6 +23,13 @@
             "role": "kid",
             "avatar": "S",
             "color": "violet"
+          },
+          {
+            "id": "fixture-kid-riley",
+            "name": "Riley",
+            "role": "kid",
+            "avatar": "R",
+            "color": "sky"
           }
         ],
         "tasks": [

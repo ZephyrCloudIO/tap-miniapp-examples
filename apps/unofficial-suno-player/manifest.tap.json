@@ -30,7 +30,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.4.1",
+    "tapSdk": "0.4.2",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -94,13 +94,13 @@
         "effects": [
           { "kind": "storage", "resources": ["unofficial-suno-player"] },
           { "kind": "presence", "resources": ["unofficial-suno-player"] },
+          { "kind": "credentials", "resources": ["http"] },
           {
             "kind": "host-api",
             "resources": [
               "tap.channels:list",
               "tap.channels:read",
               "tap.channels:send-message",
-              "tap.credentials:read",
               "tap.profile:read",
               "tap.specialists:list",
               "tap.specialists:invoke",
@@ -131,7 +131,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "workflowId": "examples-unofficial-suno-player-manual-brief",
+        "workflowId": "examples-unofficial-suno-player.manual-brief",
         "exportName": "workflow",
         "manifest": {
           "id": "targets/workflow-host/schemas/manual-brief-workflow.schema.json",

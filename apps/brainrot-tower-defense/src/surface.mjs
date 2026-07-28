@@ -4,6 +4,7 @@ import {
   set_host_authority as setHostAuthority,
   set_interaction_authority as setInteractionAuthority
 } from "./ui.mjs";
+import { asSurfaceMountError } from "./surface-error.mjs";
 
 const PLAY_ACTION = "brainrot-td.play";
 
@@ -33,7 +34,12 @@ async function isAllowed(actionId) {
 export async function mount(container, context) {
   await waitForAuthority(context?.hostAuthority);
   const playGranted = await isAllowed(PLAY_ACTION);
-  const mounted = await mountWasm(container, context);
+  let mounted;
+  try {
+    mounted = await mountWasm(container, context);
+  } catch (error) {
+    throw asSurfaceMountError(error);
+  }
   let granted = Boolean(context.hostAuthority.getSnapshot());
   const applyAuthority = (hostGranted) => {
     setInteractionAuthority(hostGranted && playGranted);

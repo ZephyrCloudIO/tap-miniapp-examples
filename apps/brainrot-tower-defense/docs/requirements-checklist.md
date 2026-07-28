@@ -13,7 +13,7 @@ to this miniapp.
   validation, serialization, fixed ticks, seeded variation, and replay guards.
 - [x] Rust release build uses LTO, one codegen unit, aborting panics, and
   `wasm-opt`; WASM is built before Rsbuild/Rslib.
-- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.4.1`.
+- [x] SDK dependency and `compatibility.tapSdk` are exactly `0.4.2`.
 - [x] Desktop federated surface and lifecycle expose are packaged.
 - [x] Hand-authored application/gameplay code is Rust/WASM; the small `.mjs`
   files are the unavoidable Rslib federation, asset, authority, and MCP
@@ -194,9 +194,9 @@ are created by the authoritative runtime only when waves spawn them.
   display names, hosting/view/ready/exact-placement state, recent activity, and
   live canvas cursors.
 - [x] Required TAP events publish only after authoritative persistence and are
-  retained in the session outbox until event and activity-card delivery succeed.
-- [x] Compact idempotent channel milestone cards use real
-  `channels.sendMessage`.
+  retained in the session outbox until package-event delivery succeeds.
+- [x] Channel-scoped milestones use the surface's declared durable package
+  events; the channel-panel runtime does not call unsupported host actions.
 - [ ] Incremental spectator simulation event stream — the installed SDK can
   publish package events, but it provides no authoritative sender-bound game
   transport; the executable uses validated CAS snapshots and polling rather
@@ -205,14 +205,22 @@ are created by the authoritative runtime only when waves spawn them.
   capped at 512 participants for bounded parsing and rendering; four active
   player slots remain enforced.
 - [ ] Secure command-sender binding, authoritative reconnect, and timed slot
-  expiry/disconnect-driven host migration — blocked because SDK 0.4.1 exposes
+  expiry/disconnect-driven host migration — blocked because SDK 0.4.2 exposes
   no platform-owned session command or reconnect-lease primitive and storage
   records contain client-authored identity.
 - [x] Read-only Chloe game-state tool — the package-runtime
   `brainrot-td-state-server` registers `get_game_state` through the SDK `/mcp`
-  entry. It calls the Rust/WASM snapshot export directly, returns a bounded
-  selected-session/channel-state view, and is guarded by the declared
-  `brainrot-td.read-state` permission and validated input/output schemas.
+  entry in an isolated QuickJS target. It uses the trusted execution-context
+  canonical user and channel plus the public read-only storage bridge to read
+  one exact
+  `brainrot-td:mcp/users/{userId}/channels/{channelId}/current` projection,
+  fails closed on missing or malformed identity/state, and reports deterministic
+  truncation with full collection totals. The webview keys the writer with its
+  canonical mount `userId`, not the potentially different OAuth/OIDC profile
+  `sub` retained for gameplay identity. It is guarded by the declared
+  `brainrot-td.read-state` permission, exact storage effects and `storageReads`
+  selector, validated input/output schemas, deterministic tests, and
+  package-closure verification.
 
 ## Quality and verification
 
@@ -229,8 +237,8 @@ are created by the authoritative runtime only when waves spawn them.
   replay and payload substitution, processed-command receipt validation,
   persisted-ack reconciliation, completion-receipt migration/serialization,
   delayed participant catch-up, cursor rotation, and bounded merge safety.
-- [x] The final native suite contains 144 passing tests: 23 content, 51 core,
-  5 protocol-contract, 27 renderer, 34 web lifecycle/UI helper, and 4 typed TAP
+- [x] The final native suite contains 154 passing tests: 23 content, 51 core,
+  5 protocol-contract, 27 renderer, 44 web lifecycle/UI helper, and 4 typed TAP
   bridge tests. Upgrade coverage includes all four authored costs,
   branch commitment, insufficient resources, duplicate/stale replay, reload at
   level 5, invalid level/path combinations, control recovery, strongest-only
@@ -245,12 +253,16 @@ are created by the authoritative runtime only when waves spawn them.
   matrix covers every level × wave × player-count variant.
 - [x] Presence bridge validation, durable outbox replay, concurrent progression
   merge, and channel-index merge tests.
+- [x] MCP projection tests cover canonical mount user ID versus a different
+  OAuth/OIDC profile subject, missing/path-shaped canonical identity,
+  user/channel-isolated storage keys, bounded deterministic projection output,
+  a 32-update delayed-write burst, and two-user selection/unmount interleaving.
 - [x] Content validation is a mandatory browser/federated build step.
-- [x] Schema-v2 Surface Test Lab coverage declares one desktop cell, three
-  deterministic permission profiles, and seven directly discovered cases for
+- [x] Schema-v2 Surface Test Lab coverage declares one desktop cell, two
+  deterministic permission profiles, and six directly discovered cases for
   mount provenance, storage/presence hydration, durable events, channel cards,
-  exact reset/replay entropy, synthetic post-projection revocation, and
-  channel-message-only denial.
+  distinct deterministic reset-realm entropy, and post-projection authority
+  revocation.
 - [ ] Host-driven execution of those browser cases still requires an
   authenticated Miniapp Test Lab session. Local typechecking and credential-free
   discovery do not claim to substitute for that run.

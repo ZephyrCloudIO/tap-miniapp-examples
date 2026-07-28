@@ -21,10 +21,22 @@ test("hydrates the mounted channel without exposing denied channel discovery", a
     theme: "dark",
   });
   await expectReadySurface(surface);
-  await expect(
-    surface.getByText(/channels\.list.*permission is not granted/iu),
-  ).toBeVisible();
+  const channelSwitcher = surface.getByLabel("Channel", { exact: true });
+  await expect(channelSwitcher).toHaveValue(tap.channelId);
+  expect(await channelSwitcher.locator("option").allTextContents()).toEqual([
+    tap.channelId,
+  ]);
 
+  await expect
+    .poll(async () => {
+      const ledger = await tap.fixture.ledger.read();
+      return hasAuthorizationDecision(ledger.entries, {
+        actionId: "channels.list",
+        allowed: false,
+        kind: "host-action",
+      });
+    })
+    .toBe(true);
   const ledger = await tap.fixture.ledger.read();
   expect(
     hasAuthorizationDecision(ledger.entries, {

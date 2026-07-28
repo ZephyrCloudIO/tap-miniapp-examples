@@ -6,6 +6,7 @@
   "required": [
     "schemaVersion",
     "source",
+    "projectionTruncated",
     "sessionId",
     "channelId",
     "name",
@@ -24,6 +25,10 @@
     "defeatedEnemies",
     "leakedEnemies",
     "pendingEnemyCount",
+    "totalMemberCount",
+    "totalDefenderCount",
+    "totalEnemyCount",
+    "totalRecentActionCount",
     "members",
     "defenders",
     "enemies",
@@ -31,7 +36,8 @@
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "source": { "enum": ["tap-channel-snapshot", "browser-preview"] },
+    "source": { "enum": ["tap-channel-snapshot", "tap-channel-projection", "browser-preview"] },
+    "projectionTruncated": { "type": "boolean" },
     "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
     "channelId": { "type": "string", "minLength": 1, "maxLength": 256 },
     "name": { "type": "string", "minLength": 1, "maxLength": 80 },
@@ -46,15 +52,20 @@
     "score": { "type": "integer", "minimum": 0 },
     "tick": { "type": "integer", "minimum": 0 },
     "sequence": { "type": "integer", "minimum": 0 },
-    "activePlayerCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "activePlayerCount": { "type": "integer", "minimum": 1, "maximum": 4 },
     "spectatorCount": { "type": "integer", "minimum": 0, "maximum": 512 },
     "livePresenceCount": { "type": "integer", "minimum": 0, "maximum": 512 },
     "defeatedEnemies": { "type": "integer", "minimum": 0 },
     "leakedEnemies": { "type": "integer", "minimum": 0, "maximum": 65535 },
     "pendingEnemyCount": { "type": "integer", "minimum": 0, "maximum": 512 },
+    "totalMemberCount": { "type": "integer", "minimum": 1, "maximum": 512 },
+    "totalDefenderCount": { "type": "integer", "minimum": 0, "maximum": 256 },
+    "totalEnemyCount": { "type": "integer", "minimum": 0, "maximum": 512 },
+    "totalRecentActionCount": { "type": "integer", "minimum": 0, "maximum": 12 },
     "members": {
       "type": "array",
-      "maxItems": 512,
+      "minItems": 1,
+      "maxItems": 64,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -72,7 +83,7 @@
     },
     "defenders": {
       "type": "array",
-      "maxItems": 256,
+      "maxItems": 128,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -91,7 +102,7 @@
     },
     "enemies": {
       "type": "array",
-      "maxItems": 512,
+      "maxItems": 256,
       "items": {
         "type": "object",
         "additionalProperties": false,

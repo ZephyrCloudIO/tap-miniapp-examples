@@ -4,6 +4,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  expectMatchingAlert,
   hasAnyAuthorizationDecision,
   hasAuthorizationDecision,
   STORAGE_KEY,
@@ -23,7 +24,7 @@ test("denies investigation mutation before durable or host side effects", async 
     theme: "dark",
   });
   await surface
-    .getByRole("button", { name: "Evidence", exact: true })
+    .getByRole("button", { name: /^Evidence(?:\s+\d+)?$/u })
     .click();
   await surface
     .getByRole("button", { name: "Add Evidence", exact: true })
@@ -39,7 +40,8 @@ test("denies investigation mutation before durable or host side effects", async 
     .getByRole("button", { name: "Save Reference", exact: true })
     .click();
   await surface.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /does not allow this miniapp to investigate incidents/iu,
   );
 

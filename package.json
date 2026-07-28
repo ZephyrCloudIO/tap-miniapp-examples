@@ -13,7 +13,7 @@
     "dev": "turbo run dev --parallel",
     "test": "pnpm run test:unit && pnpm run verify:tap",
     "test:unit": "turbo run test",
-    "test:tap:static": "node --test scripts/tap-test-discovery.test.mjs scripts/tap-test-policy.test.mjs scripts/tap-test-runtime.test.mjs && node scripts/verify-tap-tests.mjs",
+    "test:tap:static": "node --test scripts/tap-package-policy.test.mjs scripts/tap-test-discovery.test.mjs scripts/tap-test-policy.test.mjs scripts/tap-test-runtime.test.mjs && node scripts/verify-tap-tests.mjs",
     "typecheck": "turbo run typecheck",
     "typecheck:tap": "turbo run typecheck:tap --filter=./apps/*",
     "verify": "pnpm run typecheck && pnpm run test",

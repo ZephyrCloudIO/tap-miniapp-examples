@@ -3,6 +3,7 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
+  expectMatchingAlert,
   hasAuthorizationDecision,
   STORAGE_KEY,
   STORAGE_NAMESPACE,
@@ -13,7 +14,7 @@ test("keeps a denied file and receipt outside VFS and durable state", async ({
   tap,
 }) => {
   await surface
-    .getByRole("button", { name: "Evidence", exact: true })
+    .getByRole("button", { name: /^Evidence(?:\s+\d+)?$/u })
     .click();
   await surface
     .getByRole("button", { name: "Add Evidence", exact: true })
@@ -27,7 +28,8 @@ test("keeps a denied file and receipt outside VFS and durable state", async ({
   await surface
     .getByRole("button", { name: "Capture Evidence", exact: true })
     .click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /File capture failed.*permission is not granted/iu,
   );
 
