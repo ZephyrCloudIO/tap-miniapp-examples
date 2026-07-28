@@ -94,7 +94,7 @@ This checklist is the completion contract derived from `miniapps/01-family-task-
 
 ## UI and verification
 
-- [x] SDK 0.4.1 UI primitives and appearance synchronization.
+- [x] SDK 0.4.2 UI primitives and appearance synchronization.
 - [x] Host-driven Test Lab coverage for storage allow/deny behavior, management authorization, and run provenance.
 - [x] Empty onboarding and management forms.
 - [x] Responsive desktop and compact layouts.

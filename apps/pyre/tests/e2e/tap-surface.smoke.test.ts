@@ -28,6 +28,13 @@ test("mounts and remounts the exact declared Pyre desktop cell", async ({
   expect(tap.sourceDigest).toMatch(SHA256);
   expect(tap.testBundleDigest).toMatch(SHA256);
 
-  await tap.control.remountSurface();
+  await tap.control.reset();
+  const root = surface.locator("#tap-root");
+  await expect(root).toBeVisible();
+  await expect(root.locator(":scope > *").first()).toBeAttached();
+  await expect(surface.locator("#tap-error")).toBeHidden();
   await expectReadySurface(surface);
+  await expect(
+    surface.getByText("3 present", { exact: true }),
+  ).toBeVisible();
 });

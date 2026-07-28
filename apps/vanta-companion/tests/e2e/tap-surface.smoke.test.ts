@@ -1,7 +1,9 @@
 import { expect, test } from '@theaiplatform/miniapp-sdk/testing/rstest';
 import {
   FIXED_NOW,
+  FIXED_NOW_GREETING,
   PACKAGE_ID,
+  packageEventLocalName,
   SDK_VERSION,
   SEMVER,
   SHA256,
@@ -34,15 +36,23 @@ test('remounts the exact declared TAP cell with reproducible provenance', async 
   }
 
   await tap.control.remountSurface();
+  const root = surface.locator('#tap-root');
+  await expect(root).toBeVisible();
+  await expect(root.locator(':scope > *').first()).toBeAttached();
+  await expect(surface.locator('#tap-error')).toBeHidden();
   await expect(
-    surface.getByText('Review branch protection', { exact: true }),
+    surface.getByRole('heading', {
+      level: 1,
+      name: FIXED_NOW_GREETING,
+      exact: true,
+    }),
   ).toBeVisible();
   await expect
     .poll(async () =>
       (await tap.fixture.ledger.read()).entries.filter(
         entry =>
-          entry.kind === 'event' &&
-          entry.operation === 'vanta-companion.surface.mounted',
+          packageEventLocalName(entry) ===
+          'vanta-companion.surface.mounted',
       ).length,
     )
     .toBeGreaterThanOrEqual(2);

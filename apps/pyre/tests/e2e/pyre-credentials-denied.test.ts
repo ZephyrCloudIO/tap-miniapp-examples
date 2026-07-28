@@ -4,6 +4,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  expectMatchingAlert,
   hasAuthorizationDecision,
   openPlatform,
 } from "./pyre-test-support";
@@ -21,7 +22,8 @@ test("reports denied credential discovery while preserving public HTTP readiness
     allowedOrigins: [],
   });
   await openPlatform(surface);
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /Credential discovery is unavailable.*not grant this platform action/iu,
   );
   await expect(

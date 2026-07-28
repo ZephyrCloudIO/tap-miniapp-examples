@@ -7,23 +7,29 @@
     "wasm": "wasm-pack build crates/game-web --target bundler --release --out-dir ../../pkg --out-name brainrot_game_web && node scripts/fix-wasm-package.mjs",
     "validate:content": "cargo test -p game-content all_content_is_valid --quiet",
     "build:preview": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rsbuild build",
-    "build:miniapp": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build",
+    "build:miniapp": "pnpm validate:content && pnpm validate:assets && pnpm wasm && pnpm build:miniapp:desktop && pnpm build:miniapp:quickjs && pnpm build:miniapp:assemble && pnpm verify:package",
+    "build:miniapp:desktop": "TAP_PACKAGE_TARGET=desktop rslib build",
+    "build:miniapp:quickjs": "TAP_PACKAGE_TARGET=quickjs rslib build",
+    "build:miniapp:assemble": "node scripts/assemble-package.mjs",
     "build": "pnpm build:preview && pnpm build:miniapp && pnpm check:size",
     "build:watch": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build --watch",
     "dev": "pnpm validate:content && pnpm wasm && rsbuild dev",
     "typecheck": "cargo check --workspace --all-targets",
     "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
-    "test": "cargo test --workspace && node scripts/validate-assets.mjs",
+    "test": "cargo test --workspace && node --test src/*.test.mjs && node scripts/validate-assets.mjs",
+    "test:mcp": "node --test src/mcp-state.test.mjs",
+    "test:surface-error": "node --test src/surface-error.test.mjs",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
     "lint": "cargo clippy --workspace --all-targets -- -D warnings",
     "format:check": "cargo fmt --all -- --check",
     "validate:manifest": "node scripts/validate-manifest.mjs",
     "validate:assets": "node scripts/validate-assets.mjs",
+    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-package",
     "check:size": "node scripts/check-size.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.4.1"
+    "@theaiplatform/miniapp-sdk": "0.4.2"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.0",

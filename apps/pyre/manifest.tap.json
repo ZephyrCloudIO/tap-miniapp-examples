@@ -20,7 +20,7 @@
     "iconAssets": []
   },
   "compatibility": {
-    "tapSdk": "0.4.1",
+    "tapSdk": "0.4.2",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -45,10 +45,22 @@
         "./specialists/pyre": {
           "integrity": "pending",
           "runtime": "webview"
-        },
+        }
+      }
+    },
+    "quickjs": {
+      "remoteName": "tap_pyre_quickjs",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
         "./mcp/pyre-mcp": {
           "integrity": "pending",
-          "runtime": "webview"
+          "runtime": "quickjs"
         }
       }
     }
@@ -165,9 +177,9 @@
       "id": "pyre-mcp",
       "apiVersion": 1,
       "targets": {
-        "desktop": {
+        "quickjs": {
           "expose": "./mcp/pyre-mcp",
-          "runtime": "webview"
+          "runtime": "quickjs"
         }
       },
       "authorization": {
@@ -183,7 +195,8 @@
           "type": "package-runtime"
         },
         "consumerPolicy": {
-          "contributionIds": ["pyre-investigation-specialist"]
+          "contributionIds": ["pyre-investigation-specialist"],
+          "externalConsumers": ["selected-specialists"]
         }
       }
     },
@@ -191,11 +204,6 @@
       "kind": "mcp.tool",
       "id": "pyre-list-investigations",
       "apiVersion": 1,
-      "targets": {
-        "desktop": {
-          "runtime": "host-declarative"
-        }
-      },
       "authorization": {
         "allOf": ["pyre.view"],
         "effects": [
@@ -209,6 +217,10 @@
         "timeoutMs": 10000,
         "effects": [
           {"kind":"storage","resources":["pyre"]}
+        ],
+        "storageReads": [
+          {"namespace":"pyre","keyTemplate":"investigations/v2"},
+          {"namespace":"pyre","keyTemplate":"investigations/v1"}
         ]
       }
     },
@@ -216,11 +228,6 @@
       "kind": "mcp.tool",
       "id": "pyre-get-investigation",
       "apiVersion": 1,
-      "targets": {
-        "desktop": {
-          "runtime": "host-declarative"
-        }
-      },
       "authorization": {
         "allOf": ["pyre.view"],
         "effects": [
@@ -234,6 +241,10 @@
         "timeoutMs": 10000,
         "effects": [
           {"kind":"storage","resources":["pyre"]}
+        ],
+        "storageReads": [
+          {"namespace":"pyre","keyTemplate":"investigations/v2"},
+          {"namespace":"pyre","keyTemplate":"investigations/v1"}
         ]
       }
     },

@@ -15,7 +15,7 @@ test('fails closed after projected authority is synthetically revoked', async ({
   expectExactProvenance(tap, {
     profileId: 'personal-health-ledger-desktop-post-projection-revoked',
     matrixEntryId: 'personal-health-ledger-desktop-storage-denied',
-    permissionScenario: 'synthetic:post-projection-all-denied',
+    permissionScenario: 'all-denied',
     seed: 6930,
     theme: 'dark',
   });

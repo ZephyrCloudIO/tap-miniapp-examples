@@ -15,7 +15,7 @@ test("fails closed when the required view action is revoked after synthetic proj
 }) => {
   expectExactProvenance(tap, {
     matrixEntryId: "unofficial-suno-player-desktop-post-projection-revoked",
-    permissionScenario: "synthetic:post-projection-all-denied",
+    permissionScenario: "all-denied",
     profileId: "unofficial-suno-player-desktop-post-projection-revoked",
     seed: 6930,
     theme: "dark",
@@ -56,6 +56,6 @@ test("fails closed when the required view action is revoked after synthetic proj
   expect(hasOperation(ledger.entries, "platform", "presence.join")).toBe(false);
 
   const snapshot = await tap.fixture.snapshot();
-  expect(channelStorageRecord(snapshot)?.revision).toBe(1);
+  expect(channelStorageRecord(snapshot, tap.channelId)?.revision).toBe(1);
   expect(snapshot.state.channels[0]?.messages).toHaveLength(2);
 });

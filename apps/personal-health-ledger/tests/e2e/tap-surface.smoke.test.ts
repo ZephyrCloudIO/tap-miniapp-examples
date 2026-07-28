@@ -1,7 +1,7 @@
 import { expect, test } from '@theaiplatform/miniapp-sdk/testing/rstest';
 
 const PACKAGE_ID = "tap_pkg_examples_personal_health_ledger_0001";
-const SDK_VERSION = "0.4.1";
+const SDK_VERSION = "0.4.2";
 const SURFACE_TARGET_CELLS = new Set(["personal-health-ledger\u0000desktop"]);
 const PROFILE_IDS = new Set(["personal-health-ledger-desktop"]);
 const MATRIX_ENTRY_IDS = new Set(["personal-health-ledger-desktop-positive"]);
@@ -27,6 +27,15 @@ test('mounts the exact declared TAP cell with reproducible provenance', async ({
   if (tap.mode === 'surface') expect(tap.fixtureDigest).toMatch(SHA256);
   else expect(tap.fixtureDigest).toBeUndefined();
 
-  await tap.control.remountSurface();
-  await expect(surface.locator('body')).toBeVisible();
+  await tap.control.reset();
+  const root = surface.locator('#tap-root');
+  await expect(root).toBeVisible();
+  await expect(root.locator(':scope > *').first()).toBeAttached();
+  await expect(surface.locator('#tap-error')).toBeHidden();
+  await expect(
+    surface.getByRole('heading', { level: 1, name: 'Today', exact: true }),
+  ).toBeVisible();
+  await expect(
+    surface.getByText('Test Lab Ledger', { exact: true }),
+  ).toBeVisible();
 });

@@ -3,8 +3,8 @@ import {
   test,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
-  CHANNEL_ID,
   STORAGE_NAMESPACE,
+  channelListeningRoom,
   expectExactProvenance,
   hasAuthorizationDecision,
   hasOperation,
@@ -24,11 +24,11 @@ test("persists the opt-in preference but never enters a denied presence room", a
     theme: "dark",
   });
   await openSettings(surface);
-  await surface
-    .getByRole("checkbox", {
-      name: /Broadcast my listening or paused state/u,
-    })
-    .check();
+  const presenceCheckbox = surface.getByRole("checkbox", {
+    name: /Broadcast my listening or paused state/u,
+  });
+  await presenceCheckbox.click();
+  await expect(presenceCheckbox).toBeChecked();
   await expect(
     surface.getByText(/run did not grant this platform action/iu),
   ).toBeVisible();
@@ -47,7 +47,7 @@ test("persists the opt-in preference but never enters a denied presence room", a
     snapshot.state.presence.find(
       (entry) =>
         entry.namespace === STORAGE_NAMESPACE &&
-        entry.room === `channel/${CHANNEL_ID}/listening`,
+        entry.room === channelListeningRoom(tap.channelId),
     )?.participants.map((participant) => participant.participantId),
   ).toEqual(["fixture-listener-reviewer"]);
 

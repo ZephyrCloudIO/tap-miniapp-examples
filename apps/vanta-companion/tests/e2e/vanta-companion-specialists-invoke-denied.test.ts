@@ -36,6 +36,16 @@ test('preserves connected state without recording a denied specialist turn', asy
       },
     ),
   ).toBe(true);
+  expect(
+    hasHostAuthorizationDecision(
+      (await tap.fixture.ledger.read()).entries,
+      {
+        actionId: 'vanta-companion.analyze',
+        autonomy: 'plan',
+        allowed: true,
+      },
+    ),
+  ).toBe(true);
   const snapshot = await tap.fixture.snapshot();
   expect(Reflect.get(storedState(snapshot), 'analyses')).toEqual([]);
   expect(snapshot.state.storage[0]?.revision).toBe(1);

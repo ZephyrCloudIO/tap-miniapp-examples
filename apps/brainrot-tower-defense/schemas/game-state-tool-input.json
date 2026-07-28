@@ -8,7 +8,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Optional game session in the mounted TAP channel. Omit it to read the selected game."
+      "description": "Optional assertion for the current projected game session in the mounted TAP channel. Omit it to read the current game."
     }
   }
 }

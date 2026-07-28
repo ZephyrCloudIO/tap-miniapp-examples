@@ -23,7 +23,11 @@ test('exposes the orphan channel boundary when specialist join is denied', async
   );
 
   const entries = (await tap.fixture.ledger.read()).entries;
-  for (const actionId of ['specialists.manage', 'channels.create'] as const) {
+  for (const actionId of [
+    'vanta-companion.coordinate',
+    'specialists.manage',
+    'channels.create',
+  ] as const) {
     expect(
       hasHostAuthorizationDecision(entries, {
         actionId,
@@ -40,7 +44,11 @@ test('exposes the orphan channel boundary when specialist join is denied', async
     }),
   ).toBe(true);
   const snapshot = await tap.fixture.snapshot();
-  expect(snapshot.state.channels).toEqual([
+  expect(
+    snapshot.state.channels.filter(
+      channel => channel.title === 'Vanta SOC 2 operations',
+    ),
+  ).toEqual([
     expect.objectContaining({
       title: 'Vanta SOC 2 operations',
       specialistIds: [],

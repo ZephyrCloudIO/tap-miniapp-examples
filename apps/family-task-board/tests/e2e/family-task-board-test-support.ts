@@ -59,9 +59,15 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.4.1",
+    adapterVersion: "0.4.2",
     allowedNetworkOrigins: [],
-    artifacts: TEST_ARTIFACTS,
+    artifacts: {
+      ...TEST_ARTIFACTS,
+      screenshots:
+        expected.permissionScenario === "default"
+          ? "always"
+          : "failure-only",
+    },
     credentialAliases: [],
     dataScope: "fixture",
     environment,

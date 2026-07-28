@@ -50,6 +50,13 @@ test('denies the selected Vanta credential before native HTTP', async ({
 
   const ledger = await tap.fixture.ledger.read();
   expect(
+    hasHostAuthorizationDecision(ledger.entries, {
+      actionId: 'vanta-companion.analyze',
+      autonomy: 'plan',
+      allowed: true,
+    }),
+  ).toBe(true);
+  expect(
     hasPlatformAuthorizationDecision(ledger.entries, {
       action: 'tap.platform.credentials.list-http',
       actionId: 'credentials.read',

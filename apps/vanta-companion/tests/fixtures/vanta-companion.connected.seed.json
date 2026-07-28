@@ -1,4 +1,13 @@
 {
+  "projects": [
+    {
+      "id": "vanta-fixture-project",
+      "name": "Vanta SOC 2 remediation",
+      "discoverable": false,
+      "channelIds": ["vanta-fixture-operations"],
+      "archivedChannelIds": []
+    }
+  ],
   "channels": [
     {
       "roomId": "vanta-fixture-operations",

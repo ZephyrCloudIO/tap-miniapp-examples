@@ -750,10 +750,8 @@ export function VantaCompanionApp({
         item => item.id === draft.surface,
       )!;
       const endpoint = new URL(request.url);
-      if (
-        isSuccessfulVantaResponse(response) &&
-        write
-      ) {
+      if (isSuccessfulVantaResponse(response)) {
+        const operation = write ? 'write' : 'read';
         const next = withReceipt(
           state,
           {
@@ -765,12 +763,19 @@ export function VantaCompanionApp({
           randomUUID,
         );
         try {
-          await persist(next, `${surface.label} write completed`);
+          await persist(next, `${surface.label} ${operation} completed`);
         } catch (cause) {
-          setError(
-            `Vanta completed the write with ${response.status}, but TAP could not save its receipt. Do not retry the write; reconcile the receipt after checking Vanta. ${message(cause)}`,
-          );
-          setStatus('Vanta write completed; receipt save failed');
+          if (write) {
+            setError(
+              `Vanta completed the write with ${response.status}, but TAP could not save its receipt. Do not retry the write; reconcile the receipt after checking Vanta. ${message(cause)}`,
+            );
+            setStatus('Vanta write completed; receipt save failed');
+          } else {
+            setError(
+              `${surface.label} returned ${response.status}, but TAP could not save its bounded receipt. ${message(cause)}`,
+            );
+            setStatus(`${surface.label} read completed; receipt save failed`);
+          }
         }
         return;
       }
@@ -2199,7 +2204,8 @@ function VantaApiView({
             <div>
               <CardTitle>Response</CardTitle>
               <CardDescription>
-                Kept in memory only; reload clears source data.
+                Source data stays in memory; successful requests save only a
+                bounded receipt.
               </CardDescription>
             </div>
             {result && (

@@ -4,25 +4,38 @@ import {
   type TapRstestFixtures,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
+  configureFixtureWorkflow,
   expectExactProvenance,
+  expectFixtureHttpCredentialBound,
   expectReadySurface,
   FIXTURE_CHANNEL_ID,
-  GITHUB_CREDENTIAL_DISPLAY_NAME,
   GITHUB_EVIDENCE_URL,
   hasAuthorizationDecision,
   openHttpCollection,
   openPlatform,
+  packageEventLocalName,
   requireSingleCredentialAlias,
   seedUnprovisioned,
+  selectFixtureCredential,
   STORAGE_KEY,
   STORAGE_NAMESPACE,
 } from "./pyre-test-support";
 
 type TapSurface = TapRstestFixtures["surface"];
+const RUNTIME_UUID =
+  /^(?:audit|evidence)_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function fixtureObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 async function saveFixtureReference(surface: TapSurface): Promise<void> {
   await surface
-    .getByRole("button", { name: "Evidence", exact: true })
+    .getByRole("button", { name: /^Evidence(?:\s+\d+)?$/u })
     .click();
   await surface
     .getByRole("button", { name: "Add Evidence", exact: true })
@@ -56,9 +69,9 @@ test("hydrates deterministic investigation state, publishes its mount, and persi
     credentialAliases: [credentialAlias],
   });
   await expectReadySurface(surface);
-  await expect(surface.getByText("2 present", { exact: true })).toBeVisible();
+  await expect(surface.getByText("3 present", { exact: true })).toBeVisible();
   await surface
-    .getByRole("button", { name: "Evidence", exact: true })
+    .getByRole("button", { name: /^Evidence(?:\s+\d+)?$/u })
     .click();
   await expect(
     surface.getByText("Checkout error-rate alert", { exact: true }),
@@ -67,9 +80,7 @@ test("hydrates deterministic investigation state, publishes its mount, and persi
   await expect
     .poll(async () =>
       (await tap.fixture.ledger.read()).entries.some(
-        (entry) =>
-          entry.kind === "event" &&
-          entry.operation === "pyre.surface.mounted",
+        (entry) => packageEventLocalName(entry) === "pyre.surface.mounted",
       ),
     )
     .toBe(true);
@@ -109,20 +120,92 @@ test("hydrates deterministic investigation state, publishes its mount, and persi
   ).toBe(true);
 });
 
-test("replays a runtime-ID mutation to the exact full fixture state after reset", async ({
+test("replays exact fixture semantics with fresh runtime IDs after reset", async ({
   surface,
   tap,
 }) => {
   const mutateAndSnapshot = async () => {
     await expectReadySurface(surface);
     await saveFixtureReference(surface);
-    return (await tap.fixture.snapshot()).state;
+    const state = (await tap.fixture.snapshot()).state;
+    const record = state.storage.find(
+      (entry) =>
+        entry.namespace === STORAGE_NAMESPACE && entry.key === STORAGE_KEY,
+    );
+    const value = fixtureObject(record?.value);
+    const investigations = value?.investigations;
+    const investigation = Array.isArray(investigations)
+      ? investigations
+          .map(fixtureObject)
+          .find((candidate) => candidate?.id === "inc_fixture_checkout")
+      : undefined;
+    const evidence = Array.isArray(investigation?.evidence)
+      ? investigation.evidence
+          .map(fixtureObject)
+          .find(
+            (candidate) =>
+              candidate?.title === "Fixture incident ticket",
+          )
+      : undefined;
+    const audit = Array.isArray(investigation?.audit)
+      ? investigation.audit
+          .map(fixtureObject)
+          .find(
+            (candidate) =>
+              candidate?.action === "evidence.created" &&
+              candidate?.summary ===
+                "Fixture incident ticket (reference)",
+          )
+      : undefined;
+    const evidenceId = evidence?.id;
+    const auditId = audit?.id;
+    expect(evidenceId).toMatch(RUNTIME_UUID);
+    expect(auditId).toMatch(RUNTIME_UUID);
+    expect(audit?.entityId).toBe(evidenceId);
+    if (typeof evidenceId !== "string" || typeof auditId !== "string") {
+      throw new Error("The reference mutation did not create runtime IDs.");
+    }
+
+    const surfacePresenceIds = state.presence
+      .flatMap((entry) => [
+        entry.selfParticipantId,
+        ...entry.participants.map((participant) => participant.participantId),
+      ])
+      .filter((id) => id.startsWith("tap-fixture-presence:"))
+      .filter((id, index, ids) => ids.indexOf(id) === index);
+    expect(surfacePresenceIds).toHaveLength(1);
+    const surfacePresenceId = surfacePresenceIds[0];
+    if (!surfacePresenceId) {
+      throw new Error("The mounted surface presence identity is missing.");
+    }
+
+    const normalizedState = JSON.parse(
+      JSON.stringify(state, (_key, valueToNormalize) => {
+        if (valueToNormalize === evidenceId) return "<runtime-evidence-id>";
+        if (valueToNormalize === auditId) return "<runtime-audit-id>";
+        if (valueToNormalize === surfacePresenceId) {
+          return "<surface-presence-id>";
+        }
+        return valueToNormalize;
+      }),
+    ) as unknown;
+    return {
+      normalizedState,
+      runtimeIds: { auditId, evidenceId, surfacePresenceId },
+    };
   };
 
   const first = await mutateAndSnapshot();
   await tap.control.reset();
   const second = await mutateAndSnapshot();
-  expect(second).toEqual(first);
+  expect(second.normalizedState).toEqual(first.normalizedState);
+  expect(second.runtimeIds.auditId).not.toBe(first.runtimeIds.auditId);
+  expect(second.runtimeIds.evidenceId).not.toBe(
+    first.runtimeIds.evidenceId,
+  );
+  expect(second.runtimeIds.surfacePresenceId).not.toBe(
+    first.runtimeIds.surfacePresenceId,
+  );
 });
 
 test("authorizes and persists an approved report revision", async ({
@@ -198,7 +281,7 @@ test("provisions project and channel rails from an unbound investigation", async
   surface,
   tap,
 }) => {
-  await seedUnprovisioned(tap);
+  const baseline = await seedUnprovisioned(tap);
   await openPlatform(surface);
   await surface
     .getByRole("button", { name: "Provision Workspace", exact: true })
@@ -211,17 +294,39 @@ test("provisions project and channel rails from an unbound investigation", async
   ).toBeVisible();
 
   const snapshot = await tap.fixture.snapshot();
-  expect(snapshot.state.projects).toHaveLength(1);
-  expect(snapshot.state.projects[0]).toMatchObject({
+  const project = snapshot.state.projects.find(
+    (candidate) =>
+      !baseline.projects.some((existing) => existing.id === candidate.id),
+  );
+  expect(project).toMatchObject({
     discoverable: false,
     name: "Pyre — Checkout API elevated errors",
   });
-  expect(snapshot.state.channels).toHaveLength(1);
-  expect(snapshot.state.channels[0]).toMatchObject({
+  expect(
+    snapshot.state.projects.filter(
+      (candidate) =>
+        !baseline.projects.some((existing) => existing.id === candidate.id),
+    ),
+  ).toHaveLength(1);
+  const channel = snapshot.state.channels.find(
+    (candidate) =>
+      !baseline.channels.some(
+        (existing) => existing.roomId === candidate.roomId,
+      ),
+  );
+  expect(channel).toMatchObject({
     archived: false,
     title: expect.stringMatching(/^pyre-/u),
   });
-  expect(snapshot.state.channels[0]?.messages).toHaveLength(1);
+  expect(
+    snapshot.state.channels.filter(
+      (candidate) =>
+        !baseline.channels.some(
+          (existing) => existing.roomId === candidate.roomId,
+        ),
+    ),
+  ).toHaveLength(1);
+  expect(channel?.messages).toHaveLength(1);
 
   const ledger = await tap.fixture.ledger.read();
   for (const actionId of [
@@ -264,23 +369,7 @@ test("installs the specialist, posts a checkpoint, and invokes a saved workflow"
     ),
   ).toBeVisible();
 
-  await surface
-    .getByRole("button", { name: "Configure Collection", exact: true })
-    .click();
-  await surface
-    .getByLabel("Saved workflow")
-    .selectOption("pyre-fixture-collection");
-  await surface
-    .getByLabel("Claim or timeline gap")
-    .fill("Determine whether the deployment preceded the elevated errors.");
-  await surface.getByLabel("Authorized source").fill("checkout deployment");
-  await surface.getByLabel("Time window start").fill("2026-07-24T11:25");
-  await surface.getByLabel("Time window end").fill("2026-07-24T11:45");
-  await surface
-    .getByRole("checkbox", {
-      name: /Approve this bounded collection scope/u,
-    })
-    .check();
+  await configureFixtureWorkflow(surface);
   await surface
     .getByRole("button", { name: "Invoke Workflow", exact: true })
     .click();
@@ -320,12 +409,16 @@ test("captures governed GitHub evidence and its receipt through VFS", async ({
   await openPlatform(surface);
   await openHttpCollection(surface);
   const credentialAlias = requireSingleCredentialAlias(tap);
+  await expectFixtureHttpCredentialBound(tap, credentialAlias);
+  await selectFixtureCredential(surface, credentialAlias);
+  await surface
+    .getByRole("checkbox", {
+      name: /Approve this exact read-only request/u,
+    })
+    .check();
   await expect(
-    surface.getByLabel("Host credential").getByRole("option", {
-      name: `${GITHUB_CREDENTIAL_DISPLAY_NAME} · http bearer`,
-      exact: true,
-    }),
-  ).toHaveAttribute("value", credentialAlias);
+    surface.getByRole("button", { name: "Collect & Capture", exact: true }),
+  ).toBeEnabled();
   await surface
     .getByRole("button", { name: "Collect & Capture", exact: true })
     .click();
@@ -345,12 +438,25 @@ test("captures governed GitHub evidence and its receipt through VFS", async ({
         request: expect.objectContaining({
           method: "GET",
           url: GITHUB_EVIDENCE_URL,
+          headers: [
+            {
+              name: "accept",
+              value: "application/vnd.github+json",
+            },
+            {
+              name: "x-github-api-version",
+              value: "2022-11-28",
+            },
+          ],
         }),
       }),
     ],
   });
   const snapshot = await tap.fixture.snapshot();
   expect(snapshot.state.vfsFiles).toHaveLength(2);
+  expect(
+    snapshot.state.vfsFiles.map((entry) => entry.conversationId),
+  ).toEqual([FIXTURE_CHANNEL_ID, FIXTURE_CHANNEL_ID]);
   expect(
     snapshot.state.vfsFiles.map((entry) => entry.path).toSorted(),
   ).toEqual([

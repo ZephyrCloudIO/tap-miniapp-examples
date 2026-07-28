@@ -8,9 +8,10 @@ import {
 
 export const PACKAGE_ID = 'tap_pkg_examples_vanta_companion_0001';
 export const SURFACE_ID = 'vanta-companion';
-export const SDK_VERSION = '0.4.1';
+export const SDK_VERSION = '0.4.2';
 export const RUNNER_VERSION = '0.11.3';
 export const FIXED_NOW = '2026-07-24T12:00:00Z';
+export const FIXED_NOW_GREETING = 'Good afternoon.';
 export const VANTA_CREDENTIAL_DISPLAY_NAME = 'Test Lab Vanta bearer';
 export const SHA256 = /^[a-f0-9]{64}$/u;
 export const SEMVER =
@@ -51,7 +52,8 @@ export function expectExactProvenance(
     allowedNetworkOrigins: expected.allowedNetworkOrigins ?? [],
     artifacts: {
       trace: 'failure-only',
-      screenshots: 'failure-only',
+      screenshots:
+        expected.permissionScenario === 'default' ? 'always' : 'failure-only',
     },
     credentialAliases: expected.credentialAliases ?? [],
     environment: {
@@ -155,6 +157,30 @@ export function hasPlatformAuthorizationDecision(
   );
 }
 
+function objectDetail(value: unknown): Readonly<Record<string, unknown>> | null {
+  return typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : null;
+}
+
+export function packageEventLocalName(
+  entry: TapMiniappTestFixtureLedger['entries'][number],
+): string | null {
+  if (
+    entry.kind !== 'event' ||
+    entry.operation !== 'tap.fixture.package-event'
+  ) {
+    return null;
+  }
+  const detail = objectDetail(entry.detail);
+  const payload = objectDetail(detail?.payload);
+  const metadata = objectDetail(payload?.metadata);
+  const localName = objectDetail(metadata?.localName);
+  return typeof localName?.text === 'string' ? localName.text : null;
+}
+
 export function storedState(
   snapshot: TapMiniappTestFixtureSnapshot,
 ): Readonly<Record<string, unknown>> {
@@ -179,7 +205,7 @@ export async function openRemediation(
   surface: TapRstestFixtures['surface'],
 ): Promise<void> {
   await surface
-    .getByRole('button', { name: 'Remediation', exact: true })
+    .getByRole('button', { name: /^Remediation(?:\s+\d+)?$/u })
     .click();
   await expect(
     surface.getByRole('heading', { level: 1, name: 'Cases', exact: true }),

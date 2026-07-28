@@ -10,6 +10,7 @@ import {
   hasHostAuthorizationDecision,
   hasPlatformAuthorizationDecision,
   openResearch,
+  packageEventLocalName,
   storedLedger,
 } from './personal-health-ledger-test-support';
 
@@ -47,20 +48,23 @@ test('hydrates the exact package-scoped ledger and publishes its mount event', a
   });
 
   await expect
-    .poll(async () => {
-      const entries = (await tap.fixture.ledger.read()).entries;
-      return {
-        mounted: entries.some(
-          entry => entry.kind === 'event' && entry.operation === 'surface.mounted',
-        ),
-        storageRead: hasPlatformAuthorizationDecision(entries, {
-          action: 'tap.platform.storage.get',
-          actionId: 'storage.read',
-          autonomy: 'listen',
-          allowed: true,
-        }),
-      };
-    })
+    .poll(
+      async () => {
+        const entries = (await tap.fixture.ledger.read()).entries;
+        return {
+          mounted: entries.some(
+            entry => packageEventLocalName(entry) === 'surface.mounted',
+          ),
+          storageRead: hasPlatformAuthorizationDecision(entries, {
+            action: 'tap.platform.storage.get',
+            actionId: 'storage.read',
+            autonomy: 'listen',
+            allowed: true,
+          }),
+        };
+      },
+      { timeout: 5_000 },
+    )
     .toEqual({ mounted: true, storageRead: true });
 
   const ledger = await tap.fixture.ledger.read();
@@ -156,17 +160,20 @@ test('refreshes all exact official-source routes and persists their receipts', a
     }),
   ]);
 
-  const ledger = await tap.fixture.ledger.read();
   expect(
-    ledger.entries.filter(
+    (await tap.fixture.ledger.read()).entries.filter(
       entry => entry.kind === 'native' && entry.operation === 'http.request',
     ),
   ).toHaveLength(4);
-  expect(
-    ledger.entries.some(
-      entry => entry.kind === 'event' && entry.operation === 'ledger.changed',
-    ),
-  ).toBe(true);
+  await expect
+    .poll(
+      async () =>
+        (await tap.fixture.ledger.read()).entries.some(
+          entry => packageEventLocalName(entry) === 'ledger.changed',
+        ),
+      { timeout: 5_000 },
+    )
+    .toBe(true);
 });
 
 test('installs, channels, and persists the specialist reproducibly after reset', async ({
@@ -181,8 +188,18 @@ test('installs, channels, and persists the specialist reproducibly after reset',
     ).toBeVisible();
     const snapshot = await tap.fixture.snapshot();
     const value = storedLedger(snapshot);
+    expect(Reflect.get(value, 'audit')).toEqual([
+      {
+        id: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+        ),
+        occurredAt: '2026-07-24T12:00:00.000Z',
+        action: 'connected',
+        entityType: 'specialist',
+        entityId: 'personal-health-researcher',
+      },
+    ]);
     return {
-      audit: Reflect.get(value, 'audit'),
       specialistBinding: Reflect.get(value, 'specialistBinding'),
     };
   };

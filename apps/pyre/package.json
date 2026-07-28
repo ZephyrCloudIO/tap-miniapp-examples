@@ -9,16 +9,21 @@
     "build": "pnpm build:preview && pnpm build:miniapp",
     "build:watch": "rslib build --watch",
     "build:preview": "rsbuild build",
-    "build:miniapp": "rslib build",
+    "build:miniapp": "pnpm build:miniapp:desktop && pnpm build:miniapp:quickjs && pnpm build:miniapp:assemble && pnpm verify:package",
+    "build:miniapp:desktop": "TAP_PACKAGE_TARGET=desktop rslib build",
+    "build:miniapp:quickjs": "TAP_PACKAGE_TARGET=quickjs rslib build",
+    "build:miniapp:assemble": "node scripts/assemble-package.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
     "test": "rstest run",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
-    "validate:manifest": "node scripts/validate-manifest.mjs"
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-package && node scripts/verify-react-runtime.mjs",
+    "verify:react-runtime": "node scripts/verify-react-runtime.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.4.1",
+    "@theaiplatform/miniapp-sdk": "0.4.2",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

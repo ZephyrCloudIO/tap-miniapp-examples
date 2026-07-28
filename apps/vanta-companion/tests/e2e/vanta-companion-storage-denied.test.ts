@@ -12,7 +12,7 @@ test('fails closed after an already-projected surface loses storage authority', 
   expectExactProvenance(tap, {
     profileId: 'vanta-companion-desktop-post-projection-revoked',
     matrixEntryId: 'vanta-companion-desktop-storage-denied',
-    permissionScenario: 'synthetic:post-projection-all-denied',
+    permissionScenario: 'all-denied',
     seed: 6930,
     theme: 'dark',
   });

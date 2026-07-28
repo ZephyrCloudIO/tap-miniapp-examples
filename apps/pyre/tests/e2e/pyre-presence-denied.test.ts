@@ -4,8 +4,10 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  expectMatchingAlert,
   expectReadySurface,
   hasAuthorizationDecision,
+  openPlatform,
 } from "./pyre-test-support";
 
 test("keeps a denied presence join out of the fixture realm while storage still hydrates", async ({
@@ -13,6 +15,7 @@ test("keeps a denied presence join out of the fixture realm while storage still 
   tap,
 }) => {
   expectExactProvenance(tap, {
+    allowedOrigins: [],
     matrixEntryId: "pyre-desktop-presence-denied",
     permissionScenario: "deny:presence.write",
     profileId: "pyre-desktop-presence-denied",
@@ -20,8 +23,10 @@ test("keeps a denied presence join out of the fixture realm while storage still 
     theme: "dark",
   });
   await expectReadySurface(surface);
-  await expect(surface.getByRole("alert")).toContainText(
-    /TAP platform connection is limited.*not grant this platform action/iu,
+  await openPlatform(surface);
+  await expectMatchingAlert(
+    surface,
+    /Some optional TAP capabilities are unavailable.*Live presence is unavailable.*not grant this platform action/iu,
   );
 
   const ledger = await tap.fixture.ledger.read();

@@ -31,6 +31,13 @@ test('lists workflows but persists no run when invocation is denied', async ({
   const entries = (await tap.fixture.ledger.read()).entries;
   expect(
     hasHostAuthorizationDecision(entries, {
+      actionId: 'vanta-companion.coordinate',
+      autonomy: 'do',
+      allowed: true,
+    }),
+  ).toBe(true);
+  expect(
+    hasHostAuthorizationDecision(entries, {
       actionId: 'workflows.list',
       autonomy: 'listen',
       allowed: true,

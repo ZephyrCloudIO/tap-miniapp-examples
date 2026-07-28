@@ -10,9 +10,7 @@ export const PACKAGE_ID =
   "tap_pkg_examples_unofficial_suno_player_0001";
 export const SURFACE_ID = "unofficial-suno-player";
 export const TARGET = "desktop";
-export const CHANNEL_ID = "tap-fixture-channel-v1";
 export const STORAGE_NAMESPACE = "unofficial-suno-player";
-export const CHANNEL_STORAGE_KEY = `channel/${CHANNEL_ID}/state`;
 export const WORKFLOW_ID = "fixture-manual-brief-workflow";
 export const SEEDED_SPECIALIST_ID = "fixture-suno-specialist";
 
@@ -70,9 +68,15 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.4.1",
+    adapterVersion: "0.4.2",
     allowedNetworkOrigins: [],
-    artifacts: ARTIFACTS,
+    artifacts: {
+      ...ARTIFACTS,
+      screenshots:
+        expected.permissionScenario === "default"
+          ? "always"
+          : "failure-only",
+    },
     credentialAliases: [],
     dataScope: "fixture",
     environment,
@@ -90,7 +94,7 @@ export function expectExactProvenance(
   });
 
   expect(tap.workspaceId).toMatch(/\S/u);
-  expect(tap.channelId).toBe(CHANNEL_ID);
+  expect(tap.channelId).toMatch(/\S/u);
   expect(tap.hostVersion).toMatch(SEMVER);
   for (const digest of [
     tap.descriptorDigest,
@@ -187,13 +191,22 @@ export function packageEventLocalName(
   return typeof localName?.text === "string" ? localName.text : null;
 }
 
+export function channelStorageKey(channelId: string): string {
+  return `channel/${channelId}/state`;
+}
+
+export function channelListeningRoom(channelId: string): string {
+  return `channel/${channelId}/listening`;
+}
+
 export function channelStorageRecord(
   snapshot: TapMiniappTestFixtureSnapshot,
+  channelId: string,
 ): TapMiniappTestFixtureSnapshot["state"]["storage"][number] | undefined {
   return snapshot.state.storage.find(
     (entry) =>
       entry.namespace === STORAGE_NAMESPACE &&
-      entry.key === CHANNEL_STORAGE_KEY,
+      entry.key === channelStorageKey(channelId),
   );
 }
 

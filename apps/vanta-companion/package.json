@@ -9,16 +9,18 @@
     "build": "pnpm build:preview && pnpm build:miniapp",
     "build:watch": "rslib build --watch",
     "build:preview": "rsbuild build",
-    "build:miniapp": "rslib build",
+    "build:miniapp": "rslib build && pnpm verify:react-closure && pnpm verify:package",
     "typecheck": "tsc --noEmit",
     "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
-    "test": "rstest run",
+    "test": "rstest run && node --test scripts/react-closure.node.mjs",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
-    "validate:manifest": "node scripts/validate-manifest.mjs"
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop",
+    "verify:react-closure": "node scripts/verify-react-closure.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.4.1",
+    "@theaiplatform/miniapp-sdk": "0.4.2",
     "lucide-react": "^1.14.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

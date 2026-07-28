@@ -4,11 +4,12 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  expectMatchingAlert,
   hasAuthorizationDecision,
   openPlatform,
 } from "./pyre-test-support";
 
-test("reports limited platform bootstrap when workflow discovery is denied", async ({
+test("keeps the platform usable when workflow discovery is denied", async ({
   surface,
   tap,
 }) => {
@@ -22,6 +23,10 @@ test("reports limited platform bootstrap when workflow discovery is denied", asy
   await openPlatform(surface);
   await expect(surface.getByText("Limited", { exact: true }).first())
     .toBeVisible();
+  await expectMatchingAlert(
+    surface,
+    /Some optional TAP capabilities are unavailable.*Workflow discovery is unavailable/iu,
+  );
   await expect(
     surface.getByText("No Saved Workflows Available", { exact: true }),
   ).toBeVisible();

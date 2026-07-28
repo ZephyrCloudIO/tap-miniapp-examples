@@ -14,3 +14,5 @@ minimumReleaseAgeExclude:
   - "miniflare@4.20260714.0"
   - "vitest@4.1.10"
   - "wrangler@4.112.0"
+overrides:
+  '@theaiplatform/miniapp-sdk': link:../ze-agency-tauri/packages/sdk

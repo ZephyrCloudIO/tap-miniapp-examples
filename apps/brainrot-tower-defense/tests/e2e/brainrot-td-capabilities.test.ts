@@ -4,6 +4,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
+  FALLBACK_PLAYER_NAME,
   FIXTURE_USER_ID,
   FIXTURE_USER_NAME,
   hasAuthorizationDecision,
@@ -55,13 +56,6 @@ test("hydrates the channel through declared storage and presence effects", async
   const ledger = await tap.fixture.ledger.read();
   expect(ledger.dropped).toBe(0);
   expect(
-    ledger.entries.some(
-      (entry) =>
-        entry.kind === "host-action" &&
-        entry.operation === "platform.auth.get-profile",
-    ),
-  ).toBe(true);
-  expect(
     new Set(
       ledger.entries
         .filter(
@@ -95,7 +89,10 @@ test("hydrates the channel through declared storage and presence effects", async
         expect.objectContaining({
           displayName: FIXTURE_USER_NAME,
           state: expect.objectContaining({
-            role: "idle",
+            activity: "channel",
+            game_id: null,
+            ready: false,
+            schema_version: 1,
           }),
         }),
       ],
@@ -103,7 +100,7 @@ test("hydrates the channel through declared storage and presence effects", async
   ]);
 });
 
-test("persists a lobby, publishes its event, and posts channel activity", async ({
+test("persists a lobby and publishes its durable package event", async ({
   surface,
   tap,
 }) => {
@@ -114,7 +111,7 @@ test("persists a lobby, publishes its event, and posts channel activity", async 
   await expect(
     surface.getByRole("heading", {
       level: 1,
-      name: `${FIXTURE_USER_NAME}'s defense`,
+      name: `${FALLBACK_PLAYER_NAME}'s defense`,
       exact: true,
     }),
   ).toBeVisible();
@@ -125,11 +122,6 @@ test("persists a lobby, publishes its event, and posts channel activity", async 
       return {
         event: ledger.entries.some(
           (entry) => packageEventLocalName(entry) === "lobby.created",
-        ),
-        message: ledger.entries.some(
-          (entry) =>
-            entry.kind === "host-action" &&
-            entry.operation === "channels.send-message",
         ),
         sessionWrite: ledger.entries.some((entry) => {
           if (
@@ -150,7 +142,6 @@ test("persists a lobby, publishes its event, and posts channel activity", async 
     })
     .toEqual({
       event: true,
-      message: true,
       sessionWrite: true,
     });
 
@@ -172,15 +163,6 @@ test("persists a lobby, publishes its event, and posts channel activity", async 
 
   const ledger = await tap.fixture.ledger.read();
   expect(ledger.dropped).toBe(0);
-  expect(
-    hasAuthorizationDecision(ledger.entries, {
-      kind: "host-action",
-      actionId: "channels.send-message",
-      autonomy: "do",
-      allowed: true,
-    }),
-  ).toBe(true);
-
   const snapshot = await tap.fixture.snapshot();
   expect(new Set(snapshot.state.storage.map((entry) => entry.namespace))).toEqual(
     new Set([
@@ -188,25 +170,14 @@ test("persists a lobby, publishes its event, and posts channel activity", async 
       "brainrot-td-commands",
     ]),
   );
-  expect(snapshot.state.channels).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        roomId: tap.channelId,
-        messages: expect.arrayContaining([
-          expect.objectContaining({
-            body: expect.stringContaining("Brainrot Tower Defense"),
-            content: expect.objectContaining({
-              type: "brainrot-td.activity",
-              event: "lobby.created",
-            }),
-          }),
-        ]),
-      }),
-    ]),
-  );
+  expect(
+    snapshot.state.channels.find(
+      (channel) => channel.roomId === tap.channelId,
+    )?.messages ?? [],
+  ).toEqual([]);
 });
 
-test("replays the SDK entropy stream across an exact fixture reset", async ({
+test("uses a distinct deterministic entropy realm after fixture reset", async ({
   surface,
   tap,
 }) => {
@@ -235,6 +206,8 @@ test("replays the SDK entropy stream across an exact fixture reset", async ({
   const second = await createAndReadSessionId();
 
   expect(first).not.toBe("");
-  expect(second).toBe(first);
+  expect(second).not.toBe("");
+  expect(second).not.toBe(first);
   expect(first).not.toBe(FIXTURE_USER_ID);
+  expect(second).not.toBe(FIXTURE_USER_ID);
 });

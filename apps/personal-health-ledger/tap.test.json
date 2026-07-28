@@ -47,14 +47,14 @@
       },
       "artifacts": {
         "trace": "failure-only",
-        "screenshots": "failure-only"
+        "screenshots": "always"
       }
     },
     "personal-health-ledger-desktop-post-projection-revoked": {
       "surface": "personal-health-ledger",
       "target": "desktop",
       "mode": "surface",
-      "permissionScenario": "synthetic:post-projection-all-denied",
+      "permissionScenario": "all-denied",
       "deniedActions": ["*"],
       "fixtureFiles": [
         "tests/fixtures/personal-health-ledger.seed.json"
@@ -423,6 +423,8 @@
         "tests/e2e/personal-health-ledger-http-denied.test.ts"
       ],
       "capabilities": [
+        "action:health-ledger.manage",
+        "action:health-ledger.research",
         "action:network.request",
         "effect:external-network:https://api.fda.gov",
         "effect:external-network:https://clinicaltrials.gov",
@@ -436,6 +438,8 @@
         "tests/e2e/personal-health-ledger-specialists-manage-denied.test.ts"
       ],
       "capabilities": [
+        "action:health-ledger.manage",
+        "action:health-ledger.research",
         "action:specialists.manage",
         "effect:host-api:tap.specialists:manage"
       ]
@@ -447,6 +451,9 @@
         "tests/e2e/personal-health-ledger-channels-create-denied.test.ts"
       ],
       "capabilities": [
+        "action:health-ledger.manage",
+        "action:health-ledger.research",
+        "action:specialists.manage",
         "action:channels.create",
         "effect:host-api:tap.channels:create"
       ]
@@ -458,6 +465,10 @@
         "tests/e2e/personal-health-ledger-channels-manage-denied.test.ts"
       ],
       "capabilities": [
+        "action:health-ledger.manage",
+        "action:health-ledger.research",
+        "action:specialists.manage",
+        "action:channels.create",
         "action:channels.manage-specialists",
         "effect:host-api:tap.channels:manage-specialists"
       ]
@@ -469,6 +480,8 @@
         "tests/e2e/personal-health-ledger-specialists-invoke-denied.test.ts"
       ],
       "capabilities": [
+        "action:health-ledger.manage",
+        "action:health-ledger.research",
         "action:specialists.invoke",
         "effect:host-api:tap.specialists:invoke"
       ]
@@ -480,6 +493,7 @@
         "tests/e2e/personal-health-ledger-vfs-write-denied.test.ts"
       ],
       "capabilities": [
+        "action:health-ledger.export",
         "action:vfs.write",
         "effect:host-api:tap.vfs:write"
       ]
@@ -498,7 +512,10 @@
       "testMatch": [
         "tests/e2e/personal-health-ledger-research-denied.test.ts"
       ],
-      "capabilities": ["action:health-ledger.research"]
+      "capabilities": [
+        "action:health-ledger.manage",
+        "action:health-ledger.research"
+      ]
     },
     {
       "id": "personal-health-ledger-desktop-export-denied",

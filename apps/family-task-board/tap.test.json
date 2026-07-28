@@ -29,14 +29,14 @@
       },
       "artifacts": {
         "trace": "failure-only",
-        "screenshots": "failure-only"
+        "screenshots": "always"
       }
     },
     "family-task-board-desktop-post-projection-revoked": {
       "surface": "family-task-board",
       "target": "desktop",
       "mode": "surface",
-      "permissionScenario": "synthetic:post-projection-all-denied",
+      "permissionScenario": "all-denied",
       "deniedActions": ["*"],
       "fixtureFiles": ["tests/fixtures/family-task-board.seed.json"],
       "httpRouteFiles": [],

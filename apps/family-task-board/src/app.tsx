@@ -202,9 +202,11 @@ export function FamilyTaskBoardApp({ context, preview = false }: AppProps) {
   );
 
   const submitTask = useCallback(
-    (taskId: string) => {
+    (taskId: string, actorId: string) => {
       void persistMutation((current) =>
-        current ? updateTaskStatus(current, taskId, "submitted") : current,
+        current
+          ? updateTaskStatus(current, taskId, "submitted", actorId)
+          : current,
       ).then((changed) => {
         if (changed) announce("Chore sent for parent approval.");
       });
@@ -213,9 +215,11 @@ export function FamilyTaskBoardApp({ context, preview = false }: AppProps) {
   );
 
   const approveTask = useCallback(
-    (taskId: string) => {
+    (taskId: string, actorId: string) => {
       void persistMutation((current) =>
-        current ? updateTaskStatus(current, taskId, "approved") : current,
+        current
+          ? updateTaskStatus(current, taskId, "approved", actorId)
+          : current,
       ).then((changed) => {
         if (changed) announce("Chore approved and stars awarded.");
       });
@@ -411,8 +415,8 @@ function TodayView({
   readonly activeKids: readonly FamilyMember[];
   readonly canManage: boolean;
   readonly state: FamilyState;
-  readonly onSubmit: (taskId: string) => void;
-  readonly onApprove: (taskId: string) => void;
+  readonly onSubmit: (taskId: string, actorId: string) => void;
+  readonly onApprove: (taskId: string, actorId: string) => void;
 }) {
   return (
     <div className="dashboard-grid">
@@ -455,10 +459,10 @@ function TodayView({
                       <ItemActions>
                         <StarPill value={task.stars} />
                       {task.status === "open" && activeMember.role === "kid" ? (
-                        <Button disabled={!canManage} size="sm" variant="outline" onClick={() => onSubmit(task.id)}>Mark done</Button>
+                        <Button disabled={!canManage} size="sm" variant="outline" onClick={() => onSubmit(task.id, activeMember.id)}>Mark done</Button>
                       ) : null}
                       {task.status === "submitted" && activeMember.role === "parent" ? (
-                        <Button disabled={!canManage} size="sm" onClick={() => onApprove(task.id)}>Approve</Button>
+                        <Button disabled={!canManage} size="sm" onClick={() => onApprove(task.id, activeMember.id)}>Approve</Button>
                       ) : null}
                       {task.status === "submitted" && activeMember.role === "kid" ? (
                         <Badge variant="outline">Waiting</Badge>

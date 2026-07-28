@@ -29,14 +29,6 @@ pub struct Stored<T> {
     pub revision: Option<u64>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UserIdentity {
-    pub sub: String,
-    pub name: Option<String>,
-    pub preferred_username: Option<String>,
-}
-
 /// One host-stamped participant in a TAP presence snapshot.
 ///
 /// `participant_id` and `display_name` come from the host. The participant's
@@ -352,6 +344,24 @@ pub async fn set<T: Serialize>(
         .map(|n| n as u64)
         .ok_or_else(|| BridgeError::Invalid("missing revision".into()))
 }
+pub async fn delete(namespace: &str, key: &str, revision: u64) -> Result<(), BridgeError> {
+    let storage = api("storage")?;
+    let arg = object(&[
+        ("namespace", namespace.into()),
+        ("key", key.into()),
+        ("expectedRevision", JsValue::from_f64(revision as f64)),
+    ])?;
+    invoke(&storage, "delete", &arg.into())
+        .await
+        .map(|_| ())
+        .map_err(|error| {
+            if error.to_string().to_lowercase().contains("revision") {
+                BridgeError::Conflict
+            } else {
+                error
+            }
+        })
+}
 pub async fn join_presence(room: &str, state: &JsValue) -> Result<JsValue, BridgeError> {
     let presence = api("presence")?;
     validate_partition(room, MAX_PRESENCE_ROOM_CHARS, "presence room")?;
@@ -410,7 +420,7 @@ where
 ///
 /// Decode and scope-validation errors are delivered to `listener` instead of
 /// being swallowed. The SDK subscription itself is synchronous, matching the
-/// installed `0.4.1` declaration.
+/// installed `0.4.2` declaration.
 ///
 /// # Errors
 ///
@@ -476,143 +486,6 @@ pub async fn publish(events: &JsValue, name: &str, payload: &JsValue) -> Result<
         .map_err(|error| BridgeError::Operation(format!("{error:?}")))?;
     }
     Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ActivityContent<'a> {
-    r#type: &'static str,
-    event: &'a str,
-    session_id: &'a str,
-    level: u8,
-    wave: u8,
-    status: &'a str,
-    base_health: u16,
-    score: u32,
-    players: usize,
-    spectators: usize,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SendMessageResult {
-    message_id: String,
-    client_message_id: String,
-}
-
-async fn can_send_channel_activity() -> Result<bool, BridgeError> {
-    let authorization = api("authorization")?;
-    let options = object(&[
-        ("actionId", "channels.send-message".into()),
-        ("autonomy", "do".into()),
-    ])?;
-    let value = invoke(&authorization, "check", &options.into()).await?;
-    Reflect::get(&value, &JsValue::from_str("allowed"))
-        .map_err(|_| BridgeError::Invalid("authorization decision has no allowed field".into()))?
-        .as_bool()
-        .ok_or_else(|| {
-            BridgeError::Invalid("authorization decision allowed field is not boolean".into())
-        })
-}
-
-/// Posts one idempotent, compact activity row to the scoped TAP channel.
-///
-/// This uses the public `channels.sendMessage` host operation. The caller must
-/// declare `tap.channels:send-message`. The current decision is checked at the
-/// operation boundary; a denial returns `Ok(None)` without invoking the channel
-/// API.
-pub async fn send_channel_activity(
-    channel: &str,
-    event: &str,
-    snapshot: &SessionSnapshot,
-) -> Result<Option<String>, BridgeError> {
-    validate_partition(channel, MAX_PRESENCE_ROOM_CHARS, "channel")?;
-    validate_partition(event, 80, "event name")?;
-    if !can_send_channel_activity().await? {
-        return Ok(None);
-    }
-    let channels = api("channels")?;
-    let send = Reflect::get(&channels, &JsValue::from_str("sendMessage"))
-        .map_err(|_| BridgeError::Unavailable)?
-        .dyn_into::<Function>()
-        .map_err(|_| BridgeError::Unavailable)?;
-    let players = snapshot
-        .members
-        .iter()
-        .filter(|member| member.slot.is_some())
-        .count();
-    let spectators = snapshot.members.len().saturating_sub(players);
-    let status = format!("{:?}", snapshot.status).to_lowercase();
-    let content = ActivityContent {
-        r#type: "brainrot-td.activity",
-        event,
-        session_id: &snapshot.session_id.0,
-        level: snapshot.level,
-        wave: snapshot.wave,
-        status: &status,
-        base_health: snapshot.base_health,
-        score: snapshot.score,
-        players,
-        spectators,
-    };
-    let body = format!(
-        "**Brainrot Tower Defense · {}**\n\n{} · Level {} · Wave {} · {} player{} · {} watching · Base {} · Score {}",
-        event.replace('.', " "),
-        snapshot.name,
-        snapshot.level,
-        snapshot.wave,
-        players,
-        if players == 1 { "" } else { "s" },
-        spectators,
-        snapshot.base_health,
-        snapshot.score,
-    );
-    let client_message_id = format!(
-        "brainrot-td:{}:{}:{}",
-        event, snapshot.session_id.0, snapshot.last_sequence
-    );
-    let options = object(&[
-        ("channelId", channel.into()),
-        ("clientMessageId", client_message_id.clone().into()),
-        ("name", "Brainrot Tower Defense".into()),
-        ("body", body.clone().into()),
-        ("content", body.into()),
-        ("messageContent", encode_presence_state(&content)?),
-    ])?;
-    let value = send
-        .call1(&channels, &options.into())
-        .map_err(|error| BridgeError::Operation(format!("{error:?}")))?;
-    let value = if value.is_instance_of::<Promise>() {
-        JsFuture::from(
-            value
-                .dyn_into::<Promise>()
-                .map_err(|_| BridgeError::Unavailable)?,
-        )
-        .await
-        .map_err(|error| BridgeError::Operation(format!("{error:?}")))?
-    } else {
-        value
-    };
-    let result: SendMessageResult = decode(&value)?;
-    if result.message_id.trim().is_empty() || result.client_message_id != client_message_id {
-        return Err(BridgeError::Invalid(
-            "channel message acknowledgement did not match the request".into(),
-        ));
-    }
-    Ok(Some(result.message_id))
-}
-
-pub async fn user_identity() -> Result<UserIdentity, BridgeError> {
-    let auth = api("auth")?;
-    let value = invoke(&auth, "getUserProfile", &JsValue::UNDEFINED).await?;
-    if value.is_null() || value.is_undefined() {
-        return Err(BridgeError::Unavailable);
-    }
-    let identity: UserIdentity = decode(&value)?;
-    if identity.sub.trim().is_empty() {
-        return Err(BridgeError::Invalid("user profile has no subject".into()));
-    }
-    Ok(identity)
 }
 
 fn checkpoint_api(transition: &JsValue) -> Result<(String, JsValue), BridgeError> {

@@ -23,9 +23,11 @@ test('keeps denied clinician exports out of the conversation VFS', async ({
   await surface
     .getByRole('button', { name: /Save to TAP VFS/u })
     .click();
-  await expect(surface.getByRole('status')).toContainText(
-    /host action permission is not granted/iu,
-  );
+  await expect(
+    surface.getByRole('status').filter({
+      hasText: 'The miniapp host action permission is not granted.',
+    }),
+  ).toBeVisible();
 
   const ledger = await tap.fixture.ledger.read();
   expect(

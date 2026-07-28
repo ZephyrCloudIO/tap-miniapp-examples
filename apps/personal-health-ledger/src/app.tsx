@@ -958,7 +958,9 @@ function Onboarding({
       <Card className="onboarding-card">
         <CardHeader>
           <span className="step-label">Private by default</span>
-          <CardTitle>Create Your Private Ledger</CardTitle>
+          <CardTitle role="heading" aria-level={2}>
+            Create Your Private Ledger
+          </CardTitle>
           <CardDescription>
             Start empty and add only what matters to you.
           </CardDescription>
@@ -2574,7 +2576,9 @@ function ResearchPage({
           {!preview && !researchAllowed ? (
             <Alert className="specialist-error">
               <Icon icon={LockKeyhole} size="sm" aria-hidden="true" />
-              <AlertTitle>Research Access Unavailable</AlertTitle>
+              <AlertTitle role="heading" aria-level={2}>
+                Research Access Unavailable
+              </AlertTitle>
               <AlertDescription>
                 TAP has not granted the package authority to run research or
                 send private context.
@@ -3533,6 +3537,7 @@ function ExportOption({
     <button
       type="button"
       className="export-option"
+      aria-label={title}
       disabled={disabled}
       onClick={onClick}
     >

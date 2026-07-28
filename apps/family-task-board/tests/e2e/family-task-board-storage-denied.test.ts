@@ -15,7 +15,7 @@ test("fails closed after projected authority is synthetically revoked", async ({
 }) => {
   expectExactProvenance(tap, {
     matrixEntryId: "family-task-board-desktop-storage-denied",
-    permissionScenario: "synthetic:post-projection-all-denied",
+    permissionScenario: "all-denied",
     profileId: "family-task-board-desktop-post-projection-revoked",
     seed: 6930,
     theme: "dark",

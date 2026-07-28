@@ -1,4 +1,7 @@
 //! Browser lifecycle and UI entry point for the all-Rust WASM miniapp.
+mod mcp_projection;
+
+use futures_util::lock::Mutex as AsyncMutex;
 use game_content::{
     Defender, MAX_DEFENDER_LEVEL, WAVE_CLEAR_BONUS, defenders, levels, next_upgrade_tier,
     scaled_build_pads, upgrade_path,
@@ -16,6 +19,7 @@ use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
+    future::Future,
     rc::{Rc, Weak},
 };
 use tap_bridge::{PresenceSnapshot, PresenceSubscription, Runtime};
@@ -27,6 +31,7 @@ use web_sys::{
 };
 
 const PREVIEW_KEY: &str = "tap-example.brainrot-td.preview.v1";
+const TAP_PLAYER_DISPLAY_NAME: &str = "TAP player";
 const SIMULATION_STEP_MS: f64 = 100.;
 const MAX_CATCH_UP_STEPS: u8 = 5;
 type EventClosure = Closure<dyn FnMut(Event)>;
@@ -637,6 +642,65 @@ impl Drop for PortableUi {
     }
 }
 
+fn take_and_drop_after_releasing_borrow<T>(slot: &RefCell<Option<T>>) {
+    let value = slot.borrow_mut().take();
+    drop(value);
+}
+
+struct LatestDesiredLane<T> {
+    generation: Cell<u64>,
+    settled_generation: Cell<u64>,
+    desired: RefCell<T>,
+    single_flight: AsyncMutex<()>,
+}
+
+impl<T: Clone> LatestDesiredLane<T> {
+    fn new(desired: T) -> Self {
+        Self {
+            generation: Cell::new(0),
+            settled_generation: Cell::new(u64::MAX),
+            desired: RefCell::new(desired),
+            single_flight: AsyncMutex::new(()),
+        }
+    }
+
+    fn set_desired(&self, desired: T) {
+        self.desired.replace(desired);
+        self.generation.set(self.generation.get().wrapping_add(1));
+    }
+
+    async fn drain<Error, Apply, ApplyFuture>(&self, mut apply: Apply) -> Result<(), Error>
+    where
+        Apply: FnMut(T) -> ApplyFuture,
+        ApplyFuture: Future<Output = Result<(), Error>>,
+    {
+        // This async mutex is deliberately held across `apply`: it is the
+        // single-flight boundary that prevents two writes for this mounted
+        // user/channel lane from completing out of order.
+        let _single_flight = self.single_flight.lock().await;
+        loop {
+            let generation = self.generation.get();
+            if self.settled_generation.get() == generation {
+                return Ok(());
+            }
+            let desired = self.desired.borrow().clone();
+            apply(desired).await?;
+            self.settled_generation.set(generation);
+            if self.generation.get() == generation {
+                return Ok(());
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+enum ProjectionDesired {
+    Active(Box<SessionSnapshot>),
+    Inactive {
+        expected_session_id: Option<SessionId>,
+    },
+}
+
 struct App {
     mount_root: Element,
     root: Element,
@@ -647,6 +711,7 @@ struct App {
     document: Document,
     runtime: Runtime,
     channel: String,
+    projection_user_id: Option<String>,
     player: PlayerId,
     display_name: RefCell<String>,
     authority: RefCell<bool>,
@@ -654,6 +719,8 @@ struct App {
     progress: RefCell<Progress>,
     sessions: RefCell<Vec<SessionSnapshot>>,
     active: RefCell<Option<usize>>,
+    projection_lane: LatestDesiredLane<ProjectionDesired>,
+    projection_suspended: Cell<bool>,
     index_revision: RefCell<Option<u64>>,
     session_revisions: RefCell<HashMap<String, u64>>,
     progress_revision: RefCell<Option<u64>>,
@@ -702,6 +769,17 @@ struct AudioEngine {
 
 fn js_error(message: impl AsRef<str>) -> JsValue {
     js_sys::Error::new(message.as_ref()).into()
+}
+
+fn validate_projection_mount_user_id(
+    user_id: Option<String>,
+    channel_id: &str,
+) -> Result<String, String> {
+    let user_id = user_id
+        .ok_or_else(|| "Brainrot Tower Defense requires a canonical TAP user scope".to_string())?;
+    mcp_projection::projection_storage_key(&user_id, channel_id)
+        .map_err(|_| "TAP provided an invalid canonical user or channel scope".to_string())?;
+    Ok(user_id)
 }
 
 fn configure_id_generator(context: &JsValue) -> Result<(), JsValue> {
@@ -1801,6 +1879,7 @@ fn accept_presence(
             Ok(()) => {
                 *app.presence.borrow_mut() = Some(snapshot);
                 update_presence_dom(&app);
+                save_active_projection_in_background(app.clone());
                 let _ = render_live(&app);
             }
             Err(error) => {
@@ -2557,6 +2636,136 @@ async fn save_channel_index_merged(
     Err(tap_bridge::BridgeError::Conflict)
 }
 
+fn live_presence_count_for_session(app: &App, session_id: &SessionId) -> usize {
+    app.presence.borrow().as_ref().map_or(0, |presence| {
+        presence
+            .participants
+            .iter()
+            .filter(|participant| participant.state.game_id.as_ref() == Some(session_id))
+            .count()
+    })
+}
+
+fn current_projection_snapshot(app: &App) -> Option<SessionSnapshot> {
+    if app.projection_suspended.get() {
+        return None;
+    }
+    app.active
+        .borrow()
+        .and_then(|index| app.sessions.borrow().get(index).cloned())
+}
+
+async fn apply_projection_desired(
+    app: &Rc<App>,
+    desired: ProjectionDesired,
+) -> Result<(), tap_bridge::BridgeError> {
+    let projection_user_id = app.projection_user_id.as_deref().ok_or_else(|| {
+        tap_bridge::BridgeError::Invalid(
+            "canonical TAP user is unavailable for MCP projection storage".into(),
+        )
+    })?;
+    match desired {
+        ProjectionDesired::Active(snapshot) => {
+            let live_presence_count = live_presence_count_for_session(app, &snapshot.session_id);
+            mcp_projection::save_current_projection(
+                projection_user_id,
+                &snapshot,
+                live_presence_count,
+            )
+            .await
+        }
+        ProjectionDesired::Inactive {
+            expected_session_id,
+        } => {
+            mcp_projection::clear_current_projection(
+                projection_user_id,
+                &app.channel,
+                expected_session_id
+                    .as_ref()
+                    .map(|session| session.0.as_str()),
+            )
+            .await
+        }
+    }
+}
+
+async fn drain_projection_lane(app: &Rc<App>) -> Result<(), tap_bridge::BridgeError> {
+    app.projection_lane
+        .drain(|desired| apply_projection_desired(app, desired))
+        .await
+}
+
+async fn save_projection_if_active(
+    app: &Rc<App>,
+    snapshot: &SessionSnapshot,
+) -> Result<(), tap_bridge::BridgeError> {
+    if !matches!(app.runtime, Runtime::Tap) {
+        return Ok(());
+    }
+    let desired = match current_projection_snapshot(app) {
+        Some(active_snapshot) if active_snapshot.session_id == snapshot.session_id => {
+            ProjectionDesired::Active(Box::new(snapshot.clone()))
+        }
+        Some(active_snapshot) => ProjectionDesired::Active(Box::new(active_snapshot)),
+        None => ProjectionDesired::Inactive {
+            expected_session_id: Some(snapshot.session_id.clone()),
+        },
+    };
+    app.projection_lane.set_desired(desired);
+    drain_projection_lane(app).await
+}
+
+async fn clear_projection_for_inactive(
+    app: &Rc<App>,
+    expected_session_id: Option<&SessionId>,
+) -> Result<(), tap_bridge::BridgeError> {
+    if !matches!(app.runtime, Runtime::Tap) {
+        return Ok(());
+    }
+    let desired = current_projection_snapshot(app).map_or_else(
+        || ProjectionDesired::Inactive {
+            expected_session_id: expected_session_id.cloned(),
+        },
+        |snapshot| ProjectionDesired::Active(Box::new(snapshot)),
+    );
+    app.projection_lane.set_desired(desired);
+    drain_projection_lane(app).await
+}
+
+fn save_active_projection_in_background(app: Rc<App>) {
+    if !matches!(app.runtime, Runtime::Tap) {
+        return;
+    }
+    let snapshot = app
+        .active
+        .borrow()
+        .and_then(|index| app.sessions.borrow().get(index).cloned());
+    let Some(snapshot) = snapshot else {
+        return;
+    };
+    spawn_local(async move {
+        if let Err(error) = save_projection_if_active(&app, &snapshot).await {
+            web_sys::console::error_1(&js_error(format!(
+                "Could not update the read-only MCP game-state projection: {error}"
+            )));
+        }
+    });
+}
+
+fn clear_projection_in_background(app: Rc<App>, expected_session_id: Option<SessionId>) {
+    if !matches!(app.runtime, Runtime::Tap) {
+        return;
+    }
+    spawn_local(async move {
+        let clear_result = clear_projection_for_inactive(&app, expected_session_id.as_ref()).await;
+        if let Err(error) = clear_result {
+            web_sys::console::error_1(&js_error(format!(
+                "Could not clear the inactive MCP game-state projection: {error}"
+            )));
+        }
+    });
+}
+
 fn flush_saves(app: Rc<App>) {
     if *app.saving.borrow() || !has_pending_saves(&app) {
         return;
@@ -2613,6 +2822,7 @@ fn flush_saves(app: Rc<App>) {
     spawn_local(async move {
         let mut failures = Vec::new();
         let mut persisted_event_sessions = Vec::new();
+        let mut persisted_projection_sessions = Vec::new();
         let mut reload_index = false;
         let mut session_write_failed = false;
         for session in sessions {
@@ -2629,6 +2839,7 @@ fn flush_saves(app: Rc<App>) {
                     if !session.pending_events.is_empty() {
                         persisted_event_sessions.push(session.clone());
                     }
+                    persisted_projection_sessions.push(session);
                 }
                 Err(tap_bridge::BridgeError::Conflict) => {
                     failures.push(format!(
@@ -2642,11 +2853,8 @@ fn flush_saves(app: Rc<App>) {
                         && let Ok((canonical, migrated)) =
                             prepare_loaded_snapshot(canonical, &channel)
                     {
-                        if let Some(position) = app
-                            .sessions
-                            .borrow()
-                            .iter()
-                            .position(|candidate| candidate.session_id == canonical.session_id)
+                        if let Some(position) =
+                            session_position(&app.sessions, &canonical.session_id)
                         {
                             app.sessions.borrow_mut()[position] = canonical.clone();
                         }
@@ -2750,8 +2958,13 @@ fn flush_saves(app: Rc<App>) {
                     app.pending_sessions
                         .borrow_mut()
                         .insert(snapshot.session_id.0.clone());
-                    failures.push(format!("durable game activity: {error}"));
+                    failures.push(format!("durable package event: {error}"));
                 }
+            }
+        }
+        for snapshot in persisted_projection_sessions {
+            if let Err(error) = save_projection_if_active(&app, &snapshot).await {
+                failures.push(format!("read-only MCP game-state projection: {error}"));
             }
         }
         *app.saving.borrow_mut() = false;
@@ -2782,6 +2995,12 @@ fn load_tap_data(app: Rc<App>) {
     let _ = render(&app);
     let channel = app.channel.clone();
     let player = app.player.0.clone();
+    let previously_active_session = app.active.borrow().and_then(|index| {
+        app.sessions
+            .borrow()
+            .get(index)
+            .map(|session| session.session_id.clone())
+    });
     spawn_local(async move {
         let presence_state = current_presence_state(&app);
         let presence_result =
@@ -2820,12 +3039,7 @@ fn load_tap_data(app: Rc<App>) {
                 {
                     failures.push("invalid channel game index".into());
                 } else {
-                    let active_id = app.active.borrow().and_then(|position| {
-                        app.sessions
-                            .borrow()
-                            .get(position)
-                            .map(|session| session.session_id.clone())
-                    });
+                    let active_id = previously_active_session.clone();
                     let mut sessions = Vec::new();
                     let mut revisions = HashMap::new();
                     let mut migrated_sessions = Vec::new();
@@ -2923,6 +3137,24 @@ fn load_tap_data(app: Rc<App>) {
         for session_id in &pending_event_sessions {
             app.pending_sessions.borrow_mut().insert(session_id.clone());
         }
+        let active_snapshot = app
+            .active
+            .borrow()
+            .and_then(|index| app.sessions.borrow().get(index).cloned());
+        if let Some(snapshot) = active_snapshot.as_ref()
+            && let Err(error) = save_projection_if_active(&app, snapshot).await
+        {
+            web_sys::console::error_1(&js_error(format!(
+                "Channel data loaded, but its read-only MCP projection could not update: {error}"
+            )));
+        } else if active_snapshot.is_none()
+            && let Some(previous_session) = previously_active_session.as_ref()
+            && let Err(error) = clear_projection_for_inactive(&app, Some(previous_session)).await
+        {
+            web_sys::console::error_1(&js_error(format!(
+                "The selected game disappeared, but its MCP projection could not be cleared: {error}"
+            )));
+        }
         *app.loading.borrow_mut() = false;
         *app.error.borrow_mut() = if failures.is_empty() {
             None
@@ -3000,7 +3232,12 @@ fn poll_tap_state(app: Rc<App>) {
                                 record_completions(&mut app.progress.borrow_mut(), &snapshot)
                                     .progress_changed;
                             record_presentation_transition(&app, &previous, &snapshot);
-                            app.sessions.borrow_mut()[position] = snapshot;
+                            app.sessions.borrow_mut()[position] = snapshot.clone();
+                            if let Err(error) = save_projection_if_active(&app, &snapshot).await {
+                                web_sys::console::error_1(&js_error(format!(
+                                    "Could not refresh the read-only MCP game-state projection: {error}"
+                                )));
+                            }
                             if let Some(revision) = stored.revision {
                                 app.session_revisions
                                     .borrow_mut()
@@ -3062,6 +3299,16 @@ fn queue_snapshot_event(snapshot: &mut SessionSnapshot, name: &str) {
     }
 }
 
+fn session_position(
+    sessions: &RefCell<Vec<SessionSnapshot>>,
+    session_id: &SessionId,
+) -> Option<usize> {
+    sessions
+        .borrow()
+        .iter()
+        .position(|candidate| candidate.session_id == *session_id)
+}
+
 async fn deliver_pending_events(
     app: &Rc<App>,
     snapshot: &SessionSnapshot,
@@ -3089,13 +3336,7 @@ async fn deliver_pending_events(
         let payload = js_sys::JSON::parse(&json)
             .map_err(|error| tap_bridge::BridgeError::Invalid(format!("{error:?}")))?;
         tap_bridge::publish(&events, &event.name, &payload).await?;
-        tap_bridge::send_channel_activity(&app.channel, &event.name, snapshot).await?;
-        if let Some(position) = app
-            .sessions
-            .borrow()
-            .iter()
-            .position(|candidate| candidate.session_id == snapshot.session_id)
-        {
+        if let Some(position) = session_position(&app.sessions, &snapshot.session_id) {
             app.sessions.borrow_mut()[position]
                 .pending_events
                 .retain(|pending| pending.id != event.id);
@@ -3582,10 +3823,19 @@ fn poll_command_ack(app: Rc<App>, session_id: String, command_id: String) {
             *app.pending_focus_id.borrow_mut() = Some(focus_id);
             *app.placement.borrow_mut() = None;
         }
-        if matches!(awaiting.command.kind, CommandKind::Leave) {
+        let left_session = matches!(awaiting.command.kind, CommandKind::Leave);
+        if left_session {
             *app.active.borrow_mut() = None;
         }
         push_presence(app.clone());
+        if left_session {
+            clear_projection_in_background(
+                app.clone(),
+                Some(SessionId(awaiting.session_id.clone())),
+            );
+        } else {
+            save_active_projection_in_background(app.clone());
+        }
         if progress_changed {
             request_save(app.clone(), SaveScope::Progress);
         } else if migration_needs_save {
@@ -3834,12 +4084,17 @@ fn process_session_commands(app: Rc<App>, session_id: String) {
                 .borrow_mut()
                 .insert(session_id.clone(), next_revision);
             app.sessions.borrow_mut()[position] = simulation.state.clone();
+            if let Err(error) = save_projection_if_active(&app, &simulation.state).await {
+                web_sys::console::error_1(&js_error(format!(
+                    "The game was saved, but its read-only MCP projection could not update: {error}"
+                )));
+            }
             store_acknowledgements(&channel, &session_id, &acknowledgements).await?;
             if !simulation.state.pending_events.is_empty() {
                 if let Err(error) = deliver_pending_events(&app, &simulation.state).await {
                     app.pending_sessions.borrow_mut().insert(session_id.clone());
                     *app.error.borrow_mut() = Some(format!(
-                        "The command was saved, but durable activity delivery is pending: {error}"
+                        "The command was saved, but durable package event delivery is pending: {error}"
                     ));
                 } else {
                     flush_saves(app.clone());
@@ -4316,6 +4571,7 @@ fn render_lobbies(app: &Rc<App>, content: &Element) -> Result<(), JsValue> {
                 on(app, &open, "click", move || {
                     *a.active.borrow_mut() = Some(index);
                     push_presence(a.clone());
+                    save_active_projection_in_background(a.clone());
                     let _ = render(&a);
                 })?;
                 card.append_child(&open)?;
@@ -4332,6 +4588,7 @@ fn render_lobbies(app: &Rc<App>, content: &Element) -> Result<(), JsValue> {
                 on(app, &join, "click", move || {
                     *a.active.borrow_mut() = Some(index);
                     push_presence(a.clone());
+                    save_active_projection_in_background(a.clone());
                     issue(
                         a.clone(),
                         CommandKind::Join {
@@ -4346,6 +4603,7 @@ fn render_lobbies(app: &Rc<App>, content: &Element) -> Result<(), JsValue> {
                 on(app, &watch, "click", move || {
                     *a.active.borrow_mut() = Some(index);
                     push_presence(a.clone());
+                    save_active_projection_in_background(a.clone());
                     issue(
                         a.clone(),
                         CommandKind::Join {
@@ -4380,12 +4638,14 @@ fn render_game(app: &Rc<App>, content: &Element, index: usize) -> Result<(), JsV
     top.set_class_name("game-toolbar");
     let back = button(&app.document, "← Channel games", "button ghost")?;
     let a = app.clone();
+    let inactive_session_id = snapshot.session_id.clone();
     on(app, &back, "click", move || {
         *a.active.borrow_mut() = None;
         *a.cursor.borrow_mut() = None;
         *a.placement.borrow_mut() = None;
         *a.inspected_defender.borrow_mut() = None;
         push_presence(a.clone());
+        clear_projection_in_background(a.clone(), Some(inactive_session_id.clone()));
         let _ = render(&a);
     })?;
     top.append_child(&back)?;
@@ -5632,8 +5892,15 @@ fn create_app(
     runtime: Runtime,
     channel: String,
     events: Option<JsValue>,
+    projection_user_id: Option<String>,
     identity: Option<(PlayerId, String)>,
 ) -> Result<Rc<App>, JsValue> {
+    let is_tap = matches!(runtime, Runtime::Tap);
+    if is_tap != projection_user_id.is_some() {
+        return Err(js_error(
+            "TAP mounts require a canonical projection user identity",
+        ));
+    }
     let document = document()?;
     install_styles(&document)?;
     root.set_inner_html("");
@@ -5643,7 +5910,6 @@ fn create_app(
     game_root.set_class_name("brainrot-game-root");
     root.append_child(&portable_ui_container)?;
     root.append_child(&game_root)?;
-    let is_tap = matches!(runtime, Runtime::Tap);
     let (saved, preview_error) = if matches!(runtime, Runtime::Preview) {
         match load_preview() {
             Ok(saved) => (saved, None),
@@ -5680,6 +5946,7 @@ fn create_app(
         document,
         runtime,
         channel,
+        projection_user_id,
         player,
         display_name: RefCell::new(display_name),
         authority: RefCell::new(!is_tap),
@@ -5687,6 +5954,10 @@ fn create_app(
         progress: RefCell::new(progress),
         sessions: RefCell::new(saved.as_ref().map_or_else(Vec::new, |s| s.sessions.clone())),
         active: RefCell::new(None),
+        projection_lane: LatestDesiredLane::new(ProjectionDesired::Inactive {
+            expected_session_id: None,
+        }),
+        projection_suspended: Cell::new(false),
         index_revision: RefCell::new(None),
         session_revisions: RefCell::new(HashMap::new()),
         progress_revision: RefCell::new(None),
@@ -5836,7 +6107,14 @@ pub fn preview_start() -> Result<(), JsValue> {
     PHASE.with(|phase| *phase.borrow_mut() = "active");
     let doc = document()?;
     if let Some(root) = doc.get_element_by_id("app") {
-        let app = create_app(root, Runtime::Preview, "preview-channel".into(), None, None)?;
+        let app = create_app(
+            root,
+            Runtime::Preview,
+            "preview-channel".into(),
+            None,
+            None,
+            None,
+        )?;
         ACTIVE.with(|v| *v.borrow_mut() = Some(app));
     }
     Ok(())
@@ -5854,35 +6132,29 @@ pub async fn mount(container: Element, context: JsValue) -> Result<SurfaceMount,
     {
         return Err(JsValue::from_str("TAP provided an invalid channel scope"));
     }
+    let canonical_user_id = validate_projection_mount_user_id(
+        Reflect::get(&context, &"userId".into())
+            .ok()
+            .and_then(|value| value.as_string()),
+        &channel,
+    )
+    .map_err(|error| JsValue::from_str(&error))?;
     let events = Reflect::get(&context, &"events".into())
         .ok()
         .filter(|value| value.is_object())
         .ok_or_else(|| JsValue::from_str("TAP event publisher is unavailable"))?;
-    let identity = tap_bridge::user_identity()
-        .await
-        .map_err(|error| JsValue::from_str(&format!("Cannot authenticate TAP user: {error}")))?;
-    if identity.sub.trim().is_empty()
-        || identity.sub.chars().count() > 256
-        || identity.sub.chars().any(char::is_control)
-    {
-        return Err(JsValue::from_str(
-            "TAP returned an invalid authenticated identity",
-        ));
-    }
-    let display_name = identity
-        .name
-        .filter(|value| !value.trim().is_empty())
-        .or(identity.preferred_username)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "TAP player".into());
-    let display_name = normalize_display_name(&display_name);
+    let gameplay_identity = (
+        PlayerId(canonical_user_id.clone()),
+        TAP_PLAYER_DISPLAY_NAME.to_string(),
+    );
     configure_id_generator(&context)?;
     let app = match create_app(
         container,
         Runtime::Tap,
         channel,
         Some(events),
-        Some((PlayerId(identity.sub), display_name)),
+        Some(canonical_user_id),
+        Some(gameplay_identity),
     ) {
         Ok(app) => app,
         Err(error) => {
@@ -6012,11 +6284,28 @@ impl SurfaceMount {
         }
         close_audio(&app);
         if matches!(app.runtime, Runtime::Tap) {
+            app.projection_suspended.set(true);
+            let active_session_id = app.active.borrow().and_then(|index| {
+                app.sessions
+                    .borrow()
+                    .get(index)
+                    .map(|session| session.session_id.clone())
+            });
+            if let Some(active_session_id) = active_session_id
+                && let Err(error) =
+                    clear_projection_for_inactive(&app, Some(&active_session_id)).await
+            {
+                web_sys::console::error_1(&js_error(format!(
+                    "The surface unmounted, but its MCP projection could not be cleared: {error}"
+                )));
+            }
             tap_bridge::leave_presence(&app.channel)
                 .await
                 .map_err(|error| JsValue::from_str(&error.to_string()))?;
         }
-        app.portable_ui.borrow_mut().take();
+        // Dropping the portable UI synchronously unmounts React, which may dispatch back into
+        // this WASM module. Release the RefCell borrow before that reentrant callback can run.
+        take_and_drop_after_releasing_borrow(&app.portable_ui);
         app.mount_root.set_inner_html("");
         Ok(())
     }
@@ -6035,7 +6324,9 @@ pub async fn lifecycle_activate() {
     PHASE.with(|p| *p.borrow_mut() = "active");
     ACTIVE.with(|active| {
         if let Some(app) = active.borrow().as_ref() {
+            app.projection_suspended.set(false);
             resume_simulation_clock(app);
+            save_active_projection_in_background(app.clone());
         }
     });
 }
@@ -6044,7 +6335,9 @@ pub async fn lifecycle_mount(_transition: JsValue) {
     PHASE.with(|p| *p.borrow_mut() = "active");
     ACTIVE.with(|active| {
         if let Some(app) = active.borrow().as_ref() {
+            app.projection_suspended.set(false);
             resume_simulation_clock(app);
+            save_active_projection_in_background(app.clone());
         }
     });
 }
@@ -6122,6 +6415,13 @@ pub async fn lifecycle_pre_pause(transition: JsValue) -> bool {
             }
         }
     }
+    if let Some(snapshot) = active_session.as_ref()
+        && let Err(error) = save_projection_if_active(&app, snapshot).await
+    {
+        web_sys::console::error_1(&js_error(format!(
+            "The active run was persisted, but its read-only MCP projection could not update before pause: {error}"
+        )));
+    }
     let checkpoint = LifecycleCheckpoint {
         schema_version: 1,
         channel_id: app.channel.clone(),
@@ -6150,11 +6450,7 @@ pub async fn lifecycle_pre_pause(transition: JsValue) -> bool {
                         app.session_revisions
                             .borrow_mut()
                             .insert(pending.session_id.0.clone(), next_revision);
-                        if let Some(position) = app
-                            .sessions
-                            .borrow()
-                            .iter()
-                            .position(|candidate| candidate.session_id == pending.session_id)
+                        if let Some(position) = session_position(&app.sessions, &pending.session_id)
                         {
                             app.sessions.borrow_mut()[position] = pending.clone();
                         }
@@ -6163,7 +6459,7 @@ pub async fn lifecycle_pre_pause(transition: JsValue) -> bool {
                                 .borrow_mut()
                                 .insert(pending.session_id.0.clone());
                             *app.error.borrow_mut() = Some(format!(
-                                "Checkpoint saved; its durable activity delivery is pending: {error}"
+                                "Checkpoint saved; its durable package event delivery is pending: {error}"
                             ));
                             let _ = render(&app);
                         } else {
@@ -6172,7 +6468,7 @@ pub async fn lifecycle_pre_pause(transition: JsValue) -> bool {
                     }
                     Err(error) => {
                         *app.error.borrow_mut() = Some(format!(
-                            "Checkpoint saved, but its durable activity outbox could not be stored: {error}"
+                            "Checkpoint saved, but its durable package event outbox could not be stored: {error}"
                         ));
                         let _ = render(&app);
                         PHASE.with(|phase| *phase.borrow_mut() = "active");
@@ -6287,6 +6583,17 @@ pub async fn lifecycle_pre_resume(transition: JsValue) -> bool {
             app.pending_sessions.borrow_mut().insert(session_id);
             flush_saves(app.clone());
         }
+        let restored_active = app
+            .active
+            .borrow()
+            .and_then(|index| app.sessions.borrow().get(index).cloned());
+        if let Some(snapshot) = restored_active
+            && let Err(error) = save_projection_if_active(&app, &snapshot).await
+        {
+            web_sys::console::error_1(&js_error(format!(
+                "Checkpoint restored, but its read-only MCP projection could not update: {error}"
+            )));
+        }
     }
     let _ = render(&app);
     true
@@ -6297,8 +6604,10 @@ pub async fn lifecycle_resume() {
     PHASE.with(|p| *p.borrow_mut() = "active");
     ACTIVE.with(|v| {
         if let Some(app) = v.borrow().as_ref() {
+            app.projection_suspended.set(false);
             resume_simulation_clock(app);
             resume_audio(app);
+            save_active_projection_in_background(app.clone());
             let _ = render(app);
         }
     });
@@ -6306,13 +6615,27 @@ pub async fn lifecycle_resume() {
 #[wasm_bindgen(js_name=lifecycle_unmount)]
 pub async fn lifecycle_unmount() {
     PHASE.with(|p| *p.borrow_mut() = "unmounted");
-    ACTIVE.with(|active| {
-        if let Some(app) = active.borrow().as_ref() {
-            pause_simulation_clock(app);
-            stop_simulation_timer(app);
-            stop_animation_loop(app);
+    let app = ACTIVE.with(|active| active.borrow().as_ref().cloned());
+    if let Some(app) = app {
+        app.projection_suspended.set(true);
+        pause_simulation_clock(&app);
+        stop_simulation_timer(&app);
+        stop_animation_loop(&app);
+        let active_session_id = app.active.borrow().and_then(|index| {
+            app.sessions
+                .borrow()
+                .get(index)
+                .map(|session| session.session_id.clone())
+        });
+        if matches!(app.runtime, Runtime::Tap)
+            && let Some(active_session_id) = active_session_id
+            && let Err(error) = clear_projection_for_inactive(&app, Some(&active_session_id)).await
+        {
+            web_sys::console::error_1(&js_error(format!(
+                "The lifecycle unmounted, but its MCP projection could not be cleared: {error}"
+            )));
         }
-    });
+    }
 }
 
 #[wasm_bindgen(js_name=lifecycle_deactivate)]
@@ -6328,27 +6651,312 @@ pub async fn lifecycle_deactivate() {
 
 #[wasm_bindgen(js_name=lifecycle_uninstall)]
 pub async fn lifecycle_uninstall() {
-    ACTIVE.with(|active| {
-        if let Some(app) = active.borrow_mut().take() {
-            pause_simulation_clock(&app);
-            stop_simulation_timer(&app);
-            stop_animation_loop(&app);
-            close_audio(&app);
-            if let Some(mut subscription) = app.presence_subscription.borrow_mut().take() {
-                let _ = subscription.unsubscribe();
+    let app = ACTIVE.with(|active| active.borrow_mut().take());
+    if let Some(app) = app {
+        app.projection_suspended.set(true);
+        pause_simulation_clock(&app);
+        stop_simulation_timer(&app);
+        stop_animation_loop(&app);
+        close_audio(&app);
+        if let Some(mut subscription) = app.presence_subscription.borrow_mut().take() {
+            let _ = subscription.unsubscribe();
+        }
+        if matches!(app.runtime, Runtime::Tap) {
+            let active_session_id = app.active.borrow().and_then(|index| {
+                app.sessions
+                    .borrow()
+                    .get(index)
+                    .map(|session| session.session_id.clone())
+            });
+            if let Some(active_session_id) = active_session_id
+                && let Err(error) =
+                    clear_projection_for_inactive(&app, Some(&active_session_id)).await
+            {
+                web_sys::console::error_1(&js_error(format!(
+                    "The package was uninstalled, but its MCP projection could not be cleared: {error}"
+                )));
             }
         }
-    });
+    }
     PHASE.with(|p| *p.borrow_mut() = "uninstalled");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::{channel::oneshot, executor::LocalPool, task::LocalSpawnExt};
     use game_protocol::{CompletionCursor, DefenderState, EnemyState, RecentAction};
+
+    struct ReentrantDropProbe {
+        slot: Weak<RefCell<Option<ReentrantDropProbe>>>,
+        borrow_was_available: Rc<Cell<bool>>,
+    }
+
+    impl Drop for ReentrantDropProbe {
+        fn drop(&mut self) {
+            let borrow_was_available = self
+                .slot
+                .upgrade()
+                .is_some_and(|slot| slot.try_borrow_mut().is_ok());
+            self.borrow_was_available.set(borrow_was_available);
+        }
+    }
 
     fn id(value: &str) -> SessionId {
         SessionId(value.to_string())
+    }
+
+    #[test]
+    fn reentrant_drop_runs_after_refcell_borrow_is_released() {
+        let slot = Rc::new(RefCell::new(None));
+        let borrow_was_available = Rc::new(Cell::new(false));
+        *slot.borrow_mut() = Some(ReentrantDropProbe {
+            slot: Rc::downgrade(&slot),
+            borrow_was_available: borrow_was_available.clone(),
+        });
+
+        take_and_drop_after_releasing_borrow(&slot);
+
+        assert!(borrow_was_available.get());
+        assert!(slot.borrow().is_none());
+    }
+
+    #[test]
+    fn session_lookup_releases_refcell_borrow_before_mutation() {
+        let mut snapshot = Simulation::create(
+            "channel-1".into(),
+            "Defense".into(),
+            PlayerId("player-1".into()),
+            "Player One".into(),
+            7,
+        )
+        .state;
+        let session_id = snapshot.session_id.clone();
+        queue_snapshot_event(&mut snapshot, "game.started");
+        let sessions = RefCell::new(vec![snapshot]);
+
+        let position = session_position(&sessions, &session_id).expect("matching session position");
+        sessions.borrow_mut()[position].pending_events.clear();
+
+        assert!(sessions.borrow()[position].pending_events.is_empty());
+    }
+
+    #[test]
+    fn canonical_mount_user_is_the_gameplay_and_projection_identity() {
+        let canonical_user_id =
+            validate_projection_mount_user_id(Some("users-row-42".into()), "channel-1")
+                .expect("canonical mount identity");
+        let player = PlayerId(canonical_user_id.clone());
+
+        assert_eq!(player.0, "users-row-42");
+        assert_eq!(TAP_PLAYER_DISPLAY_NAME, "TAP player");
+        assert_eq!(
+            mcp_projection::projection_storage_key(&canonical_user_id, "channel-1")
+                .expect("projection key"),
+            "mcp/users/users-row-42/channels/channel-1/current"
+        );
+        assert_eq!(canonical_user_id, player.0);
+    }
+
+    #[test]
+    fn missing_or_path_shaped_canonical_mount_user_cannot_produce_projection_address() {
+        assert!(validate_projection_mount_user_id(None, "channel-1").is_err());
+        assert!(
+            validate_projection_mount_user_id(Some("users/escape".into()), "channel-1").is_err()
+        );
+        assert!(
+            validate_projection_mount_user_id(Some("users-row-42".into()), "channel/escape")
+                .is_err()
+        );
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum FakeProjectionDesired {
+        Active { key: String, session_id: String },
+        Inactive { key: String },
+    }
+
+    #[derive(Default)]
+    struct FakeProjectionStore {
+        values: HashMap<String, String>,
+        writes: Vec<String>,
+    }
+
+    type FakeProjectionDelay = Rc<RefCell<Option<(String, oneshot::Receiver<()>)>>>;
+
+    async fn apply_fake_projection(
+        store: Rc<RefCell<FakeProjectionStore>>,
+        delayed: FakeProjectionDelay,
+        desired: FakeProjectionDesired,
+    ) -> Result<(), ()> {
+        let desired_session = match &desired {
+            FakeProjectionDesired::Active { session_id, .. } => Some(session_id.as_str()),
+            FakeProjectionDesired::Inactive { .. } => None,
+        };
+        let delay = {
+            let mut delayed = delayed.borrow_mut();
+            if delayed
+                .as_ref()
+                .is_some_and(|(session_id, _)| Some(session_id.as_str()) == desired_session)
+            {
+                delayed.take().map(|(_, receiver)| receiver)
+            } else {
+                None
+            }
+        };
+        if let Some(delay) = delay {
+            delay.await.map_err(|_| ())?;
+        }
+        let mut store = store.borrow_mut();
+        match desired {
+            FakeProjectionDesired::Active { key, session_id } => {
+                store.writes.push(format!("{key}:save:{session_id}"));
+                store.values.insert(key, session_id);
+            }
+            FakeProjectionDesired::Inactive { key } => {
+                store.writes.push(format!("{key}:clear"));
+                store.values.remove(&key);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn projection_lane_coalesces_more_than_eight_updates_and_settles_latest_then_clear() {
+        let key = "mcp/users/user-1/channels/channel-1/current".to_string();
+        let lane = Rc::new(LatestDesiredLane::new(FakeProjectionDesired::Inactive {
+            key: key.clone(),
+        }));
+        let store = Rc::new(RefCell::new(FakeProjectionStore::default()));
+        let (release_a, wait_for_a) = oneshot::channel();
+        let delayed = Rc::new(RefCell::new(Some(("session-a".into(), wait_for_a))));
+        lane.set_desired(FakeProjectionDesired::Active {
+            key: key.clone(),
+            session_id: "session-a".into(),
+        });
+
+        let mut pool = LocalPool::new();
+        pool.spawner()
+            .spawn_local({
+                let lane = lane.clone();
+                let store = store.clone();
+                let delayed = delayed.clone();
+                async move {
+                    lane.drain(|desired| {
+                        apply_fake_projection(store.clone(), delayed.clone(), desired)
+                    })
+                    .await
+                    .expect("first lane drain");
+                }
+            })
+            .expect("spawn first lane drain");
+        pool.run_until_stalled();
+
+        for index in 0..32 {
+            lane.set_desired(FakeProjectionDesired::Active {
+                key: key.clone(),
+                session_id: format!("session-{index:02}"),
+            });
+        }
+        pool.spawner()
+            .spawn_local({
+                let lane = lane.clone();
+                let store = store.clone();
+                let delayed = delayed.clone();
+                async move {
+                    lane.drain(|desired| {
+                        apply_fake_projection(store.clone(), delayed.clone(), desired)
+                    })
+                    .await
+                    .expect("coalesced lane drain");
+                }
+            })
+            .expect("spawn coalesced lane drain");
+        release_a.send(()).expect("release delayed A write");
+        pool.run();
+
+        assert_eq!(
+            store.borrow().values.get(&key).map(String::as_str),
+            Some("session-31")
+        );
+        assert_eq!(store.borrow().writes.len(), 2);
+
+        lane.set_desired(FakeProjectionDesired::Inactive { key: key.clone() });
+        pool.run_until(
+            lane.drain(|desired| apply_fake_projection(store.clone(), delayed.clone(), desired)),
+        )
+        .expect("clear lane drain");
+        assert!(!store.borrow().values.contains_key(&key));
+        assert!(
+            store
+                .borrow()
+                .writes
+                .last()
+                .is_some_and(|write| write == &format!("{key}:clear"))
+        );
+    }
+
+    #[test]
+    fn per_user_projection_lanes_isolate_two_client_select_and_unmount_interleaving() {
+        let key_a = mcp_projection::projection_storage_key("user-a", "channel-1")
+            .expect("user A projection key");
+        let key_b = mcp_projection::projection_storage_key("user-b", "channel-1")
+            .expect("user B projection key");
+        let lane_a = Rc::new(LatestDesiredLane::new(FakeProjectionDesired::Inactive {
+            key: key_a.clone(),
+        }));
+        let lane_b = Rc::new(LatestDesiredLane::new(FakeProjectionDesired::Inactive {
+            key: key_b.clone(),
+        }));
+        let store = Rc::new(RefCell::new(FakeProjectionStore::default()));
+        let (release_a, wait_for_a) = oneshot::channel();
+        let delayed_a = Rc::new(RefCell::new(Some(("session-a".into(), wait_for_a))));
+        let no_delay = Rc::new(RefCell::new(None));
+        lane_a.set_desired(FakeProjectionDesired::Active {
+            key: key_a.clone(),
+            session_id: "session-a".into(),
+        });
+
+        let mut pool = LocalPool::new();
+        pool.spawner()
+            .spawn_local({
+                let lane_a = lane_a.clone();
+                let store = store.clone();
+                let delayed_a = delayed_a.clone();
+                async move {
+                    lane_a
+                        .drain(|desired| {
+                            apply_fake_projection(store.clone(), delayed_a.clone(), desired)
+                        })
+                        .await
+                        .expect("user A lane drain");
+                }
+            })
+            .expect("spawn delayed user A lane");
+        pool.run_until_stalled();
+
+        lane_b.set_desired(FakeProjectionDesired::Active {
+            key: key_b.clone(),
+            session_id: "session-b".into(),
+        });
+        pool.run_until(
+            lane_b.drain(|desired| apply_fake_projection(store.clone(), no_delay.clone(), desired)),
+        )
+        .expect("user B selection");
+        lane_b.set_desired(FakeProjectionDesired::Inactive { key: key_b.clone() });
+        pool.run_until(
+            lane_b.drain(|desired| apply_fake_projection(store.clone(), no_delay.clone(), desired)),
+        )
+        .expect("user B unmount");
+
+        release_a.send(()).expect("release user A selection");
+        pool.run();
+
+        assert_eq!(
+            store.borrow().values.get(&key_a).map(String::as_str),
+            Some("session-a")
+        );
+        assert!(!store.borrow().values.contains_key(&key_b));
     }
 
     #[test]

@@ -171,6 +171,11 @@ import {
   type ProviderCapabilityReport,
 } from "./provider-capabilities";
 import {
+  hasReadableChannelAccess,
+  initialPlayerChannelId,
+  resolvePlayerStartupView,
+} from "./player-startup";
+import {
   StorageConflictError,
   createPreviewStoragePort,
   createSdkStoragePort,
@@ -209,7 +214,6 @@ interface BriefVoteEditorState extends BriefVote {
   briefTitle: string;
 }
 
-const operationId = (prefix: string): string => `${prefix}:${crypto.randomUUID()}`;
 const now = (): string => new Date().toISOString();
 const wait = (milliseconds: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 const errorMessage = (error: unknown, fallback: string): string => error instanceof Error ? error.message : fallback;
@@ -313,13 +317,20 @@ const publish = async (
 };
 
 export function PlayerApp({ preview, context }: { preview: boolean; context?: TapFederatedSurfaceMountContext }) {
+  const operationId = useMemo(
+    () => (prefix: string): string =>
+      `${prefix}:${context?.entropy.randomUUID() ?? crypto.randomUUID()}`,
+    [context?.entropy],
+  );
   const mediaStore = useMemo(() => getMediaStore(preview), [preview]);
   const [authority, setAuthority] = useState(preview || (context?.hostAuthority.getSnapshot() ?? false));
   const [viewAllowed, setViewAllowed] = useState<boolean | null>(
     preview ? true : null,
   );
   const [channels, setChannels] = useState<MiniAppChannel[]>([]);
-  const [channelId, setChannelId] = useState(preview ? "browser-preview-channel" : context?.channelId ?? "");
+  const [channelId, setChannelId] = useState(() =>
+    initialPlayerChannelId(preview, context?.channelId),
+  );
   const [userKey, setUserKey] = useState(preview ? "browser-preview-user" : "");
   const [actorKey, setActorKey] = useState(preview ? "browser-preview-actor" : "");
   const [role, setRole] = useState<Role>(preview ? "channel-dj" : "listener");
@@ -351,6 +362,14 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
   }, []);
   const currentTrack = channelState?.tracks.find((track) => track.id === preferences?.currentTrackId) ?? null;
   const analysis = useAudioAnalysis(audioElement);
+  const startupView = resolvePlayerStartupView({
+    preview,
+    authority,
+    viewAllowed,
+    channelId,
+    loading: status === "loading",
+    hasChannelState: channelState !== null,
+  });
   const storagePort = useMemo<StoragePort | null>(() => {
     if (preview) return createPreviewStoragePort();
     if (!authority || viewAllowed !== true) return null;
@@ -575,14 +594,18 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     setError("");
     setConflict(false);
     try {
-      let effectiveRole = role;
       if (!preview) {
         const access = await sdk.channels.getAccess(context?.workspaceId ? { workspaceId: context.workspaceId, channelId } : { channelId });
-        if (!access.isParticipant || !access.capabilities.some((capability) => /read|view|timeline|message:create/i.test(capability))) {
-          throw new Error("You do not have current access to this channel soundtrack.");
+        if (!hasReadableChannelAccess(access)) {
+          channelRef.current = null;
+          preferencesRef.current = null;
+          setChannelState(null);
+          setPreferences(null);
+          setChannelId("");
+          setStatus("ready");
+          return;
         }
-        effectiveRole = deriveRole(access.capabilities);
-        setRole(effectiveRole);
+        setRole(deriveRole(access.capabilities));
       }
       const [storedChannel, storedPreferences] = await Promise.all([
         loadChannelState(storagePort, channelId),
@@ -601,7 +624,7 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     } catch (caught) {
       reportError(caught, "This channel soundtrack could not be loaded.");
     }
-  }, [actorKey, authority, channelId, context?.workspaceId, installChannel, installPreferences, preview, reportError, role, storagePort, userKey, viewAllowed]);
+  }, [authority, channelId, context?.workspaceId, installChannel, installPreferences, preview, reportError, storagePort, userKey, viewAllowed]);
 
   useEffect(() => {
     void reload();
@@ -697,7 +720,7 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     }
     const url = await mediaStore.getUrl(track.id);
     if (!url) {
-      reportError(new Error(preview ? "The browser preview audio record is missing. Import the owned file again." : "TAP SDK 0.4.1 cannot read packaged binary artifacts after a page reload. Re-import this owned file to restore session playback."), "Audio is unavailable.");
+      reportError(new Error(preview ? "The browser preview audio record is missing. Import the owned file again." : "TAP SDK 0.4.2 cannot read packaged binary artifacts after a page reload. Re-import this owned file to restore session playback."), "Audio is unavailable.");
       return;
     }
     if (!audio.src) {
@@ -1341,7 +1364,7 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     }
   };
 
-  if (!authority && !preview) {
+  if (startupView === "awaiting-authority") {
     return <main className="shell centered" aria-busy="true">
       <LockKeyhole aria-hidden />
       <H1>Waiting for TAP authority</H1>
@@ -1350,7 +1373,7 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     </main>;
   }
 
-  if (authority && viewAllowed === null && !preview) {
+  if (startupView === "confirming-access") {
     return <main className="shell centered" aria-busy="true">
       <ShieldCheck aria-hidden />
       <H1>Confirming player access</H1>
@@ -1359,15 +1382,7 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     </main>;
   }
 
-  if (status === "loading" && !channelState) {
-    return <main className="shell centered" aria-busy="true">
-      <LoaderCircle className="spin" aria-hidden />
-      <H1>Loading your soundtrack</H1>
-      <Progress value={55} aria-label="Loading channel soundtrack" />
-    </main>;
-  }
-
-  if (!channelId) {
+  if (startupView === "select-channel") {
     return <main className="shell">
       <Empty>
         <EmptyHeader>
@@ -1382,6 +1397,14 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
           </NativeSelect>
         </EmptyContent>
       </Empty>
+    </main>;
+  }
+
+  if (startupView === "loading") {
+    return <main className="shell centered" aria-busy="true">
+      <LoaderCircle className="spin" aria-hidden />
+      <H1>Loading your soundtrack</H1>
+      <Progress value={55} aria-label="Loading channel soundtrack" />
     </main>;
   }
 
@@ -1523,8 +1546,8 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
           <Card><CardHeader><CardTitle>Visualizer</CardTitle><CardDescription>Signal analysis stays local and is never sent to a model.</CardDescription></CardHeader><CardContent><FieldGroup><Field><FieldLabel htmlFor="viz-mode">Mode</FieldLabel><NativeSelect id="viz-mode" value={preferences.visualization} onChange={(event) => void updatePreferences({ visualization: event.target.value as PlayerPreferences["visualization"] }, "Visualization saved")}>{[["frequency", "Frequency-bar EQ"], ["waveform", "Oscilloscope waveform"], ["stereo", "Stereo spectrum"], ["particles", "Particle tunnel"], ["kaleidoscope", "Geometric kaleidoscope"], ["pixel", "Pixel landscape"], ["color", "Signal color field"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</NativeSelect></Field><Field><FieldLabel htmlFor="viz-palette">Color palette</FieldLabel><NativeSelect id="viz-palette" value={preferences.visualizationPalette} onChange={(event) => void updatePreferences({ visualizationPalette: event.target.value as PlayerPreferences["visualizationPalette"] }, "Color palette saved")}><option value="neon">Neon signal</option><option value="ocean">Ocean phosphor</option><option value="monochrome">Monochrome</option></NativeSelect></Field><Field><FieldLabel>Visualizer sensitivity</FieldLabel><Slider aria-label="Visualizer sensitivity" min={0.5} max={1.5} step={0.1} value={[preferences.sensitivity]} onValueCommit={([value]) => value !== undefined && void updatePreferences({ sensitivity: value }, "Sensitivity saved")} /></Field><Field><FieldLabel htmlFor="fps">Frame rate</FieldLabel><NativeSelect id="fps" value={String(preferences.fps)} onChange={(event) => void updatePreferences({ fps: Number(event.target.value) as 30 | 60 }, "Frame rate saved")}><option value="30">30 FPS</option><option value="60">60 FPS</option></NativeSelect></Field><label className="check"><Checkbox checked={preferences.lowPower} onCheckedChange={(checked) => void updatePreferences({ lowPower: checked === true }, "Low-power preference saved")} /> Low-power rendering</label><label className="check"><Checkbox checked={preferences.reducedMotion} onCheckedChange={(checked) => void updatePreferences({ reducedMotion: checked === true }, "Motion preference saved")} /> Reduced motion</label></FieldGroup></CardContent></Card>
           <Card><CardHeader><CardTitle>Listening privacy</CardTitle><CardDescription>Personal listening is the default. Presence is ephemeral and opt-in.</CardDescription></CardHeader><CardContent><label className="check rights"><Checkbox checked={preferences.broadcastPresence} disabled={preview} onCheckedChange={(checked) => void updatePreferences({ broadcastPresence: checked === true }, checked === true ? "Listening presence enabled" : "Listening presence disabled")} /> Broadcast my listening or paused state in this channel. Track identity is included only while I retain channel access.</label>{preview ? <Field><FieldLabel htmlFor="preview-role">Browser preview role</FieldLabel><NativeSelect id="preview-role" value={role} onChange={(event) => setRole(event.target.value as Role)}><option value="listener">Listener</option><option value="contributor">Contributor</option><option value="channel-dj">Channel DJ</option></NativeSelect></Field> : <p className="muted">Effective role: {role}. TAP channel capabilities are rechecked on load and operations can still reject after this check.</p>}<Separator />{preview ? <p className="muted">Browser preview never joins or simulates TAP presence.</p> : preferences.broadcastPresence ? presenceParticipants.length ? <ItemGroup>{presenceParticipants.map((participant) => { const state = participant.state && typeof participant.state === "object" && !Array.isArray(participant.state) ? participant.state as Record<string, unknown> : {}; return <Item key={participant.participantId} variant="outline"><ItemContent><ItemTitle>{participant.displayName}</ItemTitle><ItemDescription>{state.listening === true ? "Listening" : "Paused"}{typeof state.trackId === "string" ? ` · track ${state.trackId.slice(0, 8)}…` : ""}</ItemDescription></ItemContent></Item>; })}</ItemGroup> : <p className="muted">Joined presence; no listeners are currently reported.</p> : <p className="muted">Presence is off. No listening state is broadcast.</p>}</CardContent></Card>
           <Card className="policy-card"><CardHeader><CardTitle>Manual programming policy</CardTitle><CardDescription>These stored limits drive queue warnings and brief batches. They never authorize automated Suno calls or spending.</CardDescription></CardHeader><CardContent>{policyDraft ? <FieldGroup><div className="form-grid"><Field><FieldLabel htmlFor="watermark">Queue low watermark</FieldLabel><Input id="watermark" type="number" min="1" max="25" value={policyDraft.lowWatermark} onChange={(event) => setPolicyDraft({ ...policyDraft, lowWatermark: Number(event.target.value) })} /></Field><Field><FieldLabel htmlFor="batch-size">Songs per approved batch</FieldLabel><Input id="batch-size" type="number" min="1" max="4" value={policyDraft.songsPerBatch} onChange={(event) => setPolicyDraft({ ...policyDraft, songsPerBatch: Number(event.target.value) })} /></Field><Field><FieldLabel htmlFor="repeat-limit">Recent-track repetition limit</FieldLabel><Input id="repeat-limit" type="number" min="0" max="25" value={policyDraft.repetitionLimit} onChange={(event) => setPolicyDraft({ ...policyDraft, repetitionLimit: Number(event.target.value) })} /></Field><Field><FieldLabel htmlFor="weekly-limit">Maximum generations per week</FieldLabel><Input id="weekly-limit" type="number" min="0" max="100" value={policyDraft.maxGenerationsPerWeek} onChange={(event) => setPolicyDraft({ ...policyDraft, maxGenerationsPerWeek: Number(event.target.value) })} /></Field><Field><FieldLabel htmlFor="credit-budget">Credit budget</FieldLabel><Input id="credit-budget" type="number" min="0" step="1" value={policyDraft.creditBudget} onChange={(event) => setPolicyDraft({ ...policyDraft, creditBudget: Number(event.target.value) })} /></Field><Field><FieldLabel htmlFor="approval-mode">Approval mode</FieldLabel><NativeSelect id="approval-mode" value={policyDraft.approvalMode} disabled><option value="manual-only">Manual only</option></NativeSelect></Field><Field><FieldLabel htmlFor="quiet-start">Quiet hours start</FieldLabel><Input id="quiet-start" type="time" value={policyDraft.quietHoursStart} onChange={(event) => setPolicyDraft({ ...policyDraft, quietHoursStart: event.target.value })} /></Field><Field><FieldLabel htmlFor="quiet-end">Quiet hours end</FieldLabel><Input id="quiet-end" type="time" value={policyDraft.quietHoursEnd} onChange={(event) => setPolicyDraft({ ...policyDraft, quietHoursEnd: event.target.value })} /></Field></div><label className="check"><Checkbox checked={policyDraft.replenishmentPaused} onCheckedChange={(checked) => setPolicyDraft({ ...policyDraft, replenishmentPaused: checked === true })} /> Pause manual queue-low reminders</label><label className="check"><Checkbox checked={policyDraft.quietHoursEnabled} onCheckedChange={(checked) => setPolicyDraft({ ...policyDraft, quietHoursEnabled: checked === true })} /> Enable quiet hours</label><label className="check"><Checkbox checked={policyDraft.instrumentalOnlyDuringQuietHours} onCheckedChange={(checked) => setPolicyDraft({ ...policyDraft, instrumentalOnlyDuringQuietHours: checked === true })} /> Prefer only instrumental tracks during quiet hours</label></FieldGroup> : null}</CardContent><CardFooter><Button onClick={() => void savePolicy()} disabled={!policyDraft || !can(role, "manage")}><Save /> Save programming policy</Button></CardFooter></Card>
-          <Card><CardHeader><CardTitle>Host integration readiness</CardTitle><CardDescription>SDK 0.4.1 keeps network transport and secret material in the host. This surface reads credential metadata only.</CardDescription></CardHeader><CardContent><ItemGroup><Item variant="outline"><ItemContent><ItemTitle>Host-mediated HTTP</ItemTitle><ItemDescription>{providerCapabilities?.hostHttp ? "The bounded host HTTP transport is available. No provider request is made until an authorized connector and origin are declared." : "This target does not expose the optional host HTTP transport."}</ItemDescription></ItemContent><Badge variant={providerCapabilities?.hostHttp ? "default" : "secondary"}>{providerCapabilities?.hostHttp ? "Ready" : "Unavailable"}</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Host credential vault</ItemTitle><ItemDescription>{providerCapabilities?.credentialDiscovery ? `${providerCapabilities.credentials.length} metadata-only HTTP credential reference${providerCapabilities.credentials.length === 1 ? " is" : "s are"} visible. Secret values never enter miniapp JavaScript.` : "This target does not expose HTTP credential discovery."}</ItemDescription>{providerCapabilities?.credentials.length ? <small>{providerCapabilities.credentials.map((credential) => `${credential.displayName} (${credential.credentialType})`).join(" · ")}</small> : null}</ItemContent><Badge variant={providerCapabilities?.credentialDiscovery ? "default" : "secondary"}>{providerCapabilities?.credentialDiscovery ? "Ready" : "Unavailable"}</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Packaged manual-brief workflow</ItemTitle><ItemDescription>A pure, content-addressed workflow and checkpoint node are included in the workflow-host target. Recurring schedule creation is still host-owned.</ItemDescription></ItemContent><Badge>Included</Badge></Item></ItemGroup>{providerCapabilityError ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Credential discovery failed</AlertTitle><AlertDescription>{providerCapabilityError}</AlertDescription></Alert> : null}</CardContent></Card>
-          <Card><CardHeader><CardTitle>Capability boundaries</CardTitle><CardDescription>Unavailable features are omitted from executable controls.</CardDescription></CardHeader><CardContent><ItemGroup><Item variant="outline"><ItemContent><ItemTitle>Direct Suno integration</ItemTitle><ItemDescription>Blocked pending provider authorization and an official API. The host transport is ready, but captured browser cookies and private endpoints are never replayed.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Recurring workflow schedules</ItemTitle><ItemDescription>The package now contributes an ad hoc workflow, but the SDK exposes no schedule creation or recurring-trigger API.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Packaged binary reload</ItemTitle><ItemDescription>SDK 0.4.1 provides JSON storage and write-only VFS, not readable channel artifacts. Browser preview media uses a separately named IndexedDB only.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Global dock, pop-out, and channel sync</ItemTitle><ItemDescription>The descriptor requests a singleton surface, but SDK 0.4.1 exposes no host playback session, docking, pop-out, current-channel subscription, or canonical shared queue.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item></ItemGroup></CardContent></Card>
+          <Card><CardHeader><CardTitle>Host integration readiness</CardTitle><CardDescription>SDK 0.4.2 keeps network transport and secret material in the host. This surface reads credential metadata only.</CardDescription></CardHeader><CardContent><ItemGroup><Item variant="outline"><ItemContent><ItemTitle>Host-mediated HTTP</ItemTitle><ItemDescription>{providerCapabilities?.hostHttp ? "The bounded host HTTP transport is available. No provider request is made until an authorized connector and origin are declared." : "This target does not expose the optional host HTTP transport."}</ItemDescription></ItemContent><Badge variant={providerCapabilities?.hostHttp ? "default" : "secondary"}>{providerCapabilities?.hostHttp ? "Ready" : "Unavailable"}</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Host credential vault</ItemTitle><ItemDescription>{providerCapabilities?.credentialDiscovery ? `${providerCapabilities.credentials.length} metadata-only HTTP credential reference${providerCapabilities.credentials.length === 1 ? " is" : "s are"} visible. Secret values never enter miniapp JavaScript.` : "This target does not expose HTTP credential discovery."}</ItemDescription>{providerCapabilities?.credentials.length ? <small>{providerCapabilities.credentials.map((credential) => `${credential.displayName} (${credential.credentialType})`).join(" · ")}</small> : null}</ItemContent><Badge variant={providerCapabilities?.credentialDiscovery ? "default" : "secondary"}>{providerCapabilities?.credentialDiscovery ? "Ready" : "Unavailable"}</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Packaged manual-brief workflow</ItemTitle><ItemDescription>A pure, content-addressed workflow and checkpoint node are included in the workflow-host target. Recurring schedule creation is still host-owned.</ItemDescription></ItemContent><Badge>Included</Badge></Item></ItemGroup>{providerCapabilityError ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Credential discovery failed</AlertTitle><AlertDescription>{providerCapabilityError}</AlertDescription></Alert> : null}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Capability boundaries</CardTitle><CardDescription>Unavailable features are omitted from executable controls.</CardDescription></CardHeader><CardContent><ItemGroup><Item variant="outline"><ItemContent><ItemTitle>Direct Suno integration</ItemTitle><ItemDescription>Blocked pending provider authorization and an official API. The host transport is ready, but captured browser cookies and private endpoints are never replayed.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Recurring workflow schedules</ItemTitle><ItemDescription>The package now contributes an ad hoc workflow, but the SDK exposes no schedule creation or recurring-trigger API.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Packaged binary reload</ItemTitle><ItemDescription>SDK 0.4.2 provides JSON storage and write-only VFS, not readable channel artifacts. Browser preview media uses a separately named IndexedDB only.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item><Item variant="outline"><ItemContent><ItemTitle>Global dock, pop-out, and channel sync</ItemTitle><ItemDescription>The descriptor requests a singleton surface, but SDK 0.4.2 exposes no host playback session, docking, pop-out, current-channel subscription, or canonical shared queue.</ItemDescription></ItemContent><Badge variant="destructive">Blocked</Badge></Item></ItemGroup></CardContent></Card>
         </div>
       </TabsContent>
     </Tabs>
@@ -1542,7 +1565,7 @@ export function PlayerApp({ preview, context }: { preview: boolean; context?: Ta
     </Dialog>
 
     <Dialog open={importOpen} onOpenChange={(open) => { setImportOpen(open); if (!open) setImportFile(null); }}>
-      <DialogContent className="dialog-wide"><DialogHeader><DialogTitle>Import user-owned audio</DialogTitle><DialogDescription>{preview ? "Browser preview stores this file in its separately named IndexedDB so reload can be tested." : "Audio is decoded locally and remains available for this packaged surface session. SDK 0.4.1 cannot read a persisted binary artifact after reload."}</DialogDescription></DialogHeader><FieldGroup><Field><FieldLabel htmlFor="audio-file">Audio file</FieldLabel><Input id="audio-file" type="file" accept="audio/*" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></Field><div className="form-grid"><Field><FieldLabel htmlFor="track-title">Track title</FieldLabel><Input id="track-title" value={importForm.title} onChange={(event) => setImportForm({ ...importForm, title: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-contributor">Contributor</FieldLabel><Input id="track-contributor" value={importForm.contributor} onChange={(event) => setImportForm({ ...importForm, contributor: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-provider">Source / provider</FieldLabel><Input id="track-provider" value={importForm.provider} onChange={(event) => setImportForm({ ...importForm, provider: event.target.value })} placeholder="Enter the actual source" /></Field><Field><FieldLabel htmlFor="track-period">Creation / source period</FieldLabel><Input id="track-period" value={importForm.sourcePeriod} onChange={(event) => setImportForm({ ...importForm, sourcePeriod: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-source-url">Optional HTTPS source link</FieldLabel><Input id="track-source-url" type="url" value={importForm.sourceUrl} onChange={(event) => setImportForm({ ...importForm, sourceUrl: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-batch">Approved manual batch</FieldLabel><NativeSelect id="track-batch" value={importForm.batchId} onChange={(event) => setImportForm({ ...importForm, batchId: event.target.value })}><option value="">No linked batch</option>{activeBatches.map((batch) => { const brief = channelState.briefs.find((candidate) => candidate.id === batch.briefId); return <option key={batch.id} value={batch.id}>{brief?.title ?? batch.id} · {batch.importedTrackIds.length}/{batch.targetCount}</option>; })}</NativeSelect></Field><Field><FieldLabel htmlFor="track-visibility">Initial visibility</FieldLabel><NativeSelect id="track-visibility" value={importForm.visibility} onChange={(event) => setImportForm({ ...importForm, visibility: event.target.value as ImportFormState["visibility"] })}><option value="private-draft">Private draft</option><option value="channel-only">Channel only</option></NativeSelect></Field><Field><FieldLabel htmlFor="track-warning">Content warning</FieldLabel><Input id="track-warning" value={importForm.contentWarning} onChange={(event) => setImportForm({ ...importForm, contentWarning: event.target.value })} /></Field></div><Field><FieldLabel htmlFor="track-rights">Subscription or license basis</FieldLabel><Textarea id="track-rights" value={importForm.rightsBasis} onChange={(event) => setImportForm({ ...importForm, rightsBasis: event.target.value })} /></Field><div className="form-grid"><label className="check"><Checkbox checked={importForm.instrumental} onCheckedChange={(checked) => setImportForm({ ...importForm, instrumental: checked === true })} /> Instrumental track</label><label className="check"><Checkbox checked={importForm.explicit} onCheckedChange={(checked) => setImportForm({ ...importForm, explicit: checked === true })} /> Contains explicit content</label></div><label className="check rights"><Checkbox checked={importForm.rights} onCheckedChange={(checked) => setImportForm({ ...importForm, rights: checked === true })} /> I confirm I have the rights necessary to store, play, and share this exact track with the selected audience.</label></FieldGroup><DialogFooter><Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button><Button disabled={!importFile || !importForm.rights || status === "saving" || status === "running"} onClick={() => void submitImport()}>{status === "running" ? <LoaderCircle className="spin" /> : <Download />} Import owned track</Button></DialogFooter></DialogContent>
+      <DialogContent className="dialog-wide"><DialogHeader><DialogTitle>Import user-owned audio</DialogTitle><DialogDescription>{preview ? "Browser preview stores this file in its separately named IndexedDB so reload can be tested." : "Audio is decoded locally and remains available for this packaged surface session. SDK 0.4.2 cannot read a persisted binary artifact after reload."}</DialogDescription></DialogHeader><FieldGroup><Field><FieldLabel htmlFor="audio-file">Audio file</FieldLabel><Input id="audio-file" type="file" accept="audio/*" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></Field><div className="form-grid"><Field><FieldLabel htmlFor="track-title">Track title</FieldLabel><Input id="track-title" value={importForm.title} onChange={(event) => setImportForm({ ...importForm, title: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-contributor">Contributor</FieldLabel><Input id="track-contributor" value={importForm.contributor} onChange={(event) => setImportForm({ ...importForm, contributor: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-provider">Source / provider</FieldLabel><Input id="track-provider" value={importForm.provider} onChange={(event) => setImportForm({ ...importForm, provider: event.target.value })} placeholder="Enter the actual source" /></Field><Field><FieldLabel htmlFor="track-period">Creation / source period</FieldLabel><Input id="track-period" value={importForm.sourcePeriod} onChange={(event) => setImportForm({ ...importForm, sourcePeriod: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-source-url">Optional HTTPS source link</FieldLabel><Input id="track-source-url" type="url" value={importForm.sourceUrl} onChange={(event) => setImportForm({ ...importForm, sourceUrl: event.target.value })} /></Field><Field><FieldLabel htmlFor="track-batch">Approved manual batch</FieldLabel><NativeSelect id="track-batch" value={importForm.batchId} onChange={(event) => setImportForm({ ...importForm, batchId: event.target.value })}><option value="">No linked batch</option>{activeBatches.map((batch) => { const brief = channelState.briefs.find((candidate) => candidate.id === batch.briefId); return <option key={batch.id} value={batch.id}>{brief?.title ?? batch.id} · {batch.importedTrackIds.length}/{batch.targetCount}</option>; })}</NativeSelect></Field><Field><FieldLabel htmlFor="track-visibility">Initial visibility</FieldLabel><NativeSelect id="track-visibility" value={importForm.visibility} onChange={(event) => setImportForm({ ...importForm, visibility: event.target.value as ImportFormState["visibility"] })}><option value="private-draft">Private draft</option><option value="channel-only">Channel only</option></NativeSelect></Field><Field><FieldLabel htmlFor="track-warning">Content warning</FieldLabel><Input id="track-warning" value={importForm.contentWarning} onChange={(event) => setImportForm({ ...importForm, contentWarning: event.target.value })} /></Field></div><Field><FieldLabel htmlFor="track-rights">Subscription or license basis</FieldLabel><Textarea id="track-rights" value={importForm.rightsBasis} onChange={(event) => setImportForm({ ...importForm, rightsBasis: event.target.value })} /></Field><div className="form-grid"><label className="check"><Checkbox checked={importForm.instrumental} onCheckedChange={(checked) => setImportForm({ ...importForm, instrumental: checked === true })} /> Instrumental track</label><label className="check"><Checkbox checked={importForm.explicit} onCheckedChange={(checked) => setImportForm({ ...importForm, explicit: checked === true })} /> Contains explicit content</label></div><label className="check rights"><Checkbox checked={importForm.rights} onCheckedChange={(checked) => setImportForm({ ...importForm, rights: checked === true })} /> I confirm I have the rights necessary to store, play, and share this exact track with the selected audience.</label></FieldGroup><DialogFooter><Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button><Button disabled={!importFile || !importForm.rights || status === "saving" || status === "running"} onClick={() => void submitImport()}>{status === "running" ? <LoaderCircle className="spin" /> : <Download />} Import owned track</Button></DialogFooter></DialogContent>
     </Dialog>
 
     <AlertDialog open={retireTarget !== null} onOpenChange={(open) => !open && setRetireTarget(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Retire “{retireTarget?.title}”?</AlertDialogTitle><AlertDialogDescription>The track leaves every playback queue but remains in the album history. You can undo immediately after retirement.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => void confirmRetire()}>Retire track</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

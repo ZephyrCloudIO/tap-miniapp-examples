@@ -4,6 +4,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   configureFixtureWorkflow,
+  expectMatchingAlert,
   hasAuthorizationDecision,
   openPlatform,
   STORAGE_KEY,
@@ -19,7 +20,8 @@ test("does not record a workflow run when invocation is denied", async ({
   await surface
     .getByRole("button", { name: "Invoke Workflow", exact: true })
     .click();
-  await expect(surface.getByRole("alert")).toContainText(
+  await expectMatchingAlert(
+    surface,
     /Evidence workflow failed.*permission is not granted/iu,
   );
 

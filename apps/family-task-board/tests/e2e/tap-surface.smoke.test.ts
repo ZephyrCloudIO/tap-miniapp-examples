@@ -34,8 +34,15 @@ test("mounts the exact declared TAP cell with reproducible provenance", async ({
     await surface.locator("html").evaluate(() => window.location.origin),
   ).toBe(new URL(tap.surfaceAssetOrigin).origin);
 
-  await tap.control.remountSurface();
+  await tap.control.reset();
+  const root = surface.locator("#tap-root");
+  await expect(root).toBeVisible();
+  await expect(root.locator(":scope > *").first()).toBeAttached();
+  await expect(surface.locator("#tap-error")).toBeHidden();
   await expect(
     surface.getByRole("heading", { level: 1, name: "Good afternoon, Alex" }),
+  ).toBeVisible();
+  await expect(
+    surface.getByText("Fold the laundry", { exact: true }),
   ).toBeVisible();
 });

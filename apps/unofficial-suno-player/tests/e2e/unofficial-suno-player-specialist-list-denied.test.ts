@@ -27,7 +27,9 @@ test("keeps specialist controls unavailable when discovery authority is denied",
   ).toBeVisible();
   await expect(surface.getByText(/Specialists:.*permission is not granted/iu))
     .toBeVisible();
-  await expect(surface.getByLabel("Specialist")).toBeDisabled();
+  await expect(
+    surface.getByLabel("Specialist", { exact: true }),
+  ).toBeDisabled();
   await expect(
     surface.getByRole("button", {
       name: "Draft with specialist",
