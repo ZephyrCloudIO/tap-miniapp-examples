@@ -200,7 +200,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "plan",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -210,7 +210,7 @@
             "directActors": ["human"],
             "delegatedActors": ["specialist"],
             "autonomyCeiling": "plan",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -220,7 +220,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -230,7 +230,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "read"
           },
           {
@@ -240,7 +240,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -250,7 +250,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -260,7 +260,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -270,7 +270,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           },
           {
@@ -280,7 +280,7 @@
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           }
         ],
