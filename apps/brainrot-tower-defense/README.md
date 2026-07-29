@@ -126,6 +126,8 @@ The build runs the Rust-to-WASM step before both browser and federated package
 builds, then reports WASM and packaged-asset sizes. Those measurements are
 informational diagnostics, not a quality budget or acceptance threshold: game
 quality, route readability, art, and audio are not constrained by a byte cap.
+The final installable TAP package is assembled into `dist/`; select that
+directory when adding the package to a host.
 
 Release `0.1.4` is declared in both `package.json` and `manifest.tap.json`. Its
 native evidence is 144 passing tests: 23 content, 51 core, 5 protocol, 27

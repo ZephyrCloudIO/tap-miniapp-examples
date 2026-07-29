@@ -25,7 +25,7 @@
     "format:check": "cargo fmt --all -- --check",
     "validate:manifest": "node scripts/validate-manifest.mjs",
     "validate:assets": "node scripts/validate-assets.mjs",
-    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-package",
+    "verify:package": "node ../../scripts/verify-built-package.mjs dist",
     "check:size": "node scripts/check-size.mjs"
   },
   "dependencies": {
