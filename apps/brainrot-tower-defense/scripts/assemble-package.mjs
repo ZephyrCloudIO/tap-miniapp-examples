@@ -6,7 +6,7 @@ import {
 } from "@theaiplatform/miniapp-sdk/rspack";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
-const output = path.join(packageRoot, ".tap-package");
+const output = path.join(packageRoot, "dist");
 
 await assembleTapPackage({
   manifest: path.join(packageRoot, "manifest.tap.json"),

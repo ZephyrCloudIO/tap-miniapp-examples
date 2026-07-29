@@ -573,27 +573,9 @@ struct AwaitingCommand {
     command: PlayerCommand,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PortableUiTone {
-    Error,
-    Neutral,
-    Success,
-}
-
-impl PortableUiTone {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Error => "error",
-            Self::Neutral => "neutral",
-            Self::Success => "success",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PortableUiState {
     runtime_label: &'static str,
-    save_status: Option<(&'static str, PortableUiTone)>,
     show_preview_reset: bool,
     preview_reset_confirmation_open: bool,
 }
@@ -749,6 +731,8 @@ struct App {
     cursor: RefCell<Option<PresenceCursor>>,
     last_presence_update_ms: RefCell<f64>,
     presence: RefCell<Option<PresenceSnapshot<GamePresenceState>>>,
+    presence_joined: Cell<bool>,
+    presence_lane: LatestDesiredLane<GamePresenceState>,
     presence_subscription: RefCell<Option<PresenceSubscription>>,
     events: Option<JsValue>,
     presentation: RefCell<Option<PresentationFrame>>,
@@ -815,29 +799,12 @@ fn portable_ui_error(context: &str, error: JsValue) -> JsValue {
 }
 
 fn portable_ui_state(app: &App) -> PortableUiState {
-    let save_status = if matches!(app.runtime, Runtime::Preview) {
-        None
-    } else if *app.loading.borrow() {
-        Some(("Loading channel state…", PortableUiTone::Neutral))
-    } else if *app.saving.borrow() {
-        Some(("Saving channel state…", PortableUiTone::Neutral))
-    } else if has_pending_saves(app) {
-        Some((
-            "Changes are pending synchronization",
-            PortableUiTone::Neutral,
-        ))
-    } else if app.error.borrow().is_some() {
-        Some(("Channel save is unavailable", PortableUiTone::Error))
-    } else {
-        Some(("Channel state saved", PortableUiTone::Success))
-    };
     PortableUiState {
         runtime_label: if matches!(app.runtime, Runtime::Tap) {
             "TAP channel"
         } else {
             "Browser preview"
         },
-        save_status,
         show_preview_reset: matches!(app.runtime, Runtime::Preview)
             && app.active.borrow().is_none(),
         preview_reset_confirmation_open: app.preview_reset_confirmation_open.get(),
@@ -899,25 +866,9 @@ fn portable_ui_model(revision: u64, state: &PortableUiState) -> Value {
         }));
     }
 
-    if let Some((text, tone)) = state.save_status {
-        root_ids.push("save-status");
-        nodes.push(json!({
-            "type": "status-bar",
-            "id": "save-status",
-            "text": text,
-            "tone": tone.as_str()
-        }));
-    }
-
     json!({
         "revision": revision,
-        "state": if matches!(state.save_status, Some((_, PortableUiTone::Error))) {
-            "failure"
-        } else if matches!(state.save_status, Some(("Loading channel state…" | "Saving channel state…", _))) {
-            "loading"
-        } else {
-            "idle"
-        },
+        "state": "idle",
         "rootIds": root_ids,
         "nodes": nodes
     })
@@ -1672,6 +1623,18 @@ fn resume_audio(app: &App) {
     }
 }
 
+fn idle_presence_state() -> GamePresenceState {
+    GamePresenceState {
+        schema_version: 1,
+        game_id: None,
+        activity: "channel".to_string(),
+        ready: false,
+        cursor: None,
+        placement: None,
+        recent_action: None,
+    }
+}
+
 fn current_presence_state(app: &App) -> GamePresenceState {
     let active = app.active.borrow().and_then(|index| {
         app.sessions
@@ -1877,21 +1840,24 @@ fn accept_presence(
     match result {
         Ok(snapshot) => match validate_presence(&snapshot) {
             Ok(()) => {
+                app.presence_joined.set(true);
                 *app.presence.borrow_mut() = Some(snapshot);
                 update_presence_dom(&app);
                 save_active_projection_in_background(app.clone());
                 let _ = render_live(&app);
             }
             Err(error) => {
-                *app.error.borrow_mut() = Some(format!("Invalid TAP presence update: {error}"));
-                let _ = render(&app);
+                report_presence_failure("Invalid TAP presence update ignored", error);
             }
         },
         Err(error) => {
-            *app.error.borrow_mut() = Some(format!("Could not receive TAP presence: {error}"));
-            let _ = render(&app);
+            report_presence_failure("TAP presence update unavailable", error);
         }
     }
+}
+
+fn report_presence_failure(context: &str, error: impl std::fmt::Display) {
+    web_sys::console::warn_1(&js_error(format!("{context}: {error}")));
 }
 
 fn install_presence_subscription(app: &Rc<App>) -> Result<(), tap_bridge::BridgeError> {
@@ -1908,15 +1874,31 @@ fn install_presence_subscription(app: &Rc<App>) -> Result<(), tap_bridge::Bridge
 }
 
 fn push_presence(app: Rc<App>) {
-    if !matches!(app.runtime, Runtime::Tap) || !*app.authority.borrow() {
+    if !matches!(app.runtime, Runtime::Tap)
+        || !*app.authority.borrow()
+        || !app.presence_joined.get()
+    {
         return;
     }
-    let channel = app.channel.clone();
     let state = current_presence_state(&app);
+    app.presence_lane.set_desired(state);
+    let channel = app.channel.clone();
     spawn_local(async move {
-        match tap_bridge::update_presence(&channel, &state).await {
-            Ok(snapshot) => accept_presence(&Rc::downgrade(&app), Ok(snapshot)),
-            Err(error) => accept_presence(&Rc::downgrade(&app), Err(error)),
+        let weak = Rc::downgrade(&app);
+        let result: Result<(), tap_bridge::BridgeError> = app
+            .presence_lane
+            .drain(|desired| {
+                let channel = channel.clone();
+                let weak = weak.clone();
+                async move {
+                    let snapshot = tap_bridge::update_presence(&channel, &desired).await?;
+                    accept_presence(&weak, Ok(snapshot));
+                    Ok(())
+                }
+            })
+            .await;
+        if let Err(error) = result {
+            report_presence_failure("TAP presence update unavailable", error);
         }
     });
 }
@@ -2992,6 +2974,8 @@ fn flush_saves(app: Rc<App>) {
 
 fn load_tap_data(app: Rc<App>) {
     *app.loading.borrow_mut() = true;
+    app.presence_joined.set(false);
+    *app.presence.borrow_mut() = None;
     let _ = render(&app);
     let channel = app.channel.clone();
     let player = app.player.0.clone();
@@ -3012,14 +2996,19 @@ fn load_tap_data(app: Rc<App>) {
         match presence_result {
             Ok(snapshot) => match validate_presence(&snapshot) {
                 Ok(()) => {
+                    app.presence_joined.set(true);
                     *app.presence.borrow_mut() = Some(snapshot);
                     if let Err(error) = install_presence_subscription(&app) {
-                        failures.push(format!("channel presence subscription: {error}"));
+                        report_presence_failure("TAP presence subscription unavailable", error);
                     }
                 }
-                Err(error) => failures.push(format!("channel presence: {error}")),
+                Err(error) => {
+                    report_presence_failure("Invalid TAP presence snapshot ignored", error);
+                }
             },
-            Err(error) => failures.push(format!("channel presence: {error}")),
+            Err(error) => {
+                report_presence_failure("TAP presence join unavailable", error);
+            }
         }
         match index_result {
             Ok(stored) => {
@@ -3684,10 +3673,7 @@ fn poll_command_ack(app: Rc<App>, session_id: String, command_id: String) {
             return;
         }
 
-        *app.notice.borrow_mut() =
-            Some("Action acknowledged; reconciling authoritative game state…".into());
         *app.error.borrow_mut() = None;
-        let _ = render(&app);
 
         let stored_session = match tap_bridge::load_session(
             &Runtime::Tap,
@@ -3738,10 +3724,7 @@ fn poll_command_ack(app: Rc<App>, session_id: String, command_id: String) {
         match reconcile_persisted_ack(&awaiting.command, &entry, &snapshot) {
             PersistedAckReconciliation::Reconciled => {}
             PersistedAckReconciliation::AwaitingAuthoritativeState => {
-                *app.notice.borrow_mut() =
-                    Some("Action acknowledged; waiting for authoritative state…".into());
                 *app.error.borrow_mut() = None;
-                let _ = render(&app);
                 return;
             }
             PersistedAckReconciliation::LegacyUnbound => {
@@ -3814,10 +3797,7 @@ fn poll_command_ack(app: Rc<App>, session_id: String, command_id: String) {
         }
         app.awaiting_commands.borrow_mut().remove(&command_id);
         app.pending_command_started.borrow_mut().remove(&command_id);
-        *app.notice.borrow_mut() = Some(wave_clear_notice.map_or_else(
-            || "Action accepted and synchronized.".into(),
-            |notice| format!("Action accepted and synchronized. {notice}"),
-        ));
+        *app.notice.borrow_mut() = wave_clear_notice;
         *app.error.borrow_mut() = None;
         if let Some(focus_id) = placement_completion_focus_id(&awaiting.command.kind) {
             *app.pending_focus_id.borrow_mut() = Some(focus_id);
@@ -4136,9 +4116,6 @@ fn issue(app: Rc<App>, kind: CommandKind) {
     let Some(snapshot) = app.sessions.borrow().get(index).cloned() else {
         return;
     };
-    if matches!(app.runtime, Runtime::Tap) {
-        push_presence(app.clone());
-    }
     let completes_placement = matches!(&kind, CommandKind::Place { .. } | CommandKind::Move { .. });
     let leaves_session = matches!(&kind, CommandKind::Leave);
     let command = PlayerCommand {
@@ -4183,7 +4160,6 @@ fn issue(app: Rc<App>, kind: CommandKind) {
     app.pending_command_started
         .borrow_mut()
         .insert(command_id.clone(), js_sys::Date::now());
-    *app.notice.borrow_mut() = Some("Action sent to the authoritative game host…".into());
     *app.error.borrow_mut() = None;
     let channel = app.channel.clone();
     let queued_app = app.clone();
@@ -5986,6 +5962,8 @@ fn create_app(
         cursor: RefCell::new(None),
         last_presence_update_ms: RefCell::new(0.0),
         presence: RefCell::new(None),
+        presence_joined: Cell::new(false),
+        presence_lane: LatestDesiredLane::new(idle_presence_state()),
         presence_subscription: RefCell::new(None),
         events,
         presentation: RefCell::new(None),
@@ -6277,10 +6255,11 @@ impl SurfaceMount {
         };
         stop_simulation_timer(&app);
         stop_animation_loop(&app);
-        if let Some(mut subscription) = app.presence_subscription.borrow_mut().take() {
-            subscription
-                .unsubscribe()
-                .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        app.presence_joined.set(false);
+        if let Some(mut subscription) = app.presence_subscription.borrow_mut().take()
+            && let Err(error) = subscription.unsubscribe()
+        {
+            report_presence_failure("TAP presence unsubscribe unavailable", error);
         }
         close_audio(&app);
         if matches!(app.runtime, Runtime::Tap) {
@@ -6299,9 +6278,9 @@ impl SurfaceMount {
                     "The surface unmounted, but its MCP projection could not be cleared: {error}"
                 )));
             }
-            tap_bridge::leave_presence(&app.channel)
-                .await
-                .map_err(|error| JsValue::from_str(&error.to_string()))?;
+            if let Err(error) = tap_bridge::leave_presence(&app.channel).await {
+                report_presence_failure("TAP presence leave unavailable", error);
+            }
         }
         // Dropping the portable UI synchronously unmounts React, which may dispatch back into
         // this WASM module. Release the RefCell borrow before that reentrant callback can run.
@@ -6963,7 +6942,6 @@ mod tests {
     fn portable_ui_model_uses_sdk_toolbar_and_controlled_confirmation() {
         let state = PortableUiState {
             runtime_label: "Browser preview",
-            save_status: None,
             show_preview_reset: true,
             preview_reset_confirmation_open: true,
         };
@@ -6985,6 +6963,25 @@ mod tests {
                     && node["confirm"]["action"] == "preview.reset.confirm"
             })
         }));
+    }
+
+    #[test]
+    fn packaged_portable_ui_does_not_flash_routine_sync_status() {
+        let state = PortableUiState {
+            runtime_label: "TAP channel",
+            show_preview_reset: false,
+            preview_reset_confirmation_open: false,
+        };
+
+        let model = portable_ui_model(3, &state);
+
+        assert_eq!(model["state"], "idle");
+        assert_eq!(model["rootIds"], json!(["app-toolbar"]));
+        assert!(
+            model["nodes"]
+                .as_array()
+                .is_some_and(|nodes| { nodes.iter().all(|node| node["type"] != "status-bar") })
+        );
     }
 
     #[test]
