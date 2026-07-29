@@ -99,7 +99,7 @@
             "directActors": ["human"],
             "delegatedActors": ["specialist"],
             "autonomyCeiling": "do",
-            "consent": "fresh-decision",
+            "consent": "reusable",
             "risk": "write"
           }
         ],
