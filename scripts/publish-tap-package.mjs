@@ -163,7 +163,10 @@ try {
     .update(`${buildStats.id}\0${buildStats.app.buildId}`)
     .digest("hex");
   const buildStatsResponse = await fetch(
-    new URL("/build-stats", process.env.ZE_API_GATE ?? "https://zeapi.zephyrcloud.app"),
+    new URL(
+      "/v2/builder-packages-api/upload-from-dashboard-plugin",
+      process.env.ZE_API ?? "https://api.zephyr-cloud.io",
+    ),
     {
       method: "POST",
       headers: {
