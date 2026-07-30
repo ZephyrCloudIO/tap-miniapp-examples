@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "rslib build && pnpm verify:package",
+    "deploy:zephyr": "cross-env ZEPHYR_DEPLOY=true rslib build",
     "test": "rstest run",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
@@ -33,9 +34,11 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "cross-env": "10.1.0",
     "playwright": "^1.61.0",
     "postcss": "^8.5.22",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zephyr-rsbuild-plugin": "1.2.0"
   }
 }
