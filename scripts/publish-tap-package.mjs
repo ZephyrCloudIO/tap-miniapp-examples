@@ -173,12 +173,10 @@ try {
       }),
     },
   );
-  if (!receiptResponse.ok) {
-    const receiptError = (await receiptResponse.text()).slice(0, 500);
-    throw new Error(
-      `Zephyr rejected the TAP publish-success receipt with HTTP ${receiptResponse.status}: ${receiptError}`,
-    );
-  }
+  assert.ok(
+    receiptResponse.ok,
+    `Zephyr rejected the TAP publish-success receipt with HTTP ${receiptResponse.status}.`,
+  );
   await engine.build_finished();
 } catch (error) {
   if (engine.hasActiveBuild) engine.build_failed();
