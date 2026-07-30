@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tap-roadie-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
+  "account_id": "b848db7e2edd56dee8ffcc39c18612a5",
+  "dev": {
+    "port": 27462,
+    "ip": "0.0.0.0",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tap-roadie-dev",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "services": [
+    {
+      "binding": "DIRECTORY_API",
+      "service": "ze-agency-directory-api",
+      "entrypoint": "DirectoryRpc",
+    },
+  ],
+  "vars": {
+    "ENVIRONMENT": "development",
+    "AUTH0_DOMAIN": "dev-auth.zephyr-cloud.io",
+    "AUTH0_AUDIENCE": "https://api-dev.zephyr-cloud.io",
+  },
+  "env": {
+    "development": {
+      "name": "tap-roadie-api-dev",
+      "vars": {
+        "ENVIRONMENT": "development",
+        "AUTH0_DOMAIN": "dev-auth.zephyr-cloud.io",
+        "AUTH0_AUDIENCE": "https://api-dev.zephyr-cloud.io",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tap-roadie-dev",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "services": [
+        {
+          "binding": "DIRECTORY_API",
+          "service": "ze-agency-directory-api-dev",
+          "entrypoint": "DirectoryRpc",
+        },
+      ],
+    },
+  },
+}

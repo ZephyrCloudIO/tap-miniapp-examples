@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package tap.roadie.v1;
+
+option go_package = "github.com/ZephyrCloudIO/tap/protos/gen/go/tap/roadie/v1;roadiev1";
+
+// RoadieService owns workspace-visible business travel, engagements, reports,
+// and their aggregate impact. Every app-facing RPC derives the actor from the
+// verified bearer and verifies joined membership for workspace_id.
+service RoadieService {
+  // GetWorkspaceContext returns the authenticated member and joined workspace
+  // roster needed by Roadie's member filters.
+  rpc GetWorkspaceContext(GetWorkspaceContextRequest) returns (GetWorkspaceContextResponse);
+  // ListTrips returns workspace-visible trips in reverse chronological order.
+  rpc ListTrips(ListTripsRequest) returns (ListTripsResponse);
+  // CreateTrip creates one workspace-visible trip owned by the authenticated
+  // member. request_id makes retries idempotent.
+  rpc CreateTrip(CreateTripRequest) returns (CreateTripResponse);
+}
+
+enum RoadieWorkspaceRole {
+  ROADIE_WORKSPACE_ROLE_UNSPECIFIED = 0;
+  ROADIE_WORKSPACE_ROLE_OWNER = 1;
+  ROADIE_WORKSPACE_ROLE_ADMIN = 2;
+  ROADIE_WORKSPACE_ROLE_MEMBER = 3;
+  ROADIE_WORKSPACE_ROLE_VIEW_ONLY = 4;
+}
+
+enum RoadieTripPurpose {
+  ROADIE_TRIP_PURPOSE_UNSPECIFIED = 0;
+  ROADIE_TRIP_PURPOSE_CONFERENCE = 1;
+  ROADIE_TRIP_PURPOSE_MEETUP = 2;
+  ROADIE_TRIP_PURPOSE_PODCAST = 3;
+  ROADIE_TRIP_PURPOSE_WORK = 4;
+  ROADIE_TRIP_PURPOSE_OTHER = 5;
+}
+
+message RoadieMember {
+  string user_id = 1;
+  string display_name = 2;
+  optional string avatar_url = 3;
+  RoadieWorkspaceRole role = 4;
+}
+
+message RoadieTrip {
+  string trip_id = 1;
+  string workspace_id = 2;
+  string owner_user_id = 3;
+  string title = 4;
+  RoadieTripPurpose purpose = 5;
+  optional string location = 6;
+  int64 created_at_ms = 7;
+  int64 updated_at_ms = 8;
+}
+
+message GetWorkspaceContextRequest {
+  string workspace_id = 1;
+}
+
+message GetWorkspaceContextResponse {
+  string workspace_id = 1;
+  RoadieMember current_member = 2;
+  repeated RoadieMember members = 3;
+}
+
+message ListTripsRequest {
+  string workspace_id = 1;
+  optional string owner_user_id = 2;
+}
+
+message ListTripsResponse {
+  repeated RoadieTrip trips = 1;
+}
+
+message CreateTripRequest {
+  string workspace_id = 1;
+  string request_id = 2;
+  string title = 3;
+  RoadieTripPurpose purpose = 4;
+  optional string location = 5;
+}
+
+message CreateTripResponse {
+  RoadieTrip trip = 1;
+}

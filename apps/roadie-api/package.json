@@ -1,0 +1,25 @@
+{
+  "name": "@tap-examples/roadie-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist --env development",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "dev": "wrangler dev --env development",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "rstest"
+  },
+  "dependencies": {
+    "@tap-examples/roadie-contract": "workspace:*",
+    "hono": "4.12.31",
+    "jose": "6.2.3",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260726.1",
+    "@rstest/core": "0.11.3",
+    "typescript": "6.0.3",
+    "wrangler": "4.112.0"
+  }
+}

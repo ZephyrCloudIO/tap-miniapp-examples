@@ -1,0 +1,41 @@
+{
+  "name": "@tap-examples/roadie",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rslib build && pnpm verify:package",
+    "test": "rstest run",
+    "test:tap": "rstest run --config ./rstest.tap.config.ts",
+    "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
+    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.87.4",
+    "@tap-examples/roadie-contract": "workspace:*",
+    "@theaiplatform/miniapp-sdk": "0.4.2",
+    "chrono-node": "^2.10.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.0",
+    "@rsbuild/core": "^2.1.5",
+    "@rsbuild/plugin-react": "2.1.0",
+    "@rslib/core": "^0.23.2",
+    "@rstest/core": "0.11.3",
+    "@rstest/playwright": "0.11.3",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "playwright": "^1.61.0",
+    "postcss": "^8.5.22",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  }
+}

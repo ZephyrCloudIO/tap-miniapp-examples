@@ -1,0 +1,172 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_theaiplatform_roadie_0001",
+    "publisherId": "publisher_zephyrcloudio",
+    "namespace": "theaiplatform-roadie",
+    "slug": "roadie",
+    "organizationId": "organization_zephyrcloudio"
+  },
+  "release": {
+    "releaseId": "tap_pkg_theaiplatform_roadie_0001@0.10.0",
+    "version": "0.10.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Roadie",
+    "description": "Turn conference details into one trusted personal speaking-trip timeline.",
+    "categories": ["productivity"],
+    "iconAssets": ["assets/roadie.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/roadie.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": {
+    "tapSdk": "0.4.2",
+    "tapHost": ">=0.1.0"
+  },
+  "lifecycle": {
+    "checkpoint": "none",
+    "lifecycleExpose": "./tap/lifecycle"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_roadie_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./ui/desktop": {
+          "integrity": "pending",
+          "runtime": "webview"
+        }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "roadie",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./ui/desktop",
+          "runtime": "webview"
+        }
+      },
+      "authorization": {
+        "onDemand": [
+          "channels.list",
+          "channels.send-message",
+          "chat.send-message",
+          "network.request"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["roadie"]
+          },
+          {
+            "kind": "host-api",
+            "resources": ["tap.channels:list", "tap.channels:send-message", "tap.chat:send-text"]
+          },
+          {
+            "kind": "external-network",
+            "resources": ["https://tap-roadie-api-dev.zephyrwmf.workers.dev"]
+          },
+          {
+            "kind": "credentials",
+            "resources": ["http"]
+          }
+        ]
+      },
+      "options": {
+        "displayName": "Roadie",
+        "description": "Workspace travel, engagements, reports, and impact.",
+        "placement": "route",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained",
+        "iconAssets": ["assets/roadie.svg"]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "roadie-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "channels.list",
+            "resource": "tap.channels:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "channels.send-message",
+            "resource": "tap.channels:send-message",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "chat.send-message",
+            "resource": "tap.chat:send-text",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "network.request",
+            "resource": "network.origin:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          }
+        ],
+        "levels": [
+          {
+            "id": "roadie-user",
+            "actions": [
+              "channels.list",
+              "channels.send-message",
+              "chat.send-message",
+              "network.request"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": []
+      }
+    }
+  ]
+}
