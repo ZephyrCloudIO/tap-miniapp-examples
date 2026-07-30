@@ -4,7 +4,6 @@ import type { RsbuildPlugin } from "@rsbuild/core";
 import { defineConfig } from "@rslib/core";
 import { pluginReact } from "@rsbuild/plugin-react";
 import { tapLib } from "@theaiplatform/miniapp-sdk/rspack";
-import { withZephyr } from "zephyr-rsbuild-plugin";
 
 const require = createRequire(import.meta.url);
 const reactPackageRoot = dirname(require.resolve("react/package.json"));
@@ -43,9 +42,6 @@ library.output = {
 library.plugins = [...(library.plugins ?? []), singleReactRuntimePlugin];
 
 export default defineConfig({
-  plugins: [
-    pluginReact(),
-    ...(process.env.ZEPHYR_DEPLOY === "true" ? [withZephyr()] : []),
-  ],
+  plugins: [pluginReact()],
   lib: [library],
 });

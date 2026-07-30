@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "rslib build && pnpm verify:package",
-    "deploy:zephyr": "cross-env ZEPHYR_DEPLOY=true rslib build",
+    "assemble": "node ../../scripts/assemble-tap-package.mjs .",
+    "build": "rslib build && pnpm assemble && pnpm verify:package",
+    "deploy:zephyr": "pnpm build && node ../../scripts/publish-tap-package.mjs .",
     "test": "rstest run",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
-    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop"
+    "verify:package": "node ../../scripts/verify-built-package.mjs dist"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.87.4",
@@ -34,11 +35,10 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "cross-env": "10.1.0",
     "playwright": "^1.61.0",
     "postcss": "^8.5.22",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "zephyr-rsbuild-plugin": "1.2.0"
+    "zephyr-agent": "0.0.0-canary.68"
   }
 }
