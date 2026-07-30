@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -9,6 +8,7 @@ import { createRequire } from "node:module";
 import {
   createTapAppReleaseEnvelope,
   mediaTypeForArtifact,
+  tapAppReleaseDigest,
 } from "./tap-app-release-envelope.mjs";
 
 const appRoot = path.resolve(process.argv[2] ?? ".");
@@ -32,7 +32,6 @@ assert.ok(
 const normalizePath = (value) => value.split(path.sep).join(path.posix.sep);
 
 const requireFromApp = createRequire(path.join(appRoot, "package.json"));
-const { z } = requireFromApp("zod");
 const agent = requireFromApp("zephyr-agent");
 for (const name of [
   "ZephyrEngine",
@@ -158,47 +157,6 @@ try {
     },
   });
   assert.ok(deploymentInfo, "Zephyr did not return deployment information.");
-  const serializedBuildStats = JSON.stringify(buildStats);
-  const idempotencyKey = createHash("sha256")
-    .update(`${buildStats.id}\0${buildStats.app.buildId}`)
-    .digest("hex");
-  const buildStatsResponse = await fetch(
-    new URL("/build-stats", process.env.ZE_API_GATE ?? "https://zeapi.zephyrcloud.app"),
-    {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json",
-        "idempotency-key": idempotencyKey,
-      },
-      body: serializedBuildStats,
-    },
-  );
-  assert.ok(
-    buildStatsResponse.ok,
-    `Zephyr rejected the idempotent build-stats receipt lookup with HTTP ${buildStatsResponse.status}.`,
-  );
-  const buildStatsResult = z
-    .object({
-      tapAppPublishReceipt: z
-        .object({ releaseDigest: z.string().min(1) })
-        .optional(),
-      value: z
-        .object({
-          tapAppPublishReceipt: z.object({ releaseDigest: z.string().min(1) }),
-        })
-        .optional(),
-    })
-    .passthrough()
-    .parse(await buildStatsResponse.json());
-  const releaseDigest =
-    buildStatsResult.tapAppPublishReceipt?.releaseDigest ??
-    buildStatsResult.value?.tapAppPublishReceipt.releaseDigest;
-  assert.ok(
-    releaseDigest,
-    "Zephyr build-stats response omitted the server-derived TAP release digest.",
-  );
   const receiptResponse = await fetch(
     "https://api.zephyr-cloud.io/v2/builder-packages-api/tap-app-publish-success",
     {
@@ -211,7 +169,7 @@ try {
       body: JSON.stringify({
         applicationUid: expectedApplicationUid,
         snapshotId: deploymentInfo.snapshotId,
-        releaseDigest,
+        releaseDigest: tapAppReleaseDigest(buildStats.tapAppRelease),
       }),
     },
   );
