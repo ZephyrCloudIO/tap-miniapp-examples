@@ -158,7 +158,10 @@ try {
     },
   });
   assert.ok(deploymentInfo, "Zephyr did not return deployment information.");
-  const serializedBuildStats = JSON.stringify(buildStats);
+  const serializedBuildStats = JSON.stringify({
+    ...buildStats,
+    waitForCompletion: Boolean(process.env.ZE_WAIT_FOR_DEPLOYMENTS?.trim()),
+  });
   const idempotencyKey = createHash("sha256")
     .update(`${buildStats.id}\0${buildStats.app.buildId}`)
     .digest("hex");
