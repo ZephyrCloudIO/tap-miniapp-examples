@@ -1,5 +1,5 @@
 {
-  "name": "@tap-examples/roadie",
+  "name": "tap-roadie",
   "version": "0.10.0",
   "private": true,
   "type": "module",
