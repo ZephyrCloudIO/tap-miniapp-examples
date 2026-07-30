@@ -75,6 +75,7 @@
           "channels.list",
           "channels.send-message",
           "chat.send-message",
+          "credentials.use",
           "network.request"
         ],
         "effects": [
@@ -143,6 +144,16 @@
             "risk": "consequential"
           },
           {
+            "id": "credentials.use",
+            "resource": "tap.credentials:use",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
             "id": "network.request",
             "resource": "network.origin:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
             "scopes": ["workspace"],
@@ -160,6 +171,7 @@
               "channels.list",
               "channels.send-message",
               "chat.send-message",
+              "credentials.use",
               "network.request"
             ],
             "assignableTo": ["human"]

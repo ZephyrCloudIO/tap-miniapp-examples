@@ -173,6 +173,38 @@
         "trace": "failure-only",
         "screenshots": "failure-only"
       }
+    },
+    "roadie-credentials-use-denied": {
+      "surface": "roadie",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.use",
+      "deniedActions": ["credentials.use"],
+      "fixtureFiles": ["tests/fixtures/default.seed.json"],
+      "httpRouteFiles": ["tests/fixtures/default.http-routes.json"],
+      "requiredOrigins": ["https://tap-roadie-api-dev.zephyrwmf.workers.dev"],
+      "requiredEffects": [
+        "effect:storage:roadie",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.chat:send-text",
+        "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
+        "effect:credentials:http"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 6,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
     }
   },
   "matrix": [
@@ -183,6 +215,7 @@
         "action:channels.list",
         "action:channels.send-message",
         "action:chat.send-message",
+        "action:credentials.use",
         "action:network.request",
         "effect:credentials:http",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
@@ -225,6 +258,11 @@
       "id": "roadie-channels-send-denied",
       "profile": "roadie-channels-send-denied",
       "capabilities": ["action:channels.send-message", "effect:host-api:tap.channels:send-message"]
+    },
+    {
+      "id": "roadie-credentials-use-denied",
+      "profile": "roadie-credentials-use-denied",
+      "capabilities": ["action:credentials.use", "effect:credentials:http"]
     }
   ],
   "waivers": []
