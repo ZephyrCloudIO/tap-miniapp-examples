@@ -8,7 +8,6 @@ import { createRequire } from "node:module";
 import {
   createTapAppReleaseEnvelope,
   mediaTypeForArtifact,
-  tapAppReleaseDigest,
 } from "./tap-app-release-envelope.mjs";
 
 const appRoot = path.resolve(process.argv[2] ?? ".");
@@ -24,11 +23,6 @@ const expectedApplicationUid = [
   deployment.project,
   deployment.organization,
 ].join(".");
-const accessToken = process.env.ZE_ACCESS_TOKEN;
-assert.ok(
-  accessToken,
-  "ZE_ACCESS_TOKEN is required to submit the authenticated TAP publish-success receipt.",
-);
 const normalizePath = (value) => value.split(path.sep).join(path.posix.sep);
 
 const requireFromApp = createRequire(path.join(appRoot, "package.json"));
@@ -157,26 +151,6 @@ try {
     },
   });
   assert.ok(deploymentInfo, "Zephyr did not return deployment information.");
-  const receiptResponse = await fetch(
-    "https://api.zephyr-cloud.io/v2/builder-packages-api/tap-app-publish-success",
-    {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        applicationUid: expectedApplicationUid,
-        snapshotId: deploymentInfo.snapshotId,
-        releaseDigest: tapAppReleaseDigest(buildStats.tapAppRelease),
-      }),
-    },
-  );
-  assert.ok(
-    receiptResponse.ok,
-    `Zephyr rejected the TAP publish-success receipt with HTTP ${receiptResponse.status}.`,
-  );
   await engine.build_finished();
 } catch (error) {
   if (engine.hasActiveBuild) engine.build_failed();

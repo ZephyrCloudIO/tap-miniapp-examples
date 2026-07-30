@@ -39,6 +39,6 @@
     "postcss": "^8.5.22",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "zephyr-agent": "0.0.0-canary.69"
+    "zephyr-agent": "0.0.0-canary.68"
   }
 }

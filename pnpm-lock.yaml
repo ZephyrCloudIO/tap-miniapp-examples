@@ -422,8 +422,8 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
       zephyr-agent:
-        specifier: 0.0.0-canary.69
-        version: 0.0.0-canary.69
+        specifier: 0.0.0-canary.68
+        version: 0.0.0-canary.68
 
   apps/roadie-api:
     dependencies:
@@ -4477,14 +4477,14 @@ packages:
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
-  zephyr-agent@0.0.0-canary.69:
-    resolution: {integrity: sha512-tpq8N1fE5Z5gQ60YOphm9Ak1UnSKtdSkb1xZWF9zuN1R+9k0Cvo1LvIBoB5QIo003WE3ivovoo75q0lzqlCCZQ==}
+  zephyr-agent@0.0.0-canary.68:
+    resolution: {integrity: sha512-GmSyjtO3bneG86Tx3gBbi1F2e5wEFTVncNPW1T232/fpivlmfGRKtZ3CMOdShDK4BNKRI/B1nNTXn4epjV265g==}
 
   zephyr-agent@1.2.1:
     resolution: {integrity: sha512-jIAztXae300LG1yl6+v0s4N83xeL0Ttq/5cA6JIJdVn8YvNIZZMH1RQhJCKbjpAo+MyuXbJmi2zvu6ixB1/jgw==}
 
-  zephyr-edge-contract@0.0.0-canary.69:
-    resolution: {integrity: sha512-kbG4AUSqIswC/i1cAGBLCq0CDmUjBrTdpHZH2A8SYrcA9ZfzsND66Bc90LvVguhYrozTpglFpokph+oWynB3pQ==}
+  zephyr-edge-contract@0.0.0-canary.68:
+    resolution: {integrity: sha512-OswFylz5RwdJAp8ylDDJZ2bs3B2z5m9Qlw5v2bsZ37mwxpoN0Q+qRDAaCvKcNS4rLv2IWQowzMco9S3F6ADbjA==}
 
   zephyr-edge-contract@1.2.1:
     resolution: {integrity: sha512-IWJHnxB96cunATEp+EHDznyCHZyvBzMdD6xC4/OGV01wyocT7iHkxA6jNIe+StJrWJy/t0t43R3ewIE1EtNUpQ==}
@@ -8783,7 +8783,7 @@ snapshots:
       cookie: 1.1.1
       youch-core: 0.3.3
 
-  zephyr-agent@0.0.0-canary.69:
+  zephyr-agent@0.0.0-canary.68:
     dependencies:
       '@toon-format/toon': 0.9.0
       axios: 1.19.0(debug@4.4.3)
@@ -8798,7 +8798,7 @@ snapshots:
       node-persist: 4.0.4
       open: 10.2.0
       proper-lockfile: 4.1.2
-      zephyr-edge-contract: 0.0.0-canary.69
+      zephyr-edge-contract: 0.0.0-canary.68
     transitivePeerDependencies:
       - supports-color
 
@@ -8821,7 +8821,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  zephyr-edge-contract@0.0.0-canary.69: {}
+  zephyr-edge-contract@0.0.0-canary.68: {}
 
   zephyr-edge-contract@1.2.1: {}
 

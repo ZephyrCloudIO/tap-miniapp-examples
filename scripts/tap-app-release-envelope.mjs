@@ -331,17 +331,3 @@ export const createTapAppReleaseEnvelope = ({
   });
   return Object.freeze(carrier);
 };
-
-export const tapAppReleaseDigest = (releaseEnvelope) => {
-  const upload = JSON.parse(JSON.stringify(releaseEnvelope));
-  return sha256Integrity(
-    canonicalizeJsonValue({
-      descriptorIntegrity: upload.descriptor.integrity,
-      graphIntegrity: upload.graphIntegrity,
-      namespace: upload.namespace,
-      targetVariants: upload.targetVariants,
-      artifacts: upload.artifacts,
-      children: upload.children,
-    }),
-  );
-};
