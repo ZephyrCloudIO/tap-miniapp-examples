@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   sdk,
   type MiniAppHttpCredentialMetadata,
@@ -110,7 +110,8 @@ import {
 } from './domain';
 import {
   analysisTitle,
-  installSpecialist,
+  clearLegacyManagedSpecialist,
+  findPackageSpecialist,
   runSpecialistAnalysis,
 } from './specialist';
 import { loadState, saveState } from './storage';
@@ -155,6 +156,9 @@ type View =
   | 'audit'
   | 'workflows'
   | 'activity';
+
+const getNoSurfaceOwner = () => null;
+const subscribeNoSurfaceOwner = () => () => undefined;
 
 export interface VantaCompanionProps {
   readonly preview?: boolean;
@@ -215,6 +219,15 @@ export function VantaCompanionApp({
   randomUUID = runtimeUuid,
   hostContext,
 }: VantaCompanionProps) {
+  const owner = useSyncExternalStore(
+    hostContext?.owner.subscribe ?? subscribeNoSurfaceOwner,
+    hostContext?.owner.getSnapshot ?? getNoSurfaceOwner,
+    getNoSurfaceOwner,
+  );
+  const selectedWorkspaceId =
+    preview ? hostWorkspaceId : (owner?.workspaceId ?? hostWorkspaceId);
+  const selectedChannelId =
+    preview ? hostChannelId : (owner?.channelId ?? '');
   const [state, setState] = useState<CompanionState>(emptyState());
   const [revision, setRevision] = useState<number | null>(null);
   const [view, setView] = useState<View>('overview');
@@ -236,8 +249,8 @@ export function VantaCompanionApp({
     status: CaseStatus;
   } | null>(null);
   const [caseForm, setCaseForm] = useState(emptyCaseForm);
-  const [workspaceId, setWorkspaceId] = useState(hostWorkspaceId);
-  const [channelId, setChannelId] = useState(hostChannelId);
+  const [workspaceId, setWorkspaceId] = useState(selectedWorkspaceId);
+  const [channelId, setChannelId] = useState(selectedChannelId);
   const [projectId, setProjectId] = useState('');
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -260,9 +273,10 @@ export function VantaCompanionApp({
   useEffect(() => {
     void loadState(preview)
       .then(result => {
-        setState(result.state);
+        const loadedState = clearLegacyManagedSpecialist(result.state);
+        setState(loadedState);
         setRevision(result.revision);
-        setWebhookApiDraft(result.state.settings?.webhookApiUrl ?? '');
+        setWebhookApiDraft(loadedState.settings?.webhookApiUrl ?? '');
         setStatus('Workspace ready');
       })
       .catch(cause => {
@@ -270,6 +284,11 @@ export function VantaCompanionApp({
         setStatus('Storage unavailable');
       });
   }, [preview]);
+
+  useEffect(() => {
+    setWorkspaceId(selectedWorkspaceId);
+    setChannelId(selectedChannelId);
+  }, [selectedChannelId, selectedWorkspaceId]);
 
   const selectedAnalysis =
     state.analyses.find(item => item.id === selectedAnalysisId) ??
@@ -343,7 +362,10 @@ export function VantaCompanionApp({
         throw new Error(
           'Vanta MCP connection is available only inside the packaged TAP host.',
         );
-      const specialistId = await installSpecialist(state.settings!.region);
+      const specialistId = await findPackageSpecialist(
+        state.settings!.workspaceId,
+        state.settings!.region,
+      );
       let activeChannelId = state.settings!.channelId;
       if (!activeChannelId) {
         const created = await sdk.channels.create({
@@ -371,14 +393,14 @@ export function VantaCompanionApp({
           kind: 'specialist',
           sourceId: specialistId,
           summary:
-            'Installed the Vanta SOC 2 specialist and joined its private operations channel',
+            'Joined the package-owned Vanta SOC 2 specialist to its private operations channel',
           actor: settings.role,
         },
         randomUUID,
       );
       await persist(
         next,
-        'Specialist installed — authorize Vanta when the MCP prompt opens',
+        'Specialist joined — authorize Vanta when the MCP prompt opens',
       );
     });
   }
@@ -864,7 +886,7 @@ export function VantaCompanionApp({
                     value={workspaceId}
                     onChange={event => setWorkspaceId(event.target.value)}
                     placeholder="Current workspace ID"
-                    disabled={Boolean(hostWorkspaceId)}
+                    disabled={Boolean(selectedWorkspaceId)}
                   />
                   <FieldDescription>
                     Packaged surfaces use the workspace supplied by TAP.
@@ -908,7 +930,7 @@ export function VantaCompanionApp({
                     value={channelId}
                     onChange={event => setChannelId(event.target.value)}
                     placeholder="A private channel will be created if omitted"
-                    disabled={Boolean(hostChannelId)}
+                    disabled={Boolean(selectedChannelId)}
                   />
                 </Field>
                 <Field>
@@ -1009,7 +1031,7 @@ export function VantaCompanionApp({
           <span className={`connection-dot ${connected ? 'connected' : ''}`} />
           <div>
             <strong>
-              {connected ? 'Specialist installed' : 'Vanta not connected'}
+              {connected ? 'Specialist joined' : 'Vanta not connected'}
             </strong>
             <small>
               {connected
@@ -1090,7 +1112,7 @@ export function VantaCompanionApp({
               <div>
                 <strong>Connect the Vanta SOC 2 specialist</strong>
                 <p>
-                  Installs an official Vanta MCP connection in this workspace.
+                  Joins the package-owned specialist for your Vanta region.
                   OAuth and credentials stay with TAP and Vanta.
                 </p>
               </div>
@@ -1104,7 +1126,7 @@ export function VantaCompanionApp({
                 ) : (
                   <Sparkles />
                 )}{' '}
-                Install & connect
+                Join & connect
               </Button>
             </section>
           )}

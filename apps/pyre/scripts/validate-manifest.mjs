@@ -28,6 +28,25 @@ if (!specialist || !mcpServer) {
     "Pyre must declare its canonical specialist and package-runtime MCP server.",
   );
 }
+assert.deepEqual(specialist.targets, {
+  desktop: { runtime: "host-declarative" },
+});
+assert.equal(specialist.lifecycleScope, "installation");
+assert.equal(
+  specialist.options?.manifest,
+  "specialists/pyre-investigation-specialist/0.1.0.json",
+);
+const specialistAsset = JSON.parse(
+  fs.readFileSync(
+    new URL(
+      "../specialists/pyre-investigation-specialist/0.1.0.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+assert.equal(specialistAsset.name, specialist.id);
+assert.equal(specialistAsset.version, "0.1.0");
 const consumerPolicy = mcpServer.options?.consumerPolicy;
 if (
   JSON.stringify(consumerPolicy?.contributionIds) !==

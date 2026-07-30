@@ -6,7 +6,7 @@ import {
   storedState,
 } from './vanta-companion-test-support';
 
-test('surfaces the managed-specialist side effect when channel creation is denied', async ({
+test('preserves package projections when channel creation is denied', async ({
   surface,
   tap,
 }) => {
@@ -23,10 +23,7 @@ test('surfaces the managed-specialist side effect when channel creation is denie
   );
 
   const entries = (await tap.fixture.ledger.read()).entries;
-  for (const actionId of [
-    'vanta-companion.coordinate',
-    'specialists.manage',
-  ] as const) {
+  for (const actionId of ['vanta-companion.coordinate'] as const) {
     expect(
       hasHostAuthorizationDecision(entries, {
         actionId,
@@ -43,9 +40,11 @@ test('surfaces the managed-specialist side effect when channel creation is denie
     }),
   ).toBe(true);
   const snapshot = await tap.fixture.snapshot();
-  expect(
-    snapshot.state.specialists.some(item => item.id === 'vanta-soc2-companion'),
-  ).toBe(true);
+  expect(snapshot.state.specialists.map(item => item.id).sort()).toEqual([
+    'vanta-soc2-companion-aus',
+    'vanta-soc2-companion-eu',
+    'vanta-soc2-companion-us',
+  ]);
   expect(
     snapshot.state.channels.filter(
       channel => channel.title === 'Vanta SOC 2 operations',

@@ -29,7 +29,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.4.2",
+    "tapSdk": "0.4.6",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -66,7 +66,6 @@
           "channels.manage-specialists",
           "workflows.list",
           "workflows.invoke",
-          "specialists.manage",
           "specialists.invoke",
           "credentials.read",
           "credentials.use",
@@ -90,7 +89,6 @@
               "tap.channels:manage-specialists",
               "tap.workflows:list",
               "tap.workflows:invoke",
-              "tap.specialists:manage",
               "tap.specialists:invoke"
             ]
           },
@@ -124,6 +122,42 @@
       "id": "vanta-companion-app",
       "apiVersion": 1,
       "options": { "contributionIds": ["vanta-companion"] }
+    },
+    {
+      "kind": "specialist",
+      "id": "vanta-soc2-companion-us",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "manifest": "specialists/vanta-soc2-companion-us/0.1.0.json"
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "vanta-soc2-companion-eu",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "manifest": "specialists/vanta-soc2-companion-eu/0.1.0.json"
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "vanta-soc2-companion-aus",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "manifest": "specialists/vanta-soc2-companion-aus/0.1.0.json"
+      }
     },
     {
       "kind": "permission.catalog",
@@ -212,16 +246,6 @@
             "risk": "consequential"
           },
           {
-            "id": "specialists.manage",
-            "resource": "tap.specialists:manage",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
-            "delegatedActors": [],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "write"
-          },
-          {
             "id": "specialists.invoke",
             "resource": "tap.specialists:invoke",
             "scopes": ["workspace", "channel", "project"],
@@ -279,7 +303,6 @@
               "channels.manage-specialists",
               "workflows.list",
               "workflows.invoke",
-              "specialists.manage",
               "specialists.invoke",
               "credentials.read",
               "credentials.use",
@@ -298,7 +321,6 @@
               "channels.manage-specialists",
               "workflows.list",
               "workflows.invoke",
-              "specialists.manage",
               "specialists.invoke",
               "credentials.read",
               "credentials.use",

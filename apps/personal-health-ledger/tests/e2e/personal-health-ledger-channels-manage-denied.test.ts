@@ -30,15 +30,13 @@ test('creates no specialist membership or binding when channel join is denied', 
   );
 
   const ledger = await tap.fixture.ledger.read();
-  for (const actionId of ['specialists.manage', 'channels.create'] as const) {
-    expect(
-      hasHostAuthorizationDecision(ledger.entries, {
-        actionId,
-        autonomy: 'do',
-        allowed: true,
-      }),
-    ).toBe(true);
-  }
+  expect(
+    hasHostAuthorizationDecision(ledger.entries, {
+      actionId: 'channels.create',
+      autonomy: 'do',
+      allowed: true,
+    }),
+  ).toBe(true);
   expect(
     hasHostAuthorizationDecision(ledger.entries, {
       actionId: 'channels.manage-specialists',

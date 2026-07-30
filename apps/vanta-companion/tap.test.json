@@ -20,7 +20,6 @@
         "effect:host-api:tap.channels:manage-specialists",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.specialists:invoke",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.workflows:invoke",
         "effect:host-api:tap.workflows:list",
         "effect:mcp.oauth:https://mcp.aus.vanta.com/mcp",
@@ -76,34 +75,6 @@
         "screenshots": "failure-only"
       }
     },
-    "vanta-companion-desktop-specialists-manage-denied": {
-      "surface": "vanta-companion",
-      "target": "desktop",
-      "mode": "surface",
-      "permissionScenario": "deny:specialists.manage",
-      "deniedActions": ["specialists.manage"],
-      "fixtureFiles": ["tests/fixtures/vanta-companion.seed.json"],
-      "httpRouteFiles": [],
-      "requiredOrigins": [],
-      "requiredEffects": [
-        "effect:host-api:tap.specialists:manage",
-        "effect:storage:vanta-companion"
-      ],
-      "credentialSlots": [],
-      "environment": {
-        "viewport": { "width": 1280, "height": 720 },
-        "locale": "en-US",
-        "timezone": "UTC",
-        "theme": "dark",
-        "reducedMotion": true,
-        "seed": 6931,
-        "fixedNow": "2026-07-24T12:00:00Z"
-      },
-      "artifacts": {
-        "trace": "failure-only",
-        "screenshots": "failure-only"
-      }
-    },
     "vanta-companion-desktop-channels-create-denied": {
       "surface": "vanta-companion",
       "target": "desktop",
@@ -115,7 +86,6 @@
       "requiredOrigins": [],
       "requiredEffects": [
         "effect:host-api:tap.channels:create",
-        "effect:host-api:tap.specialists:manage",
         "effect:storage:vanta-companion"
       ],
       "credentialSlots": [],
@@ -145,7 +115,6 @@
       "requiredEffects": [
         "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:manage-specialists",
-        "effect:host-api:tap.specialists:manage",
         "effect:storage:vanta-companion"
       ],
       "credentialSlots": [],
@@ -446,7 +415,6 @@
         "action:credentials.use",
         "action:network.request",
         "action:specialists.invoke",
-        "action:specialists.manage",
         "action:vanta-companion.analyze",
         "action:vanta-companion.coordinate",
         "action:vanta-companion.view",
@@ -459,7 +427,6 @@
         "effect:host-api:tap.channels:manage-specialists",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.specialists:invoke",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.workflows:invoke",
         "effect:host-api:tap.workflows:list",
         "effect:mcp.oauth:https://mcp.aus.vanta.com/mcp",
@@ -475,25 +442,13 @@
       "capabilities": ["effect:storage:vanta-companion"]
     },
     {
-      "id": "vanta-companion-desktop-specialists-manage-denied",
-      "profile": "vanta-companion-desktop-specialists-manage-denied",
-      "testMatch": ["tests/e2e/vanta-companion-specialists-manage-denied.test.ts"],
-      "capabilities": [
-        "action:specialists.manage",
-        "action:vanta-companion.coordinate",
-        "effect:host-api:tap.specialists:manage"
-      ]
-    },
-    {
       "id": "vanta-companion-desktop-channels-create-denied",
       "profile": "vanta-companion-desktop-channels-create-denied",
       "testMatch": ["tests/e2e/vanta-companion-channels-create-denied.test.ts"],
       "capabilities": [
         "action:channels.create",
-        "action:specialists.manage",
         "action:vanta-companion.coordinate",
-        "effect:host-api:tap.channels:create",
-        "effect:host-api:tap.specialists:manage"
+        "effect:host-api:tap.channels:create"
       ]
     },
     {
@@ -503,11 +458,9 @@
       "capabilities": [
         "action:channels.create",
         "action:channels.manage-specialists",
-        "action:specialists.manage",
         "action:vanta-companion.coordinate",
         "effect:host-api:tap.channels:create",
-        "effect:host-api:tap.channels:manage-specialists",
-        "effect:host-api:tap.specialists:manage"
+        "effect:host-api:tap.channels:manage-specialists"
       ]
     },
     {

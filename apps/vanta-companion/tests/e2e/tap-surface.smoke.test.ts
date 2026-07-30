@@ -24,7 +24,7 @@ test('remounts the exact declared TAP cell with reproducible provenance', async 
   expect(tap.hostVersion).toMatch(SEMVER);
   expect(tap.hostContractVersion).toBe('1');
   expect(tap.runnerName).toBe('rstest');
-  expect(tap.runnerVersion).toBe('0.11.3');
+  expect(tap.runnerVersion).toBe('0.11.5');
   for (const digest of [
     tap.sourceDigest,
     tap.testBundleDigest,

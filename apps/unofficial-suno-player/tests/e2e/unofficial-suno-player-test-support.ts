@@ -68,7 +68,7 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.4.2",
+    adapterVersion: "0.4.6",
     allowedNetworkOrigins: [],
     artifacts: {
       ...ARTIFACTS,
@@ -87,7 +87,7 @@ export function expectExactProvenance(
     permissionScenario: expected.permissionScenario,
     profileId: expected.profileId,
     runnerName: "rstest",
-    runnerVersion: "0.11.3",
+    runnerVersion: "0.11.5",
     seed: expected.seed,
     surfaceId: SURFACE_ID,
     target: TARGET,

@@ -3,15 +3,14 @@
     {
       "id": "pyre-fixture-project",
       "name": "Pyre — Checkout API elevated errors",
-      "discoverable": false,
-      "channelIds": ["pyre-fixture-channel"],
-      "archivedChannelIds": []
+      "discoverable": false
     }
   ],
   "channels": [
     {
       "roomId": "pyre-fixture-channel",
       "title": "pyre-fixture-checkout",
+      "projectId": "pyre-fixture-project",
       "archived": false,
       "createdAt": 1784894400000,
       "updatedAt": 1784894400000,

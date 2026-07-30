@@ -25,7 +25,6 @@ test('exposes the orphan channel boundary when specialist join is denied', async
   const entries = (await tap.fixture.ledger.read()).entries;
   for (const actionId of [
     'vanta-companion.coordinate',
-    'specialists.manage',
     'channels.create',
   ] as const) {
     expect(

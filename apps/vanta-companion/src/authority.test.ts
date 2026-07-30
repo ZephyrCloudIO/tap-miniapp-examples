@@ -33,6 +33,14 @@ function context(
     entropy: {
       randomUUID: () => '00000000-0000-4000-8000-000000000001',
     },
+    owner: {
+      getSnapshot: () => ({
+        workspaceId: 'workspace-1',
+        channelId: null,
+        conversationId: null,
+      }),
+      subscribe: () => () => undefined,
+    },
     hostAuthority,
   };
 }

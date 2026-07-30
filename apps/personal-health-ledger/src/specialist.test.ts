@@ -1,13 +1,12 @@
 import { describe, expect, it } from '@rstest/core';
 import { addItem, addSavedView, createLedger } from './domain';
 import { createAdministrationDraft } from './administration-draft';
+import specialistManifest from '../specialists/personal-health-researcher/0.1.0.json';
 import {
   buildSpecialistPrompt,
   extractHealthSpecialistResult,
   GROK_MODEL_PREFERENCE,
   HEALTH_SPECIALIST_TOOLS,
-  managedSpecialistManifest,
-  specialistDefinition,
 } from './specialist';
 
 const runtimeState = () =>
@@ -41,15 +40,13 @@ const runtimeState = () =>
   );
 
 describe('health specialist contract', () => {
-  it('prefers Grok while allowlisting host and package-runtime tools', () => {
-    const managed = managedSpecialistManifest();
-    expect(managed.preferredModel).toBe(GROK_MODEL_PREFERENCE);
-    expect(managed.tooling).toEqual({ tools: [...HEALTH_SPECIALIST_TOOLS] });
-    expect(HEALTH_SPECIALIST_TOOLS).not.toContain('x_search');
-    expect(HEALTH_SPECIALIST_TOOLS).toContain('draft_administration');
-    expect(specialistDefinition.preferredModels).toEqual([
+  it('packages the Grok preference while allowlisting runtime tools', () => {
+    expect(specialistManifest.name).toBe('personal-health-researcher');
+    expect(specialistManifest.preferredModels).toEqual([
       { model: GROK_MODEL_PREFERENCE },
     ]);
+    expect(HEALTH_SPECIALIST_TOOLS).not.toContain('x_search');
+    expect(HEALTH_SPECIALIST_TOOLS).toContain('draft_administration');
   });
 
   it('requires explicit approval before including private ledger context', () => {

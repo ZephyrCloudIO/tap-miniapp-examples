@@ -42,7 +42,6 @@ const library = tapLib(
           exposes: {
             './tap/lifecycle': './src/lifecycle.ts',
             './ui/desktop': './src/surface.tsx',
-            './specialists/health': './src/specialist.ts',
           },
         },
       }

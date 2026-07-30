@@ -3,20 +3,19 @@
     {
       "id": "vanta-fixture-project",
       "name": "Vanta SOC 2 remediation",
-      "discoverable": false,
-      "channelIds": ["vanta-fixture-operations"],
-      "archivedChannelIds": []
+      "discoverable": false
     }
   ],
   "channels": [
     {
       "roomId": "vanta-fixture-operations",
       "title": "Vanta SOC 2 operations",
+      "projectId": "vanta-fixture-project",
       "archived": false,
       "createdAt": 1784894400000,
       "updatedAt": 1784894400000,
       "messages": [],
-      "specialistIds": ["vanta-soc2-companion"]
+      "specialistIds": ["vanta-soc2-companion-us"]
     }
   ],
   "workflows": [
@@ -49,7 +48,7 @@
           "workspaceId": "tap-fixture-workspace-v1",
           "channelId": "vanta-fixture-operations",
           "projectId": "vanta-fixture-project",
-          "specialistId": "vanta-soc2-companion",
+          "specialistId": "vanta-soc2-companion-us",
           "region": "us",
           "timezone": "UTC",
           "webhookApiUrl": null,
@@ -79,24 +78,6 @@
         "receipts": [],
         "webhookEvents": [],
         "processedKeys": []
-      }
-    }
-  ],
-  "specialists": [
-    {
-      "id": "vanta-soc2-companion",
-      "value": {
-        "id": "vanta-soc2-companion",
-        "slug": "vanta-soc2-companion",
-        "displayName": "Vanta SOC 2 Companion",
-        "description": "Deterministic connected-specialist fixture.",
-        "tags": ["fixture", "soc2", "vanta"],
-        "version": "0.4.1",
-        "availability": "private",
-        "canRunLocally": false,
-        "category": "security",
-        "categoryDisplayName": "Security & Compliance",
-        "requiredCapabilities": null
       }
     }
   ]

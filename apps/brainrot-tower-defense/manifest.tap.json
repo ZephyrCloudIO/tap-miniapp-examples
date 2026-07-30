@@ -4,7 +4,7 @@
   "package": {"packageId":"tap_pkg_examples_brainrot_td_0001","publisherId":"publisher_theaiplatform_examples","organizationId":"organization_theaiplatform","namespace":"examples-brainrot-tower-defense","slug":"brainrot-tower-defense"},
   "release": {"releaseId":"tap_pkg_examples_brainrot_td_0001@0.1.4","version":"0.1.4","contentDigest":"pending"},
   "presentation": {"name":"Brainrot Tower Defense","description":"Cooperative channel tower defense powered by Rust and WebAssembly.","iconAssets":["assets/brainrot-td.svg"],"assets":[{"role":"app-icon","mediaType":"image/svg+xml","path":"assets/brainrot-td.svg","integrity":"pending","sizes":["any"],"theme":"any"}]},
-  "compatibility": {"tapSdk":"0.4.2","tapHost":">=0.1.0"},
+  "compatibility": {"tapSdk":"0.4.6","tapHost":">=0.1.0"},
   "targets": {
     "desktop":{"remoteName":"tap_brainrot_tower_defense_desktop","remoteEntry":"remoteEntry.mjs","remoteEntryIntegrity":"pending","manifest":"mf-manifest.json","manifestIntegrity":"pending","assetLock":"tap.package.lock.json","assetLockIntegrity":"pending","libraryType":"module","exposes":{"./tap/lifecycle":{"integrity":"pending","runtime":"webview"},"./ui/desktop":{"integrity":"pending","runtime":"webview"}}},
     "quickjs":{"remoteName":"tap_brainrot_tower_defense_quickjs","remoteEntry":"remoteEntry.mjs","remoteEntryIntegrity":"pending","manifest":"mf-manifest.json","manifestIntegrity":"pending","assetLock":"tap.package.lock.json","assetLockIntegrity":"pending","libraryType":"module","exposes":{"./mcp/brainrot-td-state-server":{"integrity":"pending","runtime":"quickjs"}}}

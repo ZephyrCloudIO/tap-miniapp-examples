@@ -28,7 +28,6 @@
         "effect:external-network:https://api.fda.gov",
         "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:manage-specialists",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.specialists:invoke",
         "effect:host-api:tap.vfs:write"
       ],
@@ -117,39 +116,6 @@
         "screenshots": "failure-only"
       }
     },
-    "personal-health-ledger-desktop-specialists-manage-denied": {
-      "surface": "personal-health-ledger",
-      "target": "desktop",
-      "mode": "surface",
-      "permissionScenario": "deny:specialists.manage",
-      "deniedActions": ["specialists.manage"],
-      "fixtureFiles": [
-        "tests/fixtures/personal-health-ledger.seed.json"
-      ],
-      "httpRouteFiles": [],
-      "requiredOrigins": [],
-      "requiredEffects": [
-        "effect:host-api:tap.specialists:manage",
-        "effect:storage:personal-health-ledger"
-      ],
-      "credentialSlots": [],
-      "environment": {
-        "viewport": {
-          "width": 1280,
-          "height": 720
-        },
-        "locale": "en-US",
-        "timezone": "UTC",
-        "theme": "dark",
-        "reducedMotion": true,
-        "seed": 6932,
-        "fixedNow": "2026-07-24T12:00:00Z"
-      },
-      "artifacts": {
-        "trace": "failure-only",
-        "screenshots": "failure-only"
-      }
-    },
     "personal-health-ledger-desktop-channels-create-denied": {
       "surface": "personal-health-ledger",
       "target": "desktop",
@@ -163,7 +129,6 @@
       "requiredOrigins": [],
       "requiredEffects": [
         "effect:host-api:tap.channels:create",
-        "effect:host-api:tap.specialists:manage",
         "effect:storage:personal-health-ledger"
       ],
       "credentialSlots": [],
@@ -198,7 +163,6 @@
       "requiredEffects": [
         "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:manage-specialists",
-        "effect:host-api:tap.specialists:manage",
         "effect:storage:personal-health-ledger"
       ],
       "credentialSlots": [],
@@ -394,7 +358,6 @@
         "action:network.request",
         "action:channels.create",
         "action:channels.manage-specialists",
-        "action:specialists.manage",
         "action:specialists.invoke",
         "action:vfs.write",
         "effect:external-network:https://api.fda.gov",
@@ -402,7 +365,6 @@
         "effect:external-network:https://eutils.ncbi.nlm.nih.gov",
         "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:manage-specialists",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.specialists:invoke",
         "effect:host-api:tap.vfs:write",
         "effect:storage:personal-health-ledger"
@@ -432,19 +394,6 @@
       ]
     },
     {
-      "id": "personal-health-ledger-desktop-specialists-manage-denied",
-      "profile": "personal-health-ledger-desktop-specialists-manage-denied",
-      "testMatch": [
-        "tests/e2e/personal-health-ledger-specialists-manage-denied.test.ts"
-      ],
-      "capabilities": [
-        "action:health-ledger.manage",
-        "action:health-ledger.research",
-        "action:specialists.manage",
-        "effect:host-api:tap.specialists:manage"
-      ]
-    },
-    {
       "id": "personal-health-ledger-desktop-channels-create-denied",
       "profile": "personal-health-ledger-desktop-channels-create-denied",
       "testMatch": [
@@ -453,7 +402,6 @@
       "capabilities": [
         "action:health-ledger.manage",
         "action:health-ledger.research",
-        "action:specialists.manage",
         "action:channels.create",
         "effect:host-api:tap.channels:create"
       ]
@@ -467,7 +415,6 @@
       "capabilities": [
         "action:health-ledger.manage",
         "action:health-ledger.research",
-        "action:specialists.manage",
         "action:channels.create",
         "action:channels.manage-specialists",
         "effect:host-api:tap.channels:manage-specialists"

@@ -22,8 +22,6 @@
         "effect:host-api:tap.channels:manage-specialists",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.projects:create",
-        "effect:host-api:tap.projects:update",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.vfs:provision-project-chat",
         "effect:host-api:tap.vfs:write",
         "effect:host-api:tap.workflows:invoke",
@@ -70,8 +68,6 @@
         "effect:host-api:tap.channels:manage-specialists",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.projects:create",
-        "effect:host-api:tap.projects:update",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.vfs:provision-project-chat",
         "effect:host-api:tap.vfs:write",
         "effect:host-api:tap.workflows:invoke",
@@ -203,17 +199,17 @@
         "screenshots": "failure-only"
       }
     },
-    "pyre-desktop-specialist-denied": {
+    "pyre-desktop-specialist-join-denied": {
       "surface": "pyre",
       "target": "desktop",
       "mode": "surface",
-      "permissionScenario": "deny:specialists.manage",
-      "deniedActions": ["specialists.manage"],
+      "permissionScenario": "deny:channels.manage-specialists",
+      "deniedActions": ["channels.manage-specialists"],
       "fixtureFiles": ["tests/fixtures/pyre.seed.json"],
       "httpRouteFiles": ["tests/fixtures/pyre.github.http-routes.json"],
       "requiredOrigins": ["https://api.github.com"],
       "requiredEffects": [
-        "effect:host-api:tap.specialists:manage",
+        "effect:host-api:tap.channels:manage-specialists",
         "effect:storage:pyre"
       ],
       "credentialSlots": [],
@@ -451,11 +447,9 @@
         "action:network.request",
         "action:profile.read",
         "action:projects.create",
-        "action:projects.update",
         "action:pyre.approve",
         "action:pyre.investigate",
         "action:pyre.view",
-        "action:specialists.manage",
         "action:vfs.provision-project-chat",
         "action:vfs.write",
         "action:workflows.invoke",
@@ -466,8 +460,6 @@
         "effect:host-api:tap.channels:manage-specialists",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.projects:create",
-        "effect:host-api:tap.projects:update",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.vfs:provision-project-chat",
         "effect:host-api:tap.vfs:write",
         "effect:host-api:tap.workflows:invoke",
@@ -489,11 +481,9 @@
         "action:network.request",
         "action:profile.read",
         "action:projects.create",
-        "action:projects.update",
         "action:pyre.approve",
         "action:pyre.investigate",
         "action:pyre.view",
-        "action:specialists.manage",
         "action:vfs.provision-project-chat",
         "action:vfs.write",
         "action:workflows.invoke",
@@ -504,8 +494,6 @@
         "effect:host-api:tap.channels:manage-specialists",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.projects:create",
-        "effect:host-api:tap.projects:update",
-        "effect:host-api:tap.specialists:manage",
         "effect:host-api:tap.vfs:provision-project-chat",
         "effect:host-api:tap.vfs:write",
         "effect:host-api:tap.workflows:invoke",
@@ -550,13 +538,13 @@
       ]
     },
     {
-      "id": "pyre-desktop-specialist-denied",
-      "profile": "pyre-desktop-specialist-denied",
-      "testMatch": ["tests/e2e/pyre-specialist-denied.test.ts"],
+      "id": "pyre-desktop-specialist-join-denied",
+      "profile": "pyre-desktop-specialist-join-denied",
+      "testMatch": ["tests/e2e/pyre-specialist-join-denied.test.ts"],
       "capabilities": [
+        "action:channels.manage-specialists",
         "action:pyre.investigate",
-        "action:specialists.manage",
-        "effect:host-api:tap.specialists:manage"
+        "effect:host-api:tap.channels:manage-specialists"
       ]
     },
     {

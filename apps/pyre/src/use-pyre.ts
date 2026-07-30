@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
 import { emptyState, type Actor, type Investigation, type PyreState } from "./domain";
 import { bootstrapPlatform, previewActor, subscribePresence, type PlatformContext, type PlatformStatus } from "./platform";
 import { useRuntimeId } from "./runtime-id";
 import { loadState, saveState, StorageConflictError } from "./storage";
+
+const getNoOwner = () => null;
+const subscribeNoOwner = () => () => undefined;
 
 export interface PyreController {
   state: PyreState;
@@ -25,13 +28,18 @@ export interface PyreController {
 
 export function usePyre(preview: boolean, surfaceContext?: TapFederatedSurfaceMountContext): PyreController {
   const runtimeId = useRuntimeId();
+  const owner = useSyncExternalStore(
+    surfaceContext?.owner.subscribe ?? subscribeNoOwner,
+    surfaceContext?.owner.getSnapshot ?? getNoOwner,
+    getNoOwner,
+  );
   const context = useMemo<PlatformContext>(() => ({
     preview,
-    workspaceId: surfaceContext?.workspaceId,
-    channelId: surfaceContext?.channelId,
-    conversationId: surfaceContext?.conversationId,
+    workspaceId: owner?.workspaceId ?? surfaceContext?.workspaceId,
+    channelId: owner?.channelId ?? undefined,
+    conversationId: owner?.conversationId ?? undefined,
     events: surfaceContext?.events,
-  }), [preview, surfaceContext]);
+  }), [owner, preview, surfaceContext]);
   const [state, setState] = useState<PyreState>(emptyState);
   const [revision, setRevision] = useState<number | null>(null);
   const [actor, setActor] = useState<Actor>(previewActor);
