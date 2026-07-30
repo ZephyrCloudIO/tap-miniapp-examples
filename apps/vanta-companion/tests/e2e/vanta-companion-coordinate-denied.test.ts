@@ -33,7 +33,6 @@ test('denies product coordination before any host side effect', async ({
     }),
   ).toBe(true);
   for (const actionId of [
-    'specialists.manage',
     'channels.create',
     'channels.manage-specialists',
   ]) {

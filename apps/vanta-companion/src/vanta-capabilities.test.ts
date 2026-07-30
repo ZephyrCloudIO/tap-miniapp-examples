@@ -1,5 +1,13 @@
 import { describe, expect, it } from '@rstest/core';
-import { analysisPrompt, specialistManifest } from './specialist';
+import ausSpecialist from '../specialists/vanta-soc2-companion-aus/0.1.0.json';
+import euSpecialist from '../specialists/vanta-soc2-companion-eu/0.1.0.json';
+import usSpecialist from '../specialists/vanta-soc2-companion-us/0.1.0.json';
+import {
+  analysisPrompt,
+  clearLegacyManagedSpecialist,
+  VANTA_SPECIALIST_SLUGS,
+} from './specialist';
+import { createSettings, emptyState } from './domain';
 import {
   VANTA_API_FAMILIES,
   VANTA_AUDITOR_SDK_METHODS,
@@ -46,22 +54,39 @@ describe('Vanta capability inventory', () => {
   });
 
   it('installs an exact read-only Vanta MCP allowlist for every region', () => {
-    for (const [region, url] of [
-      ['us', 'https://mcp.vanta.com/mcp'],
-      ['eu', 'https://mcp.eu.vanta.com/mcp'],
-      ['aus', 'https://mcp.aus.vanta.com/mcp'],
+    for (const [region, url, manifest] of [
+      ['us', 'https://mcp.vanta.com/mcp', usSpecialist],
+      ['eu', 'https://mcp.eu.vanta.com/mcp', euSpecialist],
+      ['aus', 'https://mcp.aus.vanta.com/mcp', ausSpecialist],
     ] as const) {
-      const manifest = specialistManifest(region);
-      const tooling = manifest.tooling as Record<string, unknown>;
-      const templates = tooling.mcpTemplates as Array<Record<string, unknown>>;
-      const template = templates[0]!;
-      const policy = template.toolPolicy as Record<string, unknown>;
+      expect(manifest.name).toBe(VANTA_SPECIALIST_SLUGS[region]);
+      const template = manifest.tooling.mcpTemplates[0]!;
+      const policy = template.toolPolicy;
       expect(template.tools).toEqual(VANTA_MCP_TOOLS);
       expect(policy.default).toBe('allowlistOnly');
       expect(policy.allowedTools).toEqual(VANTA_MCP_TOOLS);
       expect(policy.writeToolPatterns).toEqual([]);
       expect(template.transport).toEqual({ type: 'streamableHttp', url });
     }
+  });
+
+  it('requires a new package join for legacy managed-specialist bindings', () => {
+    const state = {
+      ...emptyState(),
+      settings: createSettings({
+        role: 'lead',
+        workspaceId: 'workspace-1',
+        channelId: 'channel-1',
+        specialistId: 'vanta-soc2-companion',
+        region: 'eu',
+        timezone: 'UTC',
+      }),
+    };
+    expect(clearLegacyManagedSpecialist(state).settings).toMatchObject({
+      channelId: 'channel-1',
+      specialistId: null,
+      region: 'eu',
+    });
   });
 
   it('routes API gaps without implying unavailable audit access', () => {

@@ -11,7 +11,7 @@ const assertNonEmptyString = (value, field, index) => {
 };
 
 /**
- * Parse the pinned Rstest 0.11.3 `list --json` contract.
+ * Parse the pinned Rstest 0.11.5 `list --json` contract.
  *
  * Discovery is part of the repository's test inventory, so unexpected runner
  * output must fail closed instead of silently changing the reported case count.

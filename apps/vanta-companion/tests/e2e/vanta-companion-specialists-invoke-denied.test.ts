@@ -17,7 +17,7 @@ test('preserves connected state without recording a denied specialist turn', asy
     theme: 'dark',
   });
   await expect(
-    surface.getByText('Specialist installed', { exact: true }),
+    surface.getByText('Specialist joined', { exact: true }),
   ).toBeVisible();
   await surface
     .getByRole('button', { name: 'Run weekly briefing', exact: true })

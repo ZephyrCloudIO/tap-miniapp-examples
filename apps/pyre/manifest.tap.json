@@ -20,7 +20,7 @@
     "iconAssets": []
   },
   "compatibility": {
-    "tapSdk": "0.4.2",
+    "tapSdk": "0.4.6",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -39,10 +39,6 @@
           "runtime": "webview"
         },
         "./ui/desktop": {
-          "integrity": "pending",
-          "runtime": "webview"
-        },
-        "./specialists/pyre": {
           "integrity": "pending",
           "runtime": "webview"
         }
@@ -90,11 +86,9 @@
           "credentials.use",
           "network.request",
           "projects.create",
-          "projects.update",
           "channels.create",
           "channels.send-message",
           "channels.manage-specialists",
-          "specialists.manage",
           "vfs.provision-project-chat",
           "vfs.write",
           "workflows.list",
@@ -132,8 +126,6 @@
               "tap.channels:send-message",
               "tap.channels:manage-specialists",
               "tap.projects:create",
-              "tap.projects:update",
-              "tap.specialists:manage",
               "tap.vfs:provision-project-chat",
               "tap.vfs:write",
               "tap.workflows:list",
@@ -158,18 +150,15 @@
       "apiVersion": 1,
       "targets": {
         "desktop": {
-          "expose": "./specialists/pyre",
-          "runtime": "webview"
+          "runtime": "host-declarative"
         }
       },
       "authorization": {
         "allOf": ["pyre.investigate"]
       },
-      "lifecycleScope": "contribution",
+      "lifecycleScope": "installation",
       "options": {
-        "effects": [
-          {"kind":"host-api","resources":["tap.channels","tap.storage","tap.vfs","tap.workflows"]}
-        ]
+        "manifest": "specialists/pyre-investigation-specialist/0.1.0.json"
       }
     },
     {
@@ -365,16 +354,6 @@
             "risk": "write"
           },
           {
-            "id": "projects.update",
-            "resource": "tap.projects:update",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
-            "delegatedActors": [],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "write"
-          },
-          {
             "id": "channels.create",
             "resource": "tap.channels:create",
             "scopes": ["workspace"],
@@ -398,16 +377,6 @@
             "id": "channels.manage-specialists",
             "resource": "tap.channels:manage-specialists",
             "scopes": ["workspace", "channel"],
-            "directActors": ["human"],
-            "delegatedActors": [],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "write"
-          },
-          {
-            "id": "specialists.manage",
-            "resource": "tap.specialists:manage",
-            "scopes": ["workspace"],
             "directActors": ["human"],
             "delegatedActors": [],
             "autonomyCeiling": "do",
@@ -479,11 +448,9 @@
               "credentials.use",
               "network.request",
               "projects.create",
-              "projects.update",
               "channels.create",
               "channels.send-message",
               "channels.manage-specialists",
-              "specialists.manage",
               "vfs.provision-project-chat",
               "vfs.write",
               "workflows.list",

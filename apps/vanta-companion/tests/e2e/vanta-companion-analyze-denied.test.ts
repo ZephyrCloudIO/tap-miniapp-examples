@@ -18,7 +18,7 @@ test('denies product analysis before invoking the connected specialist', async (
     theme: 'dark',
   });
   await expect(
-    surface.getByText('Specialist installed', { exact: true }),
+    surface.getByText('Specialist joined', { exact: true }),
   ).toBeVisible();
 
   await surface

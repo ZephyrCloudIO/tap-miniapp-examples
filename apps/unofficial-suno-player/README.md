@@ -21,7 +21,7 @@ Packaged execution uses revisioned `sdk.storage`, scoped by TAP to the workspace
 
 Browser preview uses records prefixed `tap-example-unofficial-suno-player-preview` in `localStorage` and a separately named IndexedDB media store. This separation is intentional and visible in the UI.
 
-SDK 0.4.2 exposes JSON storage and write-only VFS, but no readable access-controlled binary artifact API. Packaged imported audio therefore remains playable only for the current surface session; retained metadata shows a truthful re-import requirement after reload. The package can declare an ad hoc workflow, Marketplace categories, and host-mediated HTTP/credential readiness. The SDK still lacks recurring-schedule creation, global host playback/docking/current-channel subscription, durable shared listening sessions, message ineligibility/retention contracts, and Zephyr publication. Direct Suno connectivity additionally remains blocked by the missing provider authorization and supported connector. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the verified checklist and exact blockers.
+SDK 0.4.6 exposes JSON storage and write-only VFS, but no readable access-controlled binary artifact API. Packaged imported audio therefore remains playable only for the current surface session; retained metadata shows a truthful re-import requirement after reload. The package can declare an ad hoc workflow, Marketplace categories, and host-mediated HTTP/credential readiness, and the retained player now follows live host owner changes between channels. The SDK still lacks recurring-schedule creation, global host playback/docking, durable shared listening sessions, message ineligibility/retention contracts, and Zephyr publication. Direct Suno connectivity additionally remains blocked by the missing provider authorization and supported connector. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the verified checklist and exact blockers.
 
 ## Commands
 
@@ -41,4 +41,4 @@ pnpm dev
 
 `pnpm build` produces the browser preview in `dist/` and a portable federated TAP package in `tap-package/` with desktop and workflow-host targets.
 
-`pnpm test:tap` runs the SDK 0.4.2 host-driven suite for the one browser surface cell (`unofficial-suno-player × desktop`) when Test Lab supplies an authorized session. The workflow-host target is intentionally not a UI matrix cell; its deterministic catalog, schemas, assembly, and package integrity remain covered by unit and package verification.
+`pnpm test:tap` runs the SDK 0.4.6 host-driven suite for the one browser surface cell (`unofficial-suno-player × desktop`) when Test Lab supplies an authorized session. The workflow-host target is intentionally not a UI matrix cell; its deterministic catalog, schemas, assembly, and package integrity remain covered by unit and package verification.

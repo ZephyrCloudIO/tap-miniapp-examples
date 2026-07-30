@@ -85,6 +85,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import {
@@ -255,6 +256,8 @@ interface ConfirmationRequest {
 type RequestConfirmation = (request: ConfirmationRequest) => void;
 
 const closedDialog: DialogState = { kind: null };
+const getNoSurfaceOwner = () => null;
+const subscribeNoSurfaceOwner = () => () => undefined;
 const ledgerActions = ['manage', 'research', 'export'] as const satisfies
   readonly LedgerAction[];
 const previewActionAccess = {
@@ -3236,6 +3239,12 @@ function ReportsPage({
 }) {
   const [platformStatus, setPlatformStatus] = useState<string | null>(null);
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const owner = useSyncExternalStore(
+    context?.owner.subscribe ?? subscribeNoSurfaceOwner,
+    context?.owner.getSnapshot ?? getNoSurfaceOwner,
+    getNoSurfaceOwner,
+  );
+  const activeConversationId = owner?.conversationId ?? null;
   const summary = clinicianSummary(state);
   const csv = serializeAdministrationsCsv(state);
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Clinician Summary</title><style>body{font:16px/1.5 system-ui;max-width:760px;margin:48px auto;padding:0 24px;color:#17211f}pre{white-space:pre-wrap;font:inherit}footer{margin-top:40px;color:#64706d;font-size:13px}</style></head><body><pre>${escapeHtml(summary)}</pre><footer>Generated from user-entered Personal Health Ledger records on ${escapeHtml(dateFormatter.format(new Date()))}.</footer></body></html>`;
@@ -3296,14 +3305,16 @@ function ReportsPage({
     }
   };
   const saveToVfs = async () => {
-    if (!context?.conversationId || !sdk.vfs) {
-      setPlatformStatus('TAP VFS is not available in this surface context.');
+    if (!activeConversationId || !sdk.vfs) {
+      setPlatformStatus(
+        'Select a conversation before saving this summary to TAP VFS.',
+      );
       return;
     }
     try {
       await requireExport();
       await sdk.vfs.writeFile(
-        context.conversationId,
+        activeConversationId,
         `personal-health-ledger/clinician-summary-${todayIso()}.txt`,
         new TextEncoder().encode(summary),
       );

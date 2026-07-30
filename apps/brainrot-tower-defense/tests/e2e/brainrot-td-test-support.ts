@@ -11,9 +11,9 @@ export const FIXTURE_USER_ID = "tap-fixture-user-v1";
 export const FIXTURE_USER_NAME = "Miniapp Test Fixture User";
 export const FALLBACK_PLAYER_NAME = "TAP player";
 export const FIXED_NOW = "2026-01-01T00:00:00Z";
-export const SDK_VERSION = "0.4.2";
+export const SDK_VERSION = "0.4.6";
 export const HOST_CONTRACT_VERSION = "1";
-export const RUNNER_VERSION = "0.11.3";
+export const RUNNER_VERSION = "0.11.5";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER =

@@ -32,13 +32,6 @@ test('keeps a denied private research channel out of the host realm', async ({
   const ledger = await tap.fixture.ledger.read();
   expect(
     hasHostAuthorizationDecision(ledger.entries, {
-      actionId: 'specialists.manage',
-      autonomy: 'do',
-      allowed: true,
-    }),
-  ).toBe(true);
-  expect(
-    hasHostAuthorizationDecision(ledger.entries, {
       actionId: 'channels.create',
       autonomy: 'do',
       allowed: false,

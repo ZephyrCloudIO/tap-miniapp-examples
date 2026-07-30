@@ -1,17 +1,19 @@
 # Vanta Companion
 
-Vanta Companion is a governed SOC 2 operating surface for TAP. It installs a managed specialist connected to Vanta's official regional remote MCP server and keeps Vanta as the system of record.
+Vanta Companion is a governed SOC 2 operating surface for TAP. The package owns immutable US, EU, and AUS specialists connected to Vanta's official regional remote MCP servers and keeps Vanta as the system of record.
 
 ## Vanta integration
 
-- Official remote MCP endpoints for US, EU, and Australia with host-managed OAuth.
+- Three installation-scoped package specialists with deterministic regional slugs and official US, EU, and Australia MCP endpoints.
+- The surface discovers the package projection for the configured region and joins that specialist to the private operations channel; it never creates or mutates specialist definitions at runtime.
+- Retained bindings to the legacy runtime-managed specialist are cleared in memory and require one explicit regional package join; the existing operations channel is preserved.
 - Exact 45-tool read allowlist verified against `@vantasdk/vanta-mcp-server@1.2.0`.
 - Specialist routes for readiness, failing tests, documents/evidence, controls, people/devices, vendor risk, vulnerabilities, Trust Center, integrations, remediation planning, and custom questions.
 - A visible coverage workspace mapping all 43 current Vanta API reference families.
 - A complete 52-method inventory of `vanta-auditor-api-sdk@0.9.10`, with documented Auditor, Manage, and Build Integrations REST endpoints executable through the TAP host HTTP bridge.
 - A companion Cloudflare Worker that verifies raw-body Svix signatures, durably deduplicates deliveries in D1, and exposes an event-metadata feed through Cloudflare Access.
 
-The installed specialist cannot mutate Vanta. Direct API requests are a separate human-operated path: the app restricts them to `https://api.vanta.com/v1`, leaves reads subject to credential scope, and requires a fresh compliance-lead confirmation for every write.
+The package specialists cannot mutate Vanta. Direct API requests are a separate human-operated path: the app restricts them to `https://api.vanta.com/v1`, leaves reads subject to credential scope, and requires a fresh compliance-lead confirmation for every write.
 
 ## Persistence
 
@@ -33,7 +35,7 @@ pnpm test:tap:list
 
 Run `pnpm test:tap` from a Miniapp Test Lab session. The schema-v2 matrix
 exercises the desktop surface with deterministic storage, workflow, channel,
-specialist, and HTTP route fixtures plus isolated denial profiles. Only
+specialist projection/join, and HTTP route fixtures plus isolated denial profiles. Only
 `vanta-companion.view` is required to project the surface; callable product and
 host actions are declared under `authorization.onDemand` and checked at the
 operation boundary. The all-denied storage case is explicitly modeled as

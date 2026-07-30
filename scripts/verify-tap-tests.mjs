@@ -20,8 +20,8 @@ const repositoryRoot = path.resolve(
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const expectedSdkVersion = "0.4.2";
-const expectedRstestVersion = "0.11.3";
+const expectedSdkVersion = "0.4.6";
+const expectedRstestVersion = "0.11.5";
 const expectedPlaywrightVersion = "^1.61.0";
 const expectedTypecheckCommand =
   "tsc --project ./tsconfig.tap-test.json --noEmit";

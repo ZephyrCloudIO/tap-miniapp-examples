@@ -227,7 +227,6 @@ test('installs, channels, and persists the specialist reproducibly after reset',
 
   const firstLedger = await tap.fixture.ledger.read();
   for (const actionId of [
-    'specialists.manage',
     'channels.create',
     'channels.manage-specialists',
   ] as const) {

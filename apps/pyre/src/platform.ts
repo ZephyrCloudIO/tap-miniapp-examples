@@ -251,7 +251,6 @@ export async function provisionInvestigation(
     projectId: project.projectId,
     visibility: "private",
   });
-  await sdk.projects.update({ workspaceId: context.workspaceId, projectId: project.projectId, channelIds: [channel.roomId] });
   await sdk.channels.sendMessage({
     workspaceId: context.workspaceId,
     channelId: channel.roomId,
@@ -282,47 +281,19 @@ export async function provisionInvestigation(
   };
 }
 
-export async function installSpecialist(investigation: Investigation, context: PlatformContext): Promise<string> {
-  if (context.preview) throw new Error("The Pyre specialist can be installed only in packaged execution.");
-  if (!sdk.specialist?.upsertManaged) throw new Error("This TAP host does not expose managed specialist installation.");
-  if (!investigation.bindings.channelId) throw new Error("Create the investigation channel before installing the specialist.");
-  const managed = await sdk.specialist.upsertManaged({
-    id: "pyre-investigation-specialist",
-    slug: "pyre-investigator",
-    name: "Pyre Investigator",
-    publisher: "The AI Platform Examples",
-    description: "Neutral incident facilitator and evidence analyst.",
-    icon: "flame",
-    category: "operations",
-    version: "0.1.0",
-    systemPrompt: "You are Pyre, a neutral and blameless incident facilitator. Retrieve current investigation state before status claims. Label facts, hypotheses, inferences, and recommendations. Cite evidence for material claims. Surface contradictions. Never invent timestamps, impact, causes, owners, or publication success. Ask one focused causal question at a time. Never publish or notify without explicit human approval.",
-    prompts: {
-      intake: "Extract supplied facts only; draft an observable statement; identify missing time, impact, scope, ownership, and sources.",
-      timeline: "Normalize timestamps, retain originals, deduplicate with provenance, mark conflicts and gaps, and request review.",
-      why: "Restate supported claim and evidence, ask one causal question, keep answers hypothetical until supported, and ask what would falsify them.",
-      evidence: "Assess exact claim, source completeness and access, support or contradiction, alternatives, gaps, and transparent confidence.",
-      actions: "Link actions to reviewed factors, define owner, acceptance, verification, required evidence, side effects, and rollback.",
-      report: "Use reviewed state and cited evidence, preserve uncertainty and dissent, use blameless language, and require approval.",
-      notes: "Extract candidate facts, events, evidence, hypotheses, decisions, questions, and actions with message provenance; request confirmation for material interpretations.",
-      briefing: "Respect requesting participant permissions; summarize status, impact, timeline, hypotheses, evidence gaps, decisions, questions, and actions.",
-    },
-    tasks: [
-      { id: "incident-intake", name: "Incident intake" },
-      { id: "timeline-construction", name: "Timeline construction" },
-      { id: "facilitate-why", name: "Facilitate a Why" },
-      { id: "evidence-assessment", name: "Evidence assessment" },
-      { id: "corrective-actions", name: "Corrective actions" },
-      { id: "incident-report", name: "Incident report" },
-      { id: "channel-notes", name: "Channel note taking" },
-      { id: "participant-briefing", name: "New participant briefing" },
-    ],
-    constraints: { approvalRequired: ["causal-conclusion", "action-acceptance", "report-approval", "publication"] },
-    tags: ["incident-response", "root-cause-analysis", "evidence", "blameless"],
-    supportsLocal: true,
-    requiresNetwork: false,
-  });
-  await sdk.specialist.joinToChannel(investigation.bindings.channelId, managed.specialistId);
-  return managed.specialistId;
+export async function joinPackageSpecialist(investigation: Investigation, context: PlatformContext): Promise<string> {
+  if (context.preview) throw new Error("The Pyre specialist can be joined only in packaged execution.");
+  if (!sdk.specialist) throw new Error("This TAP host does not expose package specialists.");
+  if (!context.workspaceId) throw new Error("Select a workspace before joining the specialist.");
+  if (!investigation.bindings.channelId) throw new Error("Create the investigation channel before joining the specialist.");
+  const projected = (await sdk.specialist.listWorkspace(context.workspaceId)).find(
+    specialist => specialist.slug === "pyre-investigation-specialist",
+  );
+  if (!projected) {
+    throw new Error("The package-owned Pyre Investigator is not projected into this workspace.");
+  }
+  await sdk.specialist.joinToChannel(investigation.bindings.channelId, projected.id);
+  return projected.id;
 }
 
 export async function postCheckpoint(investigation: Investigation, context: PlatformContext): Promise<string> {

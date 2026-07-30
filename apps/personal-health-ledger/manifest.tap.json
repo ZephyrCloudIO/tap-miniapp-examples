@@ -28,7 +28,7 @@
       }
     ]
   },
-  "compatibility": { "tapSdk": "0.4.2", "tapHost": ">=0.1.0" },
+  "compatibility": { "tapSdk": "0.4.6", "tapHost": ">=0.1.0" },
   "targets": {
     "desktop": {
       "remoteName": "tap_personal_health_ledger_desktop",
@@ -41,8 +41,7 @@
       "libraryType": "module",
       "exposes": {
         "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
-        "./ui/desktop": { "integrity": "pending", "runtime": "webview" },
-        "./specialists/health": { "integrity": "pending", "runtime": "webview" }
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
       }
     },
     "quickjs": {
@@ -81,7 +80,6 @@
           "network.request",
           "channels.create",
           "channels.manage-specialists",
-          "specialists.manage",
           "specialists.invoke",
           "vfs.write"
         ],
@@ -100,7 +98,6 @@
             "resources": [
               "tap.channels:create",
               "tap.channels:manage-specialists",
-              "tap.specialists:manage",
               "tap.specialists:invoke",
               "tap.vfs:write"
             ]
@@ -123,17 +120,12 @@
       "id": "personal-health-researcher",
       "apiVersion": 1,
       "targets": {
-        "desktop": { "expose": "./specialists/health", "runtime": "webview" }
+        "desktop": { "runtime": "host-declarative" }
       },
       "authorization": { "allOf": ["health-ledger.research"] },
-      "lifecycleScope": "contribution",
+      "lifecycleScope": "installation",
       "options": {
-        "effects": [
-          {
-            "kind": "host-api",
-            "resources": ["tap.channels", "tap.specialists"]
-          }
-        ]
+        "manifest": "specialists/personal-health-researcher/0.1.0.json"
       }
     },
     {
@@ -254,16 +246,6 @@
             "risk": "write"
           },
           {
-            "id": "specialists.manage",
-            "resource": "tap.specialists:manage",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
-            "delegatedActors": [],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "write"
-          },
-          {
             "id": "specialists.invoke",
             "resource": "tap.specialists:invoke",
             "scopes": ["workspace", "channel"],
@@ -300,7 +282,6 @@
               "network.request",
               "channels.create",
               "channels.manage-specialists",
-              "specialists.manage",
               "specialists.invoke",
               "vfs.write"
             ],

@@ -332,7 +332,6 @@ test("provisions project and channel rails from an unbound investigation", async
   for (const actionId of [
     "projects.create",
     "channels.create",
-    "projects.update",
     "channels.send-message",
   ]) {
     expect(
@@ -345,17 +344,17 @@ test("provisions project and channel rails from an unbound investigation", async
   }
 });
 
-test("installs the specialist, posts a checkpoint, and invokes a saved workflow", async ({
+test("joins the package specialist, posts a checkpoint, and invokes a saved workflow", async ({
   surface,
   tap,
 }) => {
   await openPlatform(surface);
   await surface
-    .getByRole("button", { name: "Install & Join", exact: true })
+    .getByRole("button", { name: "Join Pyre Specialist", exact: true })
     .click();
   await expect(
     surface.getByText(
-      "Pyre specialist installed and joined to the investigation channel.",
+      "Package-owned Pyre specialist joined the investigation channel.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -384,10 +383,12 @@ test("installs the specialist, posts a checkpoint, and invokes a saved workflow"
   expect(channel?.messages).toHaveLength(1);
   expect(channel?.specialistIds).toHaveLength(1);
   expect(snapshot.state.specialists).toHaveLength(1);
+  expect(snapshot.state.specialists[0]?.id).toBe(
+    "pyre-investigation-specialist",
+  );
 
   const ledger = await tap.fixture.ledger.read();
   for (const actionId of [
-    "specialists.manage",
     "channels.manage-specialists",
     "channels.send-message",
     "workflows.invoke",

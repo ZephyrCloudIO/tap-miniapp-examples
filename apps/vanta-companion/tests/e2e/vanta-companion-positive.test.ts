@@ -82,7 +82,7 @@ test('hydrates package-scoped compliance state and records storage authority', a
     .toBe(true);
 });
 
-test('installs the exact Vanta MCP specialist reproducibly and reaches the turn boundary', async ({
+test('joins the regional package specialist reproducibly and reaches the turn boundary', async ({
   surface,
   tap,
 }) => {
@@ -90,14 +90,11 @@ test('installs the exact Vanta MCP specialist reproducibly and reaches the turn 
     await installCompanion(surface);
     await expect(
       surface.getByText(
-        'Specialist installed — authorize Vanta when the MCP prompt opens',
+        'Specialist joined — authorize Vanta when the MCP prompt opens',
         { exact: true },
       ),
     ).toBeVisible();
     const snapshot = await tap.fixture.snapshot();
-    const specialist = snapshot.state.specialists.find(
-      item => item.id === 'vanta-soc2-companion',
-    );
     const state = storedState(snapshot);
     const receipts = Reflect.get(state, 'receipts');
     if (!Array.isArray(receipts)) {
@@ -120,7 +117,7 @@ test('installs the exact Vanta MCP specialist reproducibly and reaches the turn 
       // Fixture reset restores package data but deliberately does not rewind
       // the run-scoped entropy stream. Receipt IDs stay fresh and opaque.
       receipts: stableReceipts,
-      specialist: specialist?.value,
+      specialistIds: snapshot.state.specialists.map(item => item.id).sort(),
       channels: snapshot.state.channels
         .filter(channel => channel.title === 'Vanta SOC 2 operations')
         .map(channel => ({
@@ -131,37 +128,21 @@ test('installs the exact Vanta MCP specialist reproducibly and reaches the turn 
   };
 
   const first = await installAndCapture();
-  expect(first.specialist).toMatchObject({
-    id: 'vanta-soc2-companion',
-    version: '0.4.1',
-    tooling: {
-      mcpTemplates: [
-        expect.objectContaining({
-          id: 'vanta-official-mcp',
-          required: true,
-          transport: {
-            type: 'streamableHttp',
-            url: 'https://mcp.vanta.com/mcp',
-          },
-          toolPolicy: expect.objectContaining({
-            default: 'allowlistOnly',
-            blockedTools: [],
-          }),
-        }),
-      ],
-    },
-  });
+  expect(first.specialistIds).toEqual([
+    'vanta-soc2-companion-aus',
+    'vanta-soc2-companion-eu',
+    'vanta-soc2-companion-us',
+  ]);
   expect(first.channels).toEqual([
     {
       title: 'Vanta SOC 2 operations',
-      specialistIds: ['vanta-soc2-companion'],
+      specialistIds: ['vanta-soc2-companion-us'],
     },
   ]);
 
   const ledger = await tap.fixture.ledger.read();
   for (const actionId of [
     'vanta-companion.coordinate',
-    'specialists.manage',
     'channels.create',
     'channels.manage-specialists',
   ] as const) {

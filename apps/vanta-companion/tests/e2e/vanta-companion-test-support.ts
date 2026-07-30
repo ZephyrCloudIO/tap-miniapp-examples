@@ -8,8 +8,8 @@ import {
 
 export const PACKAGE_ID = 'tap_pkg_examples_vanta_companion_0001';
 export const SURFACE_ID = 'vanta-companion';
-export const SDK_VERSION = '0.4.2';
-export const RUNNER_VERSION = '0.11.3';
+export const SDK_VERSION = '0.4.6';
+export const RUNNER_VERSION = '0.11.5';
 export const FIXED_NOW = '2026-07-24T12:00:00Z';
 export const FIXED_NOW_GREETING = 'Good afternoon.';
 export const VANTA_CREDENTIAL_DISPLAY_NAME = 'Test Lab Vanta bearer';
@@ -216,7 +216,7 @@ export async function installCompanion(
   surface: TapRstestFixtures['surface'],
 ): Promise<void> {
   await surface
-    .getByRole('button', { name: 'Install & connect', exact: true })
+    .getByRole('button', { name: 'Join & connect', exact: true })
     .click();
 }
 

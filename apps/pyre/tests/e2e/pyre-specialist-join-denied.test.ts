@@ -9,21 +9,25 @@ import {
   openPlatform,
 } from "./pyre-test-support";
 
-test("does not create or join a managed specialist when management is denied", async ({
+test("keeps the package specialist out of the channel when joining is denied", async ({
   surface,
   tap,
 }) => {
   await openPlatform(surface);
   await surface
-    .getByRole("button", { name: "Install & Join", exact: true })
+    .getByRole("button", { name: "Join Pyre Specialist", exact: true })
     .click();
   await expectMatchingAlert(
     surface,
-    /Specialist installation failed.*permission is not granted/iu,
+    /Specialist join failed.*permission is not granted/iu,
   );
 
   const snapshot = await tap.fixture.snapshot();
-  expect(snapshot.state.specialists).toEqual([]);
+  expect(
+    snapshot.state.specialists.some(
+      specialist => specialist.id === "pyre-investigation-specialist",
+    ),
+  ).toBe(true);
   expect(
     snapshot.state.channels.find(
       (candidate) => candidate.roomId === FIXTURE_CHANNEL_ID,
@@ -31,7 +35,7 @@ test("does not create or join a managed specialist when management is denied", a
   ).toEqual([]);
   expect(
     hasAuthorizationDecision((await tap.fixture.ledger.read()).entries, {
-      actionId: "specialists.manage",
+      actionId: "channels.manage-specialists",
       allowed: false,
       kind: "host-action",
     }),
