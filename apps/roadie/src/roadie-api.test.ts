@@ -5,7 +5,13 @@ import type {
 } from "@theaiplatform/miniapp-sdk";
 import { describe, expect, it } from "@rstest/core";
 
-import { getWorkspaceContext, ROADIE_API_ORIGIN } from "./roadie-api";
+import type { Trip } from "./domain";
+import {
+  getWorkspaceContext,
+  listWorkspaceTrips,
+  ROADIE_API_ORIGIN,
+  toServiceTrip,
+} from "./roadie-api";
 
 describe("Roadie service client", () => {
   it("uses host-managed TAP authentication and validates the response", async () => {
@@ -80,5 +86,55 @@ describe("Roadie service client", () => {
     };
 
     await expect(getWorkspaceContext(http, "workspace-1")).rejects.toThrow();
+  });
+
+  it("maps complete trips across the protobuf JSON boundary", async () => {
+    const trip: Trip = {
+      id: "trip-1",
+      title: "React Summit",
+      purpose: "conference",
+      location: "Amsterdam",
+      timeline: [
+        {
+          id: "item-1",
+          title: "Shipping AI interfaces",
+          start: "2026-06-12T12:30:00.000Z",
+          timeZone: "Europe/Amsterdam",
+          kind: "talk",
+          engagementType: "keynote",
+          evidence: [
+            {
+              sourceKind: "pasted-text",
+              sourceLabel: "Speaker confirmation",
+              capturedAt: "2026-01-02T10:00:00.000Z",
+              confidence: "high",
+            },
+          ],
+          createdAt: "2026-01-02T10:00:00.000Z",
+          updatedAt: "2026-01-02T10:00:00.000Z",
+        },
+      ],
+      createdAt: "2026-01-02T10:00:00.000Z",
+      updatedAt: "2026-01-02T10:00:00.000Z",
+    };
+    const serviceTrip = toServiceTrip(trip, "workspace-1", "user-1");
+    const http: MiniAppHttpApi = {
+      request: () => ({
+        finalUrl: ROADIE_API_ORIGIN,
+        status: 200,
+        statusText: "OK",
+        headers: [],
+        bodyText: JSON.stringify({ trips: [serviceTrip] }),
+        bodyBase64: null,
+        bodyKind: "text",
+        bodyTruncated: false,
+        sizeBytes: 1,
+        elapsedMs: 1,
+        contentType: "application/json",
+      }),
+    };
+
+    await expect(listWorkspaceTrips(http, "workspace-1")).resolves.toEqual([trip]);
+    expect(serviceTrip.timeline[0]?.engagementType).toBe("ROADIE_ENGAGEMENT_TYPE_KEYNOTE");
   });
 });

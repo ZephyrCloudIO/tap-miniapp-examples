@@ -8,21 +8,14 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type CreateTripRequest = {
+export type DeleteTripRequest = {
   workspaceId: string;
   requestId: string;
-  title: string;
-  purpose:
-    | "ROADIE_TRIP_PURPOSE_CONFERENCE"
-    | "ROADIE_TRIP_PURPOSE_MEETUP"
-    | "ROADIE_TRIP_PURPOSE_PODCAST"
-    | "ROADIE_TRIP_PURPOSE_WORK"
-    | "ROADIE_TRIP_PURPOSE_OTHER";
-  location?: string | undefined;
+  tripId: string;
 };
 
-export type CreateTripResponse = {
-  trip?: RoadieTrip | undefined;
+export type DeleteTripResponse = {
+  tripId: string;
 };
 
 export type GetWorkspaceContextRequest = {
@@ -44,15 +37,57 @@ export type ListTripsResponse = {
   trips: RoadieTrip[];
 };
 
+export type PutTripRequest = {
+  workspaceId: string;
+  requestId: string;
+  trip?: RoadieTrip | undefined;
+};
+
+export type PutTripResponse = {
+  trip?: RoadieTrip | undefined;
+};
+
+export type RoadieEngagementOutcome = {
+  audienceCount?: number | undefined;
+  audienceConfidence?: "ROADIE_METRIC_CONFIDENCE_CONFIRMED" | "ROADIE_METRIC_CONFIDENCE_ESTIMATED" | "ROADIE_METRIC_CONFIDENCE_DERIVED" | undefined;
+  highlight?: string | undefined;
+  outcome?: string | undefined;
+  followUpCount?: number | undefined;
+  links: RoadieImpactLink[];
+  updatedAtMs: number;
+};
+
+export type RoadieEvidence = {
+  sourceKind: "ROADIE_EVIDENCE_SOURCE_KIND_PASTED_TEXT" | "ROADIE_EVIDENCE_SOURCE_KIND_OFFICIAL_SITE" | "ROADIE_EVIDENCE_SOURCE_KIND_USER" | "ROADIE_EVIDENCE_SOURCE_KIND_DEMO_FIXTURE";
+  sourceLabel: string;
+  excerpt?: string | undefined;
+  capturedAtMs: number;
+  confidence?: "ROADIE_EVIDENCE_CONFIDENCE_HIGH" | "ROADIE_EVIDENCE_CONFIDENCE_MEDIUM" | "ROADIE_EVIDENCE_CONFIDENCE_LOW" | undefined;
+};
+
+export type RoadieImpactLink = {
+  label: string;
+  url: string;
+};
+
 export type RoadieMember = {
   userId: string;
   displayName: string;
   avatarUrl?: string | undefined;
-  role:
-    | "ROADIE_WORKSPACE_ROLE_OWNER"
-    | "ROADIE_WORKSPACE_ROLE_ADMIN"
-    | "ROADIE_WORKSPACE_ROLE_MEMBER"
-    | "ROADIE_WORKSPACE_ROLE_VIEW_ONLY";
+  role: "ROADIE_WORKSPACE_ROLE_OWNER" | "ROADIE_WORKSPACE_ROLE_ADMIN" | "ROADIE_WORKSPACE_ROLE_MEMBER" | "ROADIE_WORKSPACE_ROLE_VIEW_ONLY";
+};
+
+export type RoadieTimelineItem = {
+  itemId: string;
+  title: string;
+  startAtMs: number;
+  timeZone: string;
+  kind: "ROADIE_ITINERARY_ITEM_KIND_TALK" | "ROADIE_ITINERARY_ITEM_KIND_SOCIAL" | "ROADIE_ITINERARY_ITEM_KIND_MEETING" | "ROADIE_ITINERARY_ITEM_KIND_TRAVEL" | "ROADIE_ITINERARY_ITEM_KIND_HOTEL" | "ROADIE_ITINERARY_ITEM_KIND_PERSONAL" | "ROADIE_ITINERARY_ITEM_KIND_OTHER";
+  engagementType?: "ROADIE_ENGAGEMENT_TYPE_TALK" | "ROADIE_ENGAGEMENT_TYPE_PANEL" | "ROADIE_ENGAGEMENT_TYPE_WORKSHOP" | "ROADIE_ENGAGEMENT_TYPE_PODCAST" | "ROADIE_ENGAGEMENT_TYPE_INTERVIEW" | "ROADIE_ENGAGEMENT_TYPE_KEYNOTE" | "ROADIE_ENGAGEMENT_TYPE_LIVESTREAM" | undefined;
+  evidence: RoadieEvidence[];
+  outcome?: RoadieEngagementOutcome | undefined;
+  createdAtMs: number;
+  updatedAtMs: number;
 };
 
 export type RoadieTrip = {
@@ -60,13 +95,25 @@ export type RoadieTrip = {
   workspaceId: string;
   ownerUserId: string;
   title: string;
-  purpose:
-    | "ROADIE_TRIP_PURPOSE_CONFERENCE"
-    | "ROADIE_TRIP_PURPOSE_MEETUP"
-    | "ROADIE_TRIP_PURPOSE_PODCAST"
-    | "ROADIE_TRIP_PURPOSE_WORK"
-    | "ROADIE_TRIP_PURPOSE_OTHER";
+  purpose: "ROADIE_TRIP_PURPOSE_CONFERENCE" | "ROADIE_TRIP_PURPOSE_MEETUP" | "ROADIE_TRIP_PURPOSE_PODCAST" | "ROADIE_TRIP_PURPOSE_WORK" | "ROADIE_TRIP_PURPOSE_PERSONAL" | "ROADIE_TRIP_PURPOSE_OTHER";
   location?: string | undefined;
+  createdAtMs: number;
+  updatedAtMs: number;
+  timeline: RoadieTimelineItem[];
+  impactReport?: RoadieTripImpactReport | undefined;
+};
+
+export type RoadieTripImpactReport = {
+  sourceText: string;
+  eventAttendance?: number | undefined;
+  attendanceConfidence?: "ROADIE_METRIC_CONFIDENCE_CONFIRMED" | "ROADIE_METRIC_CONFIDENCE_ESTIMATED" | "ROADIE_METRIC_CONFIDENCE_DERIVED" | undefined;
+  summary: string;
+  highlights?: string | undefined;
+  outcomes?: string | undefined;
+  sponsorValue?: string | undefined;
+  privateReflection?: string | undefined;
+  followUpCount?: number | undefined;
+  links: RoadieImpactLink[];
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -76,15 +123,15 @@ export const roadieService = {
   pathPrefix: "/rpc/tap.roadie.v1.RoadieService/",
   routePath: "/rpc/:service/:rpcMethod",
   methods: {
-    CreateTrip: {
-      name: "CreateTrip",
-      localName: "createTrip",
-      path: "/rpc/tap.roadie.v1.RoadieService/CreateTrip",
-      requestType: "tap.roadie.v1.CreateTripRequest",
-      responseType: "tap.roadie.v1.CreateTripResponse",
+    "DeleteTrip": {
+      name: "DeleteTrip",
+      localName: "deleteTrip",
+      path: "/rpc/tap.roadie.v1.RoadieService/DeleteTrip",
+      requestType: "tap.roadie.v1.DeleteTripRequest",
+      responseType: "tap.roadie.v1.DeleteTripResponse",
       methodKind: "unary",
     },
-    GetWorkspaceContext: {
+    "GetWorkspaceContext": {
       name: "GetWorkspaceContext",
       localName: "getWorkspaceContext",
       path: "/rpc/tap.roadie.v1.RoadieService/GetWorkspaceContext",
@@ -92,12 +139,20 @@ export const roadieService = {
       responseType: "tap.roadie.v1.GetWorkspaceContextResponse",
       methodKind: "unary",
     },
-    ListTrips: {
+    "ListTrips": {
       name: "ListTrips",
       localName: "listTrips",
       path: "/rpc/tap.roadie.v1.RoadieService/ListTrips",
       requestType: "tap.roadie.v1.ListTripsRequest",
       responseType: "tap.roadie.v1.ListTripsResponse",
+      methodKind: "unary",
+    },
+    "PutTrip": {
+      name: "PutTrip",
+      localName: "putTrip",
+      path: "/rpc/tap.roadie.v1.RoadieService/PutTrip",
+      requestType: "tap.roadie.v1.PutTripRequest",
+      responseType: "tap.roadie.v1.PutTripResponse",
       methodKind: "unary",
     },
   },

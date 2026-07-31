@@ -1,15 +1,16 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
-  createTripRequestSchema,
+  deleteTripRequestSchema,
   getWorkspaceContextRequestSchema,
   listTripsRequestSchema,
+  putTripRequestSchema,
 } from "@tap-examples/roadie-contract/zod";
 import type { RoadieMember } from "@tap-examples/roadie-contract";
 
 import { authenticateRoadieRequest, requireJoinedWorkspace } from "./auth";
 import { listMembersResponseSchema } from "./directory-boundary";
-import { createTrip, listTrips } from "./trips";
+import { deleteTrip, listTrips, putTrip, tripOwner } from "./trips";
 import type { RoadieApiEnv } from "./types";
 
 const app = new Hono<{ Bindings: RoadieApiEnv }>();
@@ -20,6 +21,10 @@ const ROLE_MAP = {
   WORKSPACE_ROLE_MEMBER: "ROADIE_WORKSPACE_ROLE_MEMBER",
   WORKSPACE_ROLE_VIEW_ONLY: "ROADIE_WORKSPACE_ROLE_VIEW_ONLY",
 } as const satisfies Readonly<Record<string, RoadieMember["role"]>>;
+
+function canAdministerTrips(role: string): boolean {
+  return role === "WORKSPACE_ROLE_OWNER" || role === "WORKSPACE_ROLE_ADMIN";
+}
 
 function connectJson(body: unknown): Response {
   return Response.json(body, {
@@ -81,21 +86,42 @@ app.post("/rpc/tap.roadie.v1.RoadieService/ListTrips", async (context) => {
   });
 });
 
-app.post("/rpc/tap.roadie.v1.RoadieService/CreateTrip", async (context) => {
+app.post("/rpc/tap.roadie.v1.RoadieService/PutTrip", async (context) => {
   const identity = await authenticateRoadieRequest(context.req.raw, context.env);
-  const input = createTripRequestSchema.parse(await requestJson(context.req.raw));
+  const input = putTripRequestSchema.parse(await requestJson(context.req.raw));
   const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
   if (principal.role === "WORKSPACE_ROLE_VIEW_ONLY") {
-    throw new HTTPException(403, { message: "Trip creation is not permitted" });
+    throw new HTTPException(403, { message: "Trip editing is not permitted" });
   }
-  const trip = await createTrip(
-    context.env.DB,
-    input,
-    identity.userId,
-    Date.now(),
-    crypto.randomUUID(),
-  );
-  return connectJson({ trip });
+  if (!input.trip) {
+    throw new HTTPException(400, { message: "Trip is required" });
+  }
+  const existingOwner = await tripOwner(context.env.DB, input.workspaceId, input.trip.tripId);
+  if (
+    existingOwner !== null &&
+    existingOwner !== identity.userId &&
+    !canAdministerTrips(principal.role)
+  ) {
+    throw new HTTPException(403, { message: "Only the trip owner or an admin may edit it" });
+  }
+  return connectJson({
+    trip: await putTrip(context.env.DB, input, existingOwner ?? identity.userId),
+  });
+});
+
+app.post("/rpc/tap.roadie.v1.RoadieService/DeleteTrip", async (context) => {
+  const identity = await authenticateRoadieRequest(context.req.raw, context.env);
+  const input = deleteTripRequestSchema.parse(await requestJson(context.req.raw));
+  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
+  const existingOwner = await tripOwner(context.env.DB, input.workspaceId, input.tripId);
+  if (existingOwner === null) {
+    return connectJson({ tripId: input.tripId });
+  }
+  if (existingOwner !== identity.userId && !canAdministerTrips(principal.role)) {
+    throw new HTTPException(403, { message: "Only the trip owner or an admin may delete it" });
+  }
+  await deleteTrip(context.env.DB, input.workspaceId, input.tripId);
+  return connectJson({ tripId: input.tripId });
 });
 
 app.onError((error) => {

@@ -53,7 +53,7 @@ import {
   startOfYear,
 } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -76,12 +76,7 @@ import {
   updateTripImpactReport,
 } from "./domain";
 import { impactYears, summarizeImpact } from "./impact";
-import {
-  deleteAllRoadieData,
-  loadRoadieDocument,
-  saveRoadieDocument,
-  type StoredRoadieDocument,
-} from "./storage";
+import { loadRoadieDocument, saveRoadieDocument, type StoredRoadieDocument } from "./storage";
 import {
   DEFAULT_IMPACT_SHARE_OPTIONS,
   impactDigestShareText,
@@ -90,7 +85,12 @@ import {
   tripShareText,
   upcomingEngagementsShareText,
 } from "./share";
-import { createSharedTrip, getWorkspaceContext, listSharedTrips } from "./roadie-api";
+import {
+  deleteWorkspaceTrip,
+  getWorkspaceContext,
+  listWorkspaceTrips,
+  putWorkspaceTrip,
+} from "./roadie-api";
 
 const ROADIE_QUERY_KEY = ["roadie", "document"] as const;
 const EXAMPLE_TEXT = `Subject: React Summit speaker confirmation
@@ -198,7 +198,6 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
     message: string;
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteTripOpen, setDeleteTripOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<TimelineItem | null>(null);
   const [editingItem, setEditingItem] = useState<TimelineItem | null>(null);
@@ -238,7 +237,7 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
   const [newTripTitle, setNewTripTitle] = useState("");
   const [newTripLocation, setNewTripLocation] = useState("");
   const [newTripPurpose, setNewTripPurpose] = useState<Trip["purpose"]>("conference");
-  const [sharedTripTitle, setSharedTripTitle] = useState("");
+  const migrationStarted = useRef(false);
   const queryKey = [...ROADIE_QUERY_KEY, context.workspaceId ?? "personal"];
 
   const documentQuery = useQuery({
@@ -255,62 +254,137 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
     queryFn: () => getWorkspaceContext(platform.http, context.workspaceId ?? ""),
     enabled: context.workspaceId !== undefined,
   });
-  const sharedTripsQuery = useQuery({
-    queryKey: ["roadie", "shared-trips", context.workspaceId],
-    queryFn: () => listSharedTrips(platform.http, context.workspaceId ?? ""),
+  const workspaceTripsQuery = useQuery({
+    queryKey: ["roadie", "workspace-trips", context.workspaceId],
+    queryFn: () => listWorkspaceTrips(platform.http, context.workspaceId ?? ""),
     enabled: context.workspaceId !== undefined,
-  });
-  const createSharedTripMutation = useMutation({
-    mutationFn: () => {
-      if (!context.workspaceId) {
-        throw new Error("Open Roadie in a workspace to add a shared trip.");
-      }
-      return createSharedTrip(platform.http, {
-        workspaceId: context.workspaceId,
-        requestId: context.entropy.randomUUID(),
-        title: sharedTripTitle.trim(),
-        purpose: "ROADIE_TRIP_PURPOSE_WORK",
-      });
-    },
-    onSuccess: async () => {
-      setSharedTripTitle("");
-      await queryClient.invalidateQueries({
-        queryKey: ["roadie", "shared-trips", context.workspaceId],
-      });
-    },
   });
 
   const storeMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       current,
       document,
     }: {
       current: StoredRoadieDocument;
       document: RoadieDocument;
-    }) => saveRoadieDocument(platform.storage, current, document),
-    onSuccess: (stored) => {
-      queryClient.setQueryData(queryKey, stored);
+    }) => {
+      const workspaceId = context.workspaceId;
+      const ownerUserId = workspaceContextQuery.data?.currentMember?.userId;
+      if (!workspaceId || !ownerUserId) {
+        throw new Error("Roadie needs an authenticated workspace before saving trips.");
+      }
+      const previousById = new Map(current.document.trips.map((trip) => [trip.id, trip]));
+      const nextById = new Map(document.trips.map((trip) => [trip.id, trip]));
+      const operations: Promise<unknown>[] = [];
+      for (const trip of current.document.trips) {
+        if (!nextById.has(trip.id)) {
+          operations.push(
+            deleteWorkspaceTrip(platform.http, {
+              requestId: context.entropy.randomUUID(),
+              tripId: trip.id,
+              workspaceId,
+            }),
+          );
+        }
+      }
+      for (const trip of document.trips) {
+        const previous = previousById.get(trip.id);
+        if (previous === undefined || JSON.stringify(previous) !== JSON.stringify(trip)) {
+          operations.push(
+            putWorkspaceTrip(platform.http, {
+              ownerUserId,
+              requestId: context.entropy.randomUUID(),
+              trip,
+              workspaceId,
+            }),
+          );
+        }
+      }
+      await Promise.all(operations);
+      const local = await saveRoadieDocument(platform.storage, current, {
+        ...document,
+        trips: [],
+      });
+      return { local, trips: document.trips };
+    },
+    onSuccess: ({ local, trips: savedTrips }) => {
+      queryClient.setQueryData(queryKey, local);
+      queryClient.setQueryData(
+        ["roadie", "workspace-trips", context.workspaceId],
+        savedTrips,
+      );
       setActionError(null);
     },
     onError: (error) => setActionError(errorMessage(error)),
   });
 
-  const deleteAllMutation = useMutation({
-    mutationFn: (stored: StoredRoadieDocument) =>
-      deleteAllRoadieData(platform.storage, stored.revision),
-    onSuccess: () => {
-      queryClient.setQueryData(queryKey, undefined);
-      void queryClient.invalidateQueries({ queryKey });
-      setActiveTripId(null);
-      setPastedText("");
-      setShareStatus(null);
-      setDeleteAllOpen(false);
-      setActionError(null);
+  const migrationMutation = useMutation({
+    mutationFn: async (document: RoadieDocument) => {
+      const workspaceId = context.workspaceId;
+      const ownerUserId = workspaceContextQuery.data?.currentMember?.userId;
+      if (!workspaceId || !ownerUserId) return;
+      await Promise.all(
+        document.trips.map((trip) =>
+          putWorkspaceTrip(platform.http, {
+            ownerUserId,
+            requestId: context.entropy.randomUUID(),
+            trip,
+            workspaceId,
+          }),
+        ),
+      );
+      const current = documentQuery.data;
+      if (current) {
+        await saveRoadieDocument(platform.storage, current, { ...document, trips: [] });
+      }
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.invalidateQueries({
+          queryKey: ["roadie", "workspace-trips", context.workspaceId],
+        }),
+      ]);
     },
     onError: (error) => setActionError(errorMessage(error)),
   });
 
-  if (documentQuery.isPending) {
+  useEffect(() => {
+    const document = documentQuery.data?.document;
+    if (
+      migrationStarted.current ||
+      !document ||
+      document.trips.length === 0 ||
+      !workspaceContextQuery.data?.currentMember
+    ) {
+      return;
+    }
+    migrationStarted.current = true;
+    migrationMutation.mutate(document);
+  }, [documentQuery.data, workspaceContextQuery.data]);
+
+  if (!context.workspaceId) {
+    return (
+      <main
+        className="bg-background text-foreground grid min-h-full place-items-center p-6"
+        data-component="RoadieApp"
+      >
+        <Alert variant="destructive">
+          <AlertTitle>Open Roadie in a workspace</AlertTitle>
+          <AlertDescription>
+            Roadie trips are shared with workspace members and need an active workspace.
+          </AlertDescription>
+        </Alert>
+      </main>
+    );
+  }
+
+  if (
+    documentQuery.isPending ||
+    workspaceContextQuery.isPending ||
+    workspaceTripsQuery.isPending ||
+    migrationMutation.isPending
+  ) {
     return (
       <main
         className="bg-background text-foreground grid min-h-full place-items-center p-6"
@@ -321,7 +395,7 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
     );
   }
 
-  if (documentQuery.isError) {
+  if (documentQuery.isError || workspaceContextQuery.isError || workspaceTripsQuery.isError) {
     return (
       <main
         className="bg-background text-foreground grid min-h-full place-items-center p-6"
@@ -329,18 +403,28 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
       >
         <Alert variant="destructive">
           <AlertTitle>Roadie could not open its saved data</AlertTitle>
-          <AlertDescription>{errorMessage(documentQuery.error)}</AlertDescription>
+          <AlertDescription>
+            {errorMessage(
+              documentQuery.error ?? workspaceContextQuery.error ?? workspaceTripsQuery.error,
+            )}
+          </AlertDescription>
         </Alert>
       </main>
     );
   }
 
-  const stored = documentQuery.data;
-  const trips = stored.document.trips;
+  const stored = {
+    ...documentQuery.data,
+    document: {
+      ...documentQuery.data.document,
+      trips: workspaceTripsQuery.data,
+    },
+  };
+  const trips = workspaceTripsQuery.data;
   const activeTrip = activeTripId
     ? trips.find((candidate) => candidate.id === activeTripId)
     : undefined;
-  const busy = storeMutation.isPending || deleteAllMutation.isPending;
+  const busy = storeMutation.isPending || migrationMutation.isPending;
 
   const confirmNewTrip = () => {
     const title = newTripTitle.trim();
@@ -859,103 +943,18 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
           </Alert>
         ) : null}
 
-        <Card
-          className="bg-roadie-violet/15 border-roadie-ink shadow-roadie-ticket rounded-roadie-ticket border-2"
-          data-component="RoadieTeamTracer"
-          data-testid="roadie-team-tracer"
+        <div
+          className="bg-roadie-violet/15 border-roadie-ink rounded-roadie-ticket flex flex-wrap items-center gap-2 border-2 p-3"
+          data-component="RoadieWorkspaceStatus"
+          data-testid="roadie-workspace-status"
         >
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-roadie-coral text-xs font-bold tracking-widest uppercase">
-                  Workspace service tracer
-                </p>
-                <CardTitle className="font-roadie-display text-3xl uppercase">
-                  Team Roadie
-                </CardTitle>
-              </div>
-              <Badge className="bg-roadie-lime text-roadie-ink border-0">
-                {workspaceContextQuery.isSuccess && sharedTripsQuery.isSuccess
-                  ? "Connected"
-                  : workspaceContextQuery.isPending || sharedTripsQuery.isPending
-                    ? "Connecting…"
-                    : "Connection failed"}
-              </Badge>
-            </div>
-            <CardDescription className="text-roadie-muted">
-              This narrow tracer verifies authenticated workspace membership and trips shared
-              through Roadie&apos;s service.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {workspaceContextQuery.isError || sharedTripsQuery.isError ? (
-              <Alert data-testid="roadie-team-tracer-error" variant="destructive">
-                <AlertTitle>Team service unavailable</AlertTitle>
-                <AlertDescription>
-                  {errorMessage(workspaceContextQuery.error ?? sharedTripsQuery.error)}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            {workspaceContextQuery.data ? (
-              <div className="flex flex-wrap gap-2">
-                <Badge className="bg-roadie-ink text-roadie-paper border-0">
-                  Signed in as {workspaceContextQuery.data.currentMember?.displayName}
-                </Badge>
-                <Badge className="border-roadie-ink text-roadie-ink" variant="outline">
-                  {workspaceContextQuery.data.members.length} workspace member
-                  {workspaceContextQuery.data.members.length === 1 ? "" : "s"}
-                </Badge>
-                <Badge className="border-roadie-ink text-roadie-ink" variant="outline">
-                  {sharedTripsQuery.data?.trips.length ?? 0} shared trip
-                  {(sharedTripsQuery.data?.trips.length ?? 0) === 1 ? "" : "s"}
-                </Badge>
-              </div>
-            ) : null}
-            {sharedTripsQuery.data?.trips.length ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {sharedTripsQuery.data.trips.map((trip) => {
-                  const owner =
-                    workspaceContextQuery.data?.members.find(
-                      (member) => member.userId === trip.ownerUserId,
-                    )?.displayName ?? trip.ownerUserId;
-                  return (
-                    <div
-                      className="bg-roadie-paper border-roadie-ink rounded-roadie-ticket border p-3"
-                      data-testid={`roadie-shared-trip-${trip.tripId}`}
-                      key={trip.tripId}
-                    >
-                      <p className="font-semibold">{trip.title}</p>
-                      <p className="text-roadie-muted text-xs">Added by {owner}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                aria-label="Shared trip name"
-                data-testid="roadie-shared-trip-title"
-                disabled={!workspaceContextQuery.isSuccess}
-                onChange={(event) => setSharedTripTitle(event.target.value)}
-                placeholder="Add a trip everyone can see"
-                value={sharedTripTitle}
-              />
-              <Button
-                className="bg-roadie-lime text-roadie-ink hover:bg-roadie-tangerine"
-                data-testid="roadie-add-shared-trip-btn"
-                disabled={sharedTripTitle.trim().length === 0 || createSharedTripMutation.isPending}
-                onClick={() => createSharedTripMutation.mutate()}
-              >
-                Add shared trip
-              </Button>
-            </div>
-            {createSharedTripMutation.isError ? (
-              <p className="text-destructive text-sm">
-                {errorMessage(createSharedTripMutation.error)}
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
+          <Badge className="bg-roadie-lime text-roadie-ink border-0">Workspace connected</Badge>
+          <span className="text-roadie-muted text-sm">
+            {workspaceContextQuery.data.currentMember?.displayName} · {trips.length} shared trip
+            {trips.length === 1 ? "" : "s"} · {workspaceContextQuery.data.members.length} member
+            {workspaceContextQuery.data.members.length === 1 ? "" : "s"}
+          </span>
+        </div>
 
         {!activeTrip ? (
           <section
@@ -1277,17 +1276,6 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
               </div>
             )}
 
-            {homeView === "trips" && trips.length > 0 ? (
-              <div className="border-roadie-ink/20 flex justify-end border-t border-dashed pt-6">
-                <Button
-                  data-testid="roadie-delete-all-btn"
-                  onClick={() => setDeleteAllOpen(true)}
-                  variant="destructive"
-                >
-                  Delete all Roadie data
-                </Button>
-              </div>
-            ) : null}
           </section>
         ) : (
           <section
@@ -2315,29 +2303,6 @@ export function RoadieApp({ context, platform }: RoadieAppProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog onOpenChange={setDeleteAllOpen} open={deleteAllOpen}>
-        <AlertDialogContent
-          className="bg-roadie-paper border-roadie-ink shadow-roadie-ticket rounded-roadie-ticket border-2"
-          data-testid="roadie-delete-dialog"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete all Roadie data?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes every trip and itinerary item stored by Roadie.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="roadie-confirm-delete-btn"
-              disabled={deleteAllMutation.isPending}
-              onClick={() => deleteAllMutation.mutate(stored)}
-            >
-              Delete permanently
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </main>
   );
 }
