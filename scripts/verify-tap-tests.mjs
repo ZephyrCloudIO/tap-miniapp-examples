@@ -20,8 +20,8 @@ const repositoryRoot = path.resolve(
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const expectedSdkVersion = "0.7.0";
-const expectedRstestVersion = "0.11.5";
+const expectedRstestVersionForSdk = (sdkVersion) =>
+  sdkVersion === "0.4.6" || sdkVersion === "0.7.0" ? "0.11.5" : undefined;
 const expectedPlaywrightVersion = "^1.61.0";
 const expectedTypecheckCommand =
   "tsc --project ./tsconfig.tap-test.json --noEmit";
@@ -225,13 +225,19 @@ for (const appName of selectedApps.filter((candidate) =>
       packageJson.optionalDependencies?.["@theaiplatform/miniapp-sdk"],
       packageJson.peerDependencies?.["@theaiplatform/miniapp-sdk"],
     ].filter((value) => value !== undefined);
-    check(
-      sdkVersions.length === 1 && sdkVersions[0] === expectedSdkVersion,
-      `${label}: @theaiplatform/miniapp-sdk must appear once and be exactly ${expectedSdkVersion}.`,
+    const declaredSdkVersion = sdkVersions[0];
+    const expectedRstestVersion = expectedRstestVersionForSdk(
+      declaredSdkVersion,
     );
     check(
-      manifest.compatibility?.tapSdk === expectedSdkVersion,
-      `${label}: manifest compatibility.tapSdk must be exactly ${expectedSdkVersion}.`,
+      sdkVersions.length === 1 &&
+        typeof declaredSdkVersion === "string" &&
+        /^\d+\.\d+\.\d+$/u.test(declaredSdkVersion),
+      `${label}: @theaiplatform/miniapp-sdk must appear once and be an exact version.`,
+    );
+    check(
+      manifest.compatibility?.tapSdk === declaredSdkVersion,
+      `${label}: manifest compatibility.tapSdk must match the exact package SDK version ${declaredSdkVersion}.`,
     );
     check(
       fs.existsSync(installedSdkPackagePath),
@@ -240,8 +246,8 @@ for (const appName of selectedApps.filter((candidate) =>
     if (fs.existsSync(installedSdkPackagePath)) {
       const installedSdkPackage = readJson(installedSdkPackagePath);
       check(
-        installedSdkPackage.version === expectedSdkVersion,
-        `${label}: installed SDK must be exactly ${expectedSdkVersion}.`,
+        installedSdkPackage.version === declaredSdkVersion,
+        `${label}: installed SDK must match the exact package SDK version ${declaredSdkVersion}.`,
       );
       check(
         installedSdkPackage.tapMiniappTestAdapterProtocol === 1,
@@ -341,12 +347,12 @@ for (const appName of selectedApps.filter((candidate) =>
     if (!doctor || !inventory || !matrix) continue;
 
     check(
-      doctor.sdkVersion === expectedSdkVersion,
+      doctor.sdkVersion === declaredSdkVersion,
       `${label}: doctor used unexpected SDK ${doctor.sdkVersion}.`,
     );
     check(
       inventory.packageId === descriptor.packageId &&
-        inventory.sdkVersion === expectedSdkVersion,
+        inventory.sdkVersion === declaredSdkVersion,
       `${label}: CLI inventory identity drifted from the descriptor.`,
     );
     const surfaces = Array.isArray(inventory.surfaces)

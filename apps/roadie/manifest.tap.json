@@ -9,8 +9,8 @@
     "organizationId": "organization_zephyrcloudio"
   },
   "release": {
-    "releaseId": "tap_pkg_theaiplatform_roadie_0001@0.10.0",
-    "version": "0.10.0",
+    "releaseId": "tap_pkg_theaiplatform_roadie_0001@0.10.1",
+    "version": "0.10.1",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -30,7 +30,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.4.2",
+    "tapSdk": "0.4.6",
     "tapHost": ">=0.1.0"
   },
   "lifecycle": {

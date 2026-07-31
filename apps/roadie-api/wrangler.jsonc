@@ -25,7 +25,7 @@
     {
       "binding": "DIRECTORY_API",
       "service": "directory-api",
-      "entrypoint": "DirectoryRpc",
+      "entrypoint": "ChatDirectoryRpc",
     },
   ],
   "vars": {
@@ -53,7 +53,7 @@
         {
           "binding": "DIRECTORY_API",
           "service": "directory-api-dev",
-          "entrypoint": "DirectoryRpc",
+          "entrypoint": "ChatDirectoryRpc",
         },
       ],
     },

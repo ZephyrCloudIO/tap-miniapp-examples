@@ -361,8 +361,8 @@ importers:
         specifier: workspace:*
         version: link:../roadie-contract
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.4.2
-        version: 0.4.2(@module-federation/rsbuild-plugin@2.8.0(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.0)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2(postcss@8.5.25)))(@module-federation/runtime-tools@2.8.0)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.0)(typescript@6.0.3))(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(@rstest/playwright@0.11.3(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1))(@tanstack/react-query@5.101.4(react@19.2.7))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.4.6
+        version: 0.4.6(@module-federation/rsbuild-plugin@2.8.0(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.0)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2(postcss@8.5.25)))(@module-federation/runtime-tools@2.8.0)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.0)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1))(@tanstack/react-query@5.101.4(react@19.2.7))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       chrono-node:
         specifier: ^2.10.1
         version: 2.10.1
@@ -395,11 +395,11 @@ importers:
         specifier: ^0.23.2
         version: 0.23.2(@module-federation/runtime-tools@2.8.0)(typescript@6.0.3)
       '@rstest/core':
-        specifier: 0.11.3
-        version: 0.11.3(@module-federation/runtime-tools@2.8.0)
+        specifier: 0.11.5
+        version: 0.11.5(@module-federation/runtime-tools@2.8.0)
       '@rstest/playwright':
-        specifier: 0.11.3
-        version: 0.11.3(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1)
+        specifier: 0.11.5
+        version: 0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1)
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
@@ -2201,13 +2201,6 @@ packages:
       jsdom:
         optional: true
 
-  '@rstest/playwright@0.11.3':
-    resolution: {integrity: sha512-OztKKnxb+TfA2rkHtEy8rD04mYUN+f38qnI18eU4Kr6MIeWPf6spmU2X+WUgDcYwt6rjypvGYPirPDqpOWYydw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    peerDependencies:
-      '@rstest/core': ^0.11.3
-      playwright: ^1.49.1
-
   '@rstest/playwright@0.11.5':
     resolution: {integrity: sha512-Roich/CQmbvPjPLMsZD5yjpIp5EvoumN1ZCsSvPx6ote8JX8e3nvvagHIif/DYzdEOVm50SIZuDMtDoTET/RSA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -2328,8 +2321,8 @@ packages:
     peerDependencies:
       react: ^18 || ^19
 
-  '@theaiplatform/miniapp-sdk@0.4.2':
-    resolution: {integrity: sha512-GuNxnX8f/8qbUgmYlGosM2/X/9VcJeADchy9+LuvVLLBHp0xkNjKZe3tX68GGYSJx2c0HmrIv9oPeRV8++28vQ==}
+  '@theaiplatform/miniapp-sdk@0.4.6':
+    resolution: {integrity: sha512-a7CkEC1CkXgxzXxknEqiE0HpK3DwEehLfCGUzWNtmZYpUen5Y4J4//lhGOUMdqUWa1QYyUlasit/2HNHFgpAAw==}
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
@@ -2337,8 +2330,8 @@ packages:
       '@module-federation/runtime-tools': 2.8.0
       '@rsbuild/core': '>=2 <3'
       '@rslib/core': '>=0.21 <1'
-      '@rstest/core': 0.11.3
-      '@rstest/playwright': 0.11.3
+      '@rstest/core': 0.11.5
+      '@rstest/playwright': 0.11.5
       '@tanstack/react-query': '>=5 <6'
       '@tanstack/react-router': '>=1 <2'
       playwright: '>=1.61 <2'
@@ -6106,7 +6099,7 @@ snapshots:
       - '@module-federation/runtime-tools'
       - core-js
 
-  '@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0)':
+  '@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0)':
     dependencies:
       '@rsbuild/core': 2.1.9(@module-federation/runtime-tools@2.8.0)
       '@types/chai': 5.2.3
@@ -6122,9 +6115,9 @@ snapshots:
       - '@module-federation/runtime-tools'
       - core-js
 
-  '@rstest/playwright@0.11.3(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1)':
+  '@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1)':
     dependencies:
-      '@rstest/core': 0.11.3(@module-federation/runtime-tools@2.8.0)
+      '@rstest/core': 0.11.5(@module-federation/runtime-tools@2.8.0)
       playwright: 1.61.1
 
   '@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1)':
@@ -6218,7 +6211,7 @@ snapshots:
       '@tanstack/query-core': 5.101.4
       react: 19.2.7
 
-  '@theaiplatform/miniapp-sdk@0.4.2(@module-federation/rsbuild-plugin@2.8.0(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.0)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2(postcss@8.5.25)))(@module-federation/runtime-tools@2.8.0)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.0)(typescript@6.0.3))(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(@rstest/playwright@0.11.3(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1))(@tanstack/react-query@5.101.4(react@19.2.7))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+  '@theaiplatform/miniapp-sdk@0.4.6(@module-federation/rsbuild-plugin@2.8.0(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.0)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2(postcss@8.5.25)))(@module-federation/runtime-tools@2.8.0)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.0))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.0)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1))(@tanstack/react-query@5.101.4(react@19.2.7))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-avatar': 1.2.3(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6247,8 +6240,8 @@ snapshots:
       '@module-federation/runtime-tools': 2.8.0
       '@rsbuild/core': 2.1.9(@module-federation/runtime-tools@2.8.0)
       '@rslib/core': 0.23.2(@module-federation/runtime-tools@2.8.0)(typescript@6.0.3)
-      '@rstest/core': 0.11.3(@module-federation/runtime-tools@2.8.0)
-      '@rstest/playwright': 0.11.3(@rstest/core@0.11.3(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1)
+      '@rstest/core': 0.11.5(@module-federation/runtime-tools@2.8.0)
+      '@rstest/playwright': 0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.0))(playwright@1.61.1)
       '@tanstack/react-query': 5.101.4(react@19.2.7)
       playwright: 1.61.1
       react: 19.2.7
