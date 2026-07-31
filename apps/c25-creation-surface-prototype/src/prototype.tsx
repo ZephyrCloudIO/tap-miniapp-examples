@@ -45,6 +45,9 @@ const voiceSeed: readonly Voice[] = [
   { id: 7, pad: 8, name: "Open Space", role: "Wild", color: "lime", bars: 8, status: "empty", pattern: [] },
 ];
 
+// Match the physical C25: pads 5–8 are the top row and 1–4 are the bottom row.
+const c25PadDisplayOrder = [5, 6, 7, 8, 1, 2, 3, 4] as const;
+
 const initialState: PrototypeState = {
   title: "After Rain",
   tempo: 112,
@@ -336,7 +339,11 @@ function C25Dock({ state, pressPad, setNote, setIntensity, togglePlaying, stop, 
         ))}
       </div>
       <div className="mini-pads">
-        {state.voices.map((voice) => <button className={`color-${voice.color} status-${voice.status}`} key={voice.id} onClick={() => pressPad(voice.id)} type="button">{voice.pad}</button>)}
+        {c25PadDisplayOrder.map((pad) => {
+          const voice = state.voices.find((candidate) => candidate.pad === pad);
+          if (!voice) return null;
+          return <button aria-label={`Pad ${voice.pad}: ${voice.role}`} className={`color-${voice.color} status-${voice.status}`} key={voice.id} onClick={() => pressPad(voice.id)} type="button">{voice.pad}</button>;
+        })}
       </div>
       <div className="mini-keys">
         {keys.map((key) => <button className={state.note === key ? "is-down" : ""} key={key} onPointerDown={() => setNote(key)} onPointerLeave={() => setNote(null)} onPointerUp={() => setNote(null)} type="button"><span>{key}</span></button>)}
