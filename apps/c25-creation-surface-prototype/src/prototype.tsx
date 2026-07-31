@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PrototypeAudio, type PrototypeLoopNote } from "./prototype-audio";
 
 // PROTOTYPE — Three creation-surface variants, switchable via ?variant=, in a disposable standalone app.
 
 type VariantKey = "A" | "B" | "C";
-type VoiceStatus = "empty" | "playing" | "muted" | "recording";
+type VoiceStatus = "empty" | "armed" | "playing" | "muted" | "recording";
+type MidiStatus = "idle" | "requesting" | "connected" | "disconnected" | "unavailable" | "error";
 
 interface Voice {
   readonly id: number;
@@ -25,7 +27,33 @@ interface PrototypeState {
   readonly activeMoment: number;
   readonly note: string | null;
   readonly intensity: number;
+  readonly captureRemaining: number | null;
   readonly voices: readonly Voice[];
+}
+
+interface MidiConnection {
+  readonly status: MidiStatus;
+  readonly detail: string;
+}
+
+interface CapturedNote extends PrototypeLoopNote {
+  readonly key: number;
+}
+
+interface OpenCapturedNote {
+  readonly key: number;
+  readonly note: number;
+  readonly startSeconds: number;
+  readonly velocity: number;
+}
+
+interface ActiveCapture {
+  readonly voice: number;
+  readonly startedAt: number;
+  readonly notes: CapturedNote[];
+  readonly openNotes: Map<number, OpenCapturedNote>;
+  readonly finishTimer: ReturnType<typeof globalThis.setTimeout>;
+  readonly progressTimer: ReturnType<typeof globalThis.setInterval>;
 }
 
 const variantNames: Record<VariantKey, string> = {
@@ -35,91 +63,327 @@ const variantNames: Record<VariantKey, string> = {
 };
 
 const voiceSeed: readonly Voice[] = [
-  { id: 0, pad: 1, name: "Low Tide", role: "Beat", color: "coral", bars: 2, status: "playing", pattern: [1, 0, 0.55, 0, 0.8, 0, 0.55, 0] },
-  { id: 1, pad: 2, name: "Salt Hats", role: "Pulse", color: "gold", bars: 2, status: "playing", pattern: [0.3, 0.8, 0.4, 0.9, 0.3, 0.8, 0.5, 1] },
-  { id: 2, pad: 3, name: "Sub Current", role: "Bass", color: "mint", bars: 4, status: "playing", pattern: [0.9, 0.2, 0, 0.5, 0.8, 0, 0.3, 0.6] },
-  { id: 3, pad: 4, name: "Glass Air", role: "Chords", color: "cyan", bars: 4, status: "muted", pattern: [0.7, 0.7, 0.2, 0.2, 0.75, 0.75, 0.35, 0.35] },
-  { id: 4, pad: 5, name: "Soft Knock", role: "Perc", color: "violet", bars: 2, status: "empty", pattern: [] },
-  { id: 5, pad: 6, name: "Night Tape", role: "Texture", color: "blue", bars: 4, status: "empty", pattern: [] },
-  { id: 6, pad: 7, name: "Neon Thread", role: "Lead", color: "pink", bars: 4, status: "empty", pattern: [] },
-  { id: 7, pad: 8, name: "Open Space", role: "Wild", color: "lime", bars: 8, status: "empty", pattern: [] },
+  { id: 0, pad: 1, name: "Low Tide", role: "Beat", color: "coral", bars: 1, status: "empty", pattern: [] },
+  { id: 1, pad: 2, name: "Salt Hats", role: "Pulse", color: "gold", bars: 1, status: "empty", pattern: [] },
+  { id: 2, pad: 3, name: "Sub Current", role: "Bass", color: "mint", bars: 1, status: "empty", pattern: [] },
+  { id: 3, pad: 4, name: "Glass Air", role: "Chords", color: "cyan", bars: 1, status: "empty", pattern: [] },
+  { id: 4, pad: 5, name: "Soft Knock", role: "Perc", color: "violet", bars: 1, status: "empty", pattern: [] },
+  { id: 5, pad: 6, name: "Night Tape", role: "Texture", color: "blue", bars: 1, status: "empty", pattern: [] },
+  { id: 6, pad: 7, name: "Neon Thread", role: "Lead", color: "pink", bars: 1, status: "empty", pattern: [] },
+  { id: 7, pad: 8, name: "Open Space", role: "Wild", color: "lime", bars: 1, status: "empty", pattern: [] },
 ];
 
 // Match the physical C25: pads 5–8 are the top row and 1–4 are the bottom row.
 const c25PadDisplayOrder = [5, 6, 7, 8, 1, 2, 3, 4] as const;
 
 const initialState: PrototypeState = {
-  title: "After Rain",
+  title: "New music sketch",
   tempo: 112,
-  beat: 9,
-  playing: true,
-  selectedVoice: 3,
-  activeMoment: 1,
+  beat: 0,
+  playing: false,
+  selectedVoice: 0,
+  activeMoment: 0,
   note: null,
-  intensity: 68,
+  intensity: 0,
+  captureRemaining: null,
   voices: voiceSeed,
 };
 
-const keys = ["C", "D", "E", "F", "G", "A", "B", "C2", "D2", "E2", "F2", "G2", "A2", "B2", "C3"] as const;
+const blackPitchClasses = new Set([1, 3, 6, 8, 10]);
+const noteNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"] as const;
+const keys = Array.from({ length: 25 }, (_, index) => {
+  const note = 48 + index;
+  const pitchClass = note % 12;
+  return {
+    black: blackPitchClasses.has(pitchClass),
+    label: `${noteNames[pitchClass] ?? "?"}${Math.floor(note / 12) - 1}`,
+    note,
+  };
+});
 
-function nextVoiceStatus(status: VoiceStatus): VoiceStatus {
-  if (status === "empty") return "recording";
-  if (status === "recording") return "playing";
-  if (status === "playing") return "muted";
-  return "playing";
+const loopSeconds = (60 / initialState.tempo) * 4;
+
+function notePattern(notes: readonly CapturedNote[]) {
+  const pattern = Array.from({ length: 8 }, () => 0);
+  for (const note of notes) {
+    const index = Math.min(7, Math.floor((note.startSeconds / loopSeconds) * 8));
+    pattern[index] = Math.max(pattern[index] ?? 0, note.velocity / 127);
+  }
+  return pattern;
+}
+
+function midiNoteName(note: number) {
+  const pitchClass = note % 12;
+  return `${noteNames[pitchClass] ?? "?"}${Math.floor(note / 12) - 1}`;
 }
 
 function useSketchState() {
   const [state, setState] = useState<PrototypeState>(initialState);
+  const [midi, setMidi] = useState<MidiConnection>({ status: "idle", detail: "Enable the C25 to play" });
+  const stateRef = useRef<PrototypeState>(initialState);
+  const audioRef = useRef<PrototypeAudio | null>(null);
+  const captureRef = useRef<ActiveCapture | null>(null);
+  const midiAccessRef = useRef<MIDIAccess | null>(null);
+
+  const updateState = useCallback((update: (current: PrototypeState) => PrototypeState) => {
+    const next = update(stateRef.current);
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
+  const getAudio = useCallback(() => {
+    audioRef.current ??= new PrototypeAudio();
+    return audioRef.current;
+  }, []);
 
   useEffect(() => {
     if (!state.playing) return;
     const timer = globalThis.setInterval(() => {
-      setState((current) => ({ ...current, beat: (current.beat + 1) % 32 }));
-    }, 480);
+      updateState((current) => ({ ...current, beat: (current.beat + 1) % 32 }));
+    }, 60_000 / state.tempo);
     return () => globalThis.clearInterval(timer);
-  }, [state.playing]);
+  }, [state.playing, state.tempo, updateState]);
 
-  const pressPad = useCallback((index: number) => {
-    setState((current) => ({
+  const finishCapture = useCallback(() => {
+    const capture = captureRef.current;
+    if (!capture) return;
+
+    globalThis.clearTimeout(capture.finishTimer);
+    globalThis.clearInterval(capture.progressTimer);
+    const stoppedAt = Math.min(loopSeconds, performance.now() / 1000 - capture.startedAt);
+    for (const open of capture.openNotes.values()) {
+      capture.notes.push({
+        durationSeconds: Math.max(0.06, stoppedAt - open.startSeconds),
+        key: open.key,
+        note: open.note,
+        startSeconds: open.startSeconds,
+        velocity: open.velocity,
+      });
+    }
+
+    captureRef.current = null;
+    getAudio().setRunning(true);
+    getAudio().startLoop(capture.voice, capture.notes, loopSeconds);
+    updateState((current) => ({
       ...current,
-      selectedVoice: index,
+      beat: 0,
+      captureRemaining: null,
+      playing: true,
       voices: current.voices.map((voice) =>
-        voice.id === index ? { ...voice, status: nextVoiceStatus(voice.status) } : voice,
+        voice.id === capture.voice
+          ? { ...voice, pattern: notePattern(capture.notes), status: "playing" }
+          : voice,
       ),
     }));
+  }, [getAudio, updateState]);
+
+  const beginCapture = useCallback((voice: number, now: number) => {
+    const finishTimer = globalThis.setTimeout(finishCapture, loopSeconds * 1000);
+    const progressTimer = globalThis.setInterval(() => {
+      const remaining = Math.max(0, 1 - (performance.now() / 1000 - now) / loopSeconds);
+      updateState((current) => ({ ...current, captureRemaining: remaining }));
+    }, 80);
+
+    captureRef.current = {
+      finishTimer,
+      notes: [],
+      openNotes: new Map(),
+      progressTimer,
+      startedAt: now,
+      voice,
+    };
+    getAudio().setRunning(true);
+    updateState((current) => ({
+      ...current,
+      beat: 0,
+      captureRemaining: 1,
+      playing: true,
+      voices: current.voices.map((candidate) =>
+        candidate.id === voice ? { ...candidate, status: "recording" } : candidate,
+      ),
+    }));
+  }, [finishCapture, getAudio, updateState]);
+
+  const closeCapturedNote = useCallback((note: number) => {
+    const capture = captureRef.current;
+    const open = capture?.openNotes.get(note);
+    if (!capture || !open) return;
+
+    const stoppedAt = Math.min(loopSeconds, performance.now() / 1000 - capture.startedAt);
+    capture.notes.push({
+      durationSeconds: Math.max(0.06, stoppedAt - open.startSeconds),
+      key: open.key,
+      note: open.note,
+      startSeconds: open.startSeconds,
+      velocity: open.velocity,
+    });
+    capture.openNotes.delete(note);
   }, []);
+
+  const keyDown = useCallback((note: number, velocity = 96) => {
+    const now = performance.now() / 1000;
+    const selected = stateRef.current.voices[stateRef.current.selectedVoice];
+    if (!selected) return;
+
+    if (selected.status === "armed") beginCapture(selected.id, now);
+    closeCapturedNote(note);
+    const capture = captureRef.current;
+    if (capture) {
+      capture.openNotes.set(note, {
+        key: note,
+        note,
+        startSeconds: Math.max(0, now - capture.startedAt),
+        velocity,
+      });
+    }
+
+    getAudio().noteOn(note, velocity, selected.id);
+    updateState((current) => ({
+      ...current,
+      intensity: Math.round((velocity / 127) * 100),
+      note: midiNoteName(note),
+    }));
+  }, [beginCapture, closeCapturedNote, getAudio, updateState]);
+
+  const keyUp = useCallback((note: number) => {
+    closeCapturedNote(note);
+    getAudio().noteOff(note);
+    updateState((current) => ({ ...current, note: null }));
+  }, [closeCapturedNote, getAudio, updateState]);
+
+  const pressPad = useCallback((index: number) => {
+    const voice = stateRef.current.voices[index];
+    if (!voice) return;
+
+    if (voice.status === "recording") {
+      finishCapture();
+      return;
+    }
+    if (captureRef.current) return;
+
+    if (voice.status === "playing") getAudio().setLoopMuted(voice.id, true);
+    if (voice.status === "muted") getAudio().setLoopMuted(voice.id, false);
+
+    updateState((current) => ({
+      ...current,
+      selectedVoice: index,
+      voices: current.voices.map((candidate) => {
+        if (candidate.id !== index) {
+          return candidate.status === "armed" ? { ...candidate, status: "empty" } : candidate;
+        }
+        if (candidate.status === "empty") return { ...candidate, status: "armed" };
+        if (candidate.status === "armed") return { ...candidate, status: "empty" };
+        if (candidate.status === "playing") return { ...candidate, status: "muted" };
+        if (candidate.status === "muted") return { ...candidate, status: "playing" };
+        return candidate;
+      }),
+    }));
+  }, [finishCapture, getAudio, updateState]);
 
   const setMoment = useCallback((moment: number) => {
-    setState((current) => ({ ...current, activeMoment: moment }));
-  }, []);
-
-  const setNote = useCallback((note: string | null) => {
-    setState((current) => ({ ...current, note }));
-  }, []);
+    updateState((current) => ({ ...current, activeMoment: moment }));
+  }, [updateState]);
 
   const setIntensity = useCallback((intensity: number) => {
-    setState((current) => ({ ...current, intensity }));
-  }, []);
+    updateState((current) => ({ ...current, intensity }));
+  }, [updateState]);
 
   const togglePlaying = useCallback(() => {
-    setState((current) => ({ ...current, playing: !current.playing }));
-  }, []);
+    const playing = !stateRef.current.playing;
+    void getAudio().enable();
+    getAudio().setRunning(playing);
+    updateState((current) => ({ ...current, playing }));
+  }, [getAudio, updateState]);
 
   const stop = useCallback(() => {
-    setState((current) => ({ ...current, beat: 0, playing: false }));
-  }, []);
+    getAudio().setRunning(false);
+    updateState((current) => ({ ...current, beat: 0, playing: false }));
+  }, [getAudio, updateState]);
 
   const undo = useCallback(() => {
-    setState((current) => ({
+    const selectedVoice = stateRef.current.selectedVoice;
+    const capture = captureRef.current;
+    if (capture?.voice === selectedVoice) {
+      globalThis.clearTimeout(capture.finishTimer);
+      globalThis.clearInterval(capture.progressTimer);
+      captureRef.current = null;
+    }
+    getAudio().clearLoop(selectedVoice);
+    updateState((current) => ({
       ...current,
+      captureRemaining: null,
       voices: current.voices.map((voice) =>
         voice.id === current.selectedVoice ? { ...voice, status: "empty", pattern: [] } : voice,
       ),
     }));
+  }, [getAudio, updateState]);
+
+  const attachC25Inputs = useCallback((access: MIDIAccess) => {
+    for (const input of access.inputs.values()) input.onmidimessage = null;
+    const inputs = Array.from(access.inputs.values()).filter((input) =>
+      input.state === "connected" && input.name?.includes("C25mini USB MIDI"),
+    );
+
+    for (const input of inputs) {
+      input.onmidimessage = (event) => {
+        const data = event.data;
+        if (!data) return;
+        const status = data[0] ?? 0;
+        const data1 = data[1] ?? 0;
+        const data2 = data[2] ?? 0;
+        if (status === 0xf8) return;
+
+        const command = status & 0xf0;
+        const channel = status & 0x0f;
+        if (channel === 0 && command === 0x90 && data2 > 0) keyDown(data1, data2);
+        if (channel === 0 && (command === 0x80 || (command === 0x90 && data2 === 0))) keyUp(data1);
+        if (channel === 9 && command === 0x90 && data2 > 0 && data1 >= 44 && data1 <= 51) pressPad(data1 - 44);
+        if (channel === 9 && command === 0xa0) setIntensity(Math.round((data2 / 127) * 100));
+      };
+    }
+
+    setMidi(inputs.length > 0
+      ? { status: "connected", detail: inputs[0]?.name ?? "C25 connected" }
+      : { status: "disconnected", detail: "C25 USB MIDI is not connected" });
+  }, [keyDown, keyUp, pressPad, setIntensity]);
+
+  const enableC25 = useCallback(async () => {
+    setMidi({ status: "requesting", detail: "Waiting for MIDI permission…" });
+    try {
+      await getAudio().enable();
+      if (!("requestMIDIAccess" in navigator)) {
+        setMidi({ status: "unavailable", detail: "This browser has no Web MIDI; the on-screen keys still work" });
+        return;
+      }
+
+      const access = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccessRef.current = access;
+      access.onstatechange = () => attachC25Inputs(access);
+      attachC25Inputs(access);
+    } catch (error) {
+      setMidi({
+        status: "error",
+        detail: error instanceof Error ? error.message : "MIDI permission was not granted",
+      });
+    }
+  }, [attachC25Inputs, getAudio]);
+
+  useEffect(() => () => {
+    const access = midiAccessRef.current;
+    if (access) {
+      access.onstatechange = null;
+      for (const input of access.inputs.values()) input.onmidimessage = null;
+    }
+    const capture = captureRef.current;
+    if (capture) {
+      globalThis.clearTimeout(capture.finishTimer);
+      globalThis.clearInterval(capture.progressTimer);
+    }
+    audioRef.current?.dispose();
+    audioRef.current = null;
   }, []);
 
-  return { state, pressPad, setMoment, setNote, setIntensity, togglePlaying, stop, undo };
+  return { enableC25, keyDown, keyUp, midi, pressPad, setMoment, setIntensity, state, stop, togglePlaying, undo };
 }
 
 interface VariantProps {
@@ -128,7 +392,17 @@ interface VariantProps {
   readonly setMoment: (moment: number) => void;
 }
 
-function AppHeader({ state }: { readonly state: PrototypeState }) {
+function AppHeader({
+  midi,
+  onEnableC25,
+  state,
+}: {
+  readonly midi: MidiConnection;
+  readonly onEnableC25: () => void;
+  readonly state: PrototypeState;
+}) {
+  const connected = midi.status === "connected";
+  const requesting = midi.status === "requesting";
   return (
     <header className="app-header">
       <div>
@@ -136,25 +410,39 @@ function AppHeader({ state }: { readonly state: PrototypeState }) {
         <h1>{state.title}</h1>
       </div>
       <div className="transport-readout" aria-label="Transport state">
-        <span className={`connection-dot ${state.playing ? "is-live" : ""}`} />
-        <strong>{state.playing ? "Playing" : "Paused"}</strong>
+        <span className={`connection-dot ${connected ? "is-live" : ""}`} />
+        <strong>{state.playing ? "Playing" : "Ready"}</strong>
         <span>{state.tempo} BPM</span>
         <span>{Math.floor(state.beat / 4) + 1}.{(state.beat % 4) + 1}</span>
-        <span className="device-pill">C25 connected</span>
+        <button
+          className={`device-pill status-${midi.status}`}
+          disabled={connected || requesting}
+          onClick={onEnableC25}
+          title={midi.detail}
+          type="button"
+        >
+          {connected ? "C25 connected" : requesting ? "Connecting…" : "Enable C25 + audio"}
+        </button>
       </div>
     </header>
   );
 }
 
 function StateRibbon({ state, variant }: { readonly state: PrototypeState; readonly variant: VariantKey }) {
-  const active = state.voices.filter((voice) => voice.status !== "empty").length;
+  const active = state.voices.filter((voice) => voice.status === "playing" || voice.status === "muted" || voice.status === "recording").length;
+  const armed = state.voices.find((voice) => voice.status === "armed");
   const recording = state.voices.find((voice) => voice.status === "recording");
+  const capture = recording
+    ? `Recording · ${Math.max(0, (state.captureRemaining ?? 0) * loopSeconds).toFixed(1)}s`
+    : armed
+      ? `Pad ${armed.pad} armed`
+      : "Ready";
   return (
     <div className="state-ribbon" aria-label="Full prototype state">
       <span><i>Surface</i>{variantNames[variant]}</span>
       <span><i>Voices</i>{active} of 8</span>
       <span><i>Selected</i>Pad {state.selectedVoice + 1} · {state.voices[state.selectedVoice]?.role}</span>
-      <span><i>Capture</i>{recording ? recording.role : "Ready"}</span>
+      <span><i>Capture</i>{capture}</span>
       <span><i>Moment</i>{state.activeMoment + 1}</span>
       <span><i>Last key</i>{state.note ?? "—"}</span>
       <span><i>Energy</i>{state.intensity}%</span>
@@ -173,6 +461,16 @@ function Pattern({ pattern }: { readonly pattern: readonly number[] }) {
 
 function VariantA({ state, pressPad, setMoment }: VariantProps) {
   const moments = ["Opening", "Settle in", "All together", "Air out"];
+  const selected = state.voices[state.selectedVoice];
+  const coach = selected?.status === "armed"
+    ? { title: "Play a one-bar phrase", body: "Your first key starts capture. Keep playing until the ring completes." }
+    : selected?.status === "recording"
+      ? { title: "Keep playing", body: "The phrase will loop automatically at the end of this bar." }
+      : selected?.status === "playing"
+        ? { title: `${selected.role} is looping`, body: `Tap pad ${selected.pad} to mute it, or choose an empty pad for another layer.` }
+        : selected?.status === "muted"
+          ? { title: `${selected.role} is resting`, body: `Tap pad ${selected.pad} to bring its loop back.` }
+          : { title: "Choose your first sound", body: "Press an empty C25 pad, then play a phrase on the keys." };
   return (
     <main className="variant variant-a">
       <section className="variant-intro">
@@ -190,7 +488,7 @@ function VariantA({ state, pressPad, setMoment }: VariantProps) {
             >
               <span className="cell-number">PAD {voice.pad}</span>
               <span className="cell-role">{voice.role}</span>
-              <strong>{voice.status === "empty" ? "+ Capture" : voice.name}</strong>
+              <strong>{voice.status === "empty" ? "+ Capture" : voice.status === "armed" ? "Play the keys" : voice.name}</strong>
               <Pattern pattern={voice.pattern} />
               <span className="cell-meta">{voice.status} · {voice.bars} bars</span>
             </button>
@@ -198,9 +496,12 @@ function VariantA({ state, pressPad, setMoment }: VariantProps) {
         </div>
         <aside className="cell-coach">
           <span className="coach-step">NOW</span>
-          <strong>Bring in the chords</strong>
-          <p>Tap pad 4 to unmute, or play a new phrase on the keys to replace it.</p>
-          <div className="beat-ring"><span>{(state.beat % 4) + 1}</span><small>beat</small></div>
+          <strong>{coach.title}</strong>
+          <p>{coach.body}</p>
+          <div className={`beat-ring ${selected?.status === "recording" ? "is-recording" : ""}`}>
+            <span>{selected?.status === "recording" ? Math.ceil((state.captureRemaining ?? 0) * 4) : (state.beat % 4) + 1}</span>
+            <small>{selected?.status === "recording" ? "beats left" : "beat"}</small>
+          </div>
         </aside>
       </section>
       <section className="moments">
@@ -319,14 +620,15 @@ function VariantC({ state, pressPad }: VariantProps) {
 interface C25DockProps {
   readonly state: PrototypeState;
   readonly pressPad: (index: number) => void;
-  readonly setNote: (note: string | null) => void;
+  readonly keyDown: (note: number, velocity?: number) => void;
+  readonly keyUp: (note: number) => void;
   readonly setIntensity: (intensity: number) => void;
   readonly togglePlaying: () => void;
   readonly stop: () => void;
   readonly undo: () => void;
 }
 
-function C25Dock({ state, pressPad, setNote, setIntensity, togglePlaying, stop, undo }: C25DockProps) {
+function C25Dock({ state, pressPad, keyDown, keyUp, setIntensity, togglePlaying, stop, undo }: C25DockProps) {
   return (
     <section className="c25-dock" aria-label="On-screen C25 fallback">
       <div className="c25-label"><span>C25</span><small>ON-SCREEN FALLBACK</small></div>
@@ -346,7 +648,20 @@ function C25Dock({ state, pressPad, setNote, setIntensity, togglePlaying, stop, 
         })}
       </div>
       <div className="mini-keys">
-        {keys.map((key) => <button className={state.note === key ? "is-down" : ""} key={key} onPointerDown={() => setNote(key)} onPointerLeave={() => setNote(null)} onPointerUp={() => setNote(null)} type="button"><span>{key}</span></button>)}
+        {keys.map((key) => (
+          <button
+            aria-label={key.label}
+            className={`${key.black ? "is-black" : ""} ${state.note === key.label ? "is-down" : ""}`}
+            key={key.note}
+            onPointerCancel={() => keyUp(key.note)}
+            onPointerDown={() => keyDown(key.note)}
+            onPointerLeave={() => keyUp(key.note)}
+            onPointerUp={() => keyUp(key.note)}
+            type="button"
+          >
+            <span>{key.note % 12 === 0 ? key.label : ""}</span>
+          </button>
+        ))}
       </div>
       <div className="mini-transport">
         <button onClick={undo} title="Undo" type="button">↶</button>
@@ -414,13 +729,14 @@ export function CreationSurfacePrototype() {
 
   return (
     <div className={`prototype-shell surface-${variant.toLowerCase()}`}>
-      <AppHeader state={sketch.state} />
+      <AppHeader midi={sketch.midi} onEnableC25={sketch.enableC25} state={sketch.state} />
       <StateRibbon state={sketch.state} variant={variant} />
       {content}
       <C25Dock
+        keyDown={sketch.keyDown}
+        keyUp={sketch.keyUp}
         pressPad={sketch.pressPad}
         setIntensity={sketch.setIntensity}
-        setNote={sketch.setNote}
         state={sketch.state}
         stop={sketch.stop}
         togglePlaying={sketch.togglePlaying}
