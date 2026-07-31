@@ -59,7 +59,11 @@ export async function requireJoinedWorkspace(
   const response = getPrincipalContextResponseSchema.parse(
     await env.DIRECTORY_API.getPrincipalContext({ workspaceId, userId }),
   );
-  if (!response.context) {
+  if (
+    !response.context ||
+    response.context.workspaceId !== workspaceId ||
+    response.context.userId !== userId
+  ) {
     throw new HTTPException(403, { message: "Workspace membership required" });
   }
   return response.context;

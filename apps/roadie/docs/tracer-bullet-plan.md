@@ -221,3 +221,45 @@ The following must be agreed before implementation reaches production:
 - The real two-workspace tracer bullet passes after restart and reinstall.
 - Dev observability can identify membership drift without exposing user data.
 - Deployment and rollback have been rehearsed and documented.
+
+## Verification loop ledger
+
+Run the automated gates from the repository root:
+
+```sh
+pnpm verify:roadie:loop
+```
+
+The command runs gates in dependency order and stops at the first failure. Fix
+that failure and rerun the same command; a later gate is not treated as evidence
+until all earlier gates pass.
+
+| Gate | Evidence | Initial state |
+| --- | --- | --- |
+| Repository hygiene | `git diff --check` | Automated |
+| Contract | Roadie contract typecheck | Automated |
+| Backend compile | API typecheck | Automated |
+| Backend behavior | API authorization and tenant-isolation tests | Automated |
+| Backend deployability | Wrangler development dry-run | Automated |
+| Miniapp compile | Roadie typecheck | Automated |
+| Miniapp behavior | Roadie unit tests | Automated |
+| Package | Roadie production build | Automated |
+| TAP package policy | Manifest and generated-test verification | Automated |
+| Directory parity | UI-visible workspace/member reconciliation report | Manual and pending |
+| Real isolation | Two-workspace installed tracer bullet | Manual and pending |
+| Production readiness | Backup, monitoring, deployment, and rollback evidence | Manual and pending |
+
+The loop is deliberately bounded. It does not retry indefinitely, mutate remote
+Directory data, deploy, or declare manual gates passed without captured evidence.
+
+### Tracer-bullet execution ledger
+
+| Stage | Result | Evidence |
+| --- | --- | --- |
+| Storage characterization RED | Confirmed | Global `trip_id` rejected the same ID in workspace B; the old itinerary foreign key accepted a workspace-B item pointing at a workspace-A trip |
+| Workspace tenant keys GREEN | Passed | Composite trip/item keys, composite foreign key, and workspace-scoped conflict/delete operations; both isolation tests pass |
+| Authorization characterization RED | Confirmed | Roadie accepted Directory principals returned for the wrong workspace or wrong user |
+| Authorization GREEN | Passed | Principal workspace/user equality is enforced; four authorization tests pass |
+| Client workspace switching | Passed | Distinct workspace A/B request bodies, workspace-keyed React Query keys, per-mount query client, and TAP workspace/package storage partition |
+| Directory parity | RED | TAP mounted `org_df93b96b-e1f9-43a0-a8c5-5c897e5ae15b`, but `tap-directory-dev` contained neither that workspace nor a membership row for the resolved user |
+| Installed two-workspace proof | Blocked | Requires Directory parity or a temporary authoritative membership facade before the second real workspace can open Roadie |

@@ -155,7 +155,7 @@ export async function putTrip(
            trip_id, workspace_id, owner_user_id, request_id, title, purpose,
            location, impact_report_json, created_at_ms, updated_at_ms
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-         ON CONFLICT (trip_id) DO UPDATE SET
+         ON CONFLICT (workspace_id, trip_id) DO UPDATE SET
            title = excluded.title,
            purpose = excluded.purpose,
            location = excluded.location,
@@ -174,7 +174,11 @@ export async function putTrip(
         trip.createdAtMs,
         trip.updatedAtMs,
       ),
-    db.prepare("DELETE FROM roadie_itinerary_items WHERE trip_id = ?1").bind(trip.tripId),
+    db
+      .prepare(
+        "DELETE FROM roadie_itinerary_items WHERE workspace_id = ?1 AND trip_id = ?2",
+      )
+      .bind(input.workspaceId, trip.tripId),
   ];
   for (const item of trip.timeline) {
     statements.push(
@@ -211,7 +215,11 @@ export async function deleteTrip(
   tripId: string,
 ): Promise<void> {
   await db.batch([
-    db.prepare("DELETE FROM roadie_itinerary_items WHERE trip_id = ?1").bind(tripId),
+    db
+      .prepare(
+        "DELETE FROM roadie_itinerary_items WHERE workspace_id = ?1 AND trip_id = ?2",
+      )
+      .bind(workspaceId, tripId),
     db
       .prepare("DELETE FROM roadie_trips WHERE workspace_id = ?1 AND trip_id = ?2")
       .bind(workspaceId, tripId),

@@ -88,6 +88,36 @@ describe("Roadie service client", () => {
     await expect(getWorkspaceContext(http, "workspace-1")).rejects.toThrow();
   });
 
+  it("keeps workspace switches explicit at the service boundary", async () => {
+    const requestBodies: unknown[] = [];
+    const http: MiniAppHttpApi = {
+      request: (input) => {
+        requestBodies.push(JSON.parse(input.body ?? "null") as unknown);
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: "OK",
+          headers: [],
+          bodyText: '{"trips":[]}',
+          bodyBase64: null,
+          bodyKind: "text",
+          bodyTruncated: false,
+          sizeBytes: 12,
+          elapsedMs: 1,
+          contentType: "application/json",
+        };
+      },
+    };
+
+    await listWorkspaceTrips(http, "workspace-a");
+    await listWorkspaceTrips(http, "workspace-b");
+
+    expect(requestBodies).toEqual([
+      { workspaceId: "workspace-a" },
+      { workspaceId: "workspace-b" },
+    ]);
+  });
+
   it("maps complete trips across the protobuf JSON boundary", async () => {
     const trip: Trip = {
       id: "trip-1",

@@ -17,6 +17,7 @@
     "typecheck": "turbo run typecheck",
     "typecheck:tap": "turbo run typecheck:tap --filter=./apps/*",
     "verify": "pnpm run typecheck && pnpm run test",
+    "verify:roadie:loop": "node scripts/verify-roadie-loop.mjs",
     "verify:tap": "pnpm run test:tap:static && pnpm run typecheck:tap"
   },
   "devDependencies": {
