@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import {
   createTripRequestSchema,
   getWorkspaceContextRequestSchema,
@@ -30,7 +31,7 @@ async function requestJson(request: Request): Promise<unknown> {
   try {
     return await request.json();
   } catch {
-    throw new Response("Invalid JSON request", { status: 400 });
+    throw new HTTPException(400, { message: "Invalid JSON request" });
   }
 }
 
@@ -60,8 +61,8 @@ app.post("/rpc/tap.roadie.v1.RoadieService/GetWorkspaceContext", async (context)
   });
   const currentMember = members.find((member) => member.userId === identity.userId);
   if (!currentMember) {
-    throw new Response("Joined member missing from workspace roster", {
-      status: 409,
+    throw new HTTPException(409, {
+      message: "Joined member missing from workspace roster",
     });
   }
   return connectJson({
@@ -85,7 +86,7 @@ app.post("/rpc/tap.roadie.v1.RoadieService/CreateTrip", async (context) => {
   const input = createTripRequestSchema.parse(await requestJson(context.req.raw));
   const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
   if (principal.role === "WORKSPACE_ROLE_VIEW_ONLY") {
-    throw new Response("Trip creation is not permitted", { status: 403 });
+    throw new HTTPException(403, { message: "Trip creation is not permitted" });
   }
   const trip = await createTrip(
     context.env.DB,
@@ -98,7 +99,7 @@ app.post("/rpc/tap.roadie.v1.RoadieService/CreateTrip", async (context) => {
 });
 
 app.onError((error) => {
-  if (error instanceof Response) return error;
+  if (error instanceof HTTPException) return error.getResponse();
   if (error instanceof Error && error.name === "ZodError") {
     return new Response("Invalid Roadie request", { status: 400 });
   }

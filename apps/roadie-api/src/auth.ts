@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { HTTPException } from "hono/http-exception";
 
 import {
   getPrincipalContextResponseSchema,
@@ -20,7 +21,7 @@ export async function authenticateRoadieRequest(
   env: RoadieApiEnv,
 ): Promise<RoadieRequestIdentity> {
   const token = bearerToken(request);
-  if (!token) throw new Response("Authentication required", { status: 401 });
+  if (!token) throw new HTTPException(401, { message: "Authentication required" });
 
   const issuer = `https://${env.AUTH0_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "")}/`;
   const jwks =
@@ -35,9 +36,9 @@ export async function authenticateRoadieRequest(
     });
     subject = verified.payload.sub;
   } catch {
-    throw new Response("Invalid or expired session", { status: 401 });
+    throw new HTTPException(401, { message: "Invalid or expired session" });
   }
-  if (!subject) throw new Response("Session has no subject", { status: 401 });
+  if (!subject) throw new HTTPException(401, { message: "Session has no subject" });
 
   const resolved = resolveCanonicalUserResponseSchema.parse(
     await env.DIRECTORY_API.resolveCanonicalUser({
@@ -45,7 +46,7 @@ export async function authenticateRoadieRequest(
     }),
   );
   if (!resolved.userId) {
-    throw new Response("Canonical user not found", { status: 403 });
+    throw new HTTPException(403, { message: "Canonical user not found" });
   }
   return { userId: resolved.userId };
 }
@@ -59,7 +60,7 @@ export async function requireJoinedWorkspace(
     await env.DIRECTORY_API.getPrincipalContext({ workspaceId, userId }),
   );
   if (!response.context) {
-    throw new Response("Workspace membership required", { status: 403 });
+    throw new HTTPException(403, { message: "Workspace membership required" });
   }
   return response.context;
 }
