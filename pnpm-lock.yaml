@@ -52,6 +52,34 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  apps/c25-creation-surface-prototype:
+    dependencies:
+      react:
+        specifier: ^19.2.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.0
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@rsbuild/core':
+        specifier: ^2.1.5
+        version: 2.1.6(@module-federation/runtime-tools@2.8.0)
+      '@rsbuild/plugin-react':
+        specifier: 2.1.0
+        version: 2.1.0(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.0))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.0)(@swc/helpers@0.5.23))
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/react':
+        specifier: ^19.2.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.0
+        version: 19.2.3(@types/react@19.2.17)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   apps/family-task-board:
     dependencies:
       '@theaiplatform/miniapp-sdk':

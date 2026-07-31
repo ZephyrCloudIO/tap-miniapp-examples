@@ -1,0 +1,23 @@
+{
+  "name": "@tap-examples/c25-creation-surface-prototype",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev --port 4300",
+    "build": "rsbuild build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^2.1.5",
+    "@rsbuild/plugin-react": "2.1.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^6.0.3"
+  }
+}
