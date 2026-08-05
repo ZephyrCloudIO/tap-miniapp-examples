@@ -21,7 +21,7 @@ const repositoryRoot = path.resolve(
 );
 const appsRoot = path.join(repositoryRoot, "apps");
 const expectedRstestVersionForSdk = (sdkVersion) =>
-  sdkVersion === "0.4.6" || sdkVersion === "0.7.0" ? "0.11.5" : undefined;
+  sdkVersion === "0.4.9" || sdkVersion === "0.7.0" ? "0.11.5" : undefined;
 const expectedPlaywrightVersion = "^1.61.0";
 const expectedTypecheckCommand =
   "tsc --project ./tsconfig.tap-test.json --noEmit";
