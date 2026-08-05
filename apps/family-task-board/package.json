@@ -18,13 +18,13 @@
     "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.4.6",
+    "@theaiplatform/miniapp-sdk": "0.5.2",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@module-federation/rsbuild-plugin": "2.8.0",
+    "@module-federation/rsbuild-plugin": "2.8.1",
     "@rsbuild/core": "^2.1.5",
     "@rsbuild/plugin-react": "2.1.0",
     "@rslib/core": "^0.23.2",
