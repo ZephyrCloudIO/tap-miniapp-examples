@@ -298,6 +298,74 @@
       }
     },
     {
+      "kind": "agent.skill",
+      "id": "security-impact-hypothesis",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.propose"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "security-implementation-review",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "architecture-review",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "review-coordinator",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
       "kind": "miniapp",
       "id": "engineering-change-app",
       "apiVersion": 1,
@@ -309,7 +377,11 @@
           "engineering-change-get-change",
           "engineering-change-list-changes",
           "engineering-change-get-impact-hypothesis",
-          "engineering-change-get-review-synthesis"
+          "engineering-change-get-review-synthesis",
+          "security-impact-hypothesis",
+          "security-implementation-review",
+          "architecture-review",
+          "review-coordinator"
         ]
       }
     },

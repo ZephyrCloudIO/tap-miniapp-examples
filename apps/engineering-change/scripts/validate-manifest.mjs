@@ -81,6 +81,33 @@ for (const toolId of [
   );
 }
 
+const expectedSkills = [
+  ["security-impact-hypothesis", "changes.propose"],
+  ["security-implementation-review", "changes.review"],
+  ["architecture-review", "changes.review"],
+  ["review-coordinator", "changes.review"],
+];
+for (const [skillId, gate] of expectedSkills) {
+  const skill = contribution("agent.skill", skillId);
+  if (!skill) {
+    throw new Error(
+      `Engineering Change must declare the ${skillId} review skill.`,
+    );
+  }
+  assert.equal(skill.lifecycleScope, "installation");
+  assert.deepEqual(skill.targets, { desktop: { runtime: "host-declarative" } });
+  assert.deepEqual(skill.options?.files, ["SKILL.md"]);
+  assert.deepEqual(skill.authorization?.allOf, [gate]);
+  const skillAsset = fs.readFileSync(
+    new URL(`../skills/${skillId}/0.1.0/SKILL.md`, import.meta.url),
+    "utf8",
+  );
+  const frontmatter = skillAsset.match(/^---\n([\s\S]*?)\n---/u);
+  if (!frontmatter?.[1]?.includes(`name: ${skillId}`)) {
+    throw new Error(`${skillId} SKILL.md frontmatter must name itself.`);
+  }
+}
+
 console.log(
   `manifest.tap.json is valid against SDK ${manifest.compatibility.tapSdk} schema`,
 );

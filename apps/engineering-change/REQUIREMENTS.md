@@ -13,6 +13,7 @@ This checklist is derived from `miniapps/07-engineering-change.md`. Evidence is 
 - [x] Impact Hypothesis (pre-implementation) with related symbols, predicted blast radius, confidence, and unresolved questions
 - [x] Impact Evidence (post-implementation) captured through governed, host-mediated reads against the declared `https://api.github.com` origin only, with HTTP status, digest, and captured-at receipt; source commit recorded when supplied
 - [x] Review contributions per abstract capability (security, architecture, test-sufficiency, operability, domain ownership) with skill and version recorded
+- [x] Versioned, lifecycle-specific code review skills shipped as signed `agent.skill` contributions: `security-impact-hypothesis` (shaping phase, gated on `changes.propose`), `security-implementation-review` (post-implementation, gated on `changes.review`), `architecture-review` (both phases, gated on `changes.review`), and `review-coordinator` (synthesis, gated on `changes.review`) — each with contract inputs, evidence requirements, and output expectations in SKILL.md
 - [x] Coordinator behavior: candidate findings can be verified or rejected; the coordinator never waives a finding and never makes the final human disposition
 - [x] Findings cite standard/rule, severity, confidence, and provenance; human dispositions: accepted, waived, false-positive, deferred, duplicate, each with rationale and action (create TAP task / repository issue / both / link existing / none)
 - [x] Append-only actor/timestamp audit trail on every mutation
