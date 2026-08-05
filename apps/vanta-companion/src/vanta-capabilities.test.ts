@@ -59,7 +59,8 @@ describe('Vanta capability inventory', () => {
       ['eu', 'https://mcp.eu.vanta.com/mcp', euSpecialist],
       ['aus', 'https://mcp.aus.vanta.com/mcp', ausSpecialist],
     ] as const) {
-      expect(manifest.name).toBe(VANTA_SPECIALIST_SLUGS[region]);
+      expect(manifest.name).toBe(`${VANTA_SPECIALIST_SLUGS[region]}@0.1.0`);
+      expect(manifest.slug).toBe(VANTA_SPECIALIST_SLUGS[region]);
       const template = manifest.tooling.mcpTemplates[0]!;
       const policy = template.toolPolicy;
       expect(template.tools).toEqual(VANTA_MCP_TOOLS);
