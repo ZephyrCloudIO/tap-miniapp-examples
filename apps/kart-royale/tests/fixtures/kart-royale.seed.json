@@ -1,0 +1,24 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_kart_royale_0001",
+      "namespace": "kart-royale",
+      "key": "users/tap-fixture-user-v1/control-prefs",
+      "revision": 1,
+      "value": {
+        "v": 1,
+        "scheme": "buttons",
+        "hand": "left",
+        "autoAccel": false,
+        "haptics": false,
+        "steerAssist": 0.35,
+        "driftAssist": 1,
+        "tiltRange": 30,
+        "fixedX": 0.3,
+        "fixedY": 0.8,
+        "tutorialSeen": 1
+      }
+    }
+  ]
+}

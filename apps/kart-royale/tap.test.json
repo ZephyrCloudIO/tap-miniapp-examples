@@ -1,0 +1,105 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_kart_royale_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "kart-royale-desktop": {
+      "surface": "kart-royale",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:kart-royale"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 7291,
+        "fixedNow": "2026-08-05T12:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "always" }
+    },
+    "kart-royale-desktop-post-projection-revoked": {
+      "surface": "kart-royale",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:kart-royale"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7292,
+        "fixedNow": "2026-08-05T12:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "kart-royale-desktop-http-denied": {
+      "surface": "kart-royale",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "http-denied",
+      "deniedActions": ["network.request"],
+      "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 7293,
+        "fixedNow": "2026-08-05T12:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    }
+  },
+  "matrix": [
+    {
+      "id": "kart-royale-desktop-positive",
+      "profile": "kart-royale-desktop",
+      "testMatch": [
+        "tests/e2e/kart-royale-storage.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:kart-royale.play",
+        "effect:storage:kart-royale",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+      ]
+    },
+    {
+      "id": "kart-royale-desktop-storage-denied",
+      "profile": "kart-royale-desktop-post-projection-revoked",
+      "testMatch": ["tests/e2e/kart-royale-storage-denied.test.ts"],
+      "capabilities": [
+        "action:kart-royale.play",
+        "effect:storage:kart-royale"
+      ]
+    },
+    {
+      "id": "kart-royale-desktop-http-denied",
+      "profile": "kart-royale-desktop-http-denied",
+      "testMatch": ["tests/e2e/kart-royale-http-denied.test.ts"],
+      "capabilities": ["effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
+    }
+  ],
+  "waivers": []
+}

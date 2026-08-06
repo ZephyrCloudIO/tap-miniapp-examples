@@ -1,0 +1,33 @@
+{
+  // This package's compilation unit intentionally includes the vendored game
+  // sources (TrackMath ← TrackLayout ← types), which are authored against the
+  // game's own loose profile (see apps/kart-royale/tsconfig.json). Repo-strict
+  // flags like noUncheckedIndexedAccess would require rewriting hundreds of
+  // load-bearing indexing sites in vendored code, so this config matches the
+  // game's profile instead of the other worker example's strict one.
+  "compilerOptions": {
+    "allowJs": false,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "target": "ES2023",
+    "types": ["@cloudflare/vitest-pool-workers/types", "node"]
+  },
+  "include": [
+    "worker-configuration.d.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

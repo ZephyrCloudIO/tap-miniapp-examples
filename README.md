@@ -55,6 +55,7 @@ Each example has its own product brief under [`miniapps`](./miniapps). The brief
 | 4 | [Pyre](./miniapps/04-pyre.md) | Enterprise | TAP knowledge, evidence, specialists, and workflows | Approved |
 | 5 | [Unofficial Suno Player](./miniapps/05-unofficial-suno-player.md) | Consumer | Suno playback/generation plus channel workflows | Approved concept; provider-gated |
 | 6 | [Personal Health Ledger](./miniapps/06-personal-health-ledger.md) | Consumer | Private health records plus research and safety APIs | Approved |
+| 7 | [Kart Royale](./miniapps/07-kart-royale.md) | Consumer | TAP storage plus a Cloudflare session server for channel multiplayer | Approved concept; multiplayer implemented |
 
 ## Local references
 

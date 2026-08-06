@@ -1,0 +1,74 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tap-kart-royale-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "ALLOW_DEV_IDENTITY": "true",
+    "TICKET_TTL_SECONDS": "120",
+    "COUNTDOWN_MS": "4400",
+    "MAX_PLAYERS": "8",
+    "DISCONNECT_GRACE_SECONDS": "45",
+    "TAP_INTROSPECTION_URL": "",
+    "ALLOWED_ORIGINS": ""
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RACE_ROOM",
+        "class_name": "RaceRoom"
+      },
+      {
+        "name": "RACE_REGISTRY",
+        "class_name": "ChannelRegistry"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RaceRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ChannelRegistry"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "env": {
+    "production": {
+      "name": "tap-kart-royale-server-production",
+      "vars": {
+        "ALLOW_DEV_IDENTITY": "false",
+        "TICKET_TTL_SECONDS": "120",
+        "COUNTDOWN_MS": "4400",
+        "MAX_PLAYERS": "8",
+        "DISCONNECT_GRACE_SECONDS": "45",
+        "TAP_INTROSPECTION_URL": "",
+        "ALLOWED_ORIGINS": ""
+      },
+      "secrets": {
+        "required": ["TICKET_SECRET"]
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "RACE_ROOM",
+            "class_name": "RaceRoom"
+          },
+          {
+            "name": "RACE_REGISTRY",
+            "class_name": "ChannelRegistry"
+          }
+        ]
+      }
+    }
+  }
+}
