@@ -68,7 +68,7 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.4.6",
+    adapterVersion: "0.5.2",
     allowedNetworkOrigins: [],
     artifacts: {
       ...ARTIFACTS,

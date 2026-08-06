@@ -33,6 +33,7 @@ const specialistAsset = JSON.parse(
     "utf8",
   ),
 );
-assert.equal(specialistAsset.name, specialist.id);
+assert.equal(specialistAsset.name, `${specialist.id}@${specialistAsset.version}`);
+assert.equal(specialistAsset.slug, specialist.id);
 assert.equal(specialistAsset.version, "0.1.0");
 console.log(`manifest.tap.json is valid against SDK ${sdkPackage.version} schema`);
