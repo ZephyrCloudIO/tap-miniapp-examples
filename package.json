@@ -20,6 +20,7 @@
     "verify:tap": "pnpm run test:tap:static && pnpm run typecheck:tap"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "turbo": "2.10.5",
     "typescript": "^6.0.3"
   }
