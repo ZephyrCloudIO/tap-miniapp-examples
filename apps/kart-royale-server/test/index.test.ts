@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { trackMath } from '../src/trackAuthority';
-import type { ServerMessage } from '../src/protocol';
+import type { ServerMessage } from '@tap-examples/kart-royale-protocol';
 
 const BASE = 'http://localhost';
 

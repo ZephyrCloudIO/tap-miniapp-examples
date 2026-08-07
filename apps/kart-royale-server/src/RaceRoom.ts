@@ -23,7 +23,7 @@ import {
   type RacePhase,
   type RosterMemberWire,
   type ServerMessage,
-} from './protocol';
+} from '@tap-examples/kart-royale-protocol';
 import { checkpointClaimConsistent, positionPlausible } from './trackAuthority';
 import { trackMath } from './trackAuthority';
 import { ARM_TIME_S, BOX_RESPAWN_S, TRIPLE_COUNT, TRIPLE_MUSHROOM_KIND, rollItem } from '@tap-examples/kart-royale/item-tables';

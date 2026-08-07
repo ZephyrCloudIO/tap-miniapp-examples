@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@rstest/core';
 import { RemoteKartBuffer } from './RemoteKartBuffer';
-import type { KartStateWire } from '@tap-examples/kart-royale-server/protocol';
+import type { KartStateWire } from '@tap-examples/kart-royale-protocol';
 
 function state(seq: number, x: number, vx = 0): KartStateWire {
   return {

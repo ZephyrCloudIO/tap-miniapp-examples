@@ -12,7 +12,7 @@
  * ============================================================================
  */
 import { BridgeError, storageGet, storageSet } from './bridge';
-import type { RosterMemberWire, RacePhase } from '@tap-examples/kart-royale-server/protocol';
+import type { RosterMemberWire, RacePhase } from '@tap-examples/kart-royale-protocol';
 
 export const PROJECTION_NAMESPACE = 'kart-royale';
 export const PROJECTION_SCHEMA = 'kart-royale.mcp.current';

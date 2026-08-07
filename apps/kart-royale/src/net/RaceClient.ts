@@ -11,8 +11,8 @@
 import type {
   ClientMessage,
   ServerMessage,
-} from '@tap-examples/kart-royale-server/protocol';
-import { PROTOCOL_VERSION } from '@tap-examples/kart-royale-server/protocol';
+} from '@tap-examples/kart-royale-protocol';
+import { PROTOCOL_VERSION } from '@tap-examples/kart-royale-protocol';
 
 export interface RestResponse {
   status: number;

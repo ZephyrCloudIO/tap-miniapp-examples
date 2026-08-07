@@ -57,9 +57,10 @@ for (const [region, endpoint] of regions) {
   const asset = JSON.parse(
     fs.readFileSync(new URL(`../${assetPath}`, import.meta.url), 'utf8'),
   );
-  assert.equal(asset.name, slug);
+  assert.equal(asset.name, `${slug}@${asset.version}`);
+  assert.equal(asset.slug, slug);
   assert.equal(asset.version, '0.1.0');
-  assert.equal(asset.schemaVersion, '1.3.0');
+  assert.equal(asset.schemaVersion, '2.0.0');
   assert.equal(asset.tooling?.mcpTemplates?.length, 1);
   const template = asset.tooling.mcpTemplates[0];
   assert.equal(template.transport?.type, 'streamableHttp');

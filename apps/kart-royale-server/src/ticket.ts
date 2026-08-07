@@ -14,7 +14,7 @@
  * ============================================================================
  */
 
-import type { MemberRole } from './protocol';
+import type { MemberRole } from '@tap-examples/kart-royale-protocol';
 
 export interface TicketClaims {
   userId: string;

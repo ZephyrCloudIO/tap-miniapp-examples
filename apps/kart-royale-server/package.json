@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": {
-    "./protocol": "./src/protocol.ts"
-  },
   "scripts": {
     "build": "wrangler deploy --dry-run --env=\"\" --outdir dist",
     "check:startup": "wrangler check startup",
@@ -16,7 +13,8 @@
     "types:check": "wrangler types --strict-vars=false --check"
   },
   "dependencies": {
-    "@tap-examples/kart-royale": "workspace:*"
+    "@tap-examples/kart-royale": "workspace:*",
+    "@tap-examples/kart-royale-protocol": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.6",

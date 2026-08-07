@@ -22,8 +22,8 @@ import type {
   KartStateWire,
   RosterMemberWire,
   ServerMessage,
-} from '@tap-examples/kart-royale-server/protocol';
-import { PROTOCOL_VERSION } from '@tap-examples/kart-royale-server/protocol';
+} from '@tap-examples/kart-royale-protocol';
+import { PROTOCOL_VERSION } from '@tap-examples/kart-royale-protocol';
 import type { RaceClient } from './RaceClient';
 import { RemoteKartBuffer } from './RemoteKartBuffer';
 import { setRemoteKarts, clearRemoteKarts } from './remoteKarts';

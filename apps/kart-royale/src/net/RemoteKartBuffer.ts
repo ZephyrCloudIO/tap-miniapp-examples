@@ -9,7 +9,7 @@
  *  classic Source-engine shape, sized for a kart racer's 20 Hz stream.
  * ============================================================================
  */
-import type { KartStateWire } from '@tap-examples/kart-royale-server/protocol';
+import type { KartStateWire } from '@tap-examples/kart-royale-protocol';
 
 export interface BufferedSample {
   at: number;

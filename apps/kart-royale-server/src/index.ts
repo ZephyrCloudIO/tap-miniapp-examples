@@ -14,7 +14,7 @@
  */
 import { resolveIdentity, type Identity } from './auth';
 import { mintTicket, verifyTicket } from './ticket';
-import type { MemberRole } from './protocol';
+import type { MemberRole } from '@tap-examples/kart-royale-protocol';
 import { RaceRoom } from './RaceRoom';
 import { ChannelRegistry } from './ChannelRegistry';
 
