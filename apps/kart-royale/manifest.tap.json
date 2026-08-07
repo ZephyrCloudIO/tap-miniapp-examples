@@ -29,7 +29,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.5.2",
+    "tapSdk": "0.5.3",
     "tapHost": ">=0.1.0"
   },
   "targets": {

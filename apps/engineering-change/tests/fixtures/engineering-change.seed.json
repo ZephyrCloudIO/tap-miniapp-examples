@@ -1,0 +1,130 @@
+{
+  "projects": [
+    {
+      "id": "engineering-change-fixture-project",
+      "name": "Engineering Change — Fenced referee adoption",
+      "discoverable": false
+    }
+  ],
+  "channels": [
+    {
+      "roomId": "engineering-change-fixture-channel",
+      "title": "engineering-change-fixture-referee",
+      "projectId": "engineering-change-fixture-project",
+      "archived": false,
+      "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "messages": [],
+      "specialistIds": []
+    }
+  ],
+  "workflows": [
+    {
+      "workflowId": "engineering-change-fixture-transition",
+      "name": "Run change transition",
+      "type": "change-transition",
+      "createdAt": 1784894400000,
+      "updatedAt": 1784894400000,
+      "result": {
+        "success": true,
+        "runId": "engineering-change-fixture-run",
+        "message": "Fixture transition accepted."
+      }
+    }
+  ],
+  "vfsDirectories": [],
+  "vfsFiles": [],
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_engineering_change_0001",
+      "namespace": "engineering-change",
+      "key": "changes/v1",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 1,
+        "changes": [
+          {
+            "id": "EC-2026-0001",
+            "title": "Fenced referee adoption",
+            "summary": "Route desktop run lanes through the fenced ze-workflows referee.",
+            "phase": "review",
+            "proposal": "# Intent\n\nAdopt the fenced referee as the single execution path.\n\n## Target scope\n\nDesktop run lanes and the referee projection.",
+            "assuranceLevel": "full-rfc",
+            "effectivePolicy": {
+              "assuranceLevel": "full-rfc",
+              "requiredCapabilities": ["architecture", "test-sufficiency"],
+              "contributingPolicies": [
+                { "policyId": "workspace-default", "revision": 1, "scope": "workspace" }
+              ],
+              "escalated": false,
+              "rationale": "score 20 with confidence 0.9; 1 applicable policy"
+            },
+            "impactHypothesis": null,
+            "impactEvidence": null,
+            "reviewContributions": [],
+            "reviewSynthesis": null,
+            "findings": [
+              {
+                "id": "finding-seed-1",
+                "severity": "medium",
+                "category": "architecture",
+                "standard": "workspace-standards:v3",
+                "file": "apps/tauri/src-tauri/src/workflow/ze_run.rs",
+                "line": 52,
+                "symbol": "execute_run",
+                "summary": "The legacy lane must not remain reachable after the fenced projection lands.",
+                "confidence": 0.8,
+                "provenance": "fixture-seed",
+                "verification": "candidate",
+                "disposition": null
+              }
+            ],
+            "readyForWorkAt": null,
+            "workStartedAt": null,
+            "workStartSource": null,
+            "audit": [
+              {
+                "id": "audit-seed-1",
+                "at": "2026-07-24T11:00:00Z",
+                "actorId": "fixture-author",
+                "action": "assurance.classified",
+                "summary": "Classified the change as full-rfc."
+              }
+            ],
+            "createdAt": "2026-07-24T10:00:00Z",
+            "updatedAt": "2026-07-24T11:00:00Z",
+            "closedAt": null
+          }
+        ],
+        "policies": [
+          {
+            "id": "workspace-default",
+            "revision": 1,
+            "scope": "workspace",
+            "scopeId": null,
+            "threshold": 12,
+            "level": "full-rfc",
+            "requiredCapabilities": ["architecture", "test-sufficiency"],
+            "hardTriggers": [
+              "security",
+              "privacy",
+              "authentication",
+              "authorization",
+              "persistent-data-migration",
+              "public-contract",
+              "cross-boundary-architecture",
+              "destructive-behavior",
+              "standards-exception"
+            ],
+            "locked": true,
+            "bounds": { "min": 8, "max": 20 }
+          }
+        ]
+      }
+    }
+  ],
+  "presence": [],
+  "checkpoints": [],
+  "specialists": []
+}

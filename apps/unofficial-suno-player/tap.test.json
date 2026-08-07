@@ -747,7 +747,7 @@
     },
     {
       "capability": "action:specialists.invoke",
-      "reason": "Surface Test Lab 0.5.2 does not project seeded workspace specialists through sdk.specialist.listWorkspace, so no real specialist can be selected for a truthful run-turn success or denial case; prompt/result parsing remains unit-tested.",
+      "reason": "Surface Test Lab 0.5.3 does not project seeded workspace specialists through sdk.specialist.listWorkspace, so no real specialist can be selected for a truthful run-turn success or denial case; prompt/result parsing remains unit-tested.",
       "expiresAt": "2027-01-31T00:00:00Z"
     },
     {

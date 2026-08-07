@@ -23,7 +23,7 @@
     "verify:react-runtime": "node scripts/verify-react-runtime.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.5.2",
+    "@theaiplatform/miniapp-sdk": "0.5.3",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
