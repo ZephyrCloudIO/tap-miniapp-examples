@@ -91,6 +91,28 @@ pnpm dev      # http://localhost:5173 (rsbuild)
 pnpm build    # preview build + TAP package build — the gate
 ```
 
+### Packaged miniapp with a local race server
+
+For end-to-end testing inside TAP, run the Worker on the one origin admitted by
+the local package profile:
+
+```bash
+pnpm --filter @tap-examples/kart-royale-server dev --ip 127.0.0.1 --port 8787
+```
+
+Then build the installable local package:
+
+```bash
+pnpm --filter @tap-examples/kart-royale build:miniapp:local
+```
+
+The verified artifact is `apps/kart-royale/dist`. The command compiles the
+packaged surface with `http://127.0.0.1:8787`, derives a temporary descriptor
+that adds only that exact external-network origin, and removes the temporary
+descriptor after assembly. The checked-in `manifest.tap.json` remains the
+production descriptor and never gains loopback access. Do not publish the local
+artifact; run `build:miniapp` again before publishing or validating production.
+
 Useful URL flags:
 
 | flag | what it does |

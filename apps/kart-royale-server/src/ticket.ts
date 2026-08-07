@@ -102,12 +102,19 @@ export async function verifyTicket(
   }
   const parsed = claims as TicketClaims;
   const expected = `${payload}.${encodeClaims(parsed)}`;
-  const valid = await crypto.subtle.verify(
-    'HMAC',
-    await hmacKey(secret),
-    unbase64url(sig) as BufferSource,
-    new TextEncoder().encode(expected),
-  );
+  let valid: boolean;
+  try {
+    valid = await crypto.subtle.verify(
+      'HMAC',
+      await hmacKey(secret),
+      unbase64url(sig) as BufferSource,
+      new TextEncoder().encode(expected),
+    );
+  } catch {
+    // Malformed bearer input must fail authentication, not escape as a Worker
+    // exception (base64 decoding and Web Crypto validation can both reject).
+    return null;
+  }
   if (!valid) return null;
   if (parsed.exp <= now) return null;
   return parsed;

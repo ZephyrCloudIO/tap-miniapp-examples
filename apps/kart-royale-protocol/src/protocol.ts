@@ -122,6 +122,21 @@ export interface ClientItemUse {
   target: number;
 }
 
+/** Why a deployed shield left the kart without an explicit item-use release. */
+export type ItemCarryDisposition = 'destroyed' | 'dropped';
+
+/**
+ * A locally simulated carried item was consumed by the race world. The room
+ * removes it from authoritative inventory and relays the visual disposition.
+ */
+export interface ClientItemCarryConsumed {
+  v: number;
+  type: 'item_carry_consumed';
+  kartKey?: string;
+  kind: number;
+  disposition: ItemCarryDisposition;
+}
+
 /**
  * A projectile hit claim against a NETWORK-owned kart. The shooter's client
  * simulates its projectile and reports the contact; the victim's client owns
@@ -145,6 +160,7 @@ export type ClientMessage =
   | ClientPing
   | ClientItemDraw
   | ClientItemUse
+  | ClientItemCarryConsumed
   | ClientHitClaim;
 
 // ---------------------------------------------------------------------------
@@ -298,6 +314,34 @@ export interface ServerItemUsed {
   target: number;
 }
 
+/** A carried item was authoritatively destroyed or dropped into the race. */
+export interface ServerItemCarryConsumed {
+  v: number;
+  type: 'item_carry_consumed';
+  userId: string;
+  kartKey: string;
+  kind: number;
+  disposition: ItemCarryDisposition;
+}
+
+/** One authoritative per-kart item-inventory snapshot entry. */
+export interface ItemInventoryWire {
+  userId: string;
+  kartKey: string;
+  kind: number;
+  count: number;
+  carried: boolean;
+  /** Epoch milliseconds on the room's server clock. */
+  armUntil: number;
+}
+
+/** Complete inventory state, sent on connection and ownership changes. */
+export interface ServerItemSync {
+  v: number;
+  type: 'item_sync';
+  items: ItemInventoryWire[];
+}
+
 /** A shooter's hit claim, relayed to the victim's client only. */
 export interface ServerHit {
   v: number;
@@ -332,6 +376,8 @@ export type ServerMessage =
   | ServerItemGranted
   | ServerItemDenied
   | ServerItemUsed
+  | ServerItemCarryConsumed
+  | ServerItemSync
   | ServerHit
   | ServerBoxSync;
 
@@ -434,6 +480,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         Number.isSafeInteger(msg.target) &&
         (msg.kartKey === undefined || shortString(msg.kartKey, 32))
         ? (msg as unknown as ClientItemUse)
+        : null;
+    case 'item_carry_consumed':
+      return Number.isSafeInteger(msg.kind) &&
+        (msg.disposition === 'destroyed' || msg.disposition === 'dropped') &&
+        (msg.kartKey === undefined || shortString(msg.kartKey, 32))
+        ? (msg as unknown as ClientItemCarryConsumed)
         : null;
     case 'hit_claim':
       return shortString(msg.targetUserId, 128) &&

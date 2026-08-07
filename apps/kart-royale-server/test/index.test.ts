@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { SELF } from 'cloudflare:test';
+import {
+  SELF,
+  env,
+  evictDurableObject,
+  runDurableObjectAlarm,
+  runInDurableObject,
+} from 'cloudflare:test';
 import { trackMath } from '../src/trackAuthority';
 import type { ServerMessage } from '@tap-examples/kart-royale-protocol';
+import worker from '../src/index';
+
+// vitest-pool-workers 0.18.6 declares eviction against an untyped DO stub even
+// though the runtime supports generated, RPC-typed namespaces. Add the missing
+// typed overload locally until the package declaration catches up.
+declare module 'cloudflare:test' {
+  export function evictDurableObject<T extends Rpc.DurableObjectBranded>(
+    stub: DurableObjectStub<T>,
+    options?: DurableObjectEvictionOptions,
+  ): Promise<void>;
+  export function runDurableObjectAlarm<T extends Rpc.DurableObjectBranded>(
+    stub: DurableObjectStub<T>,
+  ): Promise<boolean>;
+}
 
 const BASE = 'http://localhost';
 
@@ -11,21 +31,27 @@ interface CreatedRoom {
   wsUrl: string;
 }
 
-async function createRoom(user: string, name = user): Promise<CreatedRoom> {
+async function createRoom(user: string, name = user, channelId = 'chan-1'): Promise<CreatedRoom> {
   const res = await SELF.fetch(`${BASE}/rooms`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ channelId: 'chan-1', userId: user, displayName: name }),
+    body: JSON.stringify({ channelId, userId: user, displayName: name }),
   });
   expect(res.status).toBe(200);
   return (await res.json()) as CreatedRoom;
 }
 
-async function joinRoom(raceId: string, user: string, role = 'player', name = user): Promise<CreatedRoom> {
+async function joinRoom(
+  raceId: string,
+  user: string,
+  role = 'player',
+  name = user,
+  channelId = 'chan-1',
+): Promise<CreatedRoom> {
   const res = await SELF.fetch(`${BASE}/rooms/${raceId}/tickets`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ channelId: 'chan-1', userId: user, displayName: name, role }),
+    body: JSON.stringify({ channelId, userId: user, displayName: name, role }),
   });
   expect(res.status).toBe(200);
   return (await res.json()) as CreatedRoom;
@@ -67,8 +93,12 @@ class TestSocket {
     this.ws.close();
   }
 
-  async waitFor(match: (m: ServerMessage) => boolean, timeoutMs = 3000): Promise<ServerMessage> {
-    const existing = this.messages.find(match);
+  async waitFor(
+    match: (m: ServerMessage) => boolean,
+    timeoutMs = 3000,
+    afterIndex = 0,
+  ): Promise<ServerMessage> {
+    const existing = this.messages.slice(afterIndex).find(match);
     if (existing) return existing;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('timed out waiting for message')), timeoutMs);
@@ -127,6 +157,300 @@ describe('kart-royale-server', () => {
     expect(res.status).toBe(401);
   });
 
+  it('rejects a websocket upgrade with a malformed ticket signature', async () => {
+    const room = await createRoom('user-malformed-ticket');
+    const bad = new URL(room.wsUrl);
+    const ticket = bad.searchParams.get('ticket');
+    expect(ticket).not.toBeNull();
+    const payload = ticket!.slice(0, ticket!.lastIndexOf('.'));
+    bad.searchParams.set('ticket', `${payload}.%%%`);
+
+    const res = await SELF.fetch(
+      bad.toString().replace('ws://', 'http://').replace('wss://', 'https://'),
+      { headers: { Upgrade: 'websocket' } },
+    );
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({ error: 'invalid or expired ticket' });
+  });
+
+  it('reserves slot zero and host authority for the verified room creator', async () => {
+    const creator = await createRoom('user-reserved-creator', 'Creator');
+    const guest = await joinRoom(creator.raceId, 'user-racing-guest', 'player', 'Guest');
+
+    // The guest deliberately upgrades first; creation order, not socket order,
+    // determines host authority and grid slot ownership.
+    const guestSocket = await TestSocket.open(guest.wsUrl);
+    const guestWelcome = (await guestSocket.waitFor(
+      (message) => message.type === 'welcome',
+    )) as Extract<ServerMessage, { type: 'welcome' }>;
+    expect(guestWelcome).toMatchObject({ userId: 'user-racing-guest', slot: 1 });
+    expect(guestWelcome.roster).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: 'user-reserved-creator',
+        slot: 0,
+        host: true,
+        connected: false,
+      }),
+      expect.objectContaining({
+        userId: 'user-racing-guest',
+        slot: 1,
+        host: false,
+        connected: true,
+      }),
+    ]));
+
+    const creatorSocket = await TestSocket.open(creator.wsUrl);
+    const creatorWelcome = (await creatorSocket.waitFor(
+      (message) => message.type === 'welcome',
+    )) as Extract<ServerMessage, { type: 'welcome' }>;
+    expect(creatorWelcome).toMatchObject({ userId: 'user-reserved-creator', slot: 0 });
+    expect(creatorWelcome.roster).toContainEqual(expect.objectContaining({
+      userId: 'user-reserved-creator',
+      host: true,
+      connected: true,
+    }));
+
+    guestSocket.close();
+    creatorSocket.close();
+  });
+
+  it('removes a reserved creator who never upgrades after disconnect grace', async () => {
+    const room = await createRoom('user-abandoned-creator', 'Abandoned');
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(room.raceId));
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await runDurableObjectAlarm(stub);
+
+    const ticket = await SELF.fetch(`${BASE}/rooms/${room.raceId}/tickets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        channelId: 'chan-1',
+        userId: 'user-after-abandonment',
+        displayName: 'Too Late',
+        role: 'player',
+      }),
+    });
+    expect(ticket.status).toBe(404);
+
+    const listed = await SELF.fetch(`${BASE}/channels/chan-1/rooms`);
+    const body = (await listed.json()) as { rooms: { raceId: string }[] };
+    expect(body.rooms).not.toContainEqual(expect.objectContaining({ raceId: room.raceId }));
+  });
+
+  it('requires platform authentication for channel discovery in production', async () => {
+    const productionEnv = {
+      ALLOW_DEV_IDENTITY: 'false',
+      TAP_JWT_ISSUER: '',
+      TAP_JWT_AUDIENCE: '',
+    } as Env;
+
+    const missing = await worker.fetch(
+      new Request(`${BASE}/channels/chan-private/rooms`),
+      productionEnv,
+    );
+    expect(missing.status).toBe(401);
+
+    const invalid = await worker.fetch(
+      new Request(`${BASE}/channels/chan-private/rooms`, {
+        headers: { authorization: 'Bearer invalid-platform-session' },
+      }),
+      productionEnv,
+    );
+    expect(invalid.status).toBe(401);
+  });
+
+  it('rejects ticket minting for uninitialised rooms and channel mismatches', async () => {
+    const missing = await SELF.fetch(`${BASE}/rooms/${crypto.randomUUID()}/tickets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        channelId: 'chan-1',
+        userId: 'user-missing-room',
+        displayName: 'Missing',
+        role: 'player',
+      }),
+    });
+    expect(missing.status).toBe(404);
+
+    const room = await createRoom('user-channel-host', 'ChannelHost', 'chan-private');
+    const mismatch = await SELF.fetch(`${BASE}/rooms/${room.raceId}/tickets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        channelId: 'chan-other',
+        userId: 'user-channel-guest',
+        displayName: 'WrongChannel',
+        role: 'player',
+      }),
+    });
+    expect(mismatch.status).toBe(403);
+  });
+
+  it('blocks new players after the lobby while allowing reconnects and spectators', async () => {
+    const host = await createRoom('user-late-host');
+    // Mint while the room is still open, then hold the ticket until after start.
+    const heldTicket = await joinRoom(host.raceId, 'user-held-ticket');
+    const hostSocket = await TestSocket.open(host.wsUrl);
+    await hostSocket.waitFor((m) => m.type === 'welcome');
+    hostSocket.send({ v: 1, type: 'ready', ready: true });
+    hostSocket.send({ v: 1, type: 'start' });
+    await hostSocket.waitFor((m) => m.type === 'race_start', 5000);
+
+    const latePlayer = await SELF.fetch(`${BASE}/rooms/${host.raceId}/tickets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        channelId: 'chan-1',
+        userId: 'user-late-player',
+        displayName: 'LatePlayer',
+        role: 'player',
+      }),
+    });
+    expect(latePlayer.status).toBe(409);
+
+    // Admission is checked again at upgrade time so a lobby-era ticket cannot
+    // be held and used to become a new racer once the countdown has started.
+    const heldUpgrade = await SELF.fetch(
+      heldTicket.wsUrl.replace('ws://', 'http://').replace('wss://', 'https://'),
+      { headers: { Upgrade: 'websocket' } },
+    );
+    expect(heldUpgrade.status).toBe(409);
+
+    // A known player may still reconnect to the same slot mid-race.
+    const reconnectedHost = await TestSocket.open(host.wsUrl);
+    const reconnectWelcome = (await reconnectedHost.waitFor(
+      (m) => m.type === 'welcome',
+    )) as Extract<ServerMessage, { type: 'welcome' }>;
+    expect(reconnectWelcome).toMatchObject({ phase: 'running', slot: 0 });
+
+    const spectator = await joinRoom(host.raceId, 'user-late-spectator', 'spectator');
+    const spectatorSocket = await TestSocket.open(spectator.wsUrl);
+    const spectatorWelcome = (await spectatorSocket.waitFor(
+      (m) => m.type === 'welcome',
+    )) as Extract<ServerMessage, { type: 'welcome' }>;
+    expect(spectatorWelcome).toMatchObject({ phase: 'running', slot: null });
+    expect(spectatorWelcome.roster).toContainEqual(
+      expect.objectContaining({ userId: 'user-late-spectator', role: 'spectator', slot: null }),
+    );
+
+    hostSocket.close();
+    reconnectedHost.close();
+    spectatorSocket.close();
+  });
+
+  it('restores the roster after hibernation and handles a hibernated close once', async () => {
+    const host = await createRoom('user-hibernate-host');
+    const guest = await joinRoom(host.raceId, 'user-hibernate-guest');
+    const a = await TestSocket.open(host.wsUrl);
+    const b = await TestSocket.open(guest.wsUrl);
+    await b.waitFor((m) => m.type === 'welcome');
+    a.send({ v: 1, type: 'ready', ready: true });
+    b.send({ v: 1, type: 'ready', ready: true });
+    await b.waitFor((m) => m.type === 'roster' && m.roster.every((member) => member.ready));
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    await evictDurableObject(stub);
+
+    const afterEviction = b.messages.length;
+    b.send({ v: 1, type: 'hello', displayName: 'Guest', role: 'player' });
+    const restored = (await b.waitFor(
+      (m) => m.type === 'roster' && m.roster.length === 2 && m.roster.every((member) => member.connected),
+      3000,
+      afterEviction,
+    )) as Extract<ServerMessage, { type: 'roster' }>;
+    expect(restored.roster).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: 'user-hibernate-host', slot: 0, host: true, ready: true }),
+        expect.objectContaining({ userId: 'user-hibernate-guest', slot: 1, ready: true }),
+      ]),
+    );
+
+    const beforeClose = b.messages.length;
+    a.close();
+    const disconnected = (await b.waitFor(
+      (m) => m.type === 'roster' && m.roster.some(
+        (member) => member.userId === 'user-hibernate-host' && !member.connected && member.slot === 0,
+      ),
+      3000,
+      beforeClose,
+    )) as Extract<ServerMessage, { type: 'roster' }>;
+    expect(disconnected.roster.find((member) => member.userId === 'user-hibernate-guest')?.connected).toBe(true);
+    b.close();
+  });
+
+  it('does not let a superseded socket disconnect its replacement', async () => {
+    const host = await createRoom('user-duplicate-host');
+    const original = await TestSocket.open(host.wsUrl);
+    await original.waitFor((m) => m.type === 'welcome');
+
+    const replacement = await TestSocket.open(host.wsUrl);
+    await replacement.waitFor((m) => m.type === 'welcome');
+    const afterReplacement = replacement.messages.length;
+
+    original.close();
+    replacement.send({ v: 1, type: 'hello', displayName: 'Host', role: 'player' });
+    const roster = (await replacement.waitFor(
+      (m) => m.type === 'roster' && m.roster.some(
+        (member) => member.userId === 'user-duplicate-host' && member.connected,
+      ),
+      3000,
+      afterReplacement,
+    )) as Extract<ServerMessage, { type: 'roster' }>;
+    expect(roster.roster).toContainEqual(
+      expect.objectContaining({ userId: 'user-duplicate-host', connected: true, slot: 0, host: true }),
+    );
+    replacement.close();
+  });
+
+  it('does not start while a slotted player is disconnected', async () => {
+    const host = await createRoom('user-start-host');
+    const guest = await joinRoom(host.raceId, 'user-start-guest');
+    const a = await TestSocket.open(host.wsUrl);
+    const b = await TestSocket.open(guest.wsUrl);
+    await b.waitFor((m) => m.type === 'welcome');
+    a.send({ v: 1, type: 'ready', ready: true });
+    b.send({ v: 1, type: 'ready', ready: true });
+    await a.waitFor((m) => m.type === 'roster' && m.roster.every((member) => member.ready));
+
+    b.close();
+    await a.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        m.roster.some(
+          (member) =>
+            member.userId === 'user-start-guest' &&
+            !member.connected &&
+            member.slot === 1,
+        ),
+    );
+    const afterDisconnect = a.messages.length;
+
+    a.send({ v: 1, type: 'start' });
+    await a.waitFor((m) => m.type === 'error' && m.code === 'not_ready');
+
+    // Once the lease expires the vacated slot becomes AI backfill, so the
+    // remaining ready host can start without locking a frozen remote kart.
+    await a.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        !m.roster.some((member) => member.userId === 'user-start-guest'),
+      8000,
+      afterDisconnect,
+    );
+    const beforeSecondStart = a.messages.length;
+    a.send({ v: 1, type: 'start' });
+    const secondStart = await a.waitFor(
+      (m) => m.type === 'countdown' || m.type === 'error',
+      3000,
+      beforeSecondStart,
+    );
+    expect(secondStart).toMatchObject({ type: 'countdown' });
+    await a.waitFor((m) => m.type === 'race_start', 5000);
+    a.close();
+  }, 10_000);
+
   it('lists created rooms in the channel registry', async () => {
     const room = await createRoom('user-list-host', 'ListHost');
     const res = await SELF.fetch(`${BASE}/channels/chan-1/rooms`);
@@ -134,6 +458,62 @@ describe('kart-royale-server', () => {
     const body = (await res.json()) as { rooms: { raceId: string; host: string; phase: string }[] };
     expect(body.rooms.some((r) => r.raceId === room.raceId && r.host === 'ListHost' && r.phase === 'lobby')).toBe(true);
   });
+
+  it('keeps a disconnected slot reserved in discovery until its lease expires', async () => {
+    const host = await createRoom('user-capacity-0', 'CapacityHost');
+    const tickets = await Promise.all(
+      Array.from({ length: 7 }, (_, index) =>
+        joinRoom(host.raceId, `user-capacity-${index + 1}`),
+      ),
+    );
+    const sockets: TestSocket[] = [];
+    for (const joined of [host, ...tickets]) {
+      const socket = await TestSocket.open(joined.wsUrl);
+      await socket.waitFor((m) => m.type === 'welcome');
+      sockets.push(socket);
+    }
+
+    const listedPlayers = async (): Promise<number | undefined> => {
+      const response = await SELF.fetch(`${BASE}/channels/chan-1/rooms`);
+      const body = (await response.json()) as {
+        rooms: { raceId: string; players: number }[];
+      };
+      return body.rooms.find((room) => room.raceId === host.raceId)?.players;
+    };
+    const waitForListedPlayers = async (expected: number): Promise<void> => {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (await listedPlayers() === expected) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(await listedPlayers()).toBe(expected);
+    };
+
+    await waitForListedPlayers(8);
+    const observer = sockets[0]!;
+    sockets[7]!.close();
+    await observer.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        m.roster.some(
+          (member) =>
+            member.userId === 'user-capacity-7' &&
+            !member.connected &&
+            member.slot === 7,
+        ),
+    );
+    const afterDisconnect = observer.messages.length;
+    expect(await listedPlayers()).toBe(8);
+
+    await observer.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        !m.roster.some((member) => member.userId === 'user-capacity-7'),
+      8000,
+      afterDisconnect,
+    );
+    await waitForListedPlayers(7);
+    for (const socket of sockets.slice(0, 7)) socket.close();
+  }, 15_000);
 
   it('relays AI backfill kart states under their kartKey', async () => {
     const host = await createRoom('user-ai-host');
@@ -182,6 +562,7 @@ describe('kart-royale-server', () => {
     expect(grant.userId).toBe('user-item-host');
     expect(grant.kind).toBeGreaterThan(0);
     await b.waitFor((m) => m.type === 'box_down' && m.box === 0);
+    const afterBoxDown = b.messages.length;
 
     // The box is down: a second draw from it is refused.
     b.send({ v: 1, type: 'item_draw', box: 0, place: 7 });
@@ -209,16 +590,354 @@ describe('kart-royale-server', () => {
     a.send({ v: 1, type: 'hit_claim', targetUserId: 'user-item-guest', kind: 3 });
     await b.waitFor((m) => m.type === 'hit' && m.fromUserId === 'user-item-host');
 
+    // A hit against a host-owned AI kart routes to the host and preserves the
+    // victim kart key used by the client to select that local AI instance.
+    b.send({
+      v: 1,
+      type: 'hit_claim',
+      targetUserId: 'user-item-host',
+      targetKartKey: 'ai:2',
+      kind: 4,
+    });
+    await a.waitFor(
+      (m) =>
+        m.type === 'hit' &&
+        m.fromUserId === 'user-item-guest' &&
+        m.fromKartKey === 'ai:2',
+    );
+
     // Non-hosts may not draw for AI karts.
     b.send({ v: 1, type: 'item_draw', box: 3, place: 7, kartKey: 'ai:2' });
     await b.waitFor((m) => m.type === 'item_denied' && m.reason === 'not_your_kart');
+
+    // The host may only operate valid, unoccupied AI backfill slots.
+    a.send({ v: 1, type: 'item_draw', box: 3, place: 7, kartKey: 'ai:1' });
+    await a.waitFor(
+      (m) => m.type === 'item_denied' && m.kartKey === 'ai:1' && m.reason === 'not_your_kart',
+    );
+    a.send({ v: 1, type: 'item_draw', box: 3, place: 7, kartKey: 'ai:8' });
+    await a.waitFor(
+      (m) => m.type === 'item_denied' && m.kartKey === 'ai:8' && m.reason === 'not_your_kart',
+    );
 
     // The host CAN draw for an AI kart.
     a.send({ v: 1, type: 'item_draw', box: 3, place: 7, kartKey: 'ai:2' });
     await a.waitFor((m) => m.type === 'item_granted' && m.kartKey === 'ai:2');
 
+    // Server alarms return boxes to every client even when nobody disconnects
+    // and no other room lifecycle alarm happens to be pending.
+    await b.waitFor(
+      (m) => m.type === 'box_up' && m.box === 0,
+      4000,
+      afterBoxDown,
+    );
+
     a.close();
     b.close();
+  });
+
+  it('keeps a trailed shell in inventory until its release', async () => {
+    const host = await createRoom('user-carried-shell');
+    const socket = await TestSocket.open(host.wsUrl);
+    await socket.waitFor((m) => m.type === 'welcome');
+    socket.send({ v: 1, type: 'ready', ready: true });
+    socket.send({ v: 1, type: 'start' });
+    await socket.waitFor((m) => m.type === 'race_start', 5000);
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as {
+        inventory: Map<string, { kind: number; count: number; armUntil: number; carried?: boolean }>;
+      };
+      room.inventory.set('user:user-carried-shell', { kind: 3, count: 1, armUntil: 0 });
+    });
+
+    const beforeDeploy = socket.messages.length;
+    socket.send({ v: 1, type: 'item_use', kind: 3, backwards: true, carry: true, target: -1 });
+    await socket.waitFor(
+      (m) => m.type === 'item_used' && m.kind === 3 && m.carry,
+      3000,
+      beforeDeploy,
+    );
+    const deployed = await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as {
+        inventory: Map<string, { count: number; carried?: boolean }>;
+      };
+      return room.inventory.get('user:user-carried-shell');
+    });
+    expect(deployed).toMatchObject({ count: 1, carried: true });
+
+    const beforeRelease = socket.messages.length;
+    socket.send({ v: 1, type: 'item_use', kind: 3, backwards: false, carry: false, target: -1 });
+    await socket.waitFor(
+      (m) => m.type === 'item_used' && m.kind === 3 && !m.carry,
+      3000,
+      beforeRelease,
+    );
+    const released = await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as { inventory: Map<string, unknown> };
+      return room.inventory.get('user:user-carried-shell');
+    });
+    expect(released).toBeUndefined();
+
+    const beforeEmpty = socket.messages.length;
+    socket.send({ v: 1, type: 'item_use', kind: 3, backwards: false, carry: false, target: -1 });
+    await socket.waitFor(
+      (m) => m.type === 'item_denied' && m.reason === 'empty_hands',
+      3000,
+      beforeEmpty,
+    );
+    socket.close();
+  });
+
+  it('consumes a destroyed carried item exactly once', async () => {
+    const host = await createRoom('user-carry-destroy-host');
+    const guest = await joinRoom(host.raceId, 'user-carry-destroy-guest');
+    const a = await TestSocket.open(host.wsUrl);
+    const b = await TestSocket.open(guest.wsUrl);
+    await b.waitFor((m) => m.type === 'welcome');
+    a.send({ v: 1, type: 'ready', ready: true });
+    b.send({ v: 1, type: 'ready', ready: true });
+    await a.waitFor((m) => m.type === 'roster' && m.roster.every((member) => member.ready));
+    a.send({ v: 1, type: 'start' });
+    await a.waitFor((m) => m.type === 'race_start', 5000);
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as {
+        inventory: Map<string, { kind: number; count: number; armUntil: number; carried?: boolean }>;
+      };
+      room.inventory.set('user:user-carry-destroy-host', {
+        kind: 3,
+        count: 1,
+        armUntil: 0,
+        carried: true,
+      });
+    });
+
+    const beforeConsumed = b.messages.length;
+    a.send({
+      v: 1,
+      type: 'item_carry_consumed',
+      kind: 3,
+      disposition: 'destroyed',
+    });
+    await b.waitFor(
+      (message) =>
+        message.type === 'item_carry_consumed' &&
+        message.userId === 'user-carry-destroy-host' &&
+        message.kartKey === 'self' &&
+        message.kind === 3 &&
+        message.disposition === 'destroyed',
+      3000,
+      beforeConsumed,
+    );
+    const afterConsumed = await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as { inventory: Map<string, unknown> };
+      return room.inventory.get('user:user-carry-destroy-host');
+    });
+    expect(afterConsumed).toBeUndefined();
+
+    const beforeDuplicate = b.messages.length;
+    a.send({
+      v: 1,
+      type: 'item_carry_consumed',
+      kind: 3,
+      disposition: 'destroyed',
+    });
+    await a.waitFor(
+      (message) =>
+        message.type === 'item_denied' &&
+        message.kartKey === 'self' &&
+        message.reason === 'invalid_carry',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      b.messages.slice(beforeDuplicate).filter((message) => message.type === 'item_carry_consumed'),
+    ).toHaveLength(0);
+
+    a.close();
+    b.close();
+  });
+
+  it('sends authoritative held and carried inventory to reconnects and late spectators', async () => {
+    const host = await createRoom('user-item-sync-host');
+    const original = await TestSocket.open(host.wsUrl);
+    await original.waitFor((message) => message.type === 'welcome');
+    original.send({ v: 1, type: 'ready', ready: true });
+    original.send({ v: 1, type: 'start' });
+    await original.waitFor((message) => message.type === 'race_start', 5000);
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as {
+        inventory: Map<string, { kind: number; count: number; armUntil: number; carried?: boolean }>;
+      };
+      room.inventory.set('user:user-item-sync-host', {
+        kind: 3,
+        count: 1,
+        carried: true,
+        armUntil: 101,
+      });
+      room.inventory.set('ai:2', {
+        kind: 6,
+        count: 2,
+        armUntil: 202,
+      });
+    });
+
+    const reconnected = await TestSocket.open(host.wsUrl);
+    await reconnected.waitFor((message) => message.type === 'welcome');
+    const reconnectSync = (await reconnected.waitFor(
+      (message) => message.type === 'item_sync',
+    )) as Extract<ServerMessage, { type: 'item_sync' }>;
+    expect(reconnectSync.items).toEqual([
+      {
+        userId: 'user-item-sync-host',
+        kartKey: 'ai:2',
+        kind: 6,
+        count: 2,
+        carried: false,
+        armUntil: 202,
+      },
+      {
+        userId: 'user-item-sync-host',
+        kartKey: 'self',
+        kind: 3,
+        count: 1,
+        carried: true,
+        armUntil: 101,
+      },
+    ]);
+    expect(
+      reconnected.messages.findIndex((message) => message.type === 'item_sync'),
+    ).toBeGreaterThan(
+      reconnected.messages.findIndex((message) => message.type === 'welcome'),
+    );
+
+    const spectator = await joinRoom(host.raceId, 'user-item-sync-spectator', 'spectator');
+    const spectatorSocket = await TestSocket.open(spectator.wsUrl);
+    await spectatorSocket.waitFor((message) => message.type === 'welcome');
+    const spectatorSync = (await spectatorSocket.waitFor(
+      (message) => message.type === 'item_sync',
+    )) as Extract<ServerMessage, { type: 'item_sync' }>;
+    expect(spectatorSync.items).toEqual(reconnectSync.items);
+
+    reconnected.close();
+    spectatorSocket.close();
+  });
+
+  it('keeps AI inventory stable and remaps its owner after host migration', async () => {
+    const host = await createRoom('user-ai-migration-host');
+    const guest = await joinRoom(host.raceId, 'user-ai-migration-guest');
+    const a = await TestSocket.open(host.wsUrl);
+    const b = await TestSocket.open(guest.wsUrl);
+    await b.waitFor((message) => message.type === 'welcome');
+    a.send({ v: 1, type: 'ready', ready: true });
+    b.send({ v: 1, type: 'ready', ready: true });
+    await a.waitFor((message) => message.type === 'roster' && message.roster.every((m) => m.ready));
+    a.send({ v: 1, type: 'start' });
+    await a.waitFor((message) => message.type === 'race_start', 5000);
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as {
+        inventory: Map<string, { kind: number; count: number; armUntil: number; carried?: boolean }>;
+      };
+      room.inventory.set('ai:2', {
+        kind: 3,
+        count: 1,
+        armUntil: 0,
+        carried: true,
+      });
+    });
+
+    const afterDisconnect = b.messages.length;
+    a.close();
+    const migratedSync = (await b.waitFor(
+      (message) =>
+        message.type === 'item_sync' &&
+        message.items.some((item) =>
+          item.userId === 'user-ai-migration-guest' &&
+          item.kartKey === 'ai:2' &&
+          item.carried
+        ),
+      8000,
+      afterDisconnect,
+    )) as Extract<ServerMessage, { type: 'item_sync' }>;
+    expect(migratedSync.items).toContainEqual({
+      userId: 'user-ai-migration-guest',
+      kartKey: 'ai:2',
+      kind: 3,
+      count: 1,
+      carried: true,
+      armUntil: 0,
+    });
+    const stableInventory = await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as { inventory: Map<string, unknown> };
+      return [...room.inventory.keys()];
+    });
+    expect(stableInventory).toContain('ai:2');
+    expect(stableInventory.some((key) => key.includes('/ai:'))).toBe(false);
+
+    const beforeDropped = b.messages.length;
+    b.send({
+      v: 1,
+      type: 'item_carry_consumed',
+      kartKey: 'ai:2',
+      kind: 3,
+      disposition: 'dropped',
+    });
+    await b.waitFor(
+      (message) =>
+        message.type === 'item_carry_consumed' &&
+        message.userId === 'user-ai-migration-guest' &&
+        message.kartKey === 'ai:2' &&
+        message.disposition === 'dropped',
+      3000,
+      beforeDropped,
+    );
+    const consumed = await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as { inventory: Map<string, unknown> };
+      return room.inventory.get('ai:2');
+    });
+    expect(consumed).toBeUndefined();
+    b.close();
+  }, 12_000);
+
+  it('migrates legacy human and host-scoped AI inventory keys during hydration', async () => {
+    const userId = 'user-legacy-inventory-host';
+    const host = await createRoom(userId);
+    const socket = await TestSocket.open(host.wsUrl);
+    await socket.waitFor((message) => message.type === 'welcome');
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      const stored = await state.storage.get<{
+        inventory: [string, { kind: number; count: number; armUntil: number; carried?: boolean }][];
+      }>('room');
+      expect(stored).toBeDefined();
+      stored!.inventory = [
+        [userId, { kind: 3, count: 1, armUntil: 11, carried: true }],
+        [`${userId}/ai:2`, { kind: 6, count: 2, armUntil: 22 }],
+        [`${userId}/ai:8`, { kind: 4, count: 1, armUntil: 33 }],
+      ];
+      await state.storage.put('room', stored);
+    });
+    await evictDurableObject(stub);
+
+    const migrated = await runInDurableObject(stub, (instance) => {
+      const room = instance as unknown as {
+        inventory: Map<string, { kind: number; count: number; armUntil: number; carried?: boolean }>;
+      };
+      return [...room.inventory.entries()];
+    });
+    expect(migrated).toEqual([
+      ['user:user-legacy-inventory-host', { kind: 3, count: 1, armUntil: 11, carried: true }],
+      ['ai:2', { kind: 6, count: 2, armUntil: 22 }],
+    ]);
+
+    socket.close();
   });
 
   it('runs a two-player race end to end', async () => {
@@ -302,6 +1021,103 @@ describe('kart-royale-server', () => {
     a.close();
     b.close();
   });
+
+  it('stops sweeping a freed mid-race slot until finished cleanup is needed', async () => {
+    const host = await createRoom('user-alarm-host');
+    const guest = await joinRoom(host.raceId, 'user-alarm-guest');
+    const a = await TestSocket.open(host.wsUrl);
+    const b = await TestSocket.open(guest.wsUrl);
+    await b.waitFor((m) => m.type === 'welcome');
+
+    a.send({ ...env1, type: 'ready', ready: true });
+    b.send({ ...env1, type: 'ready', ready: true });
+    await a.waitFor((m) => m.type === 'roster' && m.roster.every((member) => member.ready));
+    a.send({ ...env1, type: 'start' });
+    await a.waitFor((m) => m.type === 'race_start', 5000);
+
+    b.close();
+    await a.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        m.roster.some((member) =>
+          member.userId === 'user-alarm-guest' && !member.connected && member.slot === 1
+        ),
+    );
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    await a.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        m.roster.some((member) =>
+          member.userId === 'user-alarm-guest' &&
+          !member.connected &&
+          member.role === 'spectator' &&
+          member.slot === null
+        ),
+      8000,
+    );
+
+    const runningAlarm = await runInDurableObject(
+      stub,
+      (_instance, state) => state.storage.getAlarm(),
+    );
+    expect(runningAlarm).toBeNull();
+
+    const math = trackMath();
+    for (let cp = 0; cp < math.checkpointCount; cp++) {
+      const state = validStateAt((cp + 0.5) / math.checkpointCount, 100 + cp);
+      a.send({ ...env1, type: 'state', state, lap: 0, cp: cp - 1, raceDistance: cp + 1 });
+      a.send({ ...env1, type: 'checkpoint', lap: 0, cp, raceDistance: cp + 1 });
+      await a.waitFor((m) => m.type === 'checkpoint_ok' && m.cp === cp);
+    }
+    const beforeFinishedCleanup = a.messages.length;
+    a.send({ ...env1, type: 'finish', raceTime: 80 });
+    await a.waitFor((m) => m.type === 'race_results');
+
+    // Run the finished-phase cleanup immediately if Miniflare has not already
+    // fired the overdue alarm on its own.
+    await runDurableObjectAlarm(stub);
+
+    // Deleting the expired slotless spectator is still a roster change. The
+    // remaining client must hear it immediately rather than retain a ghost
+    // until some unrelated roster event occurs.
+    const roster = (await a.waitFor(
+      (m) =>
+        m.type === 'roster' &&
+        !m.roster.some((member) => member.userId === 'user-alarm-guest'),
+      3000,
+      beforeFinishedCleanup,
+    )) as Extract<ServerMessage, { type: 'roster' }>;
+    expect(roster.roster).not.toContainEqual(
+      expect.objectContaining({ userId: 'user-alarm-guest' }),
+    );
+    a.close();
+  });
+
+  it('retires a running room after every racer exhausts the reconnect lease', async () => {
+    const host = await createRoom('user-abandon-host');
+    const socket = await TestSocket.open(host.wsUrl);
+    await socket.waitFor((m) => m.type === 'welcome');
+    socket.send({ ...env1, type: 'ready', ready: true });
+    socket.send({ ...env1, type: 'start' });
+    await socket.waitFor((m) => m.type === 'race_start', 5000);
+
+    const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(host.raceId));
+    socket.close();
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await runDurableObjectAlarm(stub);
+
+    const stored = await runInDurableObject(
+      stub,
+      (_instance, state) => state.storage.get('room'),
+    );
+    expect(stored).toBeUndefined();
+    const listed = await SELF.fetch(`${BASE}/channels/chan-1/rooms`);
+    const body = (await listed.json()) as { rooms: { raceId: string }[] };
+    expect(body.rooms).not.toContainEqual(
+      expect.objectContaining({ raceId: host.raceId }),
+    );
+  }, 10_000);
 
   it('holds a disconnected player slot for the grace period and migrates the host', async () => {
     const host = await createRoom('user-host2');

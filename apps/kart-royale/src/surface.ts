@@ -17,6 +17,7 @@ import { registerActiveGame, unregisterActiveGame } from './tap/activeSurface';
 import { canPlay } from './tap/authority';
 import { hydrateControlPrefs } from './tap/persistence';
 import { tapRest } from './tap/http';
+import { hostWebSocketFactory } from './tap/websocket';
 import { MultiplayerSession } from './net/MultiplayerSession';
 import { serverUrl } from './net/config';
 import type { Race } from './game/Race';
@@ -83,8 +84,8 @@ export function mount(
 
     // Multiplayer is additive: the surface works fully offline, and the lobby
     // reports the server unreachable rather than blocking solo play. The REST
-    // leg is host-mediated (platform-session); the live race leg is a direct
-    // ticket-authenticated WebSocket.
+    // leg is host-mediated (platform-session); the live race leg is a
+    // ticket-authenticated WebSocket owned by the trusted host broker.
     const mp = serverUrl(true);
     if (mp && context.userId && context.channelId) {
       const displayName = await displayNameFor(context.userId);
@@ -99,6 +100,7 @@ export function mount(
           displayName,
         },
         rest: tapRest(mp),
+        socketFactory: hostWebSocketFactory,
         tap: { events: context.events },
       });
     }

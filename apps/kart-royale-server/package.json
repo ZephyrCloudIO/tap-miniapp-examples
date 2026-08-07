@@ -6,15 +6,18 @@
   "scripts": {
     "build": "wrangler deploy --dry-run --env=\"\" --outdir dist",
     "check:startup": "wrangler check startup",
-    "dev": "wrangler dev",
-    "test": "vitest run",
+    "predev": "node scripts/ensure-local-dev-vars.mjs",
+    "dev": "wrangler dev --local --var ALLOW_DEV_IDENTITY:true",
+    "test": "pnpm test:config && vitest run",
+    "test:config": "node --test scripts/secure-config.test.mjs",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types --strict-vars=false",
     "types:check": "wrangler types --strict-vars=false --check"
   },
   "dependencies": {
     "@tap-examples/kart-royale": "workspace:*",
-    "@tap-examples/kart-royale-protocol": "workspace:*"
+    "@tap-examples/kart-royale-protocol": "workspace:*",
+    "jose": "6.2.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.6",

@@ -12,11 +12,18 @@ import { RaceState } from '../types';
 import type { Race } from '../game/Race';
 import { Items } from '../game/Items';
 import { NetAdapter } from './NetAdapter';
-import { RaceClient, fetchRest, type RaceIdentity, type RestRequest } from './RaceClient';
+import {
+  RaceClient,
+  fetchRest,
+  type RaceIdentity,
+  type RaceSocketFactory,
+  type RestRequest,
+} from './RaceClient';
 import { LobbyUI } from './LobbyUI';
 import { joinPresence, leavePresence, updatePresence, type KartPresenceState } from '../tap/presence';
 import { writeRaceProjection } from '../tap/projection';
 import type { TapPackageEventPublisher } from '@theaiplatform/miniapp-sdk/surface';
+import type { RacePhase } from '@tap-examples/kart-royale-protocol';
 
 export interface MultiplayerSessionOptions {
   host: HTMLElement;
@@ -26,6 +33,8 @@ export interface MultiplayerSessionOptions {
   identity: RaceIdentity;
   /** Packaged mode passes the host-mediated REST bridge; preview uses fetch. */
   rest?: RestRequest;
+  /** Packaged mode asks the trusted host to own the live WebSocket. */
+  socketFactory?: RaceSocketFactory;
   /**
    * Packaged mode: TAP presence, durable milestone events, and the MCP
    * read-projection for Chloe. Absent in the browser preview.
@@ -45,6 +54,7 @@ export class MultiplayerSession {
   private reconnecting = false;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
   private readonly race: Race;
   private readonly tapHooks: { events?: TapPackageEventPublisher } | undefined;
   private readonly identity: RaceIdentity;
@@ -62,11 +72,15 @@ export class MultiplayerSession {
       serverUrl: opts.serverUrl,
       identity: opts.identity,
       rest: opts.rest ?? fetchRest(opts.serverUrl),
+      socketFactory: opts.socketFactory,
     });
     this.adapter = new NetAdapter(this.client, race, opts.ctx.items as Items, {
       onCountdown: (endsAt) => {
         race.beginNetworkRace(endsAt, this.adapter.serverNow);
-        this.lobby.close();
+        // A live-room welcome reaches the adapter before LobbyUI.joinAs has
+        // finished awaiting connect. Hide without cancelling that accepted
+        // transport; user-driven Close remains the cancellation path.
+        this.lobby.hide();
         this.roomPhase = 'countdown';
         this.writeProjectionSoon();
       },
@@ -98,6 +112,7 @@ export class MultiplayerSession {
       onClose: () => this.onSocketClose(),
     });
     this.lobby = new LobbyUI(opts.host, race, this.client, this.adapter, this);
+    race.setNetworkLeaveHandler(() => this.leaveFromRaceMenu());
     if (opts.tap) {
       void joinPresence(opts.identity.channelId, this.presenceState());
       // Live standings ride the projection at ~1 Hz while a room is joined.
@@ -147,11 +162,13 @@ export class MultiplayerSession {
   }
 
   /** The lobby records the join so a dropped socket can be re-established. */
-  noteJoined(raceId: string, role: 'player' | 'spectator'): void {
+  noteJoined(raceId: string, role: 'player' | 'spectator', phase: RacePhase = 'lobby'): void {
+    if (this.disposed) return;
     this.joined = { raceId, role };
     this.deliberateClose = false;
+    this.reconnecting = false;
     this.reconnectAttempts = 0;
-    this.roomPhase = 'lobby';
+    this.roomPhase = phase;
     this.pushPresence();
     this.writeProjectionSoon();
   }
@@ -159,6 +176,7 @@ export class MultiplayerSession {
   noteLeft(): void {
     this.deliberateClose = true;
     this.joined = null;
+    this.reconnecting = false;
     this.reconnectAttempts = 0;
     this.roomPhase = 'idle';
     this.pushPresence();
@@ -173,12 +191,19 @@ export class MultiplayerSession {
     return this.reconnecting;
   }
 
+  /** Race menu actions hand room/transport teardown back to the session. */
+  private leaveFromRaceMenu(): void {
+    if (this.disposed) return;
+    this.lobby.leaveRoom();
+  }
+
   /**
    * An unexpected socket drop: the room holds our slot for the grace period,
    * so re-ticket and reconnect with bounded backoff (1s, 2s, 4s), then give up
    * and hand the room back to the lobby as closed.
    */
   private onSocketClose(): void {
+    if (this.disposed) return;
     if (this.deliberateClose || !this.joined || this.reconnecting) {
       if (!this.reconnecting) this.lobby.leaveRoom();
       return;
@@ -194,25 +219,44 @@ export class MultiplayerSession {
   }
 
   private async attemptReconnect(): Promise<void> {
-    if (!this.joined || this.deliberateClose) {
+    if (this.disposed || !this.joined || this.deliberateClose) {
       this.reconnecting = false;
       return;
     }
+    const expectedRoom = this.joined;
     try {
-      const joined = await this.client.joinRoom(this.joined.raceId, this.joined.role);
+      const joined = await this.client.joinRoom(expectedRoom.raceId, expectedRoom.role);
+      if (this.disposed || this.deliberateClose || this.joined !== expectedRoom) {
+        this.reconnecting = false;
+        return;
+      }
       // attach() is idempotent: handlers re-register against the new socket.
       this.adapter.attach();
       await this.client.connect(joined.wsUrl);
+      if (this.disposed || this.deliberateClose || this.joined !== expectedRoom) {
+        this.adapter.detach();
+        this.client.close();
+        this.reconnecting = false;
+        return;
+      }
       this.reconnecting = false;
       this.reconnectAttempts = 0;
       this.lobby.refresh();
     } catch {
       this.reconnecting = false;
+      if (this.disposed || this.deliberateClose) return;
       this.onSocketClose();
     }
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.deliberateClose = true;
+    this.joined = null;
+    this.reconnecting = false;
+    this.reconnectAttempts = 0;
+    this.race.setNetworkLeaveHandler(null);
     if (this.projectionTimer) {
       clearInterval(this.projectionTimer);
       this.projectionTimer = null;

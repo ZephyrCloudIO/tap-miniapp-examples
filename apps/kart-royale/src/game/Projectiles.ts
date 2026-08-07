@@ -924,6 +924,55 @@ export class Projectiles {
   }
 
   /**
+   * Reconcile one authoritative tow without duplicating its projectile. A
+   * host migration may turn the exact same visual from remote-owned into
+   * locally simulated, so ownership is deliberately mutable here.
+   */
+  ensureCarried(kind: ItemKind, owner: IKart, remote: boolean): number {
+    let keep: Proj | null = null;
+    for (const p of this.pool) {
+      if (p.state !== PState.Carried || p.owner !== owner.id) continue;
+      if (!keep && p.kind === kind) {
+        keep = p;
+        p.remote = remote;
+      } else {
+        this.kill(p);
+      }
+    }
+    if (keep) return keep.index;
+    return remote
+      ? this.spawnRemote(kind, owner, true, true)
+      : this.spawn(kind, owner, true, true);
+  }
+
+  /** Clear carried visuals for an owner, optionally guarded by item kind. */
+  clearCarried(ownerId: number, kind?: ItemKind): boolean {
+    let cleared = false;
+    for (const p of this.pool) {
+      if (p.state !== PState.Carried || p.owner !== ownerId) continue;
+      if (kind !== undefined && p.kind !== kind) continue;
+      this.kill(p);
+      cleared = true;
+    }
+    return cleared;
+  }
+
+  /**
+   * Apply an authoritative non-release end to a tow. Destroyed shields vanish;
+   * dropped shields become ordinary live hazards at their current position.
+   */
+  applyCarryConsumed(ownerId: number, kind: ItemKind, disposition: 'destroyed' | 'dropped'): boolean {
+    let applied = false;
+    for (const p of this.pool) {
+      if (p.state !== PState.Carried || p.owner !== ownerId || p.kind !== kind) continue;
+      if (!applied && disposition === 'dropped') this.dropProjectile(p);
+      else this.kill(p);
+      applied = true;
+    }
+    return applied;
+  }
+
+  /**
    * A locally-simulated projectile made contact with a NETWORK-owned kart:
    * never resolve the hit locally — claim it to the victim's client instead.
    * Set by the multiplayer adapter.
@@ -969,11 +1018,18 @@ export class Projectiles {
     return p.kind;
   }
 
-  drop(handle: number) {
+  /** Turn a towed projectile into a live dropped hazard. */
+  drop(handle: number): boolean {
     const p = this.pool[handle];
-    if (!p) return;
-    p.state = PState.Free;
-    p.mesh.visible = false;
+    if (!p || p.state !== PState.Carried) return false;
+    this.dropProjectile(p);
+    return true;
+  }
+
+  private dropProjectile(p: Proj) {
+    p.state = PState.Live;
+    p.ownerLock = 0.55;
+    p.vel.set(0, 0, 0);
   }
 
   // ---------------------------------------------------------------------------

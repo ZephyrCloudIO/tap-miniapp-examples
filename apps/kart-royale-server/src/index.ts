@@ -12,7 +12,7 @@
  *    GET  /health               liveness
  * ============================================================================
  */
-import { resolveIdentity, type Identity } from './auth';
+import { authenticateRequest, resolveIdentity, type Identity } from './auth';
 import { mintTicket, verifyTicket } from './ticket';
 import type { MemberRole } from '@tap-examples/kart-royale-protocol';
 import { RaceRoom } from './RaceRoom';
@@ -69,8 +69,7 @@ function ticketSecret(env: Env): string | null {
   if (typeof env.TICKET_SECRET === 'string' && env.TICKET_SECRET.length >= 16) {
     return env.TICKET_SECRET;
   }
-  // Local development and the vitest-pool-workers suite run without secrets.
-  return env.ALLOW_DEV_IDENTITY === 'true' ? 'dev-insecure-ticket-secret' : null;
+  return null;
 }
 
 function wsUrl(request: Request, raceId: string, ticket: string): string {
@@ -89,11 +88,21 @@ async function handleCreateRoom(env: Env, request: Request, identity: Identity):
   // Initialise the room with its channel so it can report its own lifecycle,
   // then list it in the channel registry for discovery.
   const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(raceId));
-  await stub.fetch(new Request('https://room/admin/init', {
+  const initialized = await stub.fetch(new Request('https://room/admin/init', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ channelId: identity.channelId, raceId }),
+    body: JSON.stringify({
+      channelId: identity.channelId,
+      raceId,
+      creator: {
+        userId: identity.userId,
+        displayName: identity.displayName,
+      },
+    }),
   }));
+  if (!initialized.ok) {
+    return json(env, request, { error: 'race room initialization failed' }, 500);
+  }
   const registry = env.RACE_REGISTRY.get(env.RACE_REGISTRY.idFromName(identity.channelId));
   await registry.fetch(new Request('https://registry/register', {
     method: 'POST',
@@ -120,10 +129,26 @@ async function handleJoinTicket(
   raceId: string,
   role: MemberRole,
 ): Promise<Response> {
-  // The room must exist (its DO must answer /exists before we mint entry).
+  // Admission is checked by the room itself before a ticket is minted. The
+  // WebSocket upgrade repeats these checks because a lobby ticket may be used
+  // after the race has already started.
   const stub = env.RACE_ROOM.get(env.RACE_ROOM.idFromName(raceId));
-  const probe = await stub.fetch(new Request('https://room/exists'));
-  if (!probe.ok) return json(env, request, { error: 'unknown race room' }, 404);
+  const probe = await stub.fetch(new Request('https://room/exists', {
+    headers: {
+      'x-kr-user': identity.userId,
+      'x-kr-channel': identity.channelId,
+      'x-kr-role': role,
+    },
+  }));
+  if (!probe.ok) {
+    if (probe.status === 403) {
+      return json(env, request, { error: 'race room belongs to another channel' }, 403);
+    }
+    if (probe.status === 409) {
+      return json(env, request, { error: 'race is no longer accepting new players' }, 409);
+    }
+    return json(env, request, { error: 'unknown race room' }, 404);
+  }
 
   const secret = ticketSecret(env);
   if (!secret) return json(env, request, { error: 'ticket signing is not configured' }, 503);
@@ -181,6 +206,10 @@ export default {
 
     const roomsMatch = url.pathname.match(/^\/channels\/([^/]{1,128})\/rooms$/);
     if (roomsMatch && request.method === 'GET') {
+      // Authentication proves the account, not channel membership: the TAP
+      // platform does not currently expose a host-verifiable membership claim.
+      const authenticated = await authenticateRequest(env, request);
+      if (!authenticated) return json(env, request, { error: 'unauthorized' }, 401);
       const registry = env.RACE_REGISTRY.get(env.RACE_REGISTRY.idFromName(roomsMatch[1]!));
       const upstream = await registry.fetch(new Request('https://registry/list'));
       const headers = new Headers(upstream.headers);

@@ -1,22 +1,20 @@
 import { expect, test } from "@theaiplatform/miniapp-sdk/testing/rstest";
 import {
   expectExactProvenance,
-  hasAnyHostAuthorizationDecision,
+  hasHostAuthorizationDecision,
   hasPlatformAuthorizationDecision,
 } from "./kart-royale-test-support";
 
-test("reports the lobby unreachable and keeps solo play when network is denied", async ({
+test("denies platform-session use before native HTTP and keeps solo play", async ({
   surface,
   tap,
 }) => {
-  expectExactProvenance(tap, "http-denied");
+  expectExactProvenance(tap, "credentials-use-denied");
 
-  // The game itself mounts and is unaffected: solo play never touches the net.
   const host = surface.locator("#tap-root .kart-host");
   await expect(host).toBeAttached();
   await expect(surface.locator("#tap-error")).toBeHidden();
 
-  // Opening the lobby fails soft with a truthful, non-destructive notice.
   const toggle = surface.locator(".kr-lobby-toggle");
   await expect(toggle).toBeVisible();
   await toggle.click();
@@ -31,12 +29,16 @@ test("reports the lobby unreachable and keeps solo play when network is denied",
       action: "tap.platform.http.request",
       actionId: "network.request",
       autonomy: "do",
+      allowed: true,
+    }),
+  ).toBe(true);
+  expect(
+    hasHostAuthorizationDecision(ledger.entries, {
+      actionId: "credentials.use",
+      autonomy: "do",
       allowed: false,
     }),
   ).toBe(true);
-  expect(hasAnyHostAuthorizationDecision(ledger.entries, "credentials.use")).toBe(
-    false,
-  );
   expect(
     ledger.entries.some(
       (entry) =>

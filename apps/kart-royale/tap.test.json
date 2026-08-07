@@ -11,10 +11,17 @@
       "permissionScenario": "default",
       "deniedActions": [],
       "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
-      "httpRouteFiles": [],
-      "requiredOrigins": [],
-      "requiredEffects": ["effect:storage:kart-royale"],
-      "credentialSlots": [],
+      "httpRouteFiles": ["tests/fixtures/kart-royale.http-routes.json"],
+      "requiredOrigins": [
+        "https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+      ],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
+      ],
+      "credentialSlots": ["platform-session"],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -56,9 +63,16 @@
       "deniedActions": ["network.request"],
       "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
       "httpRouteFiles": [],
-      "requiredOrigins": [],
-      "requiredEffects": ["effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"],
-      "credentialSlots": [],
+      "requiredOrigins": [
+        "https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+      ],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
+      ],
+      "credentialSlots": ["platform-session"],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -66,6 +80,60 @@
         "theme": "light",
         "reducedMotion": true,
         "seed": 7293,
+        "fixedNow": "2026-08-05T12:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "kart-royale-desktop-credentials-use-denied": {
+      "surface": "kart-royale",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.use",
+      "deniedActions": ["credentials.use"],
+      "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+      ],
+      "requiredEffects": [
+        "effect:credentials:http",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7294,
+        "fixedNow": "2026-08-05T12:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "kart-royale-desktop-presence-denied": {
+      "surface": "kart-royale",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:presence.write",
+      "deniedActions": ["presence.write"],
+      "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7295,
         "fixedNow": "2026-08-05T12:00:00Z"
       },
       "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
@@ -80,9 +148,13 @@
         "tests/e2e/tap-surface.smoke.test.ts"
       ],
       "capabilities": [
+        "action:credentials.use",
         "action:kart-royale.play",
-        "effect:storage:kart-royale",
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+        "action:network.request",
+        "effect:credentials:http",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
       ]
     },
     {
@@ -98,7 +170,35 @@
       "id": "kart-royale-desktop-http-denied",
       "profile": "kart-royale-desktop-http-denied",
       "testMatch": ["tests/e2e/kart-royale-http-denied.test.ts"],
-      "capabilities": ["effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
+      "capabilities": [
+        "action:credentials.use",
+        "action:kart-royale.play",
+        "action:network.request",
+        "effect:credentials:http",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
+      ]
+    },
+    {
+      "id": "kart-royale-desktop-credentials-use-denied",
+      "profile": "kart-royale-desktop-credentials-use-denied",
+      "testMatch": ["tests/e2e/kart-royale-credentials-use-denied.test.ts"],
+      "capabilities": [
+        "action:credentials.use",
+        "action:kart-royale.play",
+        "action:network.request",
+        "effect:credentials:http",
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
+        "effect:presence:kart-royale",
+        "effect:storage:kart-royale"
+      ]
+    },
+    {
+      "id": "kart-royale-desktop-presence-denied",
+      "profile": "kart-royale-desktop-presence-denied",
+      "testMatch": ["tests/e2e/kart-royale-presence-denied.test.ts"],
+      "capabilities": ["effect:presence:kart-royale"]
     }
   ],
   "waivers": []

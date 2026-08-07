@@ -13,10 +13,16 @@ if (target !== "desktop" && target !== "quickjs") {
   throw new Error(`Unsupported Kart Royale target: ${target}`);
 }
 
+// Local validation can point both target compilers at a generated descriptor.
+// The default always remains the checked-in production descriptor.
+const packageManifest =
+  process.env.TAP_PACKAGE_MANIFEST?.trim() || "./manifest.tap.json";
+const serverUrl = process.env.KART_ROYALE_SERVER_URL?.trim() || "";
+
 const library = tapLib(
   target === "desktop"
     ? {
-        manifest: "./manifest.tap.json",
+        manifest: packageManifest,
         packageTarget: "desktop",
         packageOutputRoot: ".tap-build/desktop",
         federation: {
@@ -32,7 +38,7 @@ const library = tapLib(
         },
       }
     : {
-        manifest: "./manifest.tap.json",
+        manifest: packageManifest,
         packageTarget: "quickjs",
         packageOutputRoot: ".tap-build/quickjs",
         federation: {
@@ -47,6 +53,14 @@ const library = tapLib(
         },
       },
 );
+
+library.source = {
+  ...library.source,
+  define: {
+    ...library.source?.define,
+    __KART_ROYALE_SERVER_URL__: JSON.stringify(serverUrl),
+  },
+};
 
 library.output = {
   ...library.output,
