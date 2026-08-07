@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Kart Royale race-state tool output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "source",
+    "projectionTruncated",
+    "raceId",
+    "channelId",
+    "phase",
+    "members",
+    "standings",
+    "totalMemberCount",
+    "updatedAtMs"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "source": { "const": "tap-channel-projection" },
+    "projectionTruncated": { "type": "boolean" },
+    "raceId": { "type": ["string", "null"], "maxLength": 128 },
+    "channelId": { "type": "string", "maxLength": 256 },
+    "phase": { "enum": ["idle", "lobby", "countdown", "running", "finished"] },
+    "members": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["userId", "displayName", "role", "slot", "ready", "connected"],
+        "properties": {
+          "userId": { "type": "string", "maxLength": 128 },
+          "displayName": { "type": "string", "maxLength": 48 },
+          "role": { "enum": ["player", "spectator"] },
+          "slot": { "type": ["integer", "null"], "minimum": 0, "maximum": 7 },
+          "ready": { "type": "boolean" },
+          "connected": { "type": "boolean" }
+        }
+      }
+    },
+    "standings": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "displayName", "lap", "place", "finished"],
+        "properties": {
+          "slot": { "type": "integer", "minimum": 0, "maximum": 7 },
+          "displayName": { "type": "string", "maxLength": 48 },
+          "lap": { "type": "integer", "minimum": 0, "maximum": 99 },
+          "place": { "type": "integer", "minimum": 0, "maximum": 8 },
+          "finished": { "type": "boolean" }
+        }
+      }
+    },
+    "totalMemberCount": { "type": "integer", "minimum": 0 },
+    "updatedAtMs": { "type": "integer", "minimum": 0 },
+    "staleFor": { "type": "string", "maxLength": 128 }
+  }
+}

@@ -1,0 +1,217 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_kart_royale_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-kart-royale",
+    "slug": "kart-royale"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_kart_royale_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Kart Royale",
+    "description": "Procedurally generated kart racer — solo time trials today, channel multiplayer next.",
+    "iconAssets": ["assets/kart-royale.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/kart-royale.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": {
+    "tapSdk": "0.5.3",
+    "tapHost": ">=0.1.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_kart_royale_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    },
+    "quickjs": {
+      "remoteName": "tap_kart_royale_quickjs",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./mcp/kart-royale-state-server": { "integrity": "pending", "runtime": "quickjs" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "kart-royale",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["kart-royale.play"],
+        "effects": [
+          { "kind": "storage", "resources": ["kart-royale"] },
+          {
+            "kind": "external-network",
+            "resources": ["https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
+          }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "publishes": ["race.started", "race.finished"],
+      "options": {
+        "displayName": "Kart Royale",
+        "description": "Race a procedurally generated circuit against the AI in this channel; multiplayer races arrive with the Cloudflare session server.",
+        "placement": "chat-right",
+        "scope": "channel",
+        "instancePolicy": "per-channel",
+        "persistence": "retained",
+        "iconAssets": ["assets/kart-royale.svg"]
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "kart-royale-state-server",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": { "expose": "./mcp/kart-royale-state-server", "runtime": "quickjs" }
+      },
+      "authorization": {
+        "allOf": ["kart-royale.read-state"],
+        "effects": [
+          { "kind": "storage", "resources": ["kart-royale"] }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "protocolVersion": "2026-01-26",
+        "implementation": { "type": "package-runtime" },
+        "consumerPolicy": { "contributionIds": [], "externalConsumers": ["selected-specialists"] }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "kart-royale-race-state",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["kart-royale.read-state"],
+        "effects": [
+          { "kind": "storage", "resources": ["kart-royale"] }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "serverContributionId": "kart-royale-state-server",
+        "toolName": "get_race_state",
+        "inputSchema": "targets/quickjs/schemas/race-state-tool-input.json",
+        "outputSchema": "targets/quickjs/schemas/race-state-tool-output.json",
+        "timeoutMs": 1000,
+        "effects": [
+          { "kind": "storage", "resources": ["kart-royale"] }
+        ],
+        "storageReads": [
+          {
+            "namespace": "kart-royale",
+            "keyTemplate": "mcp/users/{userId}/channels/{channelId}/current"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "kart-royale-app",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": ["kart-royale", "kart-royale-state-server", "kart-royale-race-state"]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "kart-royale-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "kart-royale.play",
+            "resource": "tap.kart-royale:play",
+            "scopes": ["channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "channel",
+            "risk": "write"
+          },
+          {
+            "id": "kart-royale.read-state",
+            "resource": "tap.kart-royale:read-state",
+            "scopes": ["channel"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "channel",
+            "risk": "read"
+          }
+        ],
+        "levels": [
+          {
+            "id": "player",
+            "actions": ["kart-royale.play", "kart-royale.read-state"],
+            "assignableTo": ["human"]
+          },
+          {
+            "id": "observer",
+            "actions": ["kart-royale.read-state"],
+            "assignableTo": ["human", "specialist"]
+          }
+        ],
+        "roleRecommendations": [
+          { "actor": "human", "workspaceRole": "member", "level": "player" }
+        ]
+      }
+    }
+  ],
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  },
+  "events": {
+    "publishes": [
+      {
+        "name": "race.started",
+        "schema": "urn:tap-pkg:kart-royale:event:race-started:1",
+        "schemaVersion": 1,
+        "visibility": "channel",
+        "delivery": "durable"
+      },
+      {
+        "name": "race.finished",
+        "schema": "urn:tap-pkg:kart-royale:event:race-finished:1",
+        "schemaVersion": 1,
+        "visibility": "channel",
+        "delivery": "durable"
+      }
+    ]
+  }
+}
