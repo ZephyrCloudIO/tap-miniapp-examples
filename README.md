@@ -23,7 +23,7 @@ descriptor declares the same version in `compatibility.tapSdk`. All current
 miniapps are verified against:
 
 ```json
-"@theaiplatform/miniapp-sdk": "0.5.2"
+"@theaiplatform/miniapp-sdk": "0.5.3"
 ```
 
 Do not copy an older SDK pin from a reference repository.

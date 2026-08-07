@@ -20,7 +20,7 @@
     "iconAssets": []
   },
   "compatibility": {
-    "tapSdk": "0.5.2",
+    "tapSdk": "0.5.3",
     "tapHost": ">=0.1.0"
   },
   "targets": {
@@ -82,6 +82,7 @@
           "changes.propose",
           "changes.review",
           "findings.disposition",
+          "task.write",
           "policies.manage",
           "evidence.capture",
           "profile.read",
@@ -432,6 +433,16 @@
             "risk": "consequential"
           },
           {
+            "id": "task.write",
+            "resource": "tap.task:write",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
             "id": "policies.manage",
             "resource": "tap.engineering-change:policies-manage",
             "scopes": ["workspace"],
@@ -533,6 +544,7 @@
               "changes.propose",
               "changes.review",
               "findings.disposition",
+              "task.write",
               "evidence.capture",
               "profile.read",
               "network.request",
@@ -550,6 +562,7 @@
               "changes.propose",
               "changes.review",
               "findings.disposition",
+              "task.write",
               "policies.manage",
               "evidence.capture",
               "profile.read",

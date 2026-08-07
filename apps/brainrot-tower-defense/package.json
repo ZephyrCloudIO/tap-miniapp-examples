@@ -29,7 +29,7 @@
     "check:size": "node scripts/check-size.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.5.2"
+    "@theaiplatform/miniapp-sdk": "0.5.3"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.1",

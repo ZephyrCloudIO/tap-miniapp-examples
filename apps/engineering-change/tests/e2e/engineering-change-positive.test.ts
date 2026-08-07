@@ -117,7 +117,7 @@ test("drives the seeded change through review, readiness, and disposition", asyn
     .getByTestId("engineering-change-review-disposition-finding-seed-1")
     .click();
   await expect(surface.getByTestId("engineering-change-notice")).toContainText(
-    "Finding dispositioned as accepted",
+    "follow-up task",
   );
 
   // Ready for work once required capabilities are covered.
@@ -151,6 +151,10 @@ test("drives the seeded change through review, readiness, and disposition", asyn
     (change.findings as Array<{ disposition?: { state: string } }>)[0]?.disposition
       ?.state,
   ).toBe("accepted");
+  expect(
+    (change.findings as Array<{ disposition?: { linkedWork: string } }>)[0]
+      ?.disposition?.linkedWork,
+  ).toMatch(/^tap-task:/u);
   expect(change.impactHypothesis).not.toBeNull();
   expect(change.impactEvidence).not.toBeNull();
 
@@ -167,6 +171,7 @@ test("drives the seeded change through review, readiness, and disposition", asyn
     "changes.review",
     "evidence.capture",
     "findings.disposition",
+    "task.write",
     "channels.manage-specialists",
     "channels.send-message",
     "workflows.invoke",

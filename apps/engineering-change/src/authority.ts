@@ -4,6 +4,7 @@ import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk
 export const CHANGES_PROPOSE_ACTION = "changes.propose";
 export const CHANGES_REVIEW_ACTION = "changes.review";
 export const FINDINGS_DISPOSITION_ACTION = "findings.disposition";
+export const TASK_WRITE_ACTION = "task.write";
 export const POLICIES_MANAGE_ACTION = "policies.manage";
 export const EVIDENCE_CAPTURE_ACTION = "evidence.capture";
 
@@ -11,6 +12,7 @@ export type EngineeringChangeAuthorityAction =
   | typeof CHANGES_PROPOSE_ACTION
   | typeof CHANGES_REVIEW_ACTION
   | typeof FINDINGS_DISPOSITION_ACTION
+  | typeof TASK_WRITE_ACTION
   | typeof POLICIES_MANAGE_ACTION
   | typeof EVIDENCE_CAPTURE_ACTION;
 
@@ -24,6 +26,7 @@ const actionAutonomy: Readonly<
   [CHANGES_PROPOSE_ACTION]: "plan",
   [CHANGES_REVIEW_ACTION]: "do",
   [FINDINGS_DISPOSITION_ACTION]: "do",
+  [TASK_WRITE_ACTION]: "do",
   [POLICIES_MANAGE_ACTION]: "do",
   [EVIDENCE_CAPTURE_ACTION]: "plan",
 };
@@ -32,6 +35,7 @@ const actionOperation: Readonly<Record<EngineeringChangeAuthorityAction, string>
   [CHANGES_PROPOSE_ACTION]: "shape change proposals",
   [CHANGES_REVIEW_ACTION]: "coordinate change reviews",
   [FINDINGS_DISPOSITION_ACTION]: "disposition review findings",
+  [TASK_WRITE_ACTION]: "create follow-up tasks",
   [POLICIES_MANAGE_ACTION]: "manage assurance policies",
   [EVIDENCE_CAPTURE_ACTION]: "capture change evidence",
 };

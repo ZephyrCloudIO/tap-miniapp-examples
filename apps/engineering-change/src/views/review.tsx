@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   CHANGES_REVIEW_ACTION,
   FINDINGS_DISPOSITION_ACTION,
+  TASK_WRITE_ACTION,
   type EngineeringChangeAuthorityGuard,
 } from "../authority";
 import {
@@ -16,6 +17,7 @@ import {
   type ReviewCapability,
 } from "../domain";
 import { useRuntimeId } from "../runtime-id";
+import { createFindingTask } from "../platform";
 import { EmptyPanel, FormField, SectionHeader, SelectInput, TextAreaInput, TextInput } from "../ui-helpers";
 
 const capabilities: ReviewCapability[] = [
@@ -161,26 +163,43 @@ export function ReviewView({
       return;
     }
     setError(undefined);
-    const now = new Date().toISOString();
-    await onUpdate(
-      auditMutation(
-        dispositionFinding(change, findingId, {
-          state: dispositionState,
-          rationale: rationale.trim(),
-          action: dispositionAction,
-          linkedWork: null,
+    const finding = change.findings.find((candidate) => candidate.id === findingId);
+    if (!finding) {
+      setError(`Unknown finding ${findingId}.`);
+      return;
+    }
+    let linkedWork: string | null = null;
+    try {
+      if (dispositionAction === "task" || dispositionAction === "both") {
+        if (!(await authorize(TASK_WRITE_ACTION))) return;
+        const task = await createFindingTask(change, finding);
+        linkedWork = `tap-task:${task.id}`;
+      }
+      const now = new Date().toISOString();
+      const saved = await onUpdate(
+        auditMutation(
+          dispositionFinding(change, findingId, {
+            state: dispositionState,
+            rationale: rationale.trim(),
+            action: dispositionAction,
+            linkedWork,
+            actorId,
+            at: now,
+          }),
           actorId,
-          at: now,
-        }),
-        actorId,
-        "findings.dispositioned",
-        `Dispositioned a finding as ${dispositionState} (${dispositionAction}).`,
-        now,
-        idFactory,
-      ),
-      `Finding dispositioned as ${dispositionState}.`,
-    );
-    setRationale("");
+          "findings.dispositioned",
+          `Dispositioned a finding as ${dispositionState} (${dispositionAction}).`,
+          now,
+          idFactory,
+        ),
+        linkedWork
+          ? `Finding dispositioned as ${dispositionState}; follow-up task ${linkedWork.slice("tap-task:".length)} created.`
+          : `Finding dispositioned as ${dispositionState}.`,
+      );
+      if (saved) setRationale("");
+    } catch (reason) {
+      setError(`The follow-up action could not be completed. ${String(reason)}`);
+    }
   };
 
   const required = change.effectivePolicy?.requiredCapabilities ?? [];
@@ -371,7 +390,12 @@ export function ReviewView({
                 <Badge variant="outline">{finding.verification}</Badge>
                 <span className="quiet">{finding.standard}</span>
                 {finding.disposition ? (
-                  <Badge>{finding.disposition.state}</Badge>
+                  <>
+                    <Badge>{finding.disposition.state}</Badge>
+                    {finding.disposition.linkedWork ? (
+                      <span className="quiet">{finding.disposition.linkedWork}</span>
+                    ) : null}
+                  </>
                 ) : (
                   <>
                     <Button

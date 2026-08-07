@@ -1,5 +1,10 @@
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
-import type { MiniAppHttpResponse } from "@theaiplatform/miniapp-sdk/sdk";
+import type {
+  CreateTaskOptions,
+  MiniAppHttpResponse,
+  MiniAppTask,
+} from "@theaiplatform/miniapp-sdk/sdk";
+import type { EngineeringChange, Finding } from "./domain";
 
 /**
  * Governed repository reads used to ground Impact Evidence in the exact
@@ -24,6 +29,71 @@ export class GovernedHttpError extends Error {
     super(message);
     this.name = "GovernedHttpError";
   }
+}
+
+export class TaskCapabilityUnavailableError extends Error {
+  constructor() {
+    super("This TAP host does not provide the workspace task capability.");
+    this.name = "TaskCapabilityUnavailableError";
+  }
+}
+
+function taskPriorityForFinding(
+  severity: Finding["severity"],
+): CreateTaskOptions["priority"] {
+  switch (severity) {
+    case "critical":
+      return "urgent";
+    case "high":
+      return "high";
+    case "medium":
+      return "medium";
+    case "low":
+    case "info":
+      return "low";
+  }
+}
+
+export function findingTaskOptions(
+  change: EngineeringChange,
+  finding: Finding,
+): CreateTaskOptions {
+  const prefix = `[${change.id}] `;
+  const availableSummaryLength = Math.max(1, 160 - prefix.length);
+  const summary = finding.summary.slice(0, availableSummaryLength);
+  const location = [
+    finding.file,
+    finding.line === null ? null : `line ${finding.line}`,
+    finding.symbol,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" · ");
+  return {
+    title: `${prefix}${summary}`,
+    description: [
+      `Engineering Change: ${change.id} — ${change.title}`,
+      `Finding: ${finding.summary}`,
+      `Standard: ${finding.standard}`,
+      `Severity: ${finding.severity}`,
+      location ? `Location: ${location}` : null,
+      `Provenance: ${finding.provenance ?? "human reviewer"}`,
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n"),
+    status: "toDo",
+    priority: taskPriorityForFinding(finding.severity),
+  };
+}
+
+/** Create a follow-up in the host's canonical Tasks silo for one finding. */
+export async function createFindingTask(
+  change: EngineeringChange,
+  finding: Finding,
+): Promise<MiniAppTask> {
+  const tasks = sdk.tasks;
+  if (!tasks) throw new TaskCapabilityUnavailableError();
+  const result = await tasks.create(findingTaskOptions(change, finding));
+  return result.task;
 }
 
 export function isGovernedUrl(url: string): boolean {

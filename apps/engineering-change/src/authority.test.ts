@@ -33,5 +33,8 @@ describe("authority", () => {
     await expect(
       requireEngineeringChangeAuthority(undefined, false, "evidence.capture"),
     ).rejects.toThrow(/capture change evidence/u);
+    await expect(
+      requireEngineeringChangeAuthority(undefined, false, "task.write"),
+    ).rejects.toThrow(/create follow-up tasks/u);
   });
 });

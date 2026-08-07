@@ -20,7 +20,7 @@ const repositoryRoot = path.resolve(
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const expectedSdkVersion = "0.5.2";
+const expectedSdkVersion = "0.5.3";
 const expectedRstestVersion = "0.11.5";
 const expectedPlaywrightVersion = "^1.61.0";
 const expectedTypecheckCommand =
