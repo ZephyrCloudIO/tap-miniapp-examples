@@ -15,7 +15,7 @@
   },
   "presentation": {
     "name": "Kart Royale",
-    "description": "Procedurally generated kart racer — solo time trials today, channel multiplayer next.",
+    "description": "Procedurally generated kart racer for solo time trials and live channel races.",
     "iconAssets": ["assets/kart-royale.svg"],
     "assets": [
       {
@@ -71,8 +71,11 @@
       },
       "authorization": {
         "allOf": ["kart-royale.play"],
+        "onDemand": ["credentials.use", "network.request"],
         "effects": [
           { "kind": "storage", "resources": ["kart-royale"] },
+          { "kind": "presence", "resources": ["kart-royale"] },
+          { "kind": "credentials", "resources": ["http"] },
           {
             "kind": "external-network",
             "resources": ["https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
@@ -83,7 +86,7 @@
       "publishes": ["race.started", "race.finished"],
       "options": {
         "displayName": "Kart Royale",
-        "description": "Race a procedurally generated circuit against the AI in this channel; multiplayer races arrive with the Cloudflare session server.",
+        "description": "Race a procedurally generated circuit against the AI or other members of this channel.",
         "placement": "chat-right",
         "scope": "channel",
         "instancePolicy": "per-channel",
@@ -172,12 +175,37 @@
             "autonomyCeiling": "listen",
             "consent": "channel",
             "risk": "read"
+          },
+          {
+            "id": "credentials.use",
+            "resource": "tap.credentials:use",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
           }
         ],
         "levels": [
           {
             "id": "player",
-            "actions": ["kart-royale.play", "kart-royale.read-state"],
+            "actions": [
+              "kart-royale.play",
+              "kart-royale.read-state",
+              "credentials.use",
+              "network.request"
+            ],
             "assignableTo": ["human"]
           },
           {

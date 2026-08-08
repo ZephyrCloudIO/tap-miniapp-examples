@@ -11,8 +11,12 @@
 import type {
   ClientMessage,
   ServerMessage,
+  ServerWelcome,
 } from '@tap-examples/kart-royale-protocol';
 import { PROTOCOL_VERSION } from '@tap-examples/kart-royale-protocol';
+
+/** Includes the bounded host-owned socket open plus the room's welcome. */
+export const WELCOME_TIMEOUT_MS = 15_000;
 
 export interface RestResponse {
   status: number;
@@ -40,6 +44,25 @@ export interface JoinedRoom {
   wsUrl: string;
 }
 
+/** The small socket surface shared by native and host-mediated transports. */
+export type RaceSocketListener = (event: Record<string, unknown>) => void;
+
+export interface RaceSocket {
+  readonly readyState: number;
+  addEventListener(type: string, listener: RaceSocketListener): void;
+  removeEventListener(type: string, listener: RaceSocketListener): void;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+}
+
+/** A packaged socket opens asynchronously after the host authorization hop. */
+export type RaceSocketFactory = (
+  url: string,
+) => RaceSocket | Promise<RaceSocket>;
+
+const nativeSocketFactory: RaceSocketFactory = (url) =>
+  new WebSocket(url) as unknown as RaceSocket;
+
 /** The default REST transport for the browser preview (dev CORS is open). */
 export const fetchRest =
   (serverUrl: string): RestRequest =>
@@ -56,7 +79,11 @@ export class RaceClient {
   onMessage: ((message: ServerMessage) => void) | null = null;
   onClose: (() => void) | null = null;
 
-  private ws: WebSocket | null = null;
+  private ws: RaceSocket | null = null;
+  /** Rejects an in-flight pre-welcome handshake when close() is deliberate. */
+  private cancelConnect: (() => void) | null = null;
+  /** Removes listeners/timers from the current socket on replacement or close. */
+  private teardownSocket: (() => void) | null = null;
   private offsetMs = 0;
   private role: 'player' | 'spectator' = 'player';
 
@@ -65,6 +92,7 @@ export class RaceClient {
       serverUrl: string;
       identity: RaceIdentity;
       rest: RestRequest;
+      socketFactory?: RaceSocketFactory;
     },
   ) {}
 
@@ -79,7 +107,7 @@ export class RaceClient {
   }
 
   get connected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    return this.ws !== null && this.ws.readyState === 1;
   }
 
   async listRooms(): Promise<RoomSummary[]> {
@@ -117,52 +145,148 @@ export class RaceClient {
   }
 
   /** Open the race socket; resolves once the room's welcome lands. */
-  connect(wsUrl: string): Promise<void> {
+  connect(wsUrl: string): Promise<ServerWelcome> {
     this.close();
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(wsUrl);
-      this.ws = ws;
-      const onError = () => {
-        cleanup();
-        reject(new Error('the race server connection failed'));
+      let ws: RaceSocket | null = null;
+      let welcomed = false;
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+
+      const clearTimeoutOnly = () => {
+        if (timeout === null) return;
+        clearTimeout(timeout);
+        timeout = null;
       };
-      const onMessage = (event: MessageEvent) => {
+      const cleanup = () => {
+        clearTimeoutOnly();
+        ws?.removeEventListener('error', onError);
+        ws?.removeEventListener('message', onMessage);
+        ws?.removeEventListener('close', onClose);
+        if (this.teardownSocket === cleanup) this.teardownSocket = null;
+      };
+      const failBeforeWelcome = (message: string, closeSocket = true) => {
+        if (settled) return;
+        settled = true;
+        if (this.cancelConnect === cancelConnect) this.cancelConnect = null;
+        if (ws && this.ws === ws) this.ws = null;
+        cleanup();
+        if (closeSocket && ws) {
+          try {
+            ws.close();
+          } catch {
+            /* the failed socket is already gone */
+          }
+        }
+        reject(new Error(message));
+      };
+      const cancelConnect = () => {
+        failBeforeWelcome('the race server connection closed before it was ready');
+      };
+      const onError = () => {
+        failBeforeWelcome('the race server connection failed');
+      };
+      const onMessage = (event: Record<string, unknown>) => {
         const msg = this.parse(event.data);
         if (!msg) return;
-        if (msg.type === 'welcome') {
+        if (!welcomed && msg.type === 'error') {
+          failBeforeWelcome(`the race server refused the connection: ${msg.message}`);
+          return;
+        }
+        if (!welcomed && msg.type === 'welcome') {
+          welcomed = true;
+          settled = true;
+          if (this.cancelConnect === cancelConnect) this.cancelConnect = null;
           this.offsetMs = msg.serverTime - Date.now();
-          cleanup();
+          clearTimeoutOnly();
+          ws.removeEventListener('error', onError);
           this.send({ v: PROTOCOL_VERSION, type: 'hello', displayName: this.options.identity.displayName, role: this.role });
-          resolve();
+          resolve(msg);
         }
         this.onMessage?.(msg);
       };
       const onClose = () => {
-        if (this.ws === ws) this.ws = null;
-        this.onClose?.();
+        const wasCurrent = this.ws === ws;
+        if (wasCurrent) this.ws = null;
+        if (!welcomed) {
+          failBeforeWelcome('the race server connection closed before it was ready', false);
+          return;
+        }
+        cleanup();
+        if (wasCurrent) this.onClose?.();
       };
-      const cleanup = () => {
-        ws.removeEventListener('error', onError);
+      this.cancelConnect = cancelConnect;
+      this.teardownSocket = cleanup;
+      timeout = setTimeout(() => {
+        failBeforeWelcome('the race server did not become ready in time');
+      }, WELCOME_TIMEOUT_MS);
+
+      const attach = (opened: RaceSocket) => {
+        if (
+          !opened ||
+          typeof opened.readyState !== 'number' ||
+          typeof opened.addEventListener !== 'function' ||
+          typeof opened.removeEventListener !== 'function' ||
+          typeof opened.send !== 'function' ||
+          typeof opened.close !== 'function'
+        ) {
+          failOpen();
+          return;
+        }
+        if (settled || this.cancelConnect !== cancelConnect) {
+          try {
+            opened.close();
+          } catch {
+            /* a cancelled asynchronous open is already gone */
+          }
+          return;
+        }
+        ws = opened;
+        this.ws = opened;
+        opened.addEventListener('error', onError);
+        opened.addEventListener('message', onMessage);
+        opened.addEventListener('close', onClose);
       };
-      ws.addEventListener('error', onError);
-      ws.addEventListener('message', onMessage);
-      ws.addEventListener('close', onClose);
+      const failOpen = () => {
+        failBeforeWelcome('the race server connection failed', false);
+      };
+      try {
+        const opening = (this.options.socketFactory ?? nativeSocketFactory)(wsUrl);
+        if (
+          typeof opening === 'object' &&
+          opening !== null &&
+          typeof (opening as PromiseLike<RaceSocket>).then === 'function'
+        ) {
+          Promise.resolve(opening).then(attach).catch(failOpen);
+        } else {
+          attach(opening as RaceSocket);
+        }
+      } catch {
+        failOpen();
+      }
     });
   }
 
   send(message: ClientMessage): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== 1) return;
     this.ws.send(JSON.stringify(message));
   }
 
   close(): void {
-    if (!this.ws) return;
+    const cancel = this.cancelConnect;
+    this.cancelConnect = null;
+    cancel?.();
+    const ws = this.ws;
+    this.ws = null;
+    const teardown = this.teardownSocket;
+    this.teardownSocket = null;
+    teardown?.();
+    if (!ws) return;
     try {
-      this.ws.close();
+      ws.close();
     } catch {
       /* already gone */
     }
-    this.ws = null;
   }
 
   private parse(data: unknown): ServerMessage | null {

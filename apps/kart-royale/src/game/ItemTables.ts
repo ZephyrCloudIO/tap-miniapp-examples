@@ -20,6 +20,11 @@ export const TRIPLE_COUNT = 3;
 /** ItemKind.TripleMushroom as a plain number, for hosts that treat kinds opaquely. */
 export const TRIPLE_MUSHROOM_KIND: number = ItemKind.TripleMushroom;
 
+/** Items that can be deployed as a shield and released by a later use. */
+export function isCarryableItemKind(kind: number): boolean {
+  return kind === ItemKind.GreenShell || kind === ItemKind.RedShell || kind === ItemKind.Banana;
+}
+
 /** placement curve: [front, midfield, back] weights per kind */
 export const ITEM_WEIGHTS: Record<number, [number, number, number]> = {
   [ItemKind.Mushroom]:       [10, 26, 16],

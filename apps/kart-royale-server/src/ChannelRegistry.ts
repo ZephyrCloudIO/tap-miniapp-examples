@@ -10,6 +10,7 @@
  * ============================================================================
  */
 import { DurableObject } from 'cloudflare:workers';
+import { raceFieldSize } from './config';
 
 export interface RoomEntry {
   raceId: string;
@@ -75,7 +76,7 @@ export class ChannelRegistry extends DurableObject<Env> {
         host: typeof record.host === 'string' ? record.host : 'unknown',
         phase: 'lobby',
         players: 0,
-        maxPlayers: Number(this.env.MAX_PLAYERS) || 8,
+        maxPlayers: raceFieldSize(this.env.MAX_PLAYERS),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -88,6 +89,7 @@ export class ChannelRegistry extends DurableObject<Env> {
       const room = this.rooms.get(record.raceId);
       if (!room) return json({ error: 'unknown room' }, 404);
       if (typeof record.phase === 'string') room.phase = record.phase;
+      if (typeof record.host === 'string' && record.host) room.host = record.host;
       if (typeof record.players === 'number' && Number.isFinite(record.players)) {
         room.players = Math.max(0, Math.min(64, record.players));
       }

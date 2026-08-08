@@ -1,5 +1,8 @@
 import { expect, test } from "@theaiplatform/miniapp-sdk/testing/rstest";
-import { expectExactProvenance, SHA256 } from "./kart-royale-test-support";
+import {
+  ROOMS_URL,
+  expectExactProvenance,
+} from "./kart-royale-test-support";
 
 test("mounts the exact declared TAP cell with reproducible provenance", async ({
   surface,
@@ -22,4 +25,28 @@ test("mounts the exact declared TAP cell with reproducible provenance", async ({
   await expect(host).toBeAttached();
   await expect(host.locator("#app")).toBeAttached();
   await expect(host.locator("#ui")).toBeAttached();
+
+  const toggle = surface.locator(".kr-lobby-toggle");
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  await expect(
+    surface.getByText("No open rooms right now — host the first one.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  expect(await tap.fixture.http.requests()).toEqual({
+    dropped: 0,
+    requests: [
+      expect.objectContaining({
+        matched: true,
+        credentialRef: "platform-session",
+        request: expect.objectContaining({
+          method: "GET",
+          url: ROOMS_URL,
+        }),
+      }),
+    ],
+  });
+  expect((await tap.fixture.ledger.read()).dropped).toBe(0);
 });

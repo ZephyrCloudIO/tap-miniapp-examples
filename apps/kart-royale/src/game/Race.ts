@@ -48,6 +48,7 @@ const ROSTER: KartStats[] = [
   { name: 'Frost',  color: new THREE.Color(0x7ee8fa), accelMul: 0.98, topSpeedMul: 1.02, weightMul: 1.0,  handlingMul: 1.00 },
   { name: 'Cinder', color: new THREE.Color(0xe8456b), accelMul: 1.08, topSpeedMul: 0.95, weightMul: 0.88, handlingMul: 1.10 },
 ];
+const SOLO_ROSTER_NAMES = ROSTER.map((stats) => stats.name);
 
 // --- director tuning ---------------------------------------------------------
 /**
@@ -205,6 +206,10 @@ export class Race implements IRace {
   private pauseThrottleClear = false;
   /** index into `karts` the human drives; see `selectKart` */
   private selected = 0;
+  /** Solo selection preserved while a room temporarily assigns another slot. */
+  private soloSelected = 0;
+  /** Multiplayer owns transport teardown when a menu action leaves its room. */
+  private networkLeaveHandler: (() => void) | null = null;
 
   /**
    * Multiplayer session hooks, attached by the network adapter when the race
@@ -242,6 +247,7 @@ export class Race implements IRace {
     }
     this.player = this.karts[0];
     this.selected = 0;
+    this.soloSelected = 0;
 
     // The line is solved once, here, and shared: the drivers steer along it and
     // red shells chase along it, so a shell tracks exactly where its victim is
@@ -273,6 +279,11 @@ export class Race implements IRace {
   private armCountdown() {
     this.countdownT = COUNTDOWN;
     this.countdown = 3;
+    this.resetRaceProgress();
+  }
+
+  /** Shared field reset for a fresh countdown or the authoritative title. */
+  private resetRaceProgress() {
     this.raceTime = 0;
     this.resultsT = 0;
     this.wrongWay = false;
@@ -297,6 +308,29 @@ export class Race implements IRace {
     this.start();
   }
 
+  get networkMode(): boolean {
+    return this.net !== null;
+  }
+
+  /** Register the session-owned teardown invoked by return-to-title actions. */
+  setNetworkLeaveHandler(handler: (() => void) | null): void {
+    this.networkLeaveHandler = handler;
+  }
+
+  /**
+   * Make the title screen an authoritative race state and leave any live room
+   * before re-forming the solo grid. Lobby visibility can therefore observe
+   * `RaceState.Menu` directly instead of guessing from menu-local flags.
+   */
+  returnToMenu(): void {
+    const leavingNetwork = this.networkMode;
+    this._state = RaceState.Menu;
+    this.countdownT = 0;
+    this.countdown = 3;
+    if (leavingNetwork) this.networkLeaveHandler?.();
+    this.resetRaceProgress();
+  }
+
   /**
    * Apply the server's field composition for a networked race: which slots are
    * human (with their display names) and which slot is the local player.
@@ -307,10 +341,15 @@ export class Race implements IRace {
     field: { slot: number; kind: 'human' | 'ai'; displayName: string }[],
     mySlot: number | null,
   ) {
+    for (let slot = 0; slot < this.karts.length; slot++) {
+      this.karts[slot].stats.name = SOLO_ROSTER_NAMES[slot] ?? this.karts[slot].stats.name;
+    }
     for (const entry of field) {
       const k = this.karts[entry.slot];
       if (!k) continue;
-      if (entry.kind === 'human') k.stats.name = entry.displayName;
+      k.stats.name = entry.kind === 'human'
+        ? entry.displayName
+        : SOLO_ROSTER_NAMES[entry.slot] ?? k.stats.name;
     }
     if (mySlot !== null && this.karts[mySlot]) {
       this.karts[this.selected].isPlayer = false;
@@ -321,6 +360,19 @@ export class Race implements IRace {
       for (const k of this.karts) k.isPlayer = false;
       this.player = this.karts[0];
     }
+  }
+
+  /** Restore the player and authored display names after network ownership. */
+  restoreSoloRoster(): void {
+    if (this.karts.length === 0) return;
+    const selected = Math.min(Math.max(this.soloSelected, 0), this.karts.length - 1);
+    for (let slot = 0; slot < this.karts.length; slot++) {
+      const kart = this.karts[slot];
+      kart.isPlayer = slot === selected;
+      kart.stats.name = SOLO_ROSTER_NAMES[slot] ?? kart.stats.name;
+    }
+    this.selected = selected;
+    this.player = this.karts[selected];
   }
 
   /**
@@ -369,6 +421,7 @@ export class Race implements IRace {
     this.karts[this.selected].isPlayer = false;
     this.karts[want].isPlayer = true;
     this.selected = want;
+    if (!this.networkMode) this.soloSelected = want;
     this.player = this.karts[want];
   }
 

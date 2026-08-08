@@ -4,9 +4,10 @@
  * These are a *view* of `IRace.state`, never a driver of it: `state` is
  * readonly on the interface and the race director owns it. Where a menu needs
  * to act it calls the sanctioned commands (`start()` / `reset()` /
- * `setPaused()`), and where the race director does not model a state we hold
- * that screen locally instead of writing to it — `localTitle` / `localPause`
- * are the fallbacks, not the primary path.
+ * `setPaused()` / `returnToMenu()`), and where the race director does not
+ * model a state we hold that screen locally instead of writing to it —
+ * `localPause` is a fallback, while the title is the director's authoritative
+ * `RaceState.Menu`.
  *
  * `?ui=title|select|pause|results` forces a screen, for capture and review.
  */
@@ -144,11 +145,13 @@ export class Menus {
 
   /** Local pause, used when the race director does not model RaceState.Paused. */
   private localPause = false;
-  private localTitle = false;
 
   private selected = 0;
   private cards: HTMLDivElement[] = [];
   private buttons: { pause: HTMLDivElement[]; results: HTMLDivElement[] } = { pause: [], results: [] };
+  private pauseRestart!: HTMLDivElement;
+  private resultsAgain!: HTMLDivElement;
+  private networkActionsHidden: boolean | null = null;
   private btnIndex = 0;
 
   private prevSteer = 0;
@@ -224,6 +227,7 @@ export class Menus {
   update(ctx: Ctx, _dt: number) {
     const race = ctx.race;
     const input = ctx.input.state;
+    this.syncNetworkActions(race.networkMode);
 
     // A race reset rewinds the clock; drop stale results so they rebuild.
     if (race.raceTime < this.lastRaceTime - 0.25) {
@@ -273,7 +277,7 @@ export class Menus {
 
     let want: ScreenName;
     if (this.forced) want = this.forced;
-    else if (race.state === RaceState.Menu || this.localTitle) want = this.selecting ? 'select' : 'title';
+    else if (race.state === RaceState.Menu) want = this.selecting ? 'select' : 'title';
     else if (race.state === RaceState.Paused || this.localPause) want = 'pause';
     else if (race.state === RaceState.Finished || race.state === RaceState.Results) want = 'results';
     else want = 'none';
@@ -346,7 +350,7 @@ export class Menus {
       this.selected = (this.selected + dir + this.cards.length) % this.cards.length;
       this.syncCards();
     } else if (this.screen === 'pause' || this.screen === 'results') {
-      const list = this.screen === 'pause' ? this.buttons.pause : this.buttons.results;
+      const list = this.activeButtons(this.screen);
       this.btnIndex = (this.btnIndex + dir + list.length) % list.length;
       this.syncButtons();
     } else {
@@ -370,10 +374,10 @@ export class Menus {
         this.ui('confirm');
         return;
       case 'pause':
-        this.buttons.pause[this.btnIndex]?.click();
+        this.activeButtons('pause')[this.btnIndex]?.click();
         return;
       case 'results':
-        this.buttons.results[this.btnIndex]?.click();
+        this.activeButtons('results')[this.btnIndex]?.click();
         return;
       default:
         if (inRace) { this.localPause = true; this.ui('pause'); }
@@ -387,7 +391,6 @@ export class Menus {
 
   private startRace(ctx: Ctx) {
     this.forced = null;
-    this.localTitle = false;
     this.selecting = false;
     this.localPause = false;
     this.resultsBuilt = false;
@@ -563,15 +566,10 @@ export class Menus {
     const ctrl = el('div', 'kr-btn', list, 'Controls');
     ctrl.onclick = () => this.controls.show();
     const restart = el('div', 'kr-btn', list, 'Restart race');
+    this.pauseRestart = restart;
     restart.onclick = () => { this.localPause = false; this.forced = null; this.startRace(this.ctx); };
     const quit = el('div', 'kr-btn', list, 'Quit to title');
-    quit.onclick = () => {
-      this.localPause = false;
-      this.forced = null;
-      this.localTitle = true;
-      this.selecting = false;
-      this.ctx.race.reset();
-    };
+    quit.onclick = () => this.returnToTitle();
     this.buttons.pause = [resume, ctrl, restart, quit];
     return s;
   }
@@ -589,21 +587,44 @@ export class Menus {
 
     const list = el('div', 'kr-menu-list kr-stage', inner);
     const again = el('div', 'kr-btn', list, 'Race again');
+    this.resultsAgain = again;
     again.onclick = () => this.startRace(this.ctx);
     const title = el('div', 'kr-btn', list, 'Back to title');
-    title.onclick = () => { this.localTitle = true; this.selecting = false; this.forced = null; this.ctx.race.reset(); };
+    title.onclick = () => this.returnToTitle();
     this.buttons.results = [again, title];
     return s;
   }
 
   private syncButtons() {
-    const list = this.screen === 'pause' ? this.buttons.pause
-      : this.screen === 'results' ? this.buttons.results : null;
+    const list = this.screen === 'pause' || this.screen === 'results'
+      ? this.activeButtons(this.screen)
+      : null;
+    const selected = list?.[this.btnIndex] ?? null;
     for (const group of [this.buttons.pause, this.buttons.results]) {
-      for (let i = 0; i < group.length; i++) {
-        group[i].classList.toggle('sel', group === list && i === this.btnIndex);
-      }
+      for (const button of group) button.classList.toggle('sel', button === selected);
     }
+  }
+
+  private activeButtons(screen: 'pause' | 'results'): HTMLDivElement[] {
+    return this.buttons[screen].filter((button) => !button.hidden);
+  }
+
+  /** Network races cannot be restarted locally; the server owns their state. */
+  private syncNetworkActions(networkMode: boolean): void {
+    if (this.networkActionsHidden === networkMode) return;
+    this.networkActionsHidden = networkMode;
+    this.pauseRestart.hidden = networkMode;
+    this.resultsAgain.hidden = networkMode;
+    this.btnIndex = 0;
+    this.syncButtons();
+  }
+
+  /** Shared pause/results route into the director and multiplayer teardown. */
+  returnToTitle(): void {
+    this.localPause = false;
+    this.forced = null;
+    this.selecting = false;
+    this.ctx.race.returnToMenu();
   }
 
   /**

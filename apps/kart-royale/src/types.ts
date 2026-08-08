@@ -272,6 +272,8 @@ export interface IRace extends System {
   /** completed lap times for the player, seconds */
   readonly lapTimes: number[];
   readonly standings: IKart[];
+  /** True while a live room owns kart slots and race authority. */
+  readonly networkMode: boolean;
   /** Index into `karts` of the machine the human is driving. */
   readonly selectedKart: number;
   /**
@@ -288,6 +290,8 @@ export interface IRace extends System {
   selectKart(index: number): void;
   start(): void;
   reset(): void;
+  /** Leave any live room and publish the authoritative title/menu state. */
+  returnToMenu(): void;
   /**
    * Pause / resume from the UI. The director owns `RaceState.Paused`, so the
    * pause screen's own buttons cannot get out of it by clearing a local flag —

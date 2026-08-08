@@ -7,9 +7,12 @@ import {
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const output = path.join(packageRoot, "dist");
+const manifest = process.env.TAP_PACKAGE_MANIFEST?.trim()
+  ? path.resolve(packageRoot, process.env.TAP_PACKAGE_MANIFEST.trim())
+  : path.join(packageRoot, "manifest.tap.json");
 
 await assembleTapPackage({
-  manifest: path.join(packageRoot, "manifest.tap.json"),
+  manifest,
   output,
   targets: {
     desktop: path.join(packageRoot, ".tap-build/desktop"),

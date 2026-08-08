@@ -228,6 +228,9 @@ importers:
       '@tap-examples/kart-royale-protocol':
         specifier: workspace:*
         version: link:../kart-royale-protocol
+      jose:
+        specifier: 6.2.3
+        version: 6.2.3
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.18.6

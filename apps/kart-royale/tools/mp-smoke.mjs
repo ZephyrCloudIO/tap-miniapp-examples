@@ -32,8 +32,10 @@ function check(cond, label) {
 }
 
 // --- session server lifecycle (same discipline as vite-server) -------------
-const wranglerBin = `${serverRoot}/node_modules/.bin/wrangler`;
-const serverProc = spawn(wranglerBin, ['dev', '--port', String(SERVER_PORT)], {
+// Use the package script so its predev hook creates the ignored local secret
+// and its explicit CLI binding enables body-authored identities only for this
+// local process. The checked-in/deployable Wrangler profile stays fail-closed.
+const serverProc = spawn('pnpm', ['dev', '--ip', '127.0.0.1', '--port', String(SERVER_PORT)], {
   cwd: serverRoot,
   stdio: 'ignore',
   detached: true,
@@ -187,19 +189,35 @@ try {
     () => window.__ctx.items.held(window.__ctx.race.player).count > 0,
     { timeout: 20000, polling: 300 },
   );
-  note('alpha granted a server-rolled item');
+  const granted = await alpha.evaluate(() => {
+    const held = window.__ctx.items.held(window.__ctx.race.player);
+    return { kind: held.kind, count: held.count };
+  });
+  note(`alpha granted server-rolled item ${granted.kind} ×${granted.count}`);
   // Wait out the roulette arm, then spend it.
   await page_settle(alpha, 1400);
   await alpha.evaluate(() => {
     window.__mp.adapter.requestUse(window.__ctx.race.player, false);
   });
   await alpha.waitForFunction(
-    () => window.__ctx.items.held(window.__ctx.race.player).count === 0,
+    (before) => window.__ctx.items.held(window.__ctx.race.player).count < before,
     { timeout: 20000, polling: 300 },
+    granted.count,
   );
   note('alpha spent it through the room');
   // On bravo the spend is visible: either a remote projectile exists, or the
-  // boost/star timer arrived with alpha's state stream.
+  // boost/star timer arrives with alpha's next state sample. Do not inspect
+  // immediately after alpha's local confirmation: the broadcast and the
+  // following state relay are separate WebSocket frames.
+  await bravo.waitForFunction(
+    () => {
+      const proj = window.__ctx.items.proj;
+      const remoteLive = proj.pool.some((p) => p.remote && p.state !== 0);
+      const alphaKart = window.__ctx.race.karts[0];
+      return remoteLive || alphaKart.boostTime > 0 || alphaKart.starTime > 0;
+    },
+    { timeout: 5000, polling: 100 },
+  );
   const bravoSaw = await bravo.evaluate(() => {
     const proj = window.__ctx.items.proj;
     const remoteLive = proj.pool.some((p) => p.remote && p.state !== 0);

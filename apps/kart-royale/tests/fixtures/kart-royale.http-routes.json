@@ -1,0 +1,25 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev/channels/tap-fixture-channel-v1/rooms"
+    },
+    "credentialRef": "platform-session",
+    "response": {
+      "finalUrl": "https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev/channels/tap-fixture-channel-v1/rooms",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        { "name": "content-type", "value": "application/json" }
+      ],
+      "bodyText": "{\"rooms\":[]}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 12,
+      "elapsedMs": 4,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  }
+]

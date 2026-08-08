@@ -16,6 +16,7 @@
  * ============================================================================
  */
 import * as THREE from 'three';
+import type { ItemCarryDisposition, ItemInventoryWire } from '@tap-examples/kart-royale-protocol';
 import { ItemKind, RaceState, type Ctx, type IItems, type IKart } from '../types';
 import type { RacingLine } from './AI';
 import { isRemoteKart } from '../net/remoteKarts';
@@ -29,6 +30,8 @@ export interface ItemsNetDriver {
   requestDraw(kart: IKart, boxIndex: number): boolean;
   /** A local kart spent its held item. True = the server owns the spend. */
   requestUse(kart: IKart, backwards: boolean): boolean;
+  /** A deployed shield left the kart without an explicit release. */
+  requestCarryConsumed(kart: IKart, kind: ItemKind, disposition: ItemCarryDisposition): void;
 }
 import { ARM_TIME_S, BOX_RESPAWN_S, ITEM_KINDS, ITEM_WEIGHTS, TRIPLE_COUNT, rollItem } from './ItemTables';
 import {
@@ -102,6 +105,8 @@ interface Slot {
   arm: number;
   /** handle of a projectile being trailed as a shield, or -1 */
   carried: number;
+  /** Kind survives the projectile being destroyed until authority is notified. */
+  carriedKind: ItemKind;
   /** shrunk-by-bolt timer */
   shrink: number;
   /** cooldown on star knock-asides so one pass is not eight hits */
@@ -546,7 +551,15 @@ export class Items implements IItems {
   }
 
   private freshSlot(): Slot {
-    return { kind: ItemKind.None, count: 0, arm: 0, carried: -1, shrink: 0, starHit: 0 };
+    return {
+      kind: ItemKind.None,
+      count: 0,
+      arm: 0,
+      carried: -1,
+      carriedKind: ItemKind.None,
+      shrink: 0,
+      starHit: 0,
+    };
   }
 
   setRacingLine(l: RacingLine) {
@@ -566,6 +579,7 @@ export class Items implements IItems {
       s.count = 0;
       s.arm = 0;
       s.carried = -1;
+      s.carriedKind = ItemKind.None;
       s.shrink = 0;
       s.starHit = 0;
       this.slots.set(k.id, s);
@@ -795,6 +809,7 @@ export class Items implements IItems {
     s.kind = kind;
     s.count = kind === ItemKind.TripleMushroom ? Math.max(count, TRIPLE_COUNT) : count;
     s.arm = ARM_TIME;
+    s.carriedKind = ItemKind.None;
   }
 
   pickup(kart: IKart, boxIndex = -1) {
@@ -849,9 +864,11 @@ export class Items implements IItems {
         const target = backwards ? -1 : this.targetAhead(kart);
         this.proj.release(s.carried, kart, backwards, target);
         s.carried = -1;
+        s.carriedKind = ItemKind.None;
         return true;
       }
       s.carried = -1;
+      s.carriedKind = ItemKind.None;
     }
 
     if (s.kind === ItemKind.None || s.count <= 0) return false;
@@ -902,7 +919,10 @@ export class Items implements IItems {
         const target = kind === ItemKind.RedShell && !carry ? this.targetAhead(kart) : -1;
         const h = this.proj.spawn(kind, kart, backwards, carry, target);
         if (h < 0) return false;
-        if (carry) s.carried = h;
+        if (carry) {
+          s.carried = h;
+          s.carriedKind = kind;
+        }
         break;
       }
 
@@ -925,6 +945,7 @@ export class Items implements IItems {
         this.proj.release(s.carried, kart, backwards, target);
       }
       s.carried = -1;
+      s.carriedKind = ItemKind.None;
       this.ctx.bus.emit({ type: 'item-use', kart, kind });
       return;
     }
@@ -952,7 +973,7 @@ export class Items implements IItems {
       case ItemKind.Banana:
       case ItemKind.Bomb:
         // A tow release shows the same shell going live, not a second tow.
-        if (carry) this.proj.spawnRemote(kind, kart, backwards, true, target);
+        if (carry) this.proj.ensureCarried(kind, kart, true);
         else if (!this.proj.releaseRemote(kart, backwards, target)) {
           this.proj.spawnRemote(kind, kart, backwards, false, target);
         }
@@ -961,6 +982,64 @@ export class Items implements IItems {
         break;
     }
     this.ctx.bus.emit({ type: 'item-use', kart, kind });
+  }
+
+  /**
+   * Reconcile one kart from the room's complete inventory snapshot. Local
+   * owners restore usable inventory; remote karts retain only a carried visual.
+   */
+  syncNetworkInventory(
+    kart: IKart,
+    state: Pick<ItemInventoryWire, 'kind' | 'count' | 'carried' | 'armUntil'> | null,
+    locallyOwned: boolean,
+    serverNow: number,
+  ): void {
+    const s = this.slot(kart);
+    if (!state || state.count <= 0 || state.kind === ItemKind.None) {
+      this.proj.clearCarried(kart.id);
+      this.clearInventory(s);
+      return;
+    }
+
+    const kind = state.kind as ItemKind;
+    if (state.carried) {
+      const handle = this.proj.ensureCarried(kind, kart, !locallyOwned);
+      s.kind = ItemKind.None;
+      s.count = 0;
+      s.arm = 0;
+      if (locallyOwned && handle >= 0) {
+        s.carried = handle;
+        s.carriedKind = kind;
+      } else {
+        // Remote carried projectiles live only in Projectiles. Keeping a Slot
+        // handle would make this client report another owner's collision.
+        s.carried = -1;
+        s.carriedKind = ItemKind.None;
+      }
+      return;
+    }
+
+    this.proj.clearCarried(kart.id);
+    s.carried = -1;
+    s.carriedKind = ItemKind.None;
+    if (locallyOwned) {
+      s.kind = kind;
+      s.count = Math.max(0, Math.floor(state.count));
+      s.arm = Math.max(0, (state.armUntil - serverNow) / 1000);
+    } else {
+      s.kind = ItemKind.None;
+      s.count = 0;
+      s.arm = 0;
+    }
+  }
+
+  /** Apply the server relay without reporting the same consume back upstream. */
+  confirmCarryConsumed(kart: IKart, kind: ItemKind, disposition: ItemCarryDisposition): void {
+    this.proj.applyCarryConsumed(kart.id, kind, disposition);
+    const s = this.slot(kart);
+    if (s.carriedKind !== kind) return;
+    s.carried = -1;
+    s.carriedKind = ItemKind.None;
   }
 
   // ------------------------------------------------------------------ helpers
@@ -1007,8 +1086,13 @@ export class Items implements IItems {
     s.shrink = BOLT_TIME;
     // dropping whatever they were towing is half the point of the bolt
     if (s.carried >= 0) {
-      this.proj.drop(s.carried);
+      const kind = s.carriedKind;
+      const dropped = this.proj.drop(s.carried);
       s.carried = -1;
+      s.carriedKind = ItemKind.None;
+      if (kind !== ItemKind.None) {
+        this.netDriver?.requestCarryConsumed(k, kind, dropped ? 'dropped' : 'destroyed');
+      }
     }
     this.ctx.bus.emit({ type: 'hit', kart: k, kind: ItemKind.Bolt });
   }
@@ -1062,7 +1146,6 @@ export class Items implements IItems {
       const s = this.slot(k);
       if (s.arm > 0) s.arm = Math.max(0, s.arm - step);
       if (s.starHit > 0) s.starHit -= step;
-      if (s.carried >= 0 && !this.proj.isCarried(s.carried, k.id)) s.carried = -1;
 
       // bolt: shrunk, slowed, and visibly smaller until it wears off
       if (s.shrink > 0) {
@@ -1083,7 +1166,30 @@ export class Items implements IItems {
     }
 
     this.proj.update(ctx, step, karts);
+    this.reapConsumedCarries(karts);
     this.updateOrbit(karts, now);
+  }
+
+  /** Detect projectile-side shield deaths once, after their simulation step. */
+  private reapConsumedCarries(karts: readonly IKart[]): void {
+    for (const k of karts) {
+      const s = this.slot(k);
+      if (s.carried < 0 || this.proj.isCarried(s.carried, k.id)) continue;
+      const kind = s.carriedKind;
+      s.carried = -1;
+      s.carriedKind = ItemKind.None;
+      if (kind !== ItemKind.None) {
+        this.netDriver?.requestCarryConsumed(k, kind, 'destroyed');
+      }
+    }
+  }
+
+  private clearInventory(s: Slot): void {
+    s.kind = ItemKind.None;
+    s.count = 0;
+    s.arm = 0;
+    s.carried = -1;
+    s.carriedKind = ItemKind.None;
   }
 
   private starSweep(ctx: Ctx, star: IKart, s: Slot) {

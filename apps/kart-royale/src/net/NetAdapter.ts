@@ -18,7 +18,10 @@ import { ItemKind } from '../types';
 import type { Race } from '../game/Race';
 import type { Kart } from '../kart/Kart';
 import type { Items, ItemsNetDriver } from '../game/Items';
+import { isCarryableItemKind } from '../game/ItemTables';
 import type {
+  ItemCarryDisposition,
+  ItemInventoryWire,
   KartStateWire,
   RosterMemberWire,
   ServerMessage,
@@ -64,7 +67,12 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
   /** userId/kartKey → kartId. */
   private streamToKart = new Map<string, number>();
   private remoteIds = new Set<number>();
+  /** Human slot ownership is immutable once countdown locks the grid. */
+  private humanSlots = new Map<number, string>();
+  /** AI slots stay fixed, but their simulator follows the elected host. */
   private aiSlots = new Set<number>();
+  /** True once the server roster has been mapped onto the local field. */
+  private fieldLocked = false;
   private started = false;
   private lastUplink = 0;
   private selfSeq = 0;
@@ -107,13 +115,24 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
   detach(): void {
     this.client.onMessage = null;
     this.client.onClose = null;
-    if (this.race.net === this) this.race.net = null;
+    if (this.race.net === this) {
+      this.race.net = null;
+      this.race.restoreSoloRoster();
+    }
     if (this.items.netDriver === this) this.items.netDriver = null;
     this.items.remoteHitHandler = null;
     clearRemoteKarts();
+    this.members.clear();
+    this.selfId = null;
+    this.mySlot = null;
+    this.hostUserId = null;
     this.buffers.clear();
     this.streamToKart.clear();
     this.remoteIds.clear();
+    this.humanSlots.clear();
+    this.aiSlots.clear();
+    this.fieldLocked = false;
+    this.started = false;
   }
 
   // --------------------------------------------------------------- messages
@@ -124,19 +143,31 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
         this.selfId = msg.userId;
         this.mySlot = msg.slot;
         this.applyRoster(msg.roster);
+        this.resumeFromWelcome(msg.phase, msg.countdownEndsAt);
         break;
       }
       case 'roster':
         this.applyRoster(msg.roster);
         break;
       case 'countdown': {
-        this.lockField();
-        this.cb.onCountdown(msg.endsAt);
+        if (!this.fieldLocked) {
+          this.lockField();
+          this.cb.onCountdown(msg.endsAt);
+        }
         break;
       }
       case 'race_start':
-        this.started = true;
-        this.cb.onRaceStart();
+        // Defensive recovery when the countdown push was lost: a fresh socket's
+        // welcome normally handles this path, but the race must never stay in
+        // the title state while the room is already live.
+        if (!this.fieldLocked) {
+          this.lockField();
+          this.cb.onCountdown(this.client.serverNow());
+        }
+        if (!this.started) {
+          this.started = true;
+          this.cb.onRaceStart();
+        }
         break;
       case 'peer_state': {
         const kartId = this.streamToKart.get(`${msg.userId}/${msg.kartKey}`);
@@ -176,6 +207,14 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
       case 'item_used':
         this.onItemUsed(msg.userId, msg.kartKey, msg.kind, msg.backwards, msg.carry, msg.target);
         break;
+      case 'item_carry_consumed': {
+        const kart = this.kartForStream(msg.userId, msg.kartKey);
+        if (kart) this.items.confirmCarryConsumed(kart, msg.kind as ItemKind, msg.disposition);
+        break;
+      }
+      case 'item_sync':
+        this.onItemSync(msg.items);
+        break;
       case 'hit': {
         // My kart (or my AI, as host) was struck by a remote projectile.
         const kart = this.kartForStream(this.selfId ?? '', msg.fromKartKey);
@@ -208,6 +247,10 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
   /** kart for a stream identity: userId/self → their slot; userId/ai:n → slot n. */
   private kartForStream(userId: string, kartKey: string): IKart | null {
     if (kartKey === 'self') {
+      if (this.fieldLocked) {
+        const slot = [...this.humanSlots].find(([, owner]) => owner === userId)?.[0];
+        return slot === undefined ? null : this.race.karts[slot] ?? null;
+      }
       const member = this.members.get(userId);
       if (member?.slot === null || member === undefined || member.slot === undefined) return null;
       return this.race.karts[member.slot] ?? null;
@@ -225,10 +268,31 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
   }
 
   private applyRoster(roster: RosterMemberWire[]): void {
+    const previousHostUserId = this.hostUserId;
     this.members.clear();
     for (const m of roster) this.members.set(m.userId, m);
     this.hostUserId = roster.find((m) => m.host)?.userId ?? this.hostUserId;
+    if (this.fieldLocked && this.hostUserId !== previousHostUserId) {
+      this.rebuildStreamOwnership();
+    }
     this.cb.onRoster(roster, this.self);
+  }
+
+  /** Initialise a fresh client that joins after the room left the lobby. */
+  private resumeFromWelcome(phase: 'lobby' | 'countdown' | 'running' | 'finished', countdownEndsAt: number | null): void {
+    if (phase !== 'countdown' && phase !== 'running') return;
+    if (!this.fieldLocked) {
+      this.lockField();
+      this.cb.onCountdown(
+        phase === 'countdown' && countdownEndsAt !== null
+          ? countdownEndsAt
+          : this.client.serverNow(),
+      );
+    }
+    if (phase === 'running' && !this.started) {
+      this.started = true;
+      this.cb.onRaceStart();
+    }
   }
 
   /**
@@ -238,19 +302,27 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
   private lockField(): void {
     const humans = [...this.members.values()].filter((m) => m.role === 'player' && m.slot !== null);
     const field: { slot: number; kind: 'human' | 'ai'; displayName: string }[] = [];
+    this.humanSlots.clear();
     this.aiSlots.clear();
     for (let slot = 0; slot < this.race.karts.length; slot++) {
       const human = humans.find((m) => m.slot === slot);
       if (human) {
         field.push({ slot, kind: 'human', displayName: human.displayName });
+        this.humanSlots.set(slot, human.userId);
       } else {
         field.push({ slot, kind: 'ai', displayName: '' });
         this.aiSlots.add(slot);
       }
     }
     this.race.setNetworkRoster(field, this.mySlot);
+    this.rebuildStreamOwnership();
+    this.buffers.clear();
+    this.fieldLocked = true;
+    this.started = false;
+  }
 
-    // Remote = every kart except mine, and except the AI karts I simulate as host.
+  /** Reassign only transferable AI streams after a mid-race host election. */
+  private rebuildStreamOwnership(): void {
     this.remoteIds.clear();
     this.streamToKart.clear();
     for (let slot = 0; slot < this.race.karts.length; slot++) {
@@ -258,16 +330,17 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
       const isMyAi = this.isHost && this.aiSlots.has(slot);
       if (isMine || isMyAi) continue;
       this.remoteIds.add(slot);
-      const human = humans.find((m) => m.slot === slot);
-      if (human) {
-        this.streamToKart.set(`${human.userId}/self`, slot);
-      } else if (this.hostUserId) {
+      const humanUserId = this.humanSlots.get(slot);
+      if (humanUserId) {
+        this.streamToKart.set(`${humanUserId}/self`, slot);
+      } else if (this.aiSlots.has(slot) && this.hostUserId) {
         this.streamToKart.set(`${this.hostUserId}/ai:${slot}`, slot);
       }
     }
     setRemoteKarts(this.remoteIds);
-    this.buffers.clear();
-    this.started = false;
+    // Never interpolate a newly elected host's samples against the old host's
+    // timeline. Human buffers are unaffected by the AI ownership transfer.
+    for (const slot of this.aiSlots) this.buffers.delete(slot);
   }
 
   // --------------------------------------------------------------- RaceNetHooks
@@ -374,16 +447,31 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
     if (!kartKey) return false;
     const held = this.items.held(kart);
     if (held.kind === ItemKind.None || held.count <= 0) return false;
+    const releasing = this.items.towing(kart) !== ItemKind.None;
     this.client.send({
       v: PROTOCOL_VERSION,
       type: 'item_use',
       kartKey: kartKey === 'self' ? undefined : kartKey,
       kind: held.kind,
       backwards,
-      carry: false,
+      carry: !releasing && backwards && isCarryableItemKind(held.kind),
       target: held.kind === ItemKind.RedShell ? this.shellTarget(kart) : -1,
     });
     return true;
+  }
+
+  /** A local tow was destroyed by contact or dropped by a bolt. */
+  requestCarryConsumed(kart: IKart, kind: ItemKind, disposition: ItemCarryDisposition): void {
+    if (!this.client.connected) return;
+    const kartKey = this.kartKeyFor(kart);
+    if (!kartKey) return;
+    this.client.send({
+      v: PROTOCOL_VERSION,
+      type: 'item_carry_consumed',
+      kartKey: kartKey === 'self' ? undefined : kartKey,
+      kind,
+      disposition,
+    });
   }
 
   /** The kart one place ahead — mirrors Items.targetAhead for the uplink. */
@@ -424,18 +512,38 @@ export class NetAdapter implements RaceNetHooks, ItemsNetDriver {
     }
   }
 
+  /** Reconcile the room's complete inventory snapshot across the whole field. */
+  private onItemSync(entries: ItemInventoryWire[]): void {
+    const seen = new Set<number>();
+    const serverNow = this.client.serverNow();
+    for (const entry of entries) {
+      const kart = this.kartForStream(entry.userId, entry.kartKey);
+      if (!kart || seen.has(kart.id)) continue;
+      const locallyOwned = entry.userId === this.selfId && this.kartKeyFor(kart) === entry.kartKey;
+      this.items.syncNetworkInventory(kart, entry, locallyOwned, serverNow);
+      seen.add(kart.id);
+    }
+    // `item_sync` is a complete snapshot: absence is authoritative too.
+    for (const kart of this.race.karts) {
+      if (seen.has(kart.id)) continue;
+      this.items.syncNetworkInventory(kart, null, !this.isRemote(kart), serverNow);
+    }
+  }
+
   /** My projectile made contact with a network-owned kart: claim the hit. */
   private onRemoteHit(kart: IKart, kind: ItemKind): void {
     if (!this.client.connected) return;
     // The victim's owner: the human at that slot, or the host for AI karts.
-    const human = [...this.members.values()].find((m) => m.slot === kart.id);
-    const targetUserId = human?.userId ?? this.hostUserId;
+    const humanUserId = this.fieldLocked
+      ? this.humanSlots.get(kart.id)
+      : [...this.members.values()].find((m) => m.slot === kart.id)?.userId;
+    const targetUserId = humanUserId ?? this.hostUserId;
     if (!targetUserId) return;
     this.client.send({
       v: PROTOCOL_VERSION,
       type: 'hit_claim',
       targetUserId,
-      targetKartKey: human ? undefined : `ai:${kart.id}`,
+      targetKartKey: humanUserId ? undefined : `ai:${kart.id}`,
       kind,
     });
   }

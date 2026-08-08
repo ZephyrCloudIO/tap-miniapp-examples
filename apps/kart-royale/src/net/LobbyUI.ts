@@ -65,7 +65,10 @@ export class LobbyUI {
   private view: View = { kind: 'closed' };
   private readonly root: HTMLElement;
   private readonly toggle: HTMLButtonElement;
+  private disposed = false;
   private error = '';
+  private joining = false;
+  private operationGeneration = 0;
   private selfReady = false;
   private readonly toggleTimer: ReturnType<typeof setInterval>;
 
@@ -92,12 +95,17 @@ export class LobbyUI {
     // The toggle rides the title screen, and race state changes without any
     // DOM event to hear — so it polls, cheaply and only its own visibility.
     this.toggleTimer = setInterval(() => {
+      if (this.disposed) return;
       this.toggle.style.display =
         this.view.kind === 'closed' && this.race.state === RaceState.Menu ? '' : 'none';
     }, 250);
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.operationGeneration++;
+    this.joining = false;
     clearInterval(this.toggleTimer);
     this.root.remove();
     this.toggle.remove();
@@ -105,12 +113,19 @@ export class LobbyUI {
 
   /** Re-render on roster/phase pushes from the adapter. */
   refresh(): void {
-    if (this.view.kind !== 'closed') this.render();
+    if (this.disposed) return;
+    if (this.view.kind !== 'closed') {
+      if (this.view.kind === 'in-room') {
+        this.selfReady = this.adapter.self?.ready ?? false;
+      }
+      this.render();
+    }
   }
 
   // ------------------------------------------------------------- rendering
 
   private render(): void {
+    if (this.disposed) return;
     this.root.innerHTML = '';
     this.toggle.style.display =
       this.view.kind === 'closed' && this.race.state === RaceState.Menu ? '' : 'none';
@@ -143,16 +158,23 @@ export class LobbyUI {
       this.line(grow, 'div', 'meta', `${room.players}/${room.maxPlayers} players · ${room.phase}`);
       row.appendChild(grow);
       row.appendChild(this.button('Race', () => void this.join(room.raceId, 'player'), {
-        disabled: room.players >= room.maxPlayers || room.phase !== 'lobby',
+        disabled: this.joining || room.players >= room.maxPlayers || room.phase !== 'lobby',
       }));
-      row.appendChild(this.button('Watch', () => void this.join(room.raceId, 'spectator')));
+      row.appendChild(this.button('Watch', () => void this.join(room.raceId, 'spectator'), {
+        disabled: this.joining,
+      }));
       panel.appendChild(row);
     }
 
     const actions = document.createElement('div');
     actions.className = 'actions';
-    actions.appendChild(this.button('Host a race', () => void this.host(), { primary: true }));
-    actions.appendChild(this.button('Refresh', () => void this.openBrowse()));
+    actions.appendChild(this.button('Host a race', () => void this.host(), {
+      primary: true,
+      disabled: this.joining,
+    }));
+    actions.appendChild(this.button('Refresh', () => void this.openBrowse(), {
+      disabled: this.joining,
+    }));
     actions.appendChild(this.button('Close', () => this.close()));
     panel.appendChild(actions);
     this.errorLine(panel);
@@ -224,17 +246,21 @@ export class LobbyUI {
   // ------------------------------------------------------------------- flow
 
   private async openBrowse(): Promise<void> {
+    if (this.disposed || this.joining) return;
+    const operation = ++this.operationGeneration;
     this.error = '';
     this.view = { kind: 'browse', rooms: [] };
     this.render();
     try {
       const rooms = await this.client.listRooms();
+      if (!this.isCurrent(operation)) return;
       this.view = { kind: 'browse', rooms };
     } catch {
+      if (!this.isCurrent(operation)) return;
       this.error = 'The race server is unreachable — solo play is unaffected.';
       this.view = { kind: 'browse', rooms: [] };
     }
-    this.render();
+    if (this.isCurrent(operation)) this.render();
   }
 
   private async host(): Promise<void> {
@@ -246,22 +272,51 @@ export class LobbyUI {
   }
 
   private async joinAs(join: () => Promise<{ raceId: string; wsUrl: string }>): Promise<void> {
+    if (this.disposed || this.joining) return;
+    const operation = ++this.operationGeneration;
+    this.joining = true;
     this.error = '';
+    this.render();
     try {
       const joined = await join();
+      if (!this.isCurrent(operation)) return;
       // Attach BEFORE connecting: the welcome message carries our slot and the
       // roster, and it must reach the adapter, not fall on a null handler.
       this.adapter.attach();
-      await this.client.connect(joined.wsUrl);
-      this.session.noteJoined(joined.raceId, this.adapter.self?.role ?? 'player');
-      this.view = { kind: 'in-room' };
+      const welcome = await this.client.connect(joined.wsUrl);
+      if (!this.isCurrent(operation)) return;
+      this.selfReady = this.adapter.self?.ready ?? false;
+      this.session.noteJoined(
+        joined.raceId,
+        this.adapter.self?.role ?? 'player',
+        welcome.phase,
+      );
+      // A late spectator should see the live race, not an in-room lobby laid on
+      // top of it. Fresh lobby joins still need ready/start controls.
+      this.view = welcome.phase === 'lobby' ? { kind: 'in-room' } : { kind: 'closed' };
     } catch (error) {
+      if (!this.isCurrent(operation)) return;
+      // REST can succeed while the host-mediated WebSocket upgrade fails
+      // (room-full, permission denial, transient network). Restore the solo
+      // seams before showing the error so a failed multiplayer attempt cannot
+      // leave local item use intercepted.
+      this.session.noteLeft();
+      this.adapter.detach();
+      this.client.close();
+      this.selfReady = false;
       this.error = error instanceof Error ? error.message : 'could not join the race';
+    } finally {
+      if (this.isCurrent(operation)) {
+        this.joining = false;
+        this.render();
+      }
     }
-    this.render();
   }
 
   leaveRoom(): void {
+    if (this.disposed) return;
+    this.operationGeneration++;
+    this.joining = false;
     this.selfReady = false;
     this.session.noteLeft();
     this.adapter.detach();
@@ -271,7 +326,33 @@ export class LobbyUI {
   }
 
   close(): void {
+    if (this.disposed) return;
+    const wasJoining = this.joining;
+    // Close also owns an in-flight browse request. Invalidate every async
+    // operation so neither a late room list nor a late welcome can reopen UI.
+    this.operationGeneration++;
+    this.joining = false;
+    if (wasJoining) {
+      // Closing while the REST ticket or WebSocket welcome is pending cancels
+      // ownership of that operation. Any late completion is ignored, while
+      // the transport is synchronously returned to its solo state.
+      this.selfReady = false;
+      this.session.noteLeft();
+      this.adapter.detach();
+      this.client.close();
+    }
     this.view = { kind: 'closed' };
     this.render();
+  }
+
+  /** Hide for an accepted countdown/live welcome without cancelling its join. */
+  hide(): void {
+    if (this.disposed) return;
+    this.view = { kind: 'closed' };
+    this.render();
+  }
+
+  private isCurrent(operation: number): boolean {
+    return !this.disposed && operation === this.operationGeneration;
   }
 }

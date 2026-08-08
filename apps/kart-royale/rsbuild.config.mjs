@@ -6,7 +6,7 @@ import { withZephyr } from "zephyr-rsbuild-plugin";
 // Unauthenticated builds (local dev, repo CI without ZE tokens) build locally
 // and skip the upload.
 export default defineConfig({
-  plugins: [withZephyr()],
+  plugins: process.env.ZE_SECRET_TOKEN ? [withZephyr()] : [],
   source: {
     entry: { index: "./src/preview.ts" },
     // The packaged surface's session-server origin; defaults to the constant

@@ -7,13 +7,17 @@
   "workers_dev": true,
   "preview_urls": false,
   "vars": {
-    "ALLOW_DEV_IDENTITY": "true",
+    "ALLOW_DEV_IDENTITY": "false",
     "TICKET_TTL_SECONDS": "120",
     "COUNTDOWN_MS": "4400",
     "MAX_PLAYERS": "8",
     "DISCONNECT_GRACE_SECONDS": "45",
-    "TAP_INTROSPECTION_URL": "",
+    "TAP_JWT_ISSUER": "",
+    "TAP_JWT_AUDIENCE": "",
     "ALLOWED_ORIGINS": ""
+  },
+  "secrets": {
+    "required": ["TICKET_SECRET"]
   },
   "durable_objects": {
     "bindings": [
@@ -51,7 +55,8 @@
         "COUNTDOWN_MS": "4400",
         "MAX_PLAYERS": "8",
         "DISCONNECT_GRACE_SECONDS": "45",
-        "TAP_INTROSPECTION_URL": "",
+        "TAP_JWT_ISSUER": "https://dev-auth.zephyr-cloud.io/",
+        "TAP_JWT_AUDIENCE": "https://api-dev.zephyr-cloud.io",
         "ALLOWED_ORIGINS": ""
       },
       "secrets": {
