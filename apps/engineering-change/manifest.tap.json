@@ -1,0 +1,610 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_engineering_change_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-engineering-change",
+    "slug": "engineering-change"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_engineering_change_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Engineering Change",
+    "description": "Own an Engineering Change from idea through proposal shaping, coordinated review, finding disposition, and closure.",
+    "categories": ["business", "developer-tools"],
+    "iconAssets": []
+  },
+  "compatibility": {
+    "tapSdk": "0.5.3",
+    "tapHost": ">=0.1.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_engineering_change_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./ui/desktop": {
+          "integrity": "pending",
+          "runtime": "webview"
+        }
+      }
+    },
+    "quickjs": {
+      "remoteName": "tap_engineering_change_quickjs",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./mcp/engineering-change-mcp": {
+          "integrity": "pending",
+          "runtime": "quickjs"
+        }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "engineering-change",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./ui/desktop",
+          "runtime": "webview"
+        }
+      },
+      "publishes": [
+        "engineering-change.surface.mounted",
+        "engineering-change.surface.unmounted"
+      ],
+      "authorization": {
+        "allOf": ["changes.view"],
+        "onDemand": [
+          "changes.propose",
+          "changes.review",
+          "findings.disposition",
+          "task.write",
+          "policies.manage",
+          "evidence.capture",
+          "profile.read",
+          "network.request",
+          "channels.send-message",
+          "channels.manage-specialists",
+          "workflows.list",
+          "workflows.invoke"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          },
+          {
+            "kind": "external-network",
+            "resources": ["https://api.github.com"]
+          },
+          {
+            "kind": "host-api",
+            "resources": [
+              "tap.channels:send-message",
+              "tap.channels:manage-specialists",
+              "tap.workflows:list",
+              "tap.workflows:invoke"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Engineering Change",
+        "description": "Shape proposals, coordinate review, and disposition findings for governed Engineering Changes.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained"
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "engineering-change-specialist",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "manifest": "specialists/engineering-change-specialist/0.1.0.json"
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "engineering-change-mcp",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": {
+          "expose": "./mcp/engineering-change-mcp",
+          "runtime": "quickjs"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.view"],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-03-26",
+        "implementation": {
+          "type": "package-runtime"
+        },
+        "consumerPolicy": {
+          "contributionIds": ["engineering-change-specialist"],
+          "externalConsumers": ["selected-specialists"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "engineering-change-get-change",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["changes.view"],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "engineering-change-mcp",
+        "toolName": "get_change",
+        "timeoutMs": 10000,
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ],
+        "storageReads": [
+          {
+            "namespace": "engineering-change",
+            "keyTemplate": "changes/v1"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "engineering-change-list-changes",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["changes.view"],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "engineering-change-mcp",
+        "toolName": "list_changes",
+        "timeoutMs": 10000,
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ],
+        "storageReads": [
+          {
+            "namespace": "engineering-change",
+            "keyTemplate": "changes/v1"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "engineering-change-get-impact-hypothesis",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["changes.view"],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "engineering-change-mcp",
+        "toolName": "get_impact_hypothesis",
+        "timeoutMs": 10000,
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ],
+        "storageReads": [
+          {
+            "namespace": "engineering-change",
+            "keyTemplate": "changes/v1"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "engineering-change-get-review-synthesis",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["changes.view"],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "engineering-change-mcp",
+        "toolName": "get_review_synthesis",
+        "timeoutMs": 10000,
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": ["engineering-change"]
+          }
+        ],
+        "storageReads": [
+          {
+            "namespace": "engineering-change",
+            "keyTemplate": "changes/v1"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "security-impact-hypothesis",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.propose"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "security-implementation-review",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "architecture-review",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "review-coordinator",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": ["changes.review"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "engineering-change-app",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": [
+          "engineering-change",
+          "engineering-change-specialist",
+          "engineering-change-mcp",
+          "engineering-change-get-change",
+          "engineering-change-list-changes",
+          "engineering-change-get-impact-hypothesis",
+          "engineering-change-get-review-synthesis",
+          "security-impact-hypothesis",
+          "security-implementation-review",
+          "architecture-review",
+          "review-coordinator"
+        ]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "engineering-change-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "changes.view",
+            "resource": "tap.engineering-change:view",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "changes.propose",
+            "resource": "tap.engineering-change:propose",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "changes.review",
+            "resource": "tap.engineering-change:review",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "findings.disposition",
+            "resource": "tap.engineering-change:findings-disposition",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "task.write",
+            "resource": "tap.task:write",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "policies.manage",
+            "resource": "tap.engineering-change:policies-manage",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "evidence.capture",
+            "resource": "tap.engineering-change:evidence-capture",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "profile.read",
+            "resource": "tap.profile:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "channels.send-message",
+            "resource": "tap.channels:send-message",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "channels.manage-specialists",
+            "resource": "tap.channels:manage-specialists",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "workflows.list",
+            "resource": "tap.workflows:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.invoke",
+            "resource": "tap.workflows:invoke",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          }
+        ],
+        "levels": [
+          {
+            "id": "change-author",
+            "actions": [
+              "changes.view",
+              "changes.propose",
+              "evidence.capture",
+              "profile.read",
+              "network.request",
+              "channels.send-message",
+              "workflows.list"
+            ],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "change-reviewer",
+            "actions": [
+              "changes.view",
+              "changes.propose",
+              "changes.review",
+              "findings.disposition",
+              "task.write",
+              "evidence.capture",
+              "profile.read",
+              "network.request",
+              "channels.send-message",
+              "channels.manage-specialists",
+              "workflows.list",
+              "workflows.invoke"
+            ],
+            "assignableTo": ["human"]
+          },
+          {
+            "id": "change-admin",
+            "actions": [
+              "changes.view",
+              "changes.propose",
+              "changes.review",
+              "findings.disposition",
+              "task.write",
+              "policies.manage",
+              "evidence.capture",
+              "profile.read",
+              "network.request",
+              "channels.send-message",
+              "channels.manage-specialists",
+              "workflows.list",
+              "workflows.invoke"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "change-author"
+          }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {
+        "name": "engineering-change.surface.mounted",
+        "schema": "urn:tap:engineering-change:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "engineering-change.surface.unmounted",
+        "schema": "urn:tap:engineering-change:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      }
+    ]
+  },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}

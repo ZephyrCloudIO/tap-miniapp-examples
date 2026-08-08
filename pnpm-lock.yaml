@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      cross-env:
+        specifier: ^10.1.0
+        version: 10.1.0
       turbo:
         specifier: 2.10.5
         version: 2.10.5
@@ -18,8 +21,8 @@ importers:
   apps/brainrot-tower-defense:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     devDependencies:
       '@module-federation/rsbuild-plugin':
         specifier: 2.8.1
@@ -52,11 +55,63 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  apps/engineering-change:
+    dependencies:
+      '@theaiplatform/miniapp-sdk':
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      lucide-react:
+        specifier: ^0.468.0
+        version: 0.468.0(react@19.2.7)
+      react:
+        specifier: ^19.2.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.0
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@module-federation/rsbuild-plugin':
+        specifier: 2.8.1
+        version: 2.8.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2)
+      '@rsbuild/core':
+        specifier: ^2.1.5
+        version: 2.1.9(@module-federation/runtime-tools@2.8.1)
+      '@rsbuild/plugin-react':
+        specifier: 2.1.0
+        version: 2.1.0(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))
+      '@rslib/core':
+        specifier: ^0.23.2
+        version: 0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3)
+      '@rstest/core':
+        specifier: 0.11.5
+        version: 0.11.5(@module-federation/runtime-tools@2.8.1)
+      '@rstest/playwright':
+        specifier: 0.11.5
+        version: 0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1)
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/react':
+        specifier: ^19.2.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.0
+        version: 19.2.3(@types/react@19.2.17)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
+      playwright:
+        specifier: ^1.61.0
+        version: 1.61.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   apps/family-task-board:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.7)
@@ -107,8 +162,8 @@ importers:
         specifier: workspace:*
         version: link:../kart-royale-protocol
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       n8ao:
         specifier: ^2.0.0
         version: 2.0.0(postprocessing@6.39.4(three@0.185.1))(three@0.185.1)
@@ -199,8 +254,8 @@ importers:
   apps/personal-health-ledger:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.7)
@@ -251,8 +306,8 @@ importers:
   apps/pyre:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.7)
@@ -303,8 +358,8 @@ importers:
   apps/unofficial-suno-player:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.7)
@@ -358,8 +413,8 @@ importers:
   apps/vanta-companion:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.5.2
-        version: 0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 0.5.3
+        version: 0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       lucide-react:
         specifier: ^1.14.0
         version: 1.24.0(react@19.2.7)
@@ -573,6 +628,9 @@ packages:
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
+
+  '@epic-web/invariant@1.0.0':
+    resolution: {integrity: sha512-lrTPqgvfFQtR/eY/qkIzp98OGdNJu0m5ji3q/nJI8v3SXkRKEnWiOxMmbvcSoAIzv/cGiuvRy57k4suKQSAdwA==}
 
   '@esbuild/aix-ppc64@0.28.1':
     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
@@ -1856,8 +1914,8 @@ packages:
   '@swc/helpers@0.5.23':
     resolution: {integrity: sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw==}
 
-  '@theaiplatform/miniapp-sdk@0.5.2':
-    resolution: {integrity: sha512-/Gywp4lsGZLgv4n5Fcj2+pjyCCdn4aKyM+Ige9fw/bYWMCkoh6wVuVc2cX3N9HAdqY/TCcmwCXpO6MGNCRjBVw==}
+  '@theaiplatform/miniapp-sdk@0.5.3':
+    resolution: {integrity: sha512-KqH+0uJ126q84Ps4yobSiA1Q5RKRiZ2OqYdvcS5ODdprHzxge8FFxkDWNMDQH3OFKcVMNISSPLl9jJRtUZSHFQ==}
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
@@ -2355,6 +2413,15 @@ packages:
 
   cose-base@2.2.0:
     resolution: {integrity: sha512-AzlgcsCbUMymkADOJtQm3wO9S3ltPfYOFD5033keQn9NJzIbtnZj+UdBJe7DYml/8TdbtHJW3j58SOnKhWY/5g==}
+
+  cross-env@10.1.0:
+    resolution: {integrity: sha512-GsYosgnACZTADcmEyJctkJIoqAhHjttw7RsFrVoJNXbsWWqaq6Ym+7kZjq6mS45O0jij6vtiReppKQEtqWy6Dw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  cross-spawn@7.0.6:
+    resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
+    engines: {node: '>= 8'}
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -2867,6 +2934,9 @@ packages:
     resolution: {integrity: sha512-e6rvdUCiQCAuumZslxRJWR/Doq4VpPR82kqclvcS0efgt430SlGIk05vdCN58+VrzgtIcfNODjozVielycD4Sw==}
     engines: {node: '>=16'}
 
+  isexe@2.0.0:
+    resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+
   isomorphic-ws@5.0.0:
     resolution: {integrity: sha512-muId7Zzn9ywDsyXgTIafTry2sV3nySZeUDe6YedVd1Hvuuep5AsIlqK+XefWpYTyJG5e503F2xIuT2lcU6rCSw==}
     peerDependencies:
@@ -3302,6 +3372,10 @@ packages:
   path-data-parser@0.1.0:
     resolution: {integrity: sha512-NOnmBpt5Y2RWbuv0LMzsayp3lVylAHLPUTut412ZA3l+C4uw4ZVkQbjShYCQ8TCpUMdPapr4YjUqLYD6v68j+w==}
 
+  path-key@3.1.1:
+    resolution: {integrity: sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==}
+    engines: {node: '>=8'}
+
   path-to-regexp@6.3.0:
     resolution: {integrity: sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ==}
 
@@ -3510,6 +3584,14 @@ packages:
   sharp@0.34.5:
     resolution: {integrity: sha512-Ou9I5Ft9WNcCbXrU9cMgPBcCK8LiwLqcbywW3t4oDV37n1pzpuNLsYiAV8eODnjbtQlSDwZ2cUEeQz4E54Hltg==}
     engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
+
+  shebang-command@2.0.0:
+    resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}
+    engines: {node: '>=8'}
+
+  shebang-regex@3.0.0:
+    resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
+    engines: {node: '>=8'}
 
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
@@ -3824,6 +3906,11 @@ packages:
   whatwg-url@5.0.0:
     resolution: {integrity: sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==}
 
+  which@2.0.2:
+    resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
+    engines: {node: '>= 8'}
+    hasBin: true
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -4049,6 +4136,8 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@epic-web/invariant@1.0.0': {}
 
   '@esbuild/aix-ppc64@0.28.1':
     optional: true
@@ -5080,6 +5169,15 @@ snapshots:
     transitivePeerDependencies:
       - '@rspack/core'
 
+  '@rsbuild/plugin-react@2.1.0(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))':
+    dependencies:
+      '@rspack/plugin-react-refresh': 2.0.2(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(react-refresh@0.18.0)
+      react-refresh: 0.18.0
+    optionalDependencies:
+      '@rsbuild/core': 2.1.9(@module-federation/runtime-tools@2.8.1)
+    transitivePeerDependencies:
+      - '@rspack/core'
+
   '@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3)':
     dependencies:
       '@rsbuild/core': 2.1.6(@module-federation/runtime-tools@2.8.1)
@@ -5244,7 +5342,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@theaiplatform/miniapp-sdk@0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+  '@theaiplatform/miniapp-sdk@0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5287,7 +5385,7 @@ snapshots:
       - '@types/react-dom'
       - supports-color
 
-  '@theaiplatform/miniapp-sdk@0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+  '@theaiplatform/miniapp-sdk@0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.6(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5330,7 +5428,7 @@ snapshots:
       - '@types/react-dom'
       - supports-color
 
-  '@theaiplatform/miniapp-sdk@0.5.2(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+  '@theaiplatform/miniapp-sdk@0.5.3(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.109.2))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1))(playwright@1.61.1))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(playwright@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5863,6 +5961,17 @@ snapshots:
   cose-base@2.2.0:
     dependencies:
       layout-base: 2.0.1
+
+  cross-env@10.1.0:
+    dependencies:
+      '@epic-web/invariant': 1.0.0
+      cross-spawn: 7.0.6
+
+  cross-spawn@7.0.6:
+    dependencies:
+      path-key: 3.1.1
+      shebang-command: 2.0.0
+      which: 2.0.2
 
   csstype@3.2.3: {}
 
@@ -6423,6 +6532,8 @@ snapshots:
   is-wsl@3.1.1:
     dependencies:
       is-inside-container: 1.0.0
+
+  isexe@2.0.0: {}
 
   isomorphic-ws@5.0.0(ws@8.21.0):
     dependencies:
@@ -7004,6 +7115,8 @@ snapshots:
 
   path-data-parser@0.1.0: {}
 
+  path-key@3.1.1: {}
+
   path-to-regexp@6.3.0: {}
 
   pathe@2.0.3: {}
@@ -7276,6 +7389,12 @@ snapshots:
       '@img/sharp-win32-arm64': 0.34.5
       '@img/sharp-win32-ia32': 0.34.5
       '@img/sharp-win32-x64': 0.34.5
+
+  shebang-command@2.0.0:
+    dependencies:
+      shebang-regex: 3.0.0
+
+  shebang-regex@3.0.0: {}
 
   siginfo@2.0.0: {}
 
@@ -7580,6 +7699,10 @@ snapshots:
     dependencies:
       tr46: 0.0.3
       webidl-conversions: 3.0.1
+
+  which@2.0.2:
+    dependencies:
+      isexe: 2.0.0
 
   why-is-node-running@2.3.0:
     dependencies:

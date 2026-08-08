@@ -11,7 +11,7 @@ export const STORAGE_NAMESPACE = "kart-royale";
 export const FIXTURE_USER_ID = "tap-fixture-user-v1";
 export const CONTROL_PREFS_KEY = `users/${FIXTURE_USER_ID}/control-prefs`;
 export const FIXED_NOW = "2026-08-05T12:00:00Z";
-export const SDK_VERSION = "0.5.2";
+export const SDK_VERSION = "0.5.3";
 export const SHA256 = /^[a-f0-9]{64}$/u;
 export const RACE_SERVER_ORIGIN =
   "https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev";

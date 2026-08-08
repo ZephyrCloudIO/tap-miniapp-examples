@@ -1,0 +1,37 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://api.github.com/repos/ZephyrCloudIO/ze-agency-tauri/pulls/7989/files",
+      "headers": [
+        {
+          "name": "accept",
+          "value": "application/vnd.github+json"
+        }
+      ],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 5242880,
+      "followRedirects": false
+    },
+    "response": {
+      "finalUrl": "https://api.github.com/repos/ZephyrCloudIO/ze-agency-tauri/pulls/7989/files",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        {
+          "name": "content-type",
+          "value": "application/json; charset=utf-8"
+        }
+      ],
+      "bodyText": "[{\"filename\":\"silos/miniapps/packages/sdk/src/sdk.ts\",\"status\":\"modified\"},{\"filename\":\"crates/tap-apps2-manifest/src/descriptor.rs\",\"status\":\"modified\"}]",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 166,
+      "elapsedMs": 4,
+      "contentType": "application/json; charset=utf-8"
+    },
+    "repeat": 1
+  }
+]

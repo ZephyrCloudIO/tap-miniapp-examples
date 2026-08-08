@@ -1,0 +1,542 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_engineering_change_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "engineering-change-desktop": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [
+        "tests/fixtures/engineering-change.github.http-routes.json"
+      ],
+      "requiredOrigins": ["https://api.github.com"],
+      "requiredEffects": [
+        "effect:external-network:https://api.github.com",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 7101,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always"
+      }
+    },
+    "engineering-change-desktop-all-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-network:https://api.github.com",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7102,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-propose-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:changes.propose",
+      "deniedActions": ["changes.propose"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:engineering-change"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7111,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-review-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:changes.review",
+      "deniedActions": ["changes.review"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:engineering-change"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7112,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-disposition-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:findings.disposition",
+      "deniedActions": ["findings.disposition"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:engineering-change"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7113,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-task-write-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:task.write",
+      "deniedActions": ["task.write"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:engineering-change"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7122,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-policies-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:policies.manage",
+      "deniedActions": ["policies.manage"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:engineering-change"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7114,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-evidence-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:evidence.capture",
+      "deniedActions": ["evidence.capture"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-network:https://api.github.com",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7115,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-profile-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:profile.read",
+      "deniedActions": ["profile.read"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:engineering-change"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7116,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-network-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "http-denied",
+      "deniedActions": ["network.request"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-network:https://api.github.com",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7117,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-channel-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.send-message",
+      "deniedActions": ["channels.send-message"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:send-message",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7118,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-specialist-join-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:channels.manage-specialists",
+      "deniedActions": ["channels.manage-specialists"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7119,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-workflow-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.invoke",
+      "deniedActions": ["workflows.invoke"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7120,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "engineering-change-desktop-workflows-list-denied": {
+      "surface": "engineering-change",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.list",
+      "deniedActions": ["workflows.list"],
+      "fixtureFiles": ["tests/fixtures/engineering-change.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:engineering-change"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7121,
+        "fixedNow": "2026-07-24T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "engineering-change-desktop-positive",
+      "profile": "engineering-change-desktop",
+      "testMatch": [
+        "tests/e2e/engineering-change-positive.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:changes.propose",
+        "action:changes.review",
+        "action:changes.view",
+        "action:channels.manage-specialists",
+        "action:channels.send-message",
+        "action:evidence.capture",
+        "action:findings.disposition",
+        "action:task.write",
+        "action:network.request",
+        "action:policies.manage",
+        "action:profile.read",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:external-network:https://api.github.com",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:engineering-change"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-all-denied",
+      "profile": "engineering-change-desktop-all-denied",
+      "testMatch": ["tests/e2e/engineering-change-all-denied.test.ts"],
+      "capabilities": [
+        "action:changes.propose",
+        "action:changes.review",
+        "action:changes.view",
+        "action:channels.manage-specialists",
+        "action:channels.send-message",
+        "action:evidence.capture",
+        "action:findings.disposition",
+        "action:task.write",
+        "action:network.request",
+        "action:policies.manage",
+        "action:profile.read",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:external-network:https://api.github.com",
+        "effect:host-api:tap.channels:manage-specialists",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list",
+        "effect:storage:engineering-change"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-propose-denied",
+      "profile": "engineering-change-desktop-propose-denied",
+      "testMatch": ["tests/e2e/engineering-change-propose-denied.test.ts"],
+      "capabilities": ["action:changes.propose"]
+    },
+    {
+      "id": "engineering-change-desktop-review-denied",
+      "profile": "engineering-change-desktop-review-denied",
+      "testMatch": ["tests/e2e/engineering-change-review-denied.test.ts"],
+      "capabilities": ["action:changes.review"]
+    },
+    {
+      "id": "engineering-change-desktop-disposition-denied",
+      "profile": "engineering-change-desktop-disposition-denied",
+      "testMatch": ["tests/e2e/engineering-change-disposition-denied.test.ts"],
+      "capabilities": ["action:findings.disposition"]
+    },
+    {
+      "id": "engineering-change-desktop-task-write-denied",
+      "profile": "engineering-change-desktop-task-write-denied",
+      "testMatch": ["tests/e2e/engineering-change-task-write-denied.test.ts"],
+      "capabilities": ["action:task.write"]
+    },
+    {
+      "id": "engineering-change-desktop-policies-denied",
+      "profile": "engineering-change-desktop-policies-denied",
+      "testMatch": ["tests/e2e/engineering-change-policies-denied.test.ts"],
+      "capabilities": ["action:policies.manage"]
+    },
+    {
+      "id": "engineering-change-desktop-evidence-denied",
+      "profile": "engineering-change-desktop-evidence-denied",
+      "testMatch": ["tests/e2e/engineering-change-evidence-denied.test.ts"],
+      "capabilities": [
+        "action:evidence.capture",
+        "effect:external-network:https://api.github.com"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-profile-denied",
+      "profile": "engineering-change-desktop-profile-denied",
+      "testMatch": ["tests/e2e/engineering-change-profile-denied.test.ts"],
+      "capabilities": ["action:profile.read"]
+    },
+    {
+      "id": "engineering-change-desktop-network-denied",
+      "profile": "engineering-change-desktop-network-denied",
+      "testMatch": ["tests/e2e/engineering-change-network-denied.test.ts"],
+      "capabilities": [
+        "action:evidence.capture",
+        "action:network.request",
+        "effect:external-network:https://api.github.com"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-channel-denied",
+      "profile": "engineering-change-desktop-channel-denied",
+      "testMatch": ["tests/e2e/engineering-change-channel-denied.test.ts"],
+      "capabilities": [
+        "action:channels.send-message",
+        "effect:host-api:tap.channels:send-message"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-specialist-join-denied",
+      "profile": "engineering-change-desktop-specialist-join-denied",
+      "testMatch": ["tests/e2e/engineering-change-specialist-join-denied.test.ts"],
+      "capabilities": [
+        "action:channels.manage-specialists",
+        "effect:host-api:tap.channels:manage-specialists"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-workflow-denied",
+      "profile": "engineering-change-desktop-workflow-denied",
+      "testMatch": ["tests/e2e/engineering-change-workflow-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.invoke",
+        "effect:host-api:tap.workflows:invoke"
+      ]
+    },
+    {
+      "id": "engineering-change-desktop-workflows-list-denied",
+      "profile": "engineering-change-desktop-workflows-list-denied",
+      "testMatch": ["tests/e2e/engineering-change-workflows-list-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.list",
+        "effect:host-api:tap.workflows:list"
+      ]
+    }
+  ],
+  "waivers": []
+}

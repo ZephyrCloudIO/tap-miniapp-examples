@@ -1,5 +1,6 @@
 # Kart Royale
 
+**Catalog:** Miniapp 8
 **Status:** Phases 1–4 implemented; packaged multiplayer validation in progress
 **Audience:** Consumer
 **Data approach:** TAP storage for player preferences; Cloudflare Durable Object session server for multiplayer races; channel presence for lobbies
@@ -180,8 +181,8 @@ WebSocket:
 
 ## SDK version
 
-This example pins `@theaiplatform/miniapp-sdk` `0.5.2` ahead of the
-repo-wide bump; the root gate's `expectedSdkVersion` updates with that PR.
+This example pins `@theaiplatform/miniapp-sdk` `0.5.3`, matching the
+repo-wide version enforced by the root gate.
 
 ## Testing
 
