@@ -5,8 +5,10 @@ import { withZephyr } from "zephyr-rsbuild-plugin";
 // (tapLib); Zephyr Cloud publishes this preview's module-federation build.
 // Unauthenticated builds (local dev, repo CI without ZE tokens) build locally
 // and skip the upload.
+const publishPreview = process.env.ZEPHYR_PUBLISH === "true";
+
 export default defineConfig({
-  plugins: [withZephyr()],
+  plugins: publishPreview ? [withZephyr()] : [],
   source: {
     entry: { index: "./src/preview.ts" },
     // The packaged surface's session-server origin; defaults to the constant
