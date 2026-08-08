@@ -26,13 +26,24 @@ const joinInputSchema = JSON.parse(
   }[];
 };
 
-const expected = [
+const expectedTools = [
+  ["remote-browser-start", "remote_browser_start", "browser.session.control"],
+  ["remote-browser-navigate", "remote_browser_navigate", "browser.session.control"],
+  ["remote-browser-snapshot", "remote_browser_snapshot", "browser.session.observe"],
+  ["remote-browser-screenshot", "remote_browser_screenshot", "browser.session.observe"],
+  ["remote-browser-select-element", "remote_browser_select_element", "browser.session.observe"],
   ["remote-browser-share-session", "remote_browser_share_session", "browser.session.control"],
   ["remote-browser-join-session", "remote_browser_join_session", "browser.session.observe"],
   ["remote-browser-room", "remote_browser_room", "browser.session.observe"],
   ["remote-browser-claim-control", "remote_browser_claim_control", "browser.session.control"],
   ["remote-browser-release-control", "remote_browser_release_control", "browser.session.control"],
   ["remote-browser-leave-session", "remote_browser_leave_session", "browser.session.observe"],
+  ["remote-browser-network", "remote_browser_network", "browser.session.observe"],
+  ["remote-browser-diagnostics", "remote_browser_diagnostics", "browser.session.observe"],
+  ["remote-browser-click", "remote_browser_click", "browser.session.control"],
+  ["remote-browser-fill", "remote_browser_fill", "browser.session.control"],
+  ["remote-browser-scroll", "remote_browser_scroll", "browser.session.control"],
+  ["remote-browser-close", "remote_browser_close", "browser.session.control"],
 ] as const;
 
 describe("shared Remote Browser manifest", () => {
@@ -53,8 +64,8 @@ describe("shared Remote Browser manifest", () => {
     expect(workflowSurface?.options).not.toHaveProperty("initialPanelMode");
   });
 
-  it("declares every real room tool with its exact signed name and permission", () => {
-    for (const [id, toolName, permission] of expected) {
+  it("promotes every governed CDP-backed tool with its exact signed name and permission", () => {
+    for (const [id, toolName, permission] of expectedTools) {
       const contribution = manifest.contributions.find((item) => item.id === id);
       expect(contribution).toMatchObject({
         kind: "mcp.tool",
@@ -69,21 +80,39 @@ describe("shared Remote Browser manifest", () => {
     }
   });
 
-  it("packages every room tool for UI, specialists, and workflows", () => {
+  it("packages every browser tool for the UI, channel chat, specialists, and workflows", () => {
     const miniapp = manifest.contributions.find(
       (item) => item.kind === "miniapp" && item.id === "agent-browser-prototype-app",
     );
     const contributionIds = miniapp?.options?.contributionIds;
     expect(Array.isArray(contributionIds)).toBe(true);
-    for (const [id] of expected) expect(contributionIds).toContain(id);
+    for (const [id] of expectedTools) expect(contributionIds).toContain(id);
 
     const server = manifest.contributions.find(
       (item) => item.kind === "mcp.server" && item.id === "remote-browser-tools",
     );
     expect(server?.options?.consumerPolicy).toEqual({
       contributionIds: ["agent-browser-prototype", "agent-browser-workflow"],
-      externalConsumers: ["selected-specialists", "workflows"],
+      externalConsumers: ["selected-specialists", "chat", "workflows"],
     });
+  });
+
+  it("delegates observe and control tools to specialists in channel scope", () => {
+    const catalog = manifest.contributions.find(
+      (item) =>
+        item.kind === "permission.catalog" &&
+        item.id === "agent-browser-prototype-permissions",
+    );
+    const actions = (catalog?.options?.actions ?? []) as readonly Readonly<
+      Record<string, unknown>
+    >[];
+    for (const id of ["browser.session.observe", "browser.session.control"]) {
+      const action = actions.find((candidate) => candidate.id === id);
+      expect(action).toMatchObject({
+        scopes: expect.arrayContaining(["channel"]),
+        delegatedActors: expect.arrayContaining(["specialist"]),
+      });
+    }
   });
 
   it("declares the canonical RB1 join code without allowing mixed legacy input", () => {

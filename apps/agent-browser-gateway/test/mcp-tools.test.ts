@@ -34,6 +34,18 @@ const AGENT_PARTICIPANT = {
   consumer: { kind: "specialist", specialistId: "chloe" },
 } as const;
 
+const CHANNEL_CHAT_PARTICIPANT = {
+  version: 1,
+  workspaceId: "kitesurf-test",
+  requestingUserId: "zack@zephyr-cloud.io",
+  participant: {
+    kind: "agent",
+    principalId: "channel-assistant",
+    instanceId: "f".repeat(64),
+  },
+  consumer: { kind: "chat", surfaceId: "channel-main" },
+} as const;
+
 function authPropsFor(
   userId: string,
   workspaceId = "kitesurf-test",
@@ -341,6 +353,28 @@ describe("Remote Browser hosted MCP tools", () => {
     const invalidResult = record(response.result, "ambiguous join result");
     expect(invalidResult.isError).toBe(true);
     expect(textContent(invalidResult)).toMatch(/invalid|unrecognized|union/iu);
+  });
+
+  it("accepts a host-attested channel chat as a governed browser participant", async () => {
+    const startResult = await callTool(
+      "remote_browser_start",
+      { url: "https://example.com/channel", keepAliveMs: 600_000 },
+      CHANNEL_CHAT_PARTICIPANT,
+    );
+    expect(startResult.isError).not.toBe(true);
+    const started = structured(startResult);
+    const sessionHandle = started.sessionHandle;
+    if (typeof sessionHandle !== "string") {
+      throw new Error("Channel chat start omitted session handle.");
+    }
+    expect(started.control).toMatchObject({ holder: "agent" });
+
+    const closeResult = await callTool(
+      "remote_browser_close",
+      { sessionHandle },
+      CHANNEL_CHAT_PARTICIPANT,
+    );
+    expect(closeResult.isError).not.toBe(true);
   });
 
   it("drives and observes a fenced Kitesurf session through semantic tool calls", async () => {

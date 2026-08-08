@@ -90,6 +90,12 @@ lease; another human receives `control_contended`, and every stale compare-and-
 swap receives `stale_control_epoch`. Leave disconnects only that participant;
 only the durable creator may close the upstream browser.
 
+The signed package consumer policy promotes the complete governed browser tool
+catalog to the channel chat, explicitly selected specialists, and workflows.
+Both channel chat and specialists are represented as agent participants, so
+they can join the same room and negotiate the same fenced control lease without
+receiving the underlying CDP connection or browser credentials.
+
 The provenance of the reserved metadata is a host boundary, not something the
 MCP protocol signs. The TAP host must construct `params._meta`, overwrite or
 remove any caller-supplied value for this key, and use a host-custodied OAuth

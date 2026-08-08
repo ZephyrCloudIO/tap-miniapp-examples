@@ -362,9 +362,9 @@ function consentPage(
     <main>
       <h1>Authorize Remote Browser</h1>
       <p><strong>${escapeHtml(clientName)}</strong> is requesting local access to Cloudflare Kitesurf browser tools.</p>
-      <p>This local authorization permits specialists selected in TAP to:</p>
+      <p>This local authorization permits approved channel chat, selected specialists, and workflows in TAP to:</p>
       <ul>${scopes}</ul>
-      <p>No browser session token, raw CDP connection, cookies, request headers, or response bodies are exposed to the specialist.</p>
+      <p>No browser session token, raw CDP connection, cookies, request headers, or response bodies are exposed to approved consumers.</p>
       <form method="post" action="${escapeHtml(action)}">
         <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
         <div class="actions">
