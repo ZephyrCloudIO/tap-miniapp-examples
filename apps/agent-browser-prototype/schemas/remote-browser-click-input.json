@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-click-input.json",
+  "title": "Click Remote Browser element input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "elementRef",
+    "expectedControlEpoch",
+    "expectedDocumentRevision"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "elementRef": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 },
+    "expectedDocumentRevision": { "type": "integer", "minimum": 1 }
+  }
+}

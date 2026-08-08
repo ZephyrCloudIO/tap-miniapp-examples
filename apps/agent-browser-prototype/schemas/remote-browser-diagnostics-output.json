@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-diagnostics-output.json",
+  "title": "Remote Browser diagnostics output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "nextCursor",
+    "hasMore",
+    "telemetryGap",
+    "telemetryCoverageStartedAt"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "severity", "message", "source", "occurredAt"],
+        "properties": {
+          "kind": {
+            "enum": ["console", "exception", "network", "http", "cdp", "telemetry"]
+          },
+          "severity": { "enum": ["info", "warning", "error"] },
+          "message": { "type": "string" },
+          "source": { "type": ["string", "null"] },
+          "occurredAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "nextCursor": { "type": "integer", "minimum": 0 },
+    "hasMore": { "type": "boolean" },
+    "telemetryGap": { "type": "boolean" },
+    "telemetryCoverageStartedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}

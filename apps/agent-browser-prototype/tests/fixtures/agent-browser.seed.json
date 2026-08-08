@@ -1,0 +1,39 @@
+{
+  "workflows": [
+    {
+      "workflowId": "agent-browser-snapshot-workflow",
+      "name": "Remote Browser snapshot",
+      "type": "manual",
+      "createdAt": 1786032000000,
+      "updatedAt": 1786032001000,
+      "result": {
+        "success": true,
+        "status": "completed",
+        "message": "Fixture browser snapshot completed.",
+        "runId": "agent-browser-fixture-run-1",
+        "finalOutput": {
+          "nodeOutputs": {
+            "snapshot": {
+              "url": "https://blog.cloudflare.com/kitesurf/",
+              "finalUrl": "https://blog.cloudflare.com/kitesurf/",
+              "engine": "kitesurf",
+              "formats": ["screenshot", "markdown", "accessibilityTree", "content"],
+              "status": 200,
+              "title": "Kitesurf: the browser for agents",
+              "screenshot": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+              "markdown": "# Kitesurf: the browser for agents\n\nDurable workflow evidence.",
+              "content": "<main><h1>Kitesurf: the browser for agents</h1><p>Durable workflow evidence.</p></main>",
+              "accessibilityTree": {
+                "role": "RootWebArea",
+                "name": "Kitesurf: the browser for agents"
+              },
+              "artifacts": [],
+              "browserMs": 319,
+              "durationMs": 412
+            }
+          }
+        }
+      }
+    }
+  ]
+}

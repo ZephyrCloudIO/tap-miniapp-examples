@@ -20,7 +20,10 @@ const repositoryRoot = path.resolve(
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const expectedSdkVersion = "0.7.0";
+const defaultExpectedSdkVersion = "0.7.0";
+const expectedSdkVersionByApp = new Map([
+  ["agent-browser-prototype", "0.5.1"],
+]);
 const expectedRstestVersion = "0.11.5";
 const expectedPlaywrightVersion = "^1.61.0";
 const expectedTypecheckCommand =
@@ -196,6 +199,8 @@ for (const appName of selectedApps.filter((candidate) =>
 )) {
   const appDirectory = path.join(appsRoot, appName);
   const label = `apps/${appName}`;
+  const expectedSdkVersion =
+    expectedSdkVersionByApp.get(appName) ?? defaultExpectedSdkVersion;
   try {
     const descriptor = readJson(path.join(appDirectory, "tap.test.json"));
     const manifest = readJson(path.join(appDirectory, "manifest.tap.json"));

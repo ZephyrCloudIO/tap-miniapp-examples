@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-release-control-input.json",
+  "title": "Release Remote Browser control input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sessionHandle", "expectedControlEpoch"],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 }
+  }
+}

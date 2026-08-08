@@ -1,0 +1,804 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_agent_browser_prototype_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-agent-browser-prototype",
+    "slug": "agent-browser-prototype"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_agent_browser_prototype_0001@0.3.0",
+    "version": "0.3.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Remote Browser",
+    "description": "A governed remote browser workspace for live inspection and durable evidence, powered by Cloudflare Kitesurf.",
+    "iconAssets": ["assets/agent-browser.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/agent-browser.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": {
+    "tapSdk": "0.5.4",
+    "tapHost": ">=2.2.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_agent_browser_prototype_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "agent-browser-prototype",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["agent-browser.view"],
+        "onDemand": [
+          "browser.session.observe",
+          "browser.session.control"
+        ],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": [
+              "tap.browser:session.observe",
+              "tap.browser:session.control"
+            ]
+          }
+        ]
+      },
+      "publishes": [
+        "agent-browser.surface.mounted",
+        "agent-browser.surface.unmounted"
+      ],
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Remote Browser",
+        "description": "Inspect a live Cloudflare Kitesurf browser through signed Remote Browser tools.",
+        "placement": "chat-right",
+        "scope": "conversation",
+        "instancePolicy": "per-conversation",
+        "persistence": "none",
+        "initialPanelMode": "expanded",
+        "iconAssets": ["assets/agent-browser.svg"]
+      }
+    },
+    {
+      "kind": "ui.surface",
+      "id": "agent-browser-workflow",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["agent-browser.view"],
+        "onDemand": [
+          "workflows.list",
+          "workflows.invoke",
+          "workflows.runs.read",
+          "workflows.runs.cancel"
+        ],
+        "effects": [
+          {
+            "kind": "host-api",
+            "resources": [
+              "tap.workflows:list",
+              "tap.workflows:invoke",
+              "tap.workflow-runs:read",
+              "tap.workflow-runs:cancel"
+            ]
+          }
+        ]
+      },
+      "publishes": [
+        "agent-browser.surface.mounted",
+        "agent-browser.surface.unmounted"
+      ],
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Remote Browser Evidence",
+        "description": "Capture durable browser evidence through a saved workflow.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "none",
+        "iconAssets": ["assets/agent-browser.svg"]
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "remote-browser-tools",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "authorization": {
+        "allOf": ["agent-browser.view"]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-11-25",
+        "implementation": {
+          "type": "streamable-http",
+          "url": "http://127.0.0.1:8787/mcp",
+          "authentication": "oauth"
+        },
+        "consumerPolicy": {
+          "contributionIds": [
+            "agent-browser-prototype",
+            "agent-browser-workflow"
+          ],
+          "externalConsumers": ["selected-specialists", "workflows"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-start",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_start",
+        "inputSchema": "schemas/remote-browser-start-input.json",
+        "outputSchema": "schemas/remote-browser-start-output.json",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-navigate",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_navigate",
+        "inputSchema": "schemas/remote-browser-navigate-input.json",
+        "outputSchema": "schemas/remote-browser-session-output.json",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-snapshot",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_snapshot",
+        "inputSchema": "schemas/remote-browser-session-input.json",
+        "outputSchema": "schemas/remote-browser-snapshot-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-screenshot",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_screenshot",
+        "inputSchema": "schemas/remote-browser-session-input.json",
+        "outputSchema": "schemas/remote-browser-screenshot-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-select-element",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_select_element",
+        "inputSchema": "schemas/remote-browser-select-element-input.json",
+        "outputSchema": "schemas/remote-browser-select-element-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-share-session",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_share_session",
+        "inputSchema": "schemas/remote-browser-session-input.json",
+        "outputSchema": "schemas/remote-browser-share-session-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-join-session",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_join_session",
+        "inputSchema": "schemas/remote-browser-join-session-input.json",
+        "outputSchema": "schemas/remote-browser-room-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-room",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_room",
+        "inputSchema": "schemas/remote-browser-session-input.json",
+        "outputSchema": "schemas/remote-browser-room-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-claim-control",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_claim_control",
+        "inputSchema": "schemas/remote-browser-claim-control-input.json",
+        "outputSchema": "schemas/remote-browser-control-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-release-control",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_release_control",
+        "inputSchema": "schemas/remote-browser-release-control-input.json",
+        "outputSchema": "schemas/remote-browser-control-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-leave-session",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_leave_session",
+        "inputSchema": "schemas/remote-browser-session-input.json",
+        "outputSchema": "schemas/remote-browser-leave-session-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-network",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_network",
+        "inputSchema": "schemas/remote-browser-page-input.json",
+        "outputSchema": "schemas/remote-browser-network-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-diagnostics",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.observe"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_diagnostics",
+        "inputSchema": "schemas/remote-browser-page-input.json",
+        "outputSchema": "schemas/remote-browser-diagnostics-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.observe"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-click",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_click",
+        "inputSchema": "schemas/remote-browser-click-input.json",
+        "outputSchema": "schemas/remote-browser-session-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-fill",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_fill",
+        "inputSchema": "schemas/remote-browser-fill-input.json",
+        "outputSchema": "schemas/remote-browser-session-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-scroll",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_scroll",
+        "inputSchema": "schemas/remote-browser-scroll-input.json",
+        "outputSchema": "schemas/remote-browser-session-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "remote-browser-close",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["browser.session.control"],
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "remote-browser-tools",
+        "toolName": "remote_browser_close",
+        "inputSchema": "schemas/remote-browser-session-input.json",
+        "outputSchema": "schemas/remote-browser-close-output.json",
+        "timeoutMs": 30000,
+        "effects": [
+          {
+            "kind": "browser-control",
+            "resources": ["tap.browser:session.control"]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "agent-browser-prototype-app",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": [
+          "agent-browser-prototype",
+          "agent-browser-workflow",
+          "remote-browser-tools",
+          "remote-browser-start",
+          "remote-browser-navigate",
+          "remote-browser-snapshot",
+          "remote-browser-screenshot",
+          "remote-browser-select-element",
+          "remote-browser-share-session",
+          "remote-browser-join-session",
+          "remote-browser-room",
+          "remote-browser-claim-control",
+          "remote-browser-release-control",
+          "remote-browser-leave-session",
+          "remote-browser-network",
+          "remote-browser-diagnostics",
+          "remote-browser-click",
+          "remote-browser-fill",
+          "remote-browser-scroll",
+          "remote-browser-close"
+        ]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "agent-browser-prototype-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "agent-browser.view",
+            "resource": "tap.agent-browser:view",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "browser.session.observe",
+            "resource": "tap.browser:session.observe",
+            "scopes": ["workspace", "channel", "project"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "browser.session.control",
+            "resource": "tap.browser:session.control",
+            "scopes": ["workspace", "channel", "project"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "workflows.list",
+            "resource": "tap.workflows:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.invoke",
+            "resource": "tap.workflows:invoke",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "workflows.runs.read",
+            "resource": "tap.workflow-runs:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.runs.cancel",
+            "resource": "tap.workflow-runs:cancel",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "once",
+            "risk": "consequential"
+          }
+        ],
+        "levels": [
+          {
+            "id": "browser-observer",
+            "actions": [
+              "agent-browser.view",
+              "browser.session.observe"
+            ],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "browser-specialist-operator",
+            "actions": [
+              "agent-browser.view",
+              "browser.session.observe",
+              "browser.session.control"
+            ],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "browser-evidence-operator",
+            "actions": [
+              "agent-browser.view",
+              "workflows.list",
+              "workflows.invoke",
+              "workflows.runs.read",
+              "workflows.runs.cancel"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "browser-observer"
+          }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {
+        "name": "agent-browser.surface.mounted",
+        "schema": "urn:tap:agent-browser:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "agent-browser.surface.unmounted",
+        "schema": "urn:tap:agent-browser:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      }
+    ]
+  },
+  "lifecycle": {
+    "checkpoint": "none",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}
