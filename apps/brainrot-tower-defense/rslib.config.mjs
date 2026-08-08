@@ -1,14 +1,17 @@
 import { defineConfig } from "@rslib/core";
-import { tapLib } from "@theaiplatform/miniapp-sdk/rspack";
+import { tapLib, tapLifecycleTarget } from "@theaiplatform/miniapp-sdk/rspack";
 import { rspack } from "@rspack/core";
 
-const target = process.env.TAP_PACKAGE_TARGET ?? "desktop";
+const lifecycleBuild = Boolean(process.env.TAP_MINIAPP_TARGET);
+const target = process.env.TAP_MINIAPP_TARGET ?? process.env.TAP_PACKAGE_TARGET ?? "desktop";
 if (target !== "desktop" && target !== "quickjs") {
   throw new Error(`Unsupported Brainrot Tower Defense target: ${target}`);
 }
 
-const library = tapLib(
-  target === "desktop"
+const library = lifecycleBuild
+  ? tapLifecycleTarget()
+  : tapLib(
+    target === "desktop"
     ? {
         manifest: "./manifest.tap.json",
         packageTarget: "desktop",
@@ -39,8 +42,8 @@ const library = tapLib(
             "./mcp/brainrot-td-state-server": "./src/mcp.mjs"
           }
         }
-      }
-);
+      },
+  );
 library.output = {
   ...library.output,
   assetPrefix: target === "desktop" ? "auto" : "",

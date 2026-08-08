@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { RsbuildPlugin } from "@rsbuild/core";
 import { defineConfig } from "@rslib/core";
 import { pluginReact } from "@rsbuild/plugin-react";
-import { tapLib } from "@theaiplatform/miniapp-sdk/rspack";
+import { tapLib, tapLifecycleTarget } from "@theaiplatform/miniapp-sdk/rspack";
 
 const require = createRequire(import.meta.url);
 const reactPackageRoot = dirname(require.resolve("react/package.json"));
@@ -22,7 +22,7 @@ const singleReactRuntimePlugin: RsbuildPlugin = {
   },
 };
 
-const library = tapLib({
+const library = process.env.TAP_MINIAPP_TARGET ? tapLifecycleTarget() : tapLib({
   manifest: "./manifest.tap.json",
   packageTarget: "desktop",
   packageOutputRoot: ".tap-build/desktop",

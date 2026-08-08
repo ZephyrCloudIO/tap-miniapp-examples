@@ -10,6 +10,7 @@
     "build:miniapp": "pnpm validate:content && pnpm validate:assets && pnpm wasm && pnpm build:miniapp:desktop && pnpm build:miniapp:quickjs && pnpm build:miniapp:assemble && pnpm verify:package",
     "build:miniapp:desktop": "cross-env TAP_PACKAGE_TARGET=desktop rslib build",
     "build:miniapp:quickjs": "cross-env TAP_PACKAGE_TARGET=quickjs rslib build",
+    "build:lifecycle-target": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build",
     "build:miniapp:assemble": "node scripts/assemble-package.mjs",
     "build": "pnpm build:preview && pnpm build:miniapp && pnpm check:size",
     "build:watch": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build --watch",
@@ -29,7 +30,7 @@
     "check:size": "node scripts/check-size.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.5.3"
+    "@theaiplatform/miniapp-sdk": "0.7.0"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.1",

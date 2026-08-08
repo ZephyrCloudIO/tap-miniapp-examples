@@ -3,7 +3,7 @@
 > **Vendored into `tap-miniapp-examples`** from
 > [zackarychapple/kart-royale](https://github.com/zackarychapple/kart-royale) @
 > `036c0efb025f5ecf8fc31c405e9d818c61e03e21`, and packaged as a TAP miniapp
-> (SDK `0.5.3`). See [`miniapps/08-kart-royale.md`](../../miniapps/08-kart-royale.md)
+> (SDK `0.7.0`). See [`miniapps/08-kart-royale.md`](../../miniapps/08-kart-royale.md)
 > for the product brief and the multiplayer plan, and `CLAUDE.md` for the
 > working contract. What follows is the upstream README.
 

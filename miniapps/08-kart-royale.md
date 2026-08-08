@@ -167,7 +167,7 @@ WebSocket:
 
 ## SDK version
 
-This example pins `@theaiplatform/miniapp-sdk` `0.5.3`, matching the
+This example pins `@theaiplatform/miniapp-sdk` `0.7.0`, matching the
 repo-wide version enforced by the root gate.
 
 ## Testing

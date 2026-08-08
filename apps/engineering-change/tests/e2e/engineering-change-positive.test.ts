@@ -155,6 +155,10 @@ test("drives the seeded change through review, readiness, and disposition", asyn
     (change.findings as Array<{ disposition?: { linkedWork: string } }>)[0]
       ?.disposition?.linkedWork,
   ).toMatch(/^tap-task:/u);
+  expect(
+    (change.findings as Array<{ disposition?: { actionReceiptIds?: string[] } }>)[0]
+      ?.disposition?.actionReceiptIds,
+  ).toHaveLength(1);
   expect(change.impactHypothesis).not.toBeNull();
   expect(change.impactEvidence).not.toBeNull();
 
