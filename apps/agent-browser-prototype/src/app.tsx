@@ -2218,25 +2218,29 @@ export function VariantC({ model }: { readonly model: WorkspaceModel }) {
           <RoomHeaderControls model={model} />
         </div>
         {model.session ? (
-          <button
-            className="button button--danger room-terminal-action"
-            onClick={selfIsCreator(model.session.room) ? model.closeSession : model.leaveSession}
-            disabled={Boolean(model.busy)}
-          >
-            {selfIsCreator(model.session.room)
-              ? model.busy === "close" ? "Ending…" : "End browser"
-              : model.busy === "leave" ? "Leaving…" : "Leave room"}
-          </button>
+          <div className="handoff-header__actions">
+            <div className="handoff-session-status" role="status">
+              <span className="live-pill"><i /> Remote Browser live</span>
+              {model.session.expiresAt ? (
+                <span className="live-expiry">
+                  expires {new Date(model.session.expiresAt).toLocaleTimeString()}
+                </span>
+              ) : null}
+            </div>
+            <button
+              className="button button--danger room-terminal-action"
+              onClick={selfIsCreator(model.session.room) ? model.closeSession : model.leaveSession}
+              disabled={Boolean(model.busy)}
+            >
+              {selfIsCreator(model.session.room)
+                ? model.busy === "close" ? "Ending…" : "End browser"
+                : model.busy === "leave" ? "Leaving…" : "Leave room"}
+            </button>
+          </div>
         ) : null}
       </header>
       <section className="handoff-stage">
         <BrowserViewport model={model} liveFirst />
-        <div className="handoff-overlay">
-          <span className="live-pill"><i /> {model.session ? "Remote Browser live" : "offline"}</span>
-          {model.session?.expiresAt ? (
-            <span>expires {new Date(model.session.expiresAt).toLocaleTimeString()}</span>
-          ) : null}
-        </div>
       </section>
       {model.error ? (
         <div className="handoff-error" role="alert">

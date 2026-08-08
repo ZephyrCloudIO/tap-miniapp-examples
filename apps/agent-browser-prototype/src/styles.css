@@ -302,6 +302,9 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .handoff-header__workspace { display: grid; min-width: 0; grid-template-columns: minmax(260px, 1fr) minmax(190px, 0.65fr); gap: 8px; align-items: center; }
 .handoff-header__workspace--active { grid-template-columns: minmax(0, 1fr); }
 .handoff-header__workspace .room-join { width: 100%; margin-left: 0; }
+.handoff-header__actions { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.handoff-session-status { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; }
+.live-expiry { white-space: nowrap; }
 .handoff-state { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.025); }
 .handoff-state > span { width: 8px; height: 8px; border-radius: 50%; background: var(--violet); box-shadow: 0 0 12px rgba(155, 123, 255, 0.8); }
 .handoff-state > span.human { background: var(--cyan); box-shadow: 0 0 12px rgba(69, 216, 238, 0.8); }
@@ -310,7 +313,6 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .handoff-state strong { font-size: 9px; }
 .handoff-stage { position: relative; min-height: 0; padding: 8px 0; }
 .handoff-stage .browser-viewport { border-color: rgba(69, 216, 238, 0.18); border-radius: 16px; }
-.handoff-overlay { position: absolute; top: 26px; right: 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; }
 .live-pill { max-width: min(48vw, 520px); overflow: hidden; padding: 5px 8px; background: rgba(6, 9, 15, 0.86); color: #dbe4f1; text-overflow: ellipsis; white-space: nowrap; }
 .handoff-error { position: absolute; right: 24px; bottom: 24px; display: flex; max-width: 420px; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid rgba(251, 113, 133, 0.3); border-radius: 9px; background: rgba(54, 12, 22, 0.94); color: #fecdd3; font-size: 9px; box-shadow: var(--shadow); }
 .handoff-error .button { flex: 0 0 auto; min-height: 28px; color: #fff; }
