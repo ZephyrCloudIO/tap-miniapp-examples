@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@rstest/core";
 import {
+  findingTaskIdempotencyKey,
   findingTaskOptions,
   GovernedHttpError,
   isGovernedUrl,
@@ -71,5 +72,14 @@ describe("finding follow-up tasks", () => {
     );
     expect(options.title).toHaveLength(160);
     expect(options.priority).toBe("low");
+  });
+
+  it("uses a stable finding identity for receipt-backed replay", () => {
+    expect(
+      findingTaskIdempotencyKey(
+        { id: "EC-2026-0042" } as EngineeringChange,
+        { id: "finding-17" } as Finding,
+      ),
+    ).toBe("engineering-change:EC-2026-0042:finding-17:task");
   });
 });

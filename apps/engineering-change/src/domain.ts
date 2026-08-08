@@ -279,6 +279,8 @@ export interface FindingDisposition {
   action: FindingAction;
   /** Existing work linked when `action` is `link`. */
   linkedWork: string | null;
+  /** Durable host action receipts created while applying this disposition. */
+  actionReceiptIds?: string[];
   actorId: string;
   at: string;
 }

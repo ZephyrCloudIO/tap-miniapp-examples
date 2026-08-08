@@ -5,7 +5,7 @@ import { pluginModuleFederation } from "@module-federation/rsbuild-plugin";
 import type { RsbuildPlugin } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
 import { defineConfig } from "@rslib/core";
-import { tapLib } from "@theaiplatform/miniapp-sdk/rspack";
+import { tapLib, tapLifecycleTarget } from "@theaiplatform/miniapp-sdk/rspack";
 
 const require = createRequire(import.meta.url);
 const reactPackageRoot = dirname(require.resolve("react/package.json"));
@@ -42,7 +42,8 @@ const targetConfigurations = {
 } as const;
 
 type PackageTarget = keyof typeof targetConfigurations;
-const requestedTarget = process.env.TAP_PACKAGE_TARGET ?? "desktop";
+const lifecycleBuild = Boolean(process.env.TAP_MINIAPP_TARGET);
+const requestedTarget = process.env.TAP_MINIAPP_TARGET ?? process.env.TAP_PACKAGE_TARGET ?? "desktop";
 if (!Object.hasOwn(targetConfigurations, requestedTarget)) throw new Error(`Unsupported player target: ${requestedTarget}`);
 const packageTarget = requestedTarget as PackageTarget;
 const targetConfiguration = targetConfigurations[packageTarget];
@@ -70,7 +71,7 @@ const workflowSchemaAssetPlugin = (schemaAssets: readonly string[]): RsbuildPlug
   },
 });
 
-const library = tapLib({
+const library = lifecycleBuild ? tapLifecycleTarget() : tapLib({
   manifest: "./manifest.tap.json",
   packageTarget,
   packageOutputRoot: `.tap-build/${packageTarget}`,

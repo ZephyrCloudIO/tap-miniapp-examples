@@ -1,7 +1,7 @@
 import { expect, test } from '@theaiplatform/miniapp-sdk/testing/rstest';
 
 const PACKAGE_ID = "tap_pkg_examples_personal_health_ledger_0001";
-const SDK_VERSION = "0.5.3";
+const SDK_VERSION = "0.7.0";
 const SURFACE_TARGET_CELLS = new Set(["personal-health-ledger\u0000desktop"]);
 const PROFILE_IDS = new Set(["personal-health-ledger-desktop"]);
 const MATRIX_ENTRY_IDS = new Set(["personal-health-ledger-desktop-positive"]);

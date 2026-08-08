@@ -8,7 +8,7 @@ import {
 
 export const PACKAGE_ID = 'tap_pkg_examples_personal_health_ledger_0001';
 export const SURFACE_ID = 'personal-health-ledger';
-export const SDK_VERSION = '0.5.3';
+export const SDK_VERSION = '0.7.0';
 export const RUNNER_VERSION = '0.11.5';
 export const FIXED_NOW = '2026-07-24T12:00:00Z';
 export const NETWORK_ORIGINS = [

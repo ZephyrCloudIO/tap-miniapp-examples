@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import type { RsbuildPlugin } from '@rsbuild/core';
 import { defineConfig } from '@rslib/core';
 import { pluginReact } from '@rsbuild/plugin-react';
-import { tapLib } from '@theaiplatform/miniapp-sdk/rspack';
+import { tapLib, tapLifecycleTarget } from '@theaiplatform/miniapp-sdk/rspack';
 
 const require = createRequire(import.meta.url);
 const reactPackageRoot = dirname(require.resolve('react/package.json'));
@@ -24,11 +24,14 @@ const singleReactRuntimePlugin: RsbuildPlugin = {
 
 if (process.env.ZEPHYR_PUBLISH === 'true')
   throw new Error('Build the complete TAP package before publishing.');
-const target = process.env.TAP_PACKAGE_TARGET ?? 'desktop';
+const lifecycleBuild = Boolean(process.env.TAP_MINIAPP_TARGET);
+const target = process.env.TAP_MINIAPP_TARGET ?? process.env.TAP_PACKAGE_TARGET ?? 'desktop';
 if (target !== 'desktop' && target !== 'quickjs')
   throw new Error(`Unsupported Personal Health Ledger target: ${target}`);
-const library = tapLib(
-  target === 'desktop'
+const library = lifecycleBuild
+  ? tapLifecycleTarget()
+  : tapLib(
+    target === 'desktop'
     ? {
         manifest: './manifest.tap.json',
         packageTarget: 'desktop',
@@ -60,7 +63,7 @@ const library = tapLib(
           },
         },
       },
-);
+  );
 library.output = {
   ...library.output,
   // QuickJS evaluates the verified package graph without a browser document or

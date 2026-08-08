@@ -20,7 +20,7 @@
     "verify:package": "node scripts/verify-package.mjs && node ../../scripts/verify-built-package.mjs tap-package && node scripts/verify-react-runtime.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.5.3",
+    "@theaiplatform/miniapp-sdk": "0.7.0",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

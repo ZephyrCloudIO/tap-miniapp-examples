@@ -169,11 +169,13 @@ export function ReviewView({
       return;
     }
     let linkedWork: string | null = null;
+    let actionReceiptIds: string[] = [];
     try {
       if (dispositionAction === "task" || dispositionAction === "both") {
         if (!(await authorize(TASK_WRITE_ACTION))) return;
-        const task = await createFindingTask(change, finding);
+        const { task, receipt } = await createFindingTask(change, finding);
         linkedWork = `tap-task:${task.id}`;
+        actionReceiptIds = [receipt.receiptId];
       }
       const now = new Date().toISOString();
       const saved = await onUpdate(
@@ -183,6 +185,7 @@ export function ReviewView({
             rationale: rationale.trim(),
             action: dispositionAction,
             linkedWork,
+            actionReceiptIds,
             actorId,
             at: now,
           }),

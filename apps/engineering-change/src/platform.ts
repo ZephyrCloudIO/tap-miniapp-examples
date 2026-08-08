@@ -1,6 +1,7 @@
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
 import type {
   CreateTaskOptions,
+  MiniAppActionReceipt,
   MiniAppHttpResponse,
   MiniAppTask,
 } from "@theaiplatform/miniapp-sdk/sdk";
@@ -85,15 +86,44 @@ export function findingTaskOptions(
   };
 }
 
-/** Create a follow-up in the host's canonical Tasks silo for one finding. */
+export function findingTaskIdempotencyKey(
+  change: EngineeringChange,
+  finding: Finding,
+): string {
+  return `engineering-change:${change.id}:${finding.id}:task`;
+}
+
+function taskIdFromReceipt(receipt: MiniAppActionReceipt): string {
+  const result = receipt.result;
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    throw new Error(`Task receipt ${receipt.receiptId} did not include a task result.`);
+  }
+  const taskId = Reflect.get(result, "taskId");
+  if (typeof taskId !== "string" || taskId.length === 0) {
+    throw new Error(`Task receipt ${receipt.receiptId} did not include a task ID.`);
+  }
+  return taskId;
+}
+
+/** Create a replay-safe follow-up in the host's canonical Tasks silo. */
 export async function createFindingTask(
   change: EngineeringChange,
   finding: Finding,
-): Promise<MiniAppTask> {
+): Promise<{ task: MiniAppTask; receipt: MiniAppActionReceipt }> {
   const tasks = sdk.tasks;
   if (!tasks) throw new TaskCapabilityUnavailableError();
-  const result = await tasks.create(findingTaskOptions(change, finding));
-  return result.task;
+  const options = findingTaskOptions(change, finding);
+  const { receipt } = await tasks.createWithReceipt({
+    title: options.title,
+    description: options.description,
+    idempotencyKey: findingTaskIdempotencyKey(change, finding),
+  });
+  const { task } = await tasks.update({
+    taskId: taskIdFromReceipt(receipt),
+    status: options.status,
+    priority: options.priority,
+  });
+  return { task, receipt };
 }
 
 export function isGovernedUrl(url: string): boolean {
