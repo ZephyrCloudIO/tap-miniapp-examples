@@ -656,12 +656,25 @@ describe("Remote Browser hosted MCP tools", () => {
     expect(clickResult.isError).not.toBe(true);
     const clicked = structured(clickResult);
 
-    const brokenClickResult = await callTool("remote_browser_click", {
+    const coordinateClickResult = await callTool("remote_browser_click", {
       sessionHandle,
-      elementRef: brokenRef,
+      xRatio: 0.25,
+      yRatio: 0.5,
       expectedControlEpoch: control(clicked).epoch,
       expectedDocumentRevision: integer(
         clicked.documentRevision,
+        "clicked revision",
+      ),
+    });
+    expect(coordinateClickResult.isError).not.toBe(true);
+    const coordinateClicked = structured(coordinateClickResult);
+
+    const brokenClickResult = await callTool("remote_browser_click", {
+      sessionHandle,
+      elementRef: brokenRef,
+      expectedControlEpoch: control(coordinateClicked).epoch,
+      expectedDocumentRevision: integer(
+        coordinateClicked.documentRevision,
         "clicked revision",
       ),
     });
@@ -766,6 +779,13 @@ describe("Remote Browser hosted MCP tools", () => {
         expect.objectContaining({ params: expect.objectContaining({ type: "mouseMoved" }) }),
         expect.objectContaining({ params: expect.objectContaining({ type: "mousePressed" }) }),
         expect.objectContaining({ params: expect.objectContaining({ type: "mouseReleased" }) }),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            type: "mousePressed",
+            x: 300,
+            y: 400,
+          }),
+        }),
         expect.objectContaining({
           params: expect.objectContaining({
             type: "mouseWheel",

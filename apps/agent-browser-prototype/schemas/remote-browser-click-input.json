@@ -6,13 +6,29 @@
   "additionalProperties": false,
   "required": [
     "sessionHandle",
-    "elementRef",
     "expectedControlEpoch",
     "expectedDocumentRevision"
+  ],
+  "oneOf": [
+    {
+      "required": ["elementRef"],
+      "not": {
+        "anyOf": [
+          { "required": ["xRatio"] },
+          { "required": ["yRatio"] }
+        ]
+      }
+    },
+    {
+      "required": ["xRatio", "yRatio"],
+      "not": { "required": ["elementRef"] }
+    }
   ],
   "properties": {
     "sessionHandle": { "type": "string", "format": "uuid" },
     "elementRef": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "xRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "yRatio": { "type": "number", "minimum": 0, "maximum": 1 },
     "expectedControlEpoch": { "type": "integer", "minimum": 1 },
     "expectedDocumentRevision": { "type": "integer", "minimum": 1 }
   }

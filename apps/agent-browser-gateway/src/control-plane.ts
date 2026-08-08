@@ -10,6 +10,7 @@ import {
   capturePageScreenshot,
   capturePageSnapshot,
   clickElement,
+  clickViewport,
   diagnosticFromCdpEvent,
   fillElement,
   networkUpdateFromCdpEvent,
@@ -180,6 +181,19 @@ export interface BrowserToolNavigateInput extends BrowserToolMutationGuard {
 export interface BrowserToolElementInput extends BrowserToolMutationGuard {
   readonly ref: string;
 }
+
+export type BrowserToolClickInput = BrowserToolMutationGuard & (
+  | {
+      readonly ref: string;
+      readonly xRatio?: never;
+      readonly yRatio?: never;
+    }
+  | {
+      readonly ref?: never;
+      readonly xRatio: number;
+      readonly yRatio: number;
+    }
+);
 
 export interface BrowserToolFillInput extends BrowserToolElementInput {
   readonly value: string;
@@ -3324,7 +3338,7 @@ export class BrowserSessionCoordinator extends DurableObject<Env> {
 
   async toolClick(
     participant: BrowserParticipant,
-    input: BrowserToolElementInput,
+    input: BrowserToolClickInput,
   ): Promise<RpcResult<BrowserToolSessionView>> {
     let nonce: string | null = null;
     try {
@@ -3336,11 +3350,15 @@ export class BrowserSessionCoordinator extends DurableObject<Env> {
         throw new ApiError(404, "session_not_found", "Browser session not found.");
       }
       nonce = this.acquireMutation(ready, participant.participantId, input);
-      const backendNodeId = this.elementBackendNodeId(
-        input.ref,
-        input.expectedDocumentRevision,
-      );
-      await clickElement(client, backendNodeId);
+      if ("ref" in input && typeof input.ref === "string") {
+        const backendNodeId = this.elementBackendNodeId(
+          input.ref,
+          input.expectedDocumentRevision,
+        );
+        await clickElement(client, backendNodeId);
+      } else {
+        await clickViewport(client, input.xRatio, input.yRatio);
+      }
       this.drainCdpDebugErrors(client);
       return success(await this.currentPageView(ready, client));
     } catch (error) {

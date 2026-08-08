@@ -4,6 +4,7 @@ import {
   capturePageScreenshot,
   capturePageSnapshot,
   clickElement,
+  clickViewport,
   diagnosticFromCdpEvent,
   fillElement,
   networkUpdateFromCdpEvent,
@@ -296,6 +297,45 @@ describe("semantic Remote Browser operations", () => {
           clickCount: 1,
           x: 20,
           y: 30,
+        },
+      },
+    ]);
+  });
+
+  it("drives an exact viewport click from normalized coordinates", async () => {
+    const cdp = new CommandRecorder({
+      "Page.getLayoutMetrics": {
+        cssVisualViewport: { clientWidth: 1_200, clientHeight: 800 },
+      },
+      "Input.dispatchMouseEvent": {},
+    });
+
+    await clickViewport(cdp, 0.25, 0.75);
+
+    expect(cdp.calls).toEqual([
+      { method: "Page.getLayoutMetrics", params: undefined },
+      {
+        method: "Input.dispatchMouseEvent",
+        params: { type: "mouseMoved", x: 300, y: 600 },
+      },
+      {
+        method: "Input.dispatchMouseEvent",
+        params: {
+          type: "mousePressed",
+          button: "left",
+          clickCount: 1,
+          x: 300,
+          y: 600,
+        },
+      },
+      {
+        method: "Input.dispatchMouseEvent",
+        params: {
+          type: "mouseReleased",
+          button: "left",
+          clickCount: 1,
+          x: 300,
+          y: 600,
         },
       },
     ]);

@@ -190,6 +190,7 @@ interface WorkspaceModel {
   readonly setElementRepresentation: (value: ElementRepresentation) => void;
   readonly toggleElementPicker: () => void;
   readonly selectBrowserElement: (point: ElementPickPoint) => void;
+  readonly clickBrowser: (point: ElementPickPoint) => void;
   readonly scrollBrowser: (
     point: ElementPickPoint,
     deltaX: number,
@@ -473,6 +474,7 @@ export function AgentBrowserApp({
   const framePollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingBrowserScrollRef = useRef<PendingBrowserScroll | null>(null);
   const browserScrollInFlightRef = useRef(false);
+  const browserClickInFlightRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const remoteBrowserToolsReady = !preview && remoteBrowserClient !== null;
   const elementPickerReady =
@@ -1323,6 +1325,65 @@ export function AgentBrowserApp({
     });
   }
 
+  function clickBrowser(point: ElementPickPoint): void {
+    const client = remoteBrowserClientRef.current;
+    if (
+      !client ||
+      !session ||
+      session.connectionState !== "connected" ||
+      !selfIsController(session.room) ||
+      browserClickInFlightRef.current
+    ) {
+      return;
+    }
+
+    const sessionHandle = session.sessionHandle;
+    const generation = sessionGenerationRef.current;
+    browserClickInFlightRef.current = true;
+    void client.click({
+      sessionHandle,
+      point,
+      expectedControlEpoch: session.snapshot.control.epoch,
+      expectedDocumentRevision: session.snapshot.documentRevision,
+    }).then(async () => {
+      if (
+        generation !== sessionGenerationRef.current ||
+        activeSessionHandleRef.current !== sessionHandle
+      ) {
+        return;
+      }
+      const frame = await client.screenshot(sessionHandle);
+      setSession((current) =>
+        current?.sessionHandle === sessionHandle
+          ? {
+              ...current,
+              frameUrl: frame.pngDataUrl,
+              frameWidth: frame.width,
+              frameHeight: frame.height,
+              snapshot: {
+                ...current.snapshot,
+                control: frame.control,
+                documentRevision: frame.documentRevision,
+              },
+            }
+          : current,
+      );
+      setError("");
+      setStatus("Remote browser clicked");
+    }).catch((cause) => {
+      if (generation !== sessionGenerationRef.current) return;
+      const message = errorMessage(cause);
+      if (errorCode(cause) === "mcp_oauth_required") {
+        setMcpAuthorizationRequired(true);
+      }
+      setError(message);
+      setStatus("Remote browser click failed");
+      record("Click blocked", message, "warn");
+    }).finally(() => {
+      browserClickInFlightRef.current = false;
+    });
+  }
+
   const model: WorkspaceModel = {
     preview,
     experience,
@@ -1370,6 +1431,7 @@ export function AgentBrowserApp({
     setElementRepresentation: changeElementRepresentation,
     toggleElementPicker,
     selectBrowserElement,
+    clickBrowser,
     scrollBrowser,
     clearElementSelection,
     authorizeKitesurf,
@@ -1779,8 +1841,8 @@ function BrowserViewport({ model, liveFirst = false }: {
         role="region"
         aria-label="Remote browser viewport"
         title={controlled
-          ? "Scroll or use a trackpad over the remote page"
-          : "Take control of the shared browser to scroll the remote page"}
+          ? "Click, scroll, or use a trackpad over the remote page"
+          : "Take control of the shared browser to interact with the remote page"}
         tabIndex={0}
         onContextMenu={(event) => event.preventDefault()}
         onPointerDown={(event) => {
@@ -1790,19 +1852,27 @@ function BrowserViewport({ model, liveFirst = false }: {
           }
         }}
         onPointerUp={(event) => {
+          const frameImage = frameImageRef.current;
+          const frameWidth = model.session?.frameWidth;
+          const frameHeight = model.session?.frameHeight;
+          if (
+            event.button !== 0 ||
+            event.target !== frameImage ||
+            !frameImage ||
+            !frameWidth ||
+            !frameHeight
+          ) return;
+          const point = containedFramePoint(
+            frameImage.getBoundingClientRect(),
+            { width: frameWidth, height: frameHeight },
+            event.clientX,
+            event.clientY,
+          );
+          if (!point) return;
           if (model.elementPickerActive) {
-            const frameImage = frameImageRef.current;
-            const frameWidth = model.session?.frameWidth;
-            const frameHeight = model.session?.frameHeight;
-            if (frameImage && frameWidth && frameHeight) {
-              const selectedPoint = containedFramePoint(
-                frameImage.getBoundingClientRect(),
-                { width: frameWidth, height: frameHeight },
-                event.clientX,
-                event.clientY,
-              );
-              if (selectedPoint) model.selectBrowserElement(selectedPoint);
-            }
+            model.selectBrowserElement(point);
+          } else if (controlled) {
+            model.clickBrowser(point);
           }
         }}
         onWheel={(event) => {

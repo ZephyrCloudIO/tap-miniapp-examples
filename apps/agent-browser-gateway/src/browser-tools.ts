@@ -825,6 +825,41 @@ export async function scrollViewport(
   });
 }
 
+async function dispatchViewportClick(
+  cdp: BrowserToolCdpClient,
+  x: number,
+  y: number,
+): Promise<void> {
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x,
+    y,
+  });
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    button: "left",
+    clickCount: 1,
+    x,
+    y,
+  });
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    button: "left",
+    clickCount: 1,
+    x,
+    y,
+  });
+}
+
+export async function clickViewport(
+  cdp: BrowserToolCdpClient,
+  xRatio: number,
+  yRatio: number,
+): Promise<void> {
+  const { x, y } = await viewportPoint(cdp, xRatio, yRatio);
+  await dispatchViewportClick(cdp, x, y);
+}
+
 export async function selectElementRepresentation(
   cdp: BrowserToolCdpClient,
   backendNodeId: number,
@@ -892,25 +927,7 @@ export async function clickElement(
 ): Promise<void> {
   await cdp.send("DOM.scrollIntoViewIfNeeded", { backendNodeId });
   const center = boxCenter(await cdp.send("DOM.getBoxModel", { backendNodeId }));
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    x: center.x,
-    y: center.y,
-  });
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    button: "left",
-    clickCount: 1,
-    x: center.x,
-    y: center.y,
-  });
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseReleased",
-    button: "left",
-    clickCount: 1,
-    x: center.x,
-    y: center.y,
-  });
+  await dispatchViewportClick(cdp, center.x, center.y);
 }
 
 function attributes(value: unknown): ReadonlyMap<string, string> {

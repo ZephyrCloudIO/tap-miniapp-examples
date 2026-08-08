@@ -140,6 +140,21 @@ const scrollInputSchema = z.strictObject({
   ({ deltaX, deltaY }) => deltaX !== 0 || deltaY !== 0,
   "At least one scroll delta must be non-zero.",
 );
+const clickInputCommonSchema = {
+  sessionHandle: sessionHandleSchema,
+  ...mutationGuardSchema,
+} as const;
+const clickInputSchema = z.union([
+  z.strictObject({
+    ...clickInputCommonSchema,
+    elementRef: elementRefSchema,
+  }),
+  z.strictObject({
+    ...clickInputCommonSchema,
+    xRatio: z.number().finite().min(0).max(1),
+    yRatio: z.number().finite().min(0).max(1),
+  }),
+]);
 const pageInputSchema = z.strictObject({
   sessionHandle: sessionHandleSchema,
   cursor: z.number().int().nonnegative().optional(),
@@ -833,12 +848,8 @@ function registerRemoteBrowserTools(
     {
       title: "Click Remote Browser Element",
       description:
-        "Click an element returned by the latest page snapshot using native browser pointer events. Stale refs, control epochs, and document revisions fail closed.",
-      inputSchema: z.strictObject({
-        sessionHandle: sessionHandleSchema,
-        elementRef: elementRefSchema,
-        ...mutationGuardSchema,
-      }),
+        "Click an element reference or normalized visible-viewport coordinates using native browser pointer events. Stale refs, control epochs, and document revisions fail closed.",
+      inputSchema: clickInputSchema,
       outputSchema: sessionViewSchema,
       annotations: {
         readOnlyHint: false,
@@ -847,21 +858,24 @@ function registerRemoteBrowserTools(
         openWorldHint: true,
       },
     },
-    async ({
-      sessionHandle,
-      elementRef,
-      expectedControlEpoch,
-      expectedDocumentRevision,
-    }, context) => {
+    async (input, context) => {
+      const { sessionHandle, expectedControlEpoch, expectedDocumentRevision } = input;
       const authenticated = await attestedParticipant(context, props);
       if (!authenticated.ok) return toolError(authenticated.error);
       const result = await sessionCoordinator(env, sessionHandle).toolClick(
         authenticated.value,
-        {
-        ref: elementRef,
-        expectedControlEpoch,
-        expectedDocumentRevision,
-        },
+        "elementRef" in input
+          ? {
+              ref: input.elementRef,
+              expectedControlEpoch,
+              expectedDocumentRevision,
+            }
+          : {
+              xRatio: input.xRatio,
+              yRatio: input.yRatio,
+              expectedControlEpoch,
+              expectedDocumentRevision,
+            },
       );
       return result.ok ? toolSuccess(toolView(result.value)) : toolError(result.error);
     },

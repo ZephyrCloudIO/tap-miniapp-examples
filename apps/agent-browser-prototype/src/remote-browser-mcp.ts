@@ -169,6 +169,12 @@ export interface RemoteBrowserMcpClient {
     readonly expectedControlEpoch: number;
     readonly expectedDocumentRevision: number;
   }): Promise<RemoteBrowserElementSelection>;
+  click(input: {
+    readonly sessionHandle: string;
+    readonly point: ElementPickPoint;
+    readonly expectedControlEpoch: number;
+    readonly expectedDocumentRevision: number;
+  }): Promise<void>;
   scroll(input: {
     readonly sessionHandle: string;
     readonly point: ElementPickPoint;
@@ -670,6 +676,40 @@ export function createRemoteBrowserMcpClient(
         pngData: png.bytes,
         pngDataUrl: png.dataUrl,
       };
+    },
+
+    async click(input) {
+      if (
+        !Number.isFinite(input.point.xRatio) ||
+        !Number.isFinite(input.point.yRatio) ||
+        input.point.xRatio < 0 ||
+        input.point.xRatio > 1 ||
+        input.point.yRatio < 0 ||
+        input.point.yRatio > 1
+      ) {
+        throw new Error("Remote Browser click input is outside the visible viewport.");
+      }
+      const result = await callDeclaredTool({
+        toolContributionId: "remote-browser-click",
+        input: {
+          sessionHandle: input.sessionHandle,
+          xRatio: input.point.xRatio,
+          yRatio: input.point.yRatio,
+          expectedControlEpoch: input.expectedControlEpoch,
+          expectedDocumentRevision: input.expectedDocumentRevision,
+        },
+      });
+      const output = structured(result);
+      const common = commonSessionOutput(output);
+      assertSameSession(common.sessionHandle, input.sessionHandle);
+      if (common.documentRevision < input.expectedDocumentRevision) {
+        throw new Error("The click result belongs to a stale browser document.");
+      }
+      if (common.control.epoch !== input.expectedControlEpoch) {
+        throw new Error("The click result belongs to a stale control epoch.");
+      }
+      pageUrl(output.url);
+      boundedString(output.title, "page title", 1_024, true);
     },
 
     async scroll(input) {

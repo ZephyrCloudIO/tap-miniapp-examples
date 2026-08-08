@@ -213,6 +213,34 @@ describe("declared Remote Browser MCP transport", () => {
     });
   });
 
+  it("sends a normalized viewport click through the signed click contribution", async () => {
+    const call = rs.fn<CallDeclaredMcpTool>(async () =>
+      toolResult({
+        ...common,
+        url: "https://example.com/next",
+        title: "Next",
+      }),
+    );
+
+    await createRemoteBrowserMcpClient(call).click({
+      sessionHandle: SESSION,
+      point: { xRatio: 0.25, yRatio: 0.75 },
+      expectedControlEpoch: 3,
+      expectedDocumentRevision: 4,
+    });
+
+    expect(call).toHaveBeenCalledWith({
+      toolContributionId: "remote-browser-click",
+      input: {
+        sessionHandle: SESSION,
+        xRatio: 0.25,
+        yRatio: 0.75,
+        expectedControlEpoch: 3,
+        expectedDocumentRevision: 4,
+      },
+    });
+  });
+
   it("rejects stale documents and image bytes that do not match metadata", async () => {
     const staleCall = rs.fn<CallDeclaredMcpTool>(async () =>
       toolResult({

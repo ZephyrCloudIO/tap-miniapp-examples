@@ -172,7 +172,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .viewport-chrome__actions > span { flex: 0 1 auto; }
 .viewport-chrome i, .live-pill i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(94, 224, 160, 0.8); }
 .browser-viewport > img { width: 100%; height: calc(100% - 34px); min-height: 0; object-fit: contain; background: #090d16; }
-.browser-viewport--live > img { user-select: none; pointer-events: none; }
+.browser-viewport--live > img { user-select: none; }
 .browser-viewport--controlled { overscroll-behavior: contain; }
 .browser-viewport--picking { cursor: cell; }
 .browser-viewport--picking > img { filter: saturate(0.8) brightness(0.84); }
