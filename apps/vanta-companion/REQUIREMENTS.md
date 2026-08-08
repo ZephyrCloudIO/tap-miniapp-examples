@@ -9,7 +9,7 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] Separate preview `localStorage` and packaged `sdk.storage` implementations
 - [x] Visible loading, saving, success, conflict, empty, permission, and failure states
 - [x] Responsive SDK-component UI with keyboard focus, dark tokens, compact layout, and reduced motion
-- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.5.3` pin, and matching `compatibility.tapSdk`
+- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.7.0` pin, and matching `compatibility.tapSdk`
 - [x] View-only mount prerequisite with product and host operations declared on demand
 - [x] `vanta-companion.coordinate` and `vanta-companion.analyze` enforced through fail-closed host authorization checks before side effects
 - [x] Surface mount/unmount events declared and scoped to the Vanta contribution
@@ -38,14 +38,14 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] User-created remediation cases linked to real Vanta IDs/deep links
 - [x] Validated case state transitions and lead-only source verification confirmation
 - [x] Durable analysis output and audit receipts retained across reload
-- [ ] TAP task delegation — SDK `0.5.3` exposes workspace task CRUD, but Vanta has not yet integrated it or declared the required task permissions
-- [ ] Reminder/escalation authoring and history — blocked because TAP miniapp SDK `0.5.3` exposes no automation/reminder API
+- [ ] TAP task delegation — SDK `0.7.0` exposes workspace task CRUD, but Vanta has not yet integrated it or declared the required task permissions
+- [ ] Reminder/escalation authoring and history — blocked because TAP miniapp SDK `0.7.0` exposes no automation/reminder API
 - [ ] Automatic Vanta webhook-triggered TAP workflow invocation — the Worker receives events, but the TAP SDK exposes no authenticated server-side workflow/event bridge; the real UI feed is refreshed on user request
 
 ## Knowledge and code context
 
 - [x] Specialist definition restricts CKG and knowledge access to declared `ckg_*`, `knowledge_*`, and `kg_*` tools and prompts for project scope, provenance, and visibility
-- [ ] Explicit plot attachment/retrieval UI — blocked because TAP miniapp SDK `0.5.3` exposes no knowledge-plot query or attachment API
+- [ ] Explicit plot attachment/retrieval UI — SDK `0.7.0` publishes a reserved plot contract, but the current host does not install it
 - [ ] Verified CKG source results in browser preview — requires a packaged TAP host, an indexed scoped project, and authorized source content
 
 ## Verification coverage

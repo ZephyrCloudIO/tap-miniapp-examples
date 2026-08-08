@@ -18,7 +18,7 @@
     "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.5.3",
+    "@theaiplatform/miniapp-sdk": "0.7.0",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

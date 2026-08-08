@@ -18,12 +18,13 @@ Target a single example with pnpm's workspace filter, such as `pnpm --filter @ta
 
 ## SDK versions
 
-Each example exact-pins the SDK version it was verified against, and its TAP
-descriptor declares the same version in `compatibility.tapSdk`. All current
+Each example exact-pins the SDK version it was verified against. Its
+`tap-miniapp.config.mjs` authoring source is compiled by that SDK, which owns
+the matching `compatibility.tapSdk` value in the staged descriptor. All current
 miniapps are verified against:
 
 ```json
-"@theaiplatform/miniapp-sdk": "0.5.3"
+"@theaiplatform/miniapp-sdk": "0.7.0"
 ```
 
 Do not copy an older SDK pin from a reference repository.
