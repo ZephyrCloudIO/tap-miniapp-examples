@@ -49,6 +49,12 @@ export { BrowserOwnerQuota, BrowserSessionCoordinator };
 const MAX_REQUEST_BYTES = 32 * 1024;
 const OAUTH_OWNER_ID = /^[0-9A-Za-z][0-9A-Za-z._:@-]{0,127}$/u;
 const OAUTH_ASSERTION_ID = /^[0-9A-Za-z_-]{16,192}$/u;
+const SNAPSHOT_ROUTE = "/mcp/v1/snapshot";
+const LEGACY_SNAPSHOT_ROUTE = "/v1/snapshot";
+
+function isSnapshotRoute(pathname: string): boolean {
+  return pathname === SNAPSHOT_ROUTE || pathname === LEGACY_SNAPSHOT_ROUTE;
+}
 
 interface RemoteBrowserSnapshotProps extends RemoteBrowserMcpProps {
   readonly snapshotAssertion?: {
@@ -202,7 +208,7 @@ function gatewayErrorResponse(
     // Do not grant CORS when the origin itself was rejected.
   }
   if (
-    new URL(request.url).pathname === "/v1/snapshot" &&
+    isSnapshotRoute(new URL(request.url).pathname) &&
     apiError.status === 403 &&
     apiError.code === "insufficient_scope"
   ) {
@@ -211,7 +217,7 @@ function gatewayErrorResponse(
       ...headers,
       "WWW-Authenticate": [
         "Bearer",
-        `resource_metadata="${url.origin}/.well-known/oauth-protected-resource/v1/snapshot"`,
+        `resource_metadata="${url.origin}/.well-known/oauth-protected-resource${url.pathname}"`,
         'error="insufficient_scope"',
         `scope="${BROWSER_SNAPSHOT_CAPTURE_SCOPE}"`,
       ].join(", "),
@@ -372,7 +378,7 @@ async function resolveExternalSnapshotToken(
   { request, env }: ResolveExternalTokenInput<Env>,
 ): Promise<ResolveExternalTokenResult | null> {
   const url = new URL(request.url);
-  if (request.method !== "POST" || url.pathname !== "/v1/snapshot") {
+  if (request.method !== "POST" || !isSnapshotRoute(url.pathname)) {
     return null;
   }
   try {
@@ -499,7 +505,7 @@ export function createAgentBrowserGateway(): AgentBrowserGateway {
           );
         }
 
-        if (request.method === "POST" && url.pathname === "/v1/snapshot") {
+        if (request.method === "POST" && isSnapshotRoute(url.pathname)) {
           const assertion = await authenticateSnapshotRequest(request, env);
           return await captureAuthenticatedSnapshot(request, env, assertion);
         }
@@ -681,7 +687,7 @@ export class RemoteBrowserSnapshotEntrypoint extends WorkerEntrypoint<
   override async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      if (url.pathname !== "/v1/snapshot") {
+      if (!isSnapshotRoute(url.pathname)) {
         throw new ApiError(404, "not_found", "Route not found.");
       }
       if (request.method !== "POST") {
@@ -707,7 +713,7 @@ export class RemoteBrowserSnapshotEntrypoint extends WorkerEntrypoint<
               "Cache-Control": "no-store",
               "WWW-Authenticate": [
                 "Bearer",
-                `resource_metadata="${url.origin}/.well-known/oauth-protected-resource/v1/snapshot"`,
+                `resource_metadata="${url.origin}/.well-known/oauth-protected-resource${url.pathname}"`,
                 'error="insufficient_scope"',
                 `scope="${BROWSER_SNAPSHOT_CAPTURE_SCOPE}"`,
               ].join(", "),
@@ -729,8 +735,12 @@ const gatewayHandler: ExportedHandler<Env> = {
 
 export default new OAuthProvider<Env>({
   apiHandlers: {
+    // OAuthProvider uses insertion-order prefix matching. Keep the workflow
+    // resource ahead of /mcp so it reaches the snapshot entrypoint while an
+    // RFC 8707 audience of /mcp remains valid for this subordinate route.
+    [SNAPSHOT_ROUTE]: RemoteBrowserSnapshotEntrypoint,
     "/mcp": RemoteBrowserMcpEntrypoint,
-    "/v1/snapshot": RemoteBrowserSnapshotEntrypoint,
+    [LEGACY_SNAPSHOT_ROUTE]: RemoteBrowserSnapshotEntrypoint,
   },
   defaultHandler: createLocalAuthorizationHandler(gatewayHandler),
   authorizeEndpoint: "/authorize",

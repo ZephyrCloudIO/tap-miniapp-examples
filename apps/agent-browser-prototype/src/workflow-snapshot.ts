@@ -97,6 +97,9 @@ export interface WorkflowSnapshotArtifact {
 export interface WorkflowBrowserSnapshot extends BrowserSnapshot {
   readonly workflowRunId: string;
   readonly screenshotArtifact: WorkflowSnapshotArtifact | null;
+  readonly outputProjected?: boolean;
+  readonly outputProjectionOriginalByteLength?: number | null;
+  readonly unavailableFormats?: readonly SnapshotFormat[];
 }
 
 export interface SavedBrowserSnapshotInput {
@@ -130,6 +133,16 @@ const SNAPSHOT_FORMATS = new Set<SnapshotFormat>([
 ]);
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const;
 const BASE64_INPUT_CHUNK_BYTES = 3 * 8_192;
+const WORKFLOW_OUTPUT_PROJECTION_TYPE = "workflow_output_projection";
+const WORKFLOW_OUTPUT_OMISSION_TYPE = "workflow_output_value_omitted";
+const WORKFLOW_OUTPUT_PROJECTION_RETENTION =
+  "validated_artifact_descriptors_and_scalar_metadata";
+
+interface WorkflowOutputProjection {
+  readonly originalByteLength: number;
+  readonly artifacts: readonly unknown[];
+  readonly value: unknown;
+}
 
 function pngBytesDataUrl(bytes: Uint8Array): string {
   const chunks: string[] = [];
@@ -168,6 +181,41 @@ function optionalTitle(value: unknown): string | null {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function workflowOutputProjection(value: unknown): WorkflowOutputProjection | null {
+  const candidate = record(value);
+  if (candidate?.type !== WORKFLOW_OUTPUT_PROJECTION_TYPE) return null;
+  const originalByteLength = finiteNumber(candidate.originalByteLength);
+  if (
+    candidate.truncated !== true ||
+    candidate.retained !== WORKFLOW_OUTPUT_PROJECTION_RETENTION ||
+    originalByteLength === null ||
+    !Number.isSafeInteger(originalByteLength) ||
+    originalByteLength <= 0 ||
+    !Array.isArray(candidate.artifacts) ||
+    !("value" in candidate)
+  ) {
+    throw new Error("The workflow returned an invalid bounded output projection.");
+  }
+  return {
+    originalByteLength,
+    artifacts: candidate.artifacts,
+    value: candidate.value,
+  };
+}
+
+function projectedOmission(value: unknown, valueType: string): boolean {
+  const candidate = record(value);
+  const originalByteLength = finiteNumber(candidate?.originalByteLength);
+  return (
+    candidate?.type === WORKFLOW_OUTPUT_OMISSION_TYPE &&
+    candidate.truncated === true &&
+    candidate.valueType === valueType &&
+    originalByteLength !== null &&
+    Number.isSafeInteger(originalByteLength) &&
+    originalByteLength >= 0
+  );
 }
 
 function pageStatus(value: unknown): number | null {
@@ -303,7 +351,7 @@ function normalizeArtifact(value: unknown): WorkflowSnapshotArtifact {
   const kind = stringValue(candidate.kind);
   const artifactRef = stringValue(candidate.artifactRef);
   const mediaType = stringValue(candidate.mediaType);
-  const byteLength = finiteNumber(candidate.byteLength);
+  const byteLength = finiteNumber(candidate.byteLength ?? candidate.sizeBytes);
   const sha256 = stringValue(candidate.sha256);
   if (
     kind !== "screenshot" ||
@@ -337,7 +385,8 @@ export function normalizeWorkflowBrowserSnapshot(
     readonly requestedFormats: readonly SnapshotFormat[];
   },
 ): WorkflowBrowserSnapshot {
-  const result = findSnapshotOutput(output);
+  const projection = workflowOutputProjection(output);
+  const result = findSnapshotOutput(projection?.value ?? output);
   const returnedEngine = stringValue(result.engine);
   if (returnedEngine !== KITESURF_ENGINE) {
     throw new Error(
@@ -367,19 +416,34 @@ export function normalizeWorkflowBrowserSnapshot(
   if (returnedUrl !== requestedUrl) {
     throw new Error("The workflow browser output does not match the requested URL.");
   }
-  const finalUrl = result.finalUrl === undefined
+  const finalUrl = result.finalUrl === undefined ||
+    (projection !== null && projectedOmission(result.finalUrl, "string"))
     ? null
     : evidenceUrl(result.finalUrl, "final URL");
-  if (result.artifacts !== undefined && !Array.isArray(result.artifacts)) {
+  const artifactValues = projection?.artifacts ?? result.artifacts ?? [];
+  if (!Array.isArray(artifactValues)) {
     throw new Error("The workflow returned invalid browser evidence artifacts.");
   }
-  const artifacts = (result.artifacts ?? []).map(normalizeArtifact);
-  const screenshotArtifact =
-    artifacts.find((artifact) => artifact.kind === "screenshot") ?? null;
+  const artifacts = artifactValues.map(normalizeArtifact);
+  const screenshotArtifacts = artifacts.filter(
+    (artifact) => artifact.kind === "screenshot",
+  );
+  if (projection && screenshotArtifacts.length > 1) {
+    throw new Error("The bounded workflow output contains ambiguous screenshot artifacts.");
+  }
+  const screenshotArtifact = screenshotArtifacts[0] ?? null;
   const inlineScreenshot = pngDataUrl(result.screenshot);
   const markdown = evidenceString(result.markdown);
   const content = evidenceString(result.content);
-  const accessibilityTree = result.accessibilityTree ?? null;
+  const accessibilityTree =
+    result.accessibilityTree !== undefined &&
+    result.accessibilityTree !== null &&
+    typeof result.accessibilityTree === "object" &&
+    !Array.isArray(result.accessibilityTree) &&
+    !projectedOmission(result.accessibilityTree, "object")
+      ? result.accessibilityTree
+      : null;
+  const unavailableFormats: SnapshotFormat[] = [];
   for (const format of input.requestedFormats) {
     const present =
       format === "screenshot"
@@ -391,6 +455,24 @@ export function normalizeWorkflowBrowserSnapshot(
         : accessibilityTree !== null &&
           typeof accessibilityTree === "object" &&
           !Array.isArray(accessibilityTree);
+    if (!present && projection && format !== "screenshot") {
+      const omitted =
+        format === "markdown"
+          ? result.markdown === undefined ||
+            projectedOmission(result.markdown, "string")
+          : format === "content"
+            ? result.content === undefined ||
+              projectedOmission(result.content, "string")
+            : result.accessibilityTree === undefined ||
+              projectedOmission(result.accessibilityTree, "object");
+      if (!omitted) {
+        throw new Error(
+          `The bounded workflow output contains invalid projected ${format} evidence.`,
+        );
+      }
+      unavailableFormats.push(format);
+      continue;
+    }
     if (!present) {
       throw new Error(`The workflow omitted requested ${format} evidence.`);
     }
@@ -402,7 +484,10 @@ export function normalizeWorkflowBrowserSnapshot(
     requestedUrl,
     finalUrl,
     formats: returnedFormats,
-    title: optionalTitle(result.title),
+    title:
+      projection && projectedOmission(result.title, "string")
+        ? null
+        : optionalTitle(result.title),
     status: pageStatus(result.status),
     browserMs: optionalDuration(result.browserMs, "browser time"),
     runDurationMs: optionalDuration(result.durationMs, "workflow run time"),
@@ -412,6 +497,10 @@ export function normalizeWorkflowBrowserSnapshot(
     content,
     accessibilityTree,
     receivedAt: new Date().toISOString(),
+    outputProjected: projection !== null,
+    outputProjectionOriginalByteLength:
+      projection?.originalByteLength ?? null,
+    unavailableFormats,
   };
 }
 

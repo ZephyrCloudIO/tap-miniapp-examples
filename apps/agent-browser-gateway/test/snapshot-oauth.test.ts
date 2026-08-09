@@ -10,6 +10,7 @@ const INSTALLATION_ATTESTATION_SECRET =
 const SNAPSHOT_SCOPE = "browser.snapshot.capture";
 const REDIRECT_URI = "http://127.0.0.1:1420/mcp-callback";
 const OAUTH_ORIGIN = "http://127.0.0.1:8787";
+const MCP_RESOURCE = `${OAUTH_ORIGIN}/mcp`;
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -99,6 +100,7 @@ async function packageAccessToken(
     state,
     code_challenge: challenge,
     code_challenge_method: "S256",
+    resource: MCP_RESOURCE,
   }).toString();
 
   const consent = await SELF.fetch(new Request(authorizeUrl, {
@@ -137,6 +139,7 @@ async function packageAccessToken(
     code: code ?? "",
     redirect_uri: REDIRECT_URI,
     code_verifier: verifier,
+    resource: MCP_RESOURCE,
   });
   if (tokenScopes) tokenRequest.set("scope", tokenScopes.join(" "));
   const exchange = await SELF.fetch(`${OAUTH_ORIGIN}/oauth/token`, {
@@ -184,8 +187,12 @@ async function signedAssertion(scope: BrowserAssertionScope): Promise<string> {
   return `${header}.${payload}.${base64Url(new Uint8Array(signature))}`;
 }
 
-function snapshotRequest(token: string, target = "oauth-snapshot"): Request {
-  return new Request(`${OAUTH_ORIGIN}/v1/snapshot`, {
+function snapshotRequest(
+  token: string,
+  target = "oauth-snapshot",
+  pathname = "/mcp/v1/snapshot",
+): Request {
+  return new Request(`${OAUTH_ORIGIN}${pathname}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -246,6 +253,14 @@ describe("package OAuth snapshot authorization", () => {
       success: true,
       result: { screenshot: PNG_BASE64, markdown: "# Example" },
     });
+
+    const outsideAudience = await SELF.fetch(
+      snapshotRequest(token.access_token, "outside-audience", "/v1/snapshot"),
+    );
+    expect(outsideAudience.status).toBe(401);
+    expect(await outsideAudience.json()).toMatchObject({
+      error: "invalid_token",
+    });
   });
 
   it("requires the exact snapshot scope on a package access token", async () => {
@@ -267,15 +282,27 @@ describe("package OAuth snapshot authorization", () => {
 
   it("preserves production-owned snapshot credentials without granting MCP access", async () => {
     const hostAssertion = await signedAssertion("browser.snapshot.capture");
-    const [serviceSnapshot, hostSnapshot] = await Promise.all([
-      SELF.fetch(snapshotRequest("fixture-workflow-token", "service-snapshot")),
-      SELF.fetch(snapshotRequest(hostAssertion, "host-snapshot")),
-    ]);
+    const [serviceSnapshot, hostSnapshot, legacyServiceSnapshot] =
+      await Promise.all([
+        SELF.fetch(snapshotRequest("fixture-workflow-token", "service-snapshot")),
+        SELF.fetch(snapshotRequest(hostAssertion, "host-snapshot")),
+        SELF.fetch(
+          snapshotRequest(
+            "fixture-workflow-token",
+            "legacy-service-snapshot",
+            "/v1/snapshot",
+          ),
+        ),
+      ]);
     expect(
       serviceSnapshot.status,
       await serviceSnapshot.clone().text(),
     ).toBe(200);
     expect(hostSnapshot.status, await hostSnapshot.clone().text()).toBe(200);
+    expect(
+      legacyServiceSnapshot.status,
+      await legacyServiceSnapshot.clone().text(),
+    ).toBe(200);
 
     const replay = await SELF.fetch(
       snapshotRequest(hostAssertion, "host-replay"),

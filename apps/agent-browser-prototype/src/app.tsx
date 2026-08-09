@@ -17,6 +17,7 @@ import {
 } from "./workflow-snapshot";
 import {
   availableEvidenceChannels,
+  unavailableEvidenceReason,
   type EvidenceTab,
 } from "./evidence-data";
 import {
@@ -407,6 +408,9 @@ function evidenceTiming(snapshot: BrowserSnapshot): string {
 }
 
 function evidenceDetail(snapshot: BrowserSnapshot, tab: EvidenceTab): string {
+  if (unavailableEvidenceReason(snapshot, tab)) {
+    return "unavailable · bounded workflow projection";
+  }
   if (tab === "visual") {
     if (
       snapshot.screenshotDataUrl !== null &&
@@ -685,13 +689,20 @@ export function AgentBrowserApp({
       if (capturedChannels.length === 0) {
         throw new Error("Kitesurf returned none of the requested evidence formats.");
       }
+      const unavailableChannels = capturedChannels.filter(({ id }) =>
+        unavailableEvidenceReason(result, id) !== null);
 
       setSnapshot(result);
       setEvidenceTab(capturedChannels[0].id);
-      setStatus(`Evidence captured${evidenceTiming(result)}`);
+      setStatus(
+        unavailableChannels.length === 0
+          ? `Evidence captured${evidenceTiming(result)}`
+          : `Screenshot captured · ${unavailableChannels.length} requested ${unavailableChannels.length === 1 ? "channel was" : "channels were"} not retained inline`,
+      );
       record(
         "Evidence captured",
-        `${snapshotHeading(result)} · ${capturedChannels.map(({ label }) => label).join(", ")}`,
+        `${snapshotHeading(result)} · ${capturedChannels.map(({ id, label }) =>
+          unavailableEvidenceReason(result, id) ? `${label} unavailable` : label).join(", ")}`,
         "good",
       );
     });
@@ -1995,6 +2006,9 @@ function EvidencePanel({ model }: { readonly model: WorkspaceModel }) {
     );
   }
 
+  const unavailableChannels = channels.filter(({ id }) =>
+    unavailableEvidenceReason(model.snapshot as BrowserSnapshot, id) !== null);
+  const retainedChannelCount = channels.length - unavailableChannels.length;
   const activeTab = channels.some(({ id }) => id === model.evidenceTab)
     ? model.evidenceTab
     : channels[0]?.id;
@@ -2007,7 +2021,9 @@ function EvidencePanel({ model }: { readonly model: WorkspaceModel }) {
           <h3>{snapshotHeading(model.snapshot)}</h3>
         </div>
         <span className="verified-chip">
-          {channels.length} {channels.length === 1 ? "format" : "formats"}
+          {unavailableChannels.length === 0
+            ? `${channels.length} ${channels.length === 1 ? "format" : "formats"}`
+            : `${retainedChannelCount} retained · ${unavailableChannels.length} unavailable`}
         </span>
       </div>
       <p className="evidence-meta">
@@ -2021,7 +2037,9 @@ function EvidencePanel({ model }: { readonly model: WorkspaceModel }) {
       <p className="evidence-provenance-note">
         {model.snapshot.engine}
         {model.snapshot.status === null ? "" : ` · HTTP ${model.snapshot.status}`}
-        {evidenceTiming(model.snapshot)} · {channels.length} independently loaded {channels.length === 1 ? "format" : "formats"}; this is a capture set, not one atomic page state.
+        {evidenceTiming(model.snapshot)} · {unavailableChannels.length === 0
+          ? `${channels.length} independently loaded ${channels.length === 1 ? "format" : "formats"}; this is a capture set, not one atomic page state.`
+          : `${retainedChannelCount} retained ${retainedChannelCount === 1 ? "format" : "formats"}; ${unavailableChannels.length} requested ${unavailableChannels.length === 1 ? "channel was" : "channels were"} explicitly unavailable after bounded run-history projection.`}
       </p>
       {channels.length > 1 ? (
         <div className="tab-row" role="tablist" aria-label="Available evidence formats">
@@ -2059,6 +2077,10 @@ function EvidenceBody({ model, tab }: {
 }) {
   if (!model.snapshot) {
     return <div className="evidence-empty">No captured data is available.</div>;
+  }
+  const unavailableReason = unavailableEvidenceReason(model.snapshot, tab);
+  if (unavailableReason) {
+    return <div className="evidence-empty">{unavailableReason}</div>;
   }
   if (tab === "visual") {
     return model.snapshot.screenshotDataUrl ? (

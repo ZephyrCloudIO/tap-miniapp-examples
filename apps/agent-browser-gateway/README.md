@@ -7,7 +7,8 @@ Trusted Cloudflare Worker control plane for the sibling Remote Browser miniapp. 
 | Route | Authorization | Purpose |
 | --- | --- | --- |
 | `GET /health` | none | Configuration-free liveness |
-| `POST /v1/snapshot` | installation-bound package OAuth access token or interactive assertion with exact `browser.snapshot.capture`, or the snapshot-only workflow bearer | Bounded Quick Action evidence |
+| `POST /mcp/v1/snapshot` | installation-bound package OAuth access token or interactive assertion with exact `browser.snapshot.capture`, or the snapshot-only workflow bearer | Bounded Quick Action evidence under the MCP OAuth resource |
+| `POST /v1/snapshot` | interactive assertion with exact `browser.snapshot.capture`, or the snapshot-only workflow bearer | Compatibility route for existing trusted-host callers |
 | `POST /v1/sessions` | assertion with `browser.session.create` | Allocate an owner-bound Kitesurf session |
 | `GET /v1/sessions/:id` | assertion with `browser.session.read` plus session token | Read lease, Live View, state, and control epoch |
 | `POST /v1/sessions/:id/renew` | fresh assertion with `browser.session.renew` plus session token | Extend the local lease and refresh the Live View URL |
@@ -114,11 +115,15 @@ page. `params._meta` must still match that token owner exactly on every tool cal
 
 The same installation-bound OAuth grant can authorize MCP tools and workflow
 snapshots by requesting both `remote-browser` and `browser.snapshot.capture`.
-The `/mcp` handler requires the former and `POST /v1/snapshot` requires the
-latter. Authorization-code and refresh exchanges copy the provider's effective,
+The `/mcp` handler requires the former and `POST /mcp/v1/snapshot` requires the
+latter. Nesting the workflow route under `/mcp` lets the provider enforce the
+package token's RFC 8707 `/mcp` audience without broadening it to the whole
+origin. Authorization-code and refresh exchanges copy the provider's effective,
 possibly downscoped token scopes into that access token's encrypted props, so a
 token narrowed to `remote-browser` cannot inherit snapshot authority from its
-broader grant.
+broader grant. The compatibility route at `/v1/snapshot` remains available to
+trusted-host assertions and the workflow service bearer; an `/mcp`-bound package
+token is intentionally rejected there.
 
 Interactive authorization is a compact Ed25519 JWS in `Authorization: Bearer …`:
 
@@ -150,8 +155,8 @@ Interactive authorization is a compact Ed25519 JWS in `Authorization: Bearer …
 Issuer and audience must match exactly, assertion lifetime is at most 60 seconds, and state-changing assertions are single-use by `jti`. The complete owner comes from signed claims; request owner headers are ignored. A different owner receives `404` for an existing session, while a bad session capability for the correct owner receives `401`.
 
 `ze-workflows` cannot mint an interactive host assertion today. It can pass the
-package OAuth access token to `POST /v1/snapshot` when that token has the exact
-`browser.snapshot.capture` scope; ownership then remains the package
+package OAuth access token to `POST /mcp/v1/snapshot` when that token has the
+exact `browser.snapshot.capture` scope; ownership then remains the package
 installation attested during OAuth authorization. The production-owned
 `WORKFLOW_SERVICE_TOKEN` path remains available for service execution, with its
 actor, workspace, package, installation, and contribution fixed by
@@ -230,6 +235,6 @@ Each format is therefore an independent Kitesurf page load, not an atomic multi-
 
 The Browser Run binding's typed `quickAction()` contract still omits both the Kitesurf engine selector and the accessibility-tree action. The gateway therefore uses the same binding's raw `fetch()` transport with individual `/v1` Browser Run routes and `browser=kitesurf`; it still makes no public REST request and needs no API token. This contract is isolated in `src/cloudflare-browser.ts` so it can move to `quickAction()` once the generated binding exposes the selector and complete action set.
 
-Wrangler 4.119's local remote binding supports the session/CDP path used by the eleven semantic browser tools; six additional tools coordinate the shared room without allocating another browser. Session start validates a bounded viewport and applies CDP device metrics before the initial navigation; wheel scrolling is dispatched through the same fenced CDP connection. A real local verification of the original nine started Kitesurf, navigated, read the accessibility tree, captured a viewport PNG, listed network traffic and diagnostics, filled a textbox, clicked a button, and closed the session. The selected-element and scroll tools have edge-runtime contracts and CDP command sequences covered by the gateway test service; they still need to be included in the next real local specialist verification. The separate Quick Action transport used by `POST /v1/snapshot` still reaches Browser Run but is rejected upstream with HTTP 401 / code 10000. Current Wrangler supports Browser Run with local Durable Objects and also supports both bindings under full remote development, so `wrangler dev --remote` is a useful native-environment diagnostic; it does not turn the undocumented raw Kitesurf route into a supported binding contract. The same account successfully returned real Kitesurf screenshot, Markdown, accessibility-tree, and content data through the official REST endpoints, which isolates the remaining failure to Quick Actions through the binding. Passing `snapshot?browser=kitesurf` to `quickAction()` is also rejected as an invalid action. The gateway deliberately does not retry with Chromium, use an ambient OAuth token, or manufacture evidence. Local Browser Run responses larger than 1 MiB are unsupported, so a populated final evidence proof belongs on a deployed Worker even after Cloudflare exposes Kitesurf selection on `quickAction()`; specialist MCP sessions work locally today.
+Wrangler 4.119's local remote binding supports the session/CDP path used by the eleven semantic browser tools; six additional tools coordinate the shared room without allocating another browser. Session start validates a bounded viewport and applies CDP device metrics before the initial navigation; wheel scrolling is dispatched through the same fenced CDP connection. A real local verification of the original nine started Kitesurf, navigated, read the accessibility tree, captured a viewport PNG, listed network traffic and diagnostics, filled a textbox, clicked a button, and closed the session. The selected-element and scroll tools have edge-runtime contracts and CDP command sequences covered by the gateway test service; they still need to be included in the next real local specialist verification. The separate Quick Action transport used by `POST /mcp/v1/snapshot` still reaches Browser Run but is rejected upstream with HTTP 401 / code 10000. Current Wrangler supports Browser Run with local Durable Objects and also supports both bindings under full remote development, so `wrangler dev --remote` is a useful native-environment diagnostic; it does not turn the undocumented raw Kitesurf route into a supported binding contract. The same account successfully returned real Kitesurf screenshot, Markdown, accessibility-tree, and content data through the official REST endpoints, which isolates the remaining failure to Quick Actions through the binding. Passing `snapshot?browser=kitesurf` to `quickAction()` is also rejected as an invalid action. The gateway deliberately does not retry with Chromium, use an ambient OAuth token, or manufacture evidence. Local Browser Run responses larger than 1 MiB are unsupported, so a populated final evidence proof belongs on a deployed Worker even after Cloudflare exposes Kitesurf selection on `quickAction()`; specialist MCP sessions work locally today.
 
 This checkout can be typechecked, tested through its non-shipping test service, and built with Wrangler dry-run. A deployed end-to-end run additionally requires Browser Run write authority, real gateway secrets/configuration, a deployed Worker, the host `browserSessions.v1` transport, and a saved workflow wired to `universal.browser.snapshot`.

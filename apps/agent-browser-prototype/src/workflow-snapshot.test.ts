@@ -349,6 +349,102 @@ describe("saved browser workflow lifecycle", () => {
     ).toThrow(/invalid browser evidence artifact/u);
   });
 
+  it("retains a genuine screenshot from a bounded host projection without inventing omitted evidence", () => {
+    const sha256 = "a".repeat(64);
+    const artifact = {
+      kind: "screenshot",
+      artifactRef: `sha256:${sha256}`,
+      mediaType: "image/png",
+      byteLength: 128,
+      sha256,
+    };
+    const omitted = (valueType: string) => ({
+      type: "workflow_output_value_omitted",
+      truncated: true,
+      valueType,
+      originalByteLength: 32_768,
+    });
+
+    const snapshot = normalizeWorkflowBrowserSnapshot(
+      {
+        type: "workflow_output_projection",
+        truncated: true,
+        originalByteLength: 98_304,
+        retained: "validated_artifact_descriptors_and_scalar_metadata",
+        artifacts: [artifact],
+        value: {
+          nodeOutputs: {
+            capture: {
+              outputs: {
+                url: "https://example.com/docs",
+                finalUrl: "https://example.com/docs/",
+                engine: "kitesurf",
+                formats: ["screenshot", "markdown", "accessibilityTree", "content"],
+                status: 200,
+                title: "Example docs",
+                browserMs: 41,
+                durationMs: 87,
+                markdown: omitted("string"),
+                accessibilityTree: omitted("object"),
+                content: omitted("string"),
+              },
+            },
+          },
+        },
+      },
+      {
+        runId: "run-browser-1",
+        requestedUrl: "https://example.com/docs",
+        requestedFormats: ["screenshot", "markdown", "accessibilityTree", "content"],
+      },
+    );
+
+    expect(snapshot).toMatchObject({
+      workflowRunId: "run-browser-1",
+      engine: "kitesurf",
+      requestedUrl: "https://example.com/docs",
+      formats: ["screenshot", "markdown", "accessibilityTree", "content"],
+      screenshotDataUrl: null,
+      screenshotArtifact: artifact,
+      markdown: null,
+      accessibilityTree: null,
+      content: null,
+      outputProjected: true,
+      outputProjectionOriginalByteLength: 98_304,
+      unavailableFormats: ["markdown", "accessibilityTree", "content"],
+    });
+  });
+
+  it("rejects a bounded projection containing malformed screenshot metadata", () => {
+    expect(() =>
+      normalizeWorkflowBrowserSnapshot(
+        {
+          type: "workflow_output_projection",
+          truncated: true,
+          originalByteLength: 98_304,
+          retained: "validated_artifact_descriptors_and_scalar_metadata",
+          artifacts: [{
+            kind: "screenshot",
+            artifactRef: `sha256:${"a".repeat(64)}`,
+            mediaType: "image/png",
+            byteLength: 128,
+            sha256: "b".repeat(64),
+          }],
+          value: {
+            url: "https://example.com/docs",
+            engine: "kitesurf",
+            formats: ["screenshot"],
+          },
+        },
+        {
+          runId: "run-browser-1",
+          requestedUrl: "https://example.com/docs",
+          requestedFormats: ["screenshot"],
+        },
+      )
+    ).toThrow(/invalid browser evidence artifact/u);
+  });
+
   it("rejects an oversized inline screenshot before display", () => {
     const oversized = `iVBORw0KGgoA${"A".repeat(13_981_008)}`;
     expect(() =>

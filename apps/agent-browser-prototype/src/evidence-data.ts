@@ -26,20 +26,61 @@ export function availableEvidenceChannels(
 
   const channels: EvidenceChannel[] = [];
   const formats = new Set(snapshot.formats);
+  const unavailable = new Set(
+    "unavailableFormats" in snapshot && Array.isArray(snapshot.unavailableFormats)
+      ? snapshot.unavailableFormats
+      : [],
+  );
   if (
     formats.has("screenshot") &&
     (snapshot.screenshotDataUrl !== null || hasScreenshotArtifact(snapshot))
   ) {
     channels.push(VISUAL);
   }
-  if (formats.has("markdown") && snapshot.markdown !== null) {
+  if (
+    formats.has("markdown") &&
+    (snapshot.markdown !== null || unavailable.has("markdown"))
+  ) {
     channels.push(MARKDOWN);
   }
-  if (formats.has("accessibilityTree") && snapshot.accessibilityTree !== null) {
+  if (
+    formats.has("accessibilityTree") &&
+    (snapshot.accessibilityTree !== null || unavailable.has("accessibilityTree"))
+  ) {
     channels.push(ACCESSIBILITY);
   }
-  if (formats.has("content") && snapshot.content !== null) {
+  if (
+    formats.has("content") &&
+    (snapshot.content !== null || unavailable.has("content"))
+  ) {
     channels.push(CONTENT);
   }
   return channels;
+}
+
+export function unavailableEvidenceReason(
+  snapshot: BrowserSnapshot,
+  tab: EvidenceTab,
+): string | null {
+  if (!("unavailableFormats" in snapshot) || !Array.isArray(snapshot.unavailableFormats)) {
+    return null;
+  }
+  const format =
+    tab === "markdown"
+      ? "markdown"
+      : tab === "accessibility"
+        ? "accessibilityTree"
+        : tab === "content"
+          ? "content"
+          : "screenshot";
+  if (!snapshot.unavailableFormats.includes(format)) return null;
+  const originalByteLength =
+    "outputProjectionOriginalByteLength" in snapshot &&
+    typeof snapshot.outputProjectionOriginalByteLength === "number"
+      ? snapshot.outputProjectionOriginalByteLength
+      : null;
+  const size = originalByteLength === null
+    ? ""
+    : ` (${originalByteLength.toLocaleString()} bytes before projection)`;
+  return `Not retained inline: the workflow output exceeded the bounded run-history limit${size}. The durable screenshot artifact remains available.`;
 }

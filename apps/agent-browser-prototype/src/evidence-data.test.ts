@@ -1,6 +1,9 @@
 import { describe, expect, it } from "@rstest/core";
 import type { BrowserSnapshot } from "./browser-gateway";
-import { availableEvidenceChannels } from "./evidence-data";
+import {
+  availableEvidenceChannels,
+  unavailableEvidenceReason,
+} from "./evidence-data";
 import type { WorkflowBrowserSnapshot } from "./workflow-snapshot";
 
 function snapshot(
@@ -68,6 +71,36 @@ describe("available evidence channels", () => {
     expect(availableEvidenceChannels(durable)).toEqual([
       { id: "visual", label: "Visual" },
     ]);
+  });
+
+  it("keeps projected channels visible as explicitly unavailable beside the real screenshot", () => {
+    const projected: WorkflowBrowserSnapshot = {
+      ...snapshot({
+        formats: ["screenshot", "markdown", "accessibilityTree", "content"],
+      }),
+      workflowRunId: "run-1",
+      screenshotArtifact: {
+        kind: "screenshot",
+        artifactRef: `sha256:${"a".repeat(64)}`,
+        mediaType: "image/png",
+        byteLength: 128,
+        sha256: "a".repeat(64),
+      },
+      outputProjected: true,
+      outputProjectionOriginalByteLength: 98_304,
+      unavailableFormats: ["markdown", "accessibilityTree", "content"],
+    };
+
+    expect(availableEvidenceChannels(projected).map(({ id }) => id)).toEqual([
+      "visual",
+      "markdown",
+      "accessibility",
+      "content",
+    ]);
+    expect(unavailableEvidenceReason(projected, "markdown")).toMatch(
+      /Not retained inline.*98,304 bytes.*durable screenshot artifact remains available/u,
+    );
+    expect(unavailableEvidenceReason(projected, "visual")).toBeNull();
   });
 
   it("has no channels before a real capture returns", () => {
