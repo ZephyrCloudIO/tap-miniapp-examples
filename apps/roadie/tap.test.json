@@ -20,9 +20,11 @@
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
-        "effect:credentials:http"
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
       ],
-      "credentialSlots": [],
+      "credentialSlots": [
+        "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ],
       "environment": {
         "viewport": {
           "width": 1280,
@@ -55,9 +57,11 @@
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
-        "effect:credentials:http"
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
       ],
-      "credentialSlots": [],
+      "credentialSlots": [
+        "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ],
       "environment": {
         "viewport": {
           "width": 1280,
@@ -90,9 +94,11 @@
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
-        "effect:credentials:http"
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
       ],
-      "credentialSlots": [],
+      "credentialSlots": [
+        "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ],
       "environment": {
         "viewport": {
           "width": 1280,
@@ -125,9 +131,11 @@
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
-        "effect:credentials:http"
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
       ],
-      "credentialSlots": [],
+      "credentialSlots": [
+        "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -157,9 +165,11 @@
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
-        "effect:credentials:http"
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
       ],
-      "credentialSlots": [],
+      "credentialSlots": [
+        "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -189,9 +199,11 @@
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
-        "effect:credentials:http"
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
       ],
-      "credentialSlots": [],
+      "credentialSlots": [
+        "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -217,7 +229,7 @@
         "action:chat.send-message",
         "action:credentials.use",
         "action:network.request",
-        "effect:credentials:http",
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:send-message",
@@ -231,7 +243,7 @@
       "capabilities": [
         "action:chat.send-message",
         "action:network.request",
-        "effect:credentials:http",
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
         "effect:host-api:tap.chat:send-text",
         "effect:storage:roadie"
@@ -243,7 +255,7 @@
       "capabilities": [
         "action:chat.send-message",
         "action:network.request",
-        "effect:credentials:http",
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ",
         "effect:external-network:https://tap-roadie-api-dev.zephyrwmf.workers.dev",
         "effect:host-api:tap.chat:send-text",
         "effect:storage:roadie"
@@ -262,7 +274,10 @@
     {
       "id": "roadie-credentials-use-denied",
       "profile": "roadie-credentials-use-denied",
-      "capabilities": ["action:credentials.use", "effect:credentials:http"]
+      "capabilities": [
+        "action:credentials.use",
+        "effect:credentials:platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+      ]
     }
   ],
   "waivers": []

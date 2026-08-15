@@ -14,14 +14,17 @@ import {
   collectTapTestFiles,
   resolveInstalledTapCli,
 } from "./tap-test-runtime.mjs";
+import {
+  expectedRstestVersionForSdk,
+  isExactSdkVersion,
+  supportedRstestVersionsBySdk,
+} from "./tap-sdk-version-policy.mjs";
 
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const expectedRstestVersionForSdk = (sdkVersion) =>
-  sdkVersion === "0.4.9" || sdkVersion === "0.7.0" ? "0.11.5" : undefined;
 const expectedPlaywrightVersion = "^1.61.0";
 const expectedTypecheckCommand =
   "tsc --project ./tsconfig.tap-test.json --noEmit";
@@ -231,9 +234,12 @@ for (const appName of selectedApps.filter((candidate) =>
     );
     check(
       sdkVersions.length === 1 &&
-        typeof declaredSdkVersion === "string" &&
-        /^\d+\.\d+\.\d+$/u.test(declaredSdkVersion),
+        isExactSdkVersion(declaredSdkVersion),
       `${label}: @theaiplatform/miniapp-sdk must appear once and be an exact version.`,
+    );
+    check(
+      supportedRstestVersionsBySdk.has(declaredSdkVersion),
+      `${label}: unsupported @theaiplatform/miniapp-sdk version ${declaredSdkVersion}.`,
     );
     check(
       manifest.compatibility?.tapSdk === declaredSdkVersion,

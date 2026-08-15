@@ -12,14 +12,15 @@
   },
   "dependencies": {
     "@tap-examples/roadie-contract": "workspace:*",
+    "@theaiplatform/miniapp-sdk": "0.0.0-fix-roadie-dev-origin.1",
     "hono": "4.12.31",
-    "jose": "6.2.3",
     "zod": "4.3.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260726.1",
     "@rstest/core": "0.11.3",
     "@types/node": "26.1.1",
+    "jose": "6.2.4",
     "typescript": "6.0.3",
     "wrangler": "4.112.0"
   }

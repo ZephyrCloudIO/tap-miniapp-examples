@@ -22,9 +22,13 @@ identifiers.
 - TAP's built-in miniapp storage is physically keyed by
   `(workspace_id, package_id, namespace, storage_key)`, so Roadie's remaining
   local settings are already workspace-isolated.
-- `platform.http` attaches the user's TAP session only to an approved origin.
-  The current bearer proves the user identity, but Roadie's API still has to
-  authorize the requested workspace server-side.
+- Roadie's signed descriptor declares its exact backend origin and the
+  `platform-session` effect. TAP exchanges its account bearer for a five-minute
+  token bound to Roadie's package, installation, workspace, and backend origin;
+  no compiled backend allowlist or bearer exposure to miniapp JavaScript.
+- The scoped token proves account and host-attested miniapp context. Roadie's API
+  still resolves the canonical user and authorizes current workspace membership
+  server-side.
 - Roadie's remote D1 database is shared by all workspaces. This is acceptable,
   but every primary key, foreign key, query, and authorization decision must be
   workspace-scoped.
@@ -168,7 +172,8 @@ Owner: Roadie and TAP platform operations.
   never log session credentials or private trip content.
 - Monitor membership-resolution failures, cross-workspace invariant failures,
   D1 conflicts, and API 401/403/409/5xx rates.
-- Promote environment-specific API origins and credential allowlists together.
+- Promote environment-specific backend origins, Cloud issuers, and package IDs
+  together; no TAP credential-origin allowlist exists.
 - Roll back application code if required; restore D1 only from the pre-migration
   export after accounting for writes made after cutover.
 
@@ -205,12 +210,14 @@ The following must be agreed before implementation reaches production:
 5. **Directory schedule:** can the dev Directory cutover be completed before the
    Roadie tracer bullet, or is a temporary platform membership facade required?
 6. **Environment topology:** confirm separate Roadie D1 databases, Workers,
-   allowed origins, and Auth0 audiences for development, staging, and production.
+   exact miniapp-session audiences, Cloud issuers, and package IDs for
+   development, staging, and production.
 7. **Local migration ownership:** confirm that existing local Roadie trips were
    always workspace-scoped by TAP storage before they are automatically uploaded.
-8. **SDK test baseline:** Roadie's manifest/package currently declare SDK 0.4.6,
-   while the TAP surface smoke test expects adapter 0.5.0. Align this before using
-   the generated TAP test matrix as a release gate.
+8. **SDK test baseline:** Roadie exact-pins the published
+   `0.0.0-fix-roadie-dev-origin.1` canary. Move to SDK 0.8.0 after its
+   app-scoped auth helper/verifier release, then regenerate the TAP test matrix
+   before using it as a release gate.
 
 ## Definition of done
 

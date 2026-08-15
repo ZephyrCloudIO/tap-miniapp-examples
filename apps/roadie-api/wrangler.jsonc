@@ -30,16 +30,14 @@
   ],
   "vars": {
     "ENVIRONMENT": "development",
-    "AUTH0_DOMAIN": "dev-auth.zephyr-cloud.io",
-    "AUTH0_AUDIENCE": "https://api-dev.zephyr-cloud.io",
+    "TAP_MINIAPP_SESSION_ISSUER": "https://api-dev.zephyr-cloud.io",
   },
   "env": {
     "development": {
       "name": "tap-roadie-api-dev",
       "vars": {
         "ENVIRONMENT": "development",
-        "AUTH0_DOMAIN": "dev-auth.zephyr-cloud.io",
-        "AUTH0_AUDIENCE": "https://api-dev.zephyr-cloud.io",
+        "TAP_MINIAPP_SESSION_ISSUER": "https://api-dev.zephyr-cloud.io",
       },
       "d1_databases": [
         {

@@ -4,6 +4,8 @@ import type {
   MiniAppHttpRequestOptions,
 } from "@theaiplatform/miniapp-sdk";
 import { describe, expect, it } from "@rstest/core";
+import { definePlatformSessionBackend } from "@theaiplatform/miniapp-sdk/auth";
+import { ROADIE_PLATFORM_SESSION_BACKEND } from "@tap-examples/roadie-contract/platform-session";
 
 import type { Trip } from "./domain";
 import {
@@ -61,7 +63,9 @@ describe("Roadie service client", () => {
 
     expect(result.members).toHaveLength(2);
     expect(calls[0]?.options).toEqual({
-      credentialRef: "platform-session",
+      credentialRef: definePlatformSessionBackend(
+        ROADIE_PLATFORM_SESSION_BACKEND,
+      ).credentialRef,
     });
     expect(calls[0]?.input.url).toBe(
       `${ROADIE_API_ORIGIN}/rpc/tap.roadie.v1.RoadieService/GetWorkspaceContext`,

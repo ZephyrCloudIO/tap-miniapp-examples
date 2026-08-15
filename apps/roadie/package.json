@@ -17,7 +17,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.87.4",
     "@tap-examples/roadie-contract": "workspace:*",
-    "@theaiplatform/miniapp-sdk": "0.4.9",
+    "@theaiplatform/miniapp-sdk": "0.0.0-fix-roadie-dev-origin.1",
     "chrono-node": "^2.10.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",

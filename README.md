@@ -27,7 +27,8 @@ current miniapps are verified against:
 "@theaiplatform/miniapp-sdk": "0.7.0"
 ```
 
-Roadie is verified independently against `0.4.6`.
+Roadie temporarily exact-pins the published
+`0.0.0-fix-roadie-dev-origin.1` canary for app-scoped platform-session effects.
 
 Do not copy an older SDK pin from a reference repository.
 

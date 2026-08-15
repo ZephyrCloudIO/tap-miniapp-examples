@@ -45,7 +45,7 @@ app.get("/health", (context) => context.json({ ok: true, service: "roadie-api" }
 app.post("/rpc/tap.roadie.v1.RoadieService/GetWorkspaceContext", async (context) => {
   const identity = await authenticateRoadieRequest(context.req.raw, context.env);
   const input = getWorkspaceContextRequestSchema.parse(await requestJson(context.req.raw));
-  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
+  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity);
   const roster = listMembersResponseSchema.parse(
     await context.env.DIRECTORY_API.listMembers({
       workspaceId: input.workspaceId,
@@ -55,11 +55,19 @@ app.post("/rpc/tap.roadie.v1.RoadieService/GetWorkspaceContext", async (context)
   const members = roster.members.flatMap((entry): RoadieMember[] => {
     const membership = entry.membership;
     if (!membership?.userId) return [];
+    const isCurrentUser = membership.userId === identity.userId;
+    const avatarUrl = isCurrentUser
+      ? (identity.user.picture ?? entry.profile?.picture)
+      : entry.profile?.picture;
     return [
       {
         userId: membership.userId,
-        displayName: entry.profile?.name ?? entry.profile?.handle ?? membership.invitedEmail,
-        ...(entry.profile?.picture ? { avatarUrl: entry.profile.picture } : {}),
+        displayName:
+          (isCurrentUser ? identity.user.name : undefined) ??
+          entry.profile?.name ??
+          entry.profile?.handle ??
+          membership.invitedEmail,
+        ...(avatarUrl ? { avatarUrl } : {}),
         role: ROLE_MAP[membership.role],
       },
     ];
@@ -80,7 +88,7 @@ app.post("/rpc/tap.roadie.v1.RoadieService/GetWorkspaceContext", async (context)
 app.post("/rpc/tap.roadie.v1.RoadieService/ListTrips", async (context) => {
   const identity = await authenticateRoadieRequest(context.req.raw, context.env);
   const input = listTripsRequestSchema.parse(await requestJson(context.req.raw));
-  await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
+  await requireJoinedWorkspace(context.env, input.workspaceId, identity);
   return connectJson({
     trips: await listTrips(context.env.DB, input.workspaceId, input.ownerUserId),
   });
@@ -89,7 +97,7 @@ app.post("/rpc/tap.roadie.v1.RoadieService/ListTrips", async (context) => {
 app.post("/rpc/tap.roadie.v1.RoadieService/PutTrip", async (context) => {
   const identity = await authenticateRoadieRequest(context.req.raw, context.env);
   const input = putTripRequestSchema.parse(await requestJson(context.req.raw));
-  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
+  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity);
   if (principal.role === "WORKSPACE_ROLE_VIEW_ONLY") {
     throw new HTTPException(403, { message: "Trip editing is not permitted" });
   }
@@ -112,7 +120,7 @@ app.post("/rpc/tap.roadie.v1.RoadieService/PutTrip", async (context) => {
 app.post("/rpc/tap.roadie.v1.RoadieService/DeleteTrip", async (context) => {
   const identity = await authenticateRoadieRequest(context.req.raw, context.env);
   const input = deleteTripRequestSchema.parse(await requestJson(context.req.raw));
-  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity.userId);
+  const principal = await requireJoinedWorkspace(context.env, input.workspaceId, identity);
   const existingOwner = await tripOwner(context.env.DB, input.workspaceId, input.tripId);
   if (existingOwner === null) {
     return connectJson({ tripId: input.tripId });

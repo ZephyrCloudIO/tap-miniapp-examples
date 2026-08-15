@@ -1,4 +1,5 @@
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk";
+import { definePlatformSessionBackend } from "@theaiplatform/miniapp-sdk/auth";
 import {
   deleteTripResponseSchema,
   getWorkspaceContextResponseSchema,
@@ -16,11 +17,15 @@ import type {
   RoadieTrip,
   RoadieTripImpactReport,
 } from "@tap-examples/roadie-contract";
+import { ROADIE_PLATFORM_SESSION_BACKEND } from "@tap-examples/roadie-contract/platform-session";
 import type { z } from "zod";
 
 import { tripSchema, type TimelineItem, type Trip } from "./domain";
 
-export const ROADIE_API_ORIGIN = "https://tap-roadie-api-dev.zephyrwmf.workers.dev";
+const roadieBackend = definePlatformSessionBackend(
+  ROADIE_PLATFORM_SESSION_BACKEND,
+);
+export const ROADIE_API_ORIGIN = roadieBackend.origin;
 
 const PURPOSE_TO_SERVICE = {
   conference: "ROADIE_TRIP_PURPOSE_CONFERENCE",
@@ -305,7 +310,7 @@ async function callRoadie<TSchema extends z.ZodType>(
       timeoutMs: 20_000,
       responseBodyLimitBytes: 1_048_576,
     },
-    { credentialRef: "platform-session" },
+    { credentialRef: roadieBackend.credentialRef },
   );
   if (response.status < 200 || response.status >= 300) {
     throw new Error(

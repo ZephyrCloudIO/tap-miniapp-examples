@@ -30,7 +30,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.4.9",
+    "tapSdk": "0.0.0-fix-roadie-dev-origin.1",
     "tapHost": ">=0.1.0"
   },
   "lifecycle": {
@@ -93,7 +93,9 @@
           },
           {
             "kind": "credentials",
-            "resources": ["http"]
+            "resources": [
+              "platform-session:v1:eyJvIjoiaHR0cHM6Ly90YXAtcm9hZGllLWFwaS1kZXYuemVwaHlyd21mLndvcmtlcnMuZGV2IiwicCI6IlBlcnNvbmFsaXplIHlvdXIgUm9hZGllIHdvcmtzcGFjZSB3aXRoIHlvdXIgbmFtZSBhbmQgcHJvZmlsZSBwaWN0dXJlIiwiYyI6WyJuYW1lIiwicGljdHVyZSJdfQ"
+            ]
           }
         ]
       },

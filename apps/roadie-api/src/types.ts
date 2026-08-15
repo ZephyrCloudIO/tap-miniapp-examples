@@ -1,4 +1,5 @@
 import type { WorkerEntrypoint } from "cloudflare:workers";
+import type { PlatformSessionIdentity } from "@theaiplatform/miniapp-sdk/auth/server";
 
 type DirectoryRpcMethods = {
   resolveCanonicalUser(input: unknown): Promise<unknown>;
@@ -9,13 +10,14 @@ type DirectoryRpcMethods = {
 type DirectoryRpcService = WorkerEntrypoint<unknown> & DirectoryRpcMethods;
 
 export type RoadieApiEnv = {
-  AUTH0_AUDIENCE: string;
-  AUTH0_DOMAIN: string;
   DB: D1Database;
   DIRECTORY_API: Service<DirectoryRpcService>;
   ENVIRONMENT: string;
+  TAP_MINIAPP_SESSION_ISSUER: string;
 };
 
-export type RoadieRequestIdentity = {
+export type RoadieSessionIdentity = PlatformSessionIdentity;
+
+export type RoadieRequestIdentity = RoadieSessionIdentity & {
   userId: string;
 };
