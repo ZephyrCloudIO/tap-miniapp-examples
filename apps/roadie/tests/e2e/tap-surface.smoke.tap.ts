@@ -1,7 +1,7 @@
 import { expect, test } from "@theaiplatform/miniapp-sdk/testing/rstest";
 
 const PACKAGE_ID = "tap_pkg_theaiplatform_roadie_0001";
-const SDK_VERSION = "0.5.0";
+const SDK_VERSION = "0.0.0-fix-roadie-dev-origin.1";
 const SURFACE_TARGET_CELLS = new Set(["roadie\u0000desktop"]);
 const PROFILE_IDS = new Set([
   "roadie-desktop-647b6525651418f87448b77f",
