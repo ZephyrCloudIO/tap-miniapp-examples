@@ -125,7 +125,7 @@ const parseCredentialFreeHttpsUrl = (value, label) => {
   return url;
 };
 
-const stableVersionArtifactBase = (edge) => {
+export const stableVersionArtifactBase = (edge) => {
   const stableEdgeUrl = parseCredentialFreeHttpsUrl(
     edge?.url,
     "Zephyr stable edge origin",
@@ -135,9 +135,14 @@ const stableVersionArtifactBase = (edge) => {
     edge?.versionUrl,
     "Zephyr immutable version route",
   );
-  const [, marker, routeVersion, routeType, existingRouteKey] =
+  const [, marker, routeVersion, routeType, existingRouteKey, ...extraSegments] =
     immutableVersionUrl.pathname.split("/");
   if (marker === "__zephyr" && routeVersion === "v1" && routeType === "v") {
+    assert.ok(
+      extraSegments.length === 0 ||
+        (extraSegments.length === 1 && extraSegments[0] === ""),
+      "Zephyr immutable version route must not contain extra segments.",
+    );
     assert.match(existingRouteKey, PATH_ROUTE_KEY_PATTERN, "Invalid version route key.");
     return new URL(
       `/__zephyr/v1/v/${encodeURIComponent(existingRouteKey)}/`,

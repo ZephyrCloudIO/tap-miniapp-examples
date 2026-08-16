@@ -260,15 +260,17 @@ for (const appName of selectedApps.filter((candidate) =>
         `${label}: installed SDK must declare Test Lab adapter protocol 1.`,
       );
     }
-    check(
-      packageJson.devDependencies?.["@rstest/core"] === expectedRstestVersion,
-      `${label}: @rstest/core must be exactly ${expectedRstestVersion}.`,
-    );
-    check(
-      packageJson.devDependencies?.["@rstest/playwright"] ===
-        expectedRstestVersion,
-      `${label}: @rstest/playwright must be exactly ${expectedRstestVersion}.`,
-    );
+    if (expectedRstestVersion !== undefined) {
+      check(
+        packageJson.devDependencies?.["@rstest/core"] === expectedRstestVersion,
+        `${label}: @rstest/core must be exactly ${expectedRstestVersion}.`,
+      );
+      check(
+        packageJson.devDependencies?.["@rstest/playwright"] ===
+          expectedRstestVersion,
+        `${label}: @rstest/playwright must be exactly ${expectedRstestVersion}.`,
+      );
+    }
     check(
       packageJson.devDependencies?.playwright === expectedPlaywrightVersion,
       `${label}: Playwright must use ${expectedPlaywrightVersion}.`,
