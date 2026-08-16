@@ -30,14 +30,14 @@
   ],
   "vars": {
     "ENVIRONMENT": "development",
-    "TAP_MINIAPP_SESSION_ISSUER": "https://api-dev.zephyr-cloud.io",
+    "TAP_MINIAPP_SESSION_ISSUER": "https://miniapp-session-api-dev.zephyrwmf.workers.dev",
   },
   "env": {
     "development": {
       "name": "tap-roadie-api-dev",
       "vars": {
         "ENVIRONMENT": "development",
-        "TAP_MINIAPP_SESSION_ISSUER": "https://api-dev.zephyr-cloud.io",
+        "TAP_MINIAPP_SESSION_ISSUER": "https://miniapp-session-api-dev.zephyrwmf.workers.dev",
       },
       "d1_databases": [
         {

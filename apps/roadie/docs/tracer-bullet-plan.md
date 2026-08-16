@@ -172,7 +172,7 @@ Owner: Roadie and TAP platform operations.
   never log session credentials or private trip content.
 - Monitor membership-resolution failures, cross-workspace invariant failures,
   D1 conflicts, and API 401/403/409/5xx rates.
-- Promote environment-specific backend origins, Cloud issuers, and package IDs
+- Promote environment-specific backend origins, TAP session issuers, and package IDs
   together; no TAP credential-origin allowlist exists.
 - Roll back application code if required; restore D1 only from the pre-migration
   export after accounting for writes made after cutover.
@@ -210,7 +210,7 @@ The following must be agreed before implementation reaches production:
 5. **Directory schedule:** can the dev Directory cutover be completed before the
    Roadie tracer bullet, or is a temporary platform membership facade required?
 6. **Environment topology:** confirm separate Roadie D1 databases, Workers,
-   exact miniapp-session audiences, Cloud issuers, and package IDs for
+   exact miniapp-session audiences, TAP session issuers, and package IDs for
    development, staging, and production.
 7. **Local migration ownership:** confirm that existing local Roadie trips were
    always workspace-scoped by TAP storage before they are automatically uploaded.

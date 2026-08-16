@@ -10,7 +10,7 @@ import { requireJoinedWorkspace, verifyMiniAppSessionToken } from "./auth";
 import type { RoadieApiEnv, RoadieRequestIdentity } from "./types";
 
 const AUDIENCE = ROADIE_API_ORIGIN;
-const ISSUER = "https://api-dev.zephyr-cloud.io";
+const ISSUER = "https://miniapp-session-api-dev.zephyrwmf.workers.dev";
 const PACKAGE_ID = ROADIE_MINIAPP_PACKAGE_ID;
 
 function sessionEnv(): RoadieApiEnv {
