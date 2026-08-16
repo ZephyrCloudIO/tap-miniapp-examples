@@ -21,7 +21,7 @@
     "verify:real-only:bundle": "node scripts/verify-real-only.mjs --bundle"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "file:../../../../deac/zacks-monorepo/ze-agency-tauri/miniapp-sdk.tgz",
+    "@theaiplatform/miniapp-sdk": "0.7.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

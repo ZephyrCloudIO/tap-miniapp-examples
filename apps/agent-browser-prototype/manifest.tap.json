@@ -29,7 +29,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.5.4",
+    "tapSdk": "0.7.0",
     "tapHost": ">=2.2.0"
   },
   "targets": {
@@ -84,7 +84,6 @@
         "scope": "conversation",
         "instancePolicy": "per-conversation",
         "persistence": "none",
-        "initialPanelMode": "expanded",
         "iconAssets": ["assets/agent-browser.svg"]
       }
     },

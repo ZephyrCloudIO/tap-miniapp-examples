@@ -16,9 +16,20 @@ import "./styles.css";
 
 export const surfaceTarget = "desktop" as const;
 
+type HostSdkWithDeclaredMcpTools = typeof sdk & {
+  readonly mcpTools?: {
+    readonly v1: {
+      readonly callDeclaredTool: CallDeclaredMcpTool;
+      readonly authorizeDeclaredTool: AuthorizeDeclaredMcpTool;
+    };
+  };
+};
+
+const hostSdk = sdk as HostSdkWithDeclaredMcpTools;
+
 export function hostDeclaredMcpToolCaller(): CallDeclaredMcpTool | undefined {
   try {
-    const callDeclaredTool = sdk.mcpTools?.v1.callDeclaredTool;
+    const callDeclaredTool = hostSdk.mcpTools?.v1.callDeclaredTool;
     if (!callDeclaredTool) return undefined;
     return async (options): Promise<DeclaredMcpToolResult> =>
       await callDeclaredTool(options);
@@ -31,7 +42,7 @@ export function hostDeclaredMcpToolAuthorizer():
   | AuthorizeDeclaredMcpTool
   | undefined {
   try {
-    const authorizeDeclaredTool = sdk.mcpTools?.v1.authorizeDeclaredTool;
+    const authorizeDeclaredTool = hostSdk.mcpTools?.v1.authorizeDeclaredTool;
     if (!authorizeDeclaredTool) return undefined;
     return async (options) => await authorizeDeclaredTool(options);
   } catch {

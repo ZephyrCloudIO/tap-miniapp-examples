@@ -47,7 +47,7 @@ const expectedTools = [
 ] as const;
 
 describe("shared Remote Browser manifest", () => {
-  it("requests an expanded first open only for the conversation surface", () => {
+  it("leaves panel presentation state to the host", () => {
     const conversationSurface = manifest.contributions.find(
       (item) => item.kind === "ui.surface" && item.id === "agent-browser-prototype",
     );
@@ -59,8 +59,8 @@ describe("shared Remote Browser manifest", () => {
       placement: "chat-right",
       scope: "conversation",
       instancePolicy: "per-conversation",
-      initialPanelMode: "expanded",
     });
+    expect(conversationSurface?.options).not.toHaveProperty("initialPanelMode");
     expect(workflowSurface?.options).not.toHaveProperty("initialPanelMode");
   });
 
