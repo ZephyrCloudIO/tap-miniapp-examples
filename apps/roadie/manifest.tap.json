@@ -71,12 +71,11 @@
         }
       },
       "authorization": {
+        "allOf": ["credentials.use", "network.request"],
         "onDemand": [
           "channels.list",
           "channels.send-message",
-          "chat.send-message",
-          "credentials.use",
-          "network.request"
+          "chat.send-message"
         ],
         "effects": [
           {
