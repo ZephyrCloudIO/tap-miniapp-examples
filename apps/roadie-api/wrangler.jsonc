@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tap-roadie-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "upload_source_maps": true,
+  "account_id": "b848db7e2edd56dee8ffcc39c18612a5",
+  "dev": {
+    "port": 27462,
+    "ip": "0.0.0.0",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tap-roadie-dev",
+      "database_id": "e513bedf-660f-4e62-8c0e-4a911a9a8c51",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "services": [
+    {
+      "binding": "DIRECTORY_API",
+      "service": "directory-api",
+      "entrypoint": "ChatDirectoryRpc",
+    },
+  ],
+  "vars": {
+    "ENVIRONMENT": "development",
+    "TAP_MINIAPP_SESSION_ISSUER": "https://miniapp-session-api-dev.zephyrwmf.workers.dev",
+  },
+  "env": {
+    "development": {
+      "name": "tap-roadie-api-dev",
+      "vars": {
+        "ENVIRONMENT": "development",
+        "TAP_MINIAPP_SESSION_ISSUER": "https://miniapp-session-api-dev.zephyrwmf.workers.dev",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tap-roadie-dev",
+          "database_id": "e513bedf-660f-4e62-8c0e-4a911a9a8c51",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "services": [
+        {
+          "binding": "DIRECTORY_API",
+          "service": "directory-api-dev",
+          "entrypoint": "ChatDirectoryRpc",
+        },
+      ],
+    },
+  },
+}

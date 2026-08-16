@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package tap.roadie.v1;
+
+option go_package = "github.com/ZephyrCloudIO/tap/protos/gen/go/tap/roadie/v1;roadiev1";
+
+// RoadieService owns workspace-visible business travel, engagements, reports,
+// and their aggregate impact. Every app-facing RPC derives the actor from the
+// verified bearer and verifies joined membership for workspace_id.
+service RoadieService {
+  // GetWorkspaceContext returns the authenticated member and joined workspace
+  // roster needed by Roadie's member filters.
+  rpc GetWorkspaceContext(GetWorkspaceContextRequest) returns (GetWorkspaceContextResponse);
+  // ListTrips returns workspace-visible trips in reverse chronological order.
+  rpc ListTrips(ListTripsRequest) returns (ListTripsResponse);
+  // PutTrip creates or replaces a complete trip. Only its owner or a workspace
+  // administrator may replace an existing trip.
+  rpc PutTrip(PutTripRequest) returns (PutTripResponse);
+  // DeleteTrip removes a trip and its itinerary. Only its owner or a workspace
+  // administrator may delete it.
+  rpc DeleteTrip(DeleteTripRequest) returns (DeleteTripResponse);
+}
+
+enum RoadieWorkspaceRole {
+  ROADIE_WORKSPACE_ROLE_UNSPECIFIED = 0;
+  ROADIE_WORKSPACE_ROLE_OWNER = 1;
+  ROADIE_WORKSPACE_ROLE_ADMIN = 2;
+  ROADIE_WORKSPACE_ROLE_MEMBER = 3;
+  ROADIE_WORKSPACE_ROLE_VIEW_ONLY = 4;
+}
+
+enum RoadieTripPurpose {
+  ROADIE_TRIP_PURPOSE_UNSPECIFIED = 0;
+  ROADIE_TRIP_PURPOSE_CONFERENCE = 1;
+  ROADIE_TRIP_PURPOSE_MEETUP = 2;
+  ROADIE_TRIP_PURPOSE_PODCAST = 3;
+  ROADIE_TRIP_PURPOSE_WORK = 4;
+  ROADIE_TRIP_PURPOSE_PERSONAL = 5;
+  ROADIE_TRIP_PURPOSE_OTHER = 6;
+}
+
+enum RoadieItineraryItemKind {
+  ROADIE_ITINERARY_ITEM_KIND_UNSPECIFIED = 0;
+  ROADIE_ITINERARY_ITEM_KIND_TALK = 1;
+  ROADIE_ITINERARY_ITEM_KIND_SOCIAL = 2;
+  ROADIE_ITINERARY_ITEM_KIND_MEETING = 3;
+  ROADIE_ITINERARY_ITEM_KIND_TRAVEL = 4;
+  ROADIE_ITINERARY_ITEM_KIND_HOTEL = 5;
+  ROADIE_ITINERARY_ITEM_KIND_PERSONAL = 6;
+  ROADIE_ITINERARY_ITEM_KIND_OTHER = 7;
+}
+
+enum RoadieEngagementType {
+  ROADIE_ENGAGEMENT_TYPE_UNSPECIFIED = 0;
+  ROADIE_ENGAGEMENT_TYPE_TALK = 1;
+  ROADIE_ENGAGEMENT_TYPE_PANEL = 2;
+  ROADIE_ENGAGEMENT_TYPE_WORKSHOP = 3;
+  ROADIE_ENGAGEMENT_TYPE_PODCAST = 4;
+  ROADIE_ENGAGEMENT_TYPE_INTERVIEW = 5;
+  ROADIE_ENGAGEMENT_TYPE_KEYNOTE = 6;
+  ROADIE_ENGAGEMENT_TYPE_LIVESTREAM = 7;
+}
+
+enum RoadieMetricConfidence {
+  ROADIE_METRIC_CONFIDENCE_UNSPECIFIED = 0;
+  ROADIE_METRIC_CONFIDENCE_CONFIRMED = 1;
+  ROADIE_METRIC_CONFIDENCE_ESTIMATED = 2;
+  ROADIE_METRIC_CONFIDENCE_DERIVED = 3;
+}
+
+enum RoadieEvidenceSourceKind {
+  ROADIE_EVIDENCE_SOURCE_KIND_UNSPECIFIED = 0;
+  ROADIE_EVIDENCE_SOURCE_KIND_PASTED_TEXT = 1;
+  ROADIE_EVIDENCE_SOURCE_KIND_OFFICIAL_SITE = 2;
+  ROADIE_EVIDENCE_SOURCE_KIND_USER = 3;
+  ROADIE_EVIDENCE_SOURCE_KIND_DEMO_FIXTURE = 4;
+}
+
+enum RoadieEvidenceConfidence {
+  ROADIE_EVIDENCE_CONFIDENCE_UNSPECIFIED = 0;
+  ROADIE_EVIDENCE_CONFIDENCE_HIGH = 1;
+  ROADIE_EVIDENCE_CONFIDENCE_MEDIUM = 2;
+  ROADIE_EVIDENCE_CONFIDENCE_LOW = 3;
+}
+
+message RoadieMember {
+  string user_id = 1;
+  string display_name = 2;
+  optional string avatar_url = 3;
+  RoadieWorkspaceRole role = 4;
+}
+
+message RoadieTrip {
+  string trip_id = 1;
+  string workspace_id = 2;
+  string owner_user_id = 3;
+  string title = 4;
+  RoadieTripPurpose purpose = 5;
+  optional string location = 6;
+  int64 created_at_ms = 7;
+  int64 updated_at_ms = 8;
+  repeated RoadieTimelineItem timeline = 9;
+  optional RoadieTripImpactReport impact_report = 10;
+}
+
+message RoadieImpactLink {
+  string label = 1;
+  string url = 2;
+}
+
+message RoadieEvidence {
+  RoadieEvidenceSourceKind source_kind = 1;
+  string source_label = 2;
+  optional string excerpt = 3;
+  int64 captured_at_ms = 4;
+  optional RoadieEvidenceConfidence confidence = 5;
+}
+
+message RoadieEngagementOutcome {
+  optional int64 audience_count = 1;
+  optional RoadieMetricConfidence audience_confidence = 2;
+  optional string highlight = 3;
+  optional string outcome = 4;
+  optional int64 follow_up_count = 5;
+  repeated RoadieImpactLink links = 6;
+  int64 updated_at_ms = 7;
+}
+
+message RoadieTimelineItem {
+  string item_id = 1;
+  string title = 2;
+  int64 start_at_ms = 3;
+  string time_zone = 4;
+  RoadieItineraryItemKind kind = 5;
+  optional RoadieEngagementType engagement_type = 6;
+  repeated RoadieEvidence evidence = 7;
+  optional RoadieEngagementOutcome outcome = 8;
+  int64 created_at_ms = 9;
+  int64 updated_at_ms = 10;
+}
+
+message RoadieTripImpactReport {
+  string source_text = 1;
+  optional int64 event_attendance = 2;
+  optional RoadieMetricConfidence attendance_confidence = 3;
+  string summary = 4;
+  optional string highlights = 5;
+  optional string outcomes = 6;
+  optional string sponsor_value = 7;
+  optional string private_reflection = 8;
+  optional int64 follow_up_count = 9;
+  repeated RoadieImpactLink links = 10;
+  int64 created_at_ms = 11;
+  int64 updated_at_ms = 12;
+}
+
+message GetWorkspaceContextRequest {
+  string workspace_id = 1;
+}
+
+message GetWorkspaceContextResponse {
+  string workspace_id = 1;
+  RoadieMember current_member = 2;
+  repeated RoadieMember members = 3;
+}
+
+message ListTripsRequest {
+  string workspace_id = 1;
+  optional string owner_user_id = 2;
+}
+
+message ListTripsResponse {
+  repeated RoadieTrip trips = 1;
+}
+
+message PutTripRequest {
+  string workspace_id = 1;
+  string request_id = 2;
+  RoadieTrip trip = 3;
+}
+
+message PutTripResponse {
+  RoadieTrip trip = 1;
+}
+
+message DeleteTripRequest {
+  string workspace_id = 1;
+  string request_id = 2;
+  string trip_id = 3;
+}
+
+message DeleteTripResponse {
+  string trip_id = 1;
+}

@@ -1,0 +1,24 @@
+@import "tailwindcss" source(none);
+@import "@theaiplatform/miniapp-sdk/ui/tailwind.css";
+@source './**/*.{ts,tsx}';
+
+@theme {
+  --color-roadie-paper: oklch(0.97 0.025 88);
+  --color-roadie-card: oklch(0.995 0.008 88);
+  --color-roadie-ink: oklch(0.24 0.055 264);
+  --color-roadie-coral: oklch(0.67 0.2 30);
+  --color-roadie-lime: oklch(0.89 0.2 118);
+  --color-roadie-sky: oklch(0.82 0.11 225);
+  --color-roadie-pink: oklch(0.72 0.2 350);
+  --color-roadie-tangerine: oklch(0.79 0.17 65);
+  --color-roadie-violet: oklch(0.65 0.16 300);
+  --color-roadie-muted: oklch(0.55 0.045 264);
+
+  --font-roadie-display:
+    "Avenir Next Condensed", "Franklin Gothic Medium", "Trebuchet MS", sans-serif;
+  --font-roadie-body: "Avenir Next", "Century Gothic", sans-serif;
+
+  --radius-roadie-ticket: 1.5rem;
+  --shadow-roadie-ticket: 0.45rem 0.45rem 0 0 oklch(0.24 0.055 264 / 0.95);
+  --shadow-roadie-ticket-hover: 0.7rem 0.7rem 0 0 oklch(0.24 0.055 264 / 0.95);
+}

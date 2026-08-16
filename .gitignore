@@ -15,3 +15,5 @@ dist/
 .tap-build/
 .tap-package/
 .tap-receipts/
+.playwright-cli/
+/apps/roadie-api/backups/

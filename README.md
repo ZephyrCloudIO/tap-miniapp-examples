@@ -20,12 +20,15 @@ Target a single example with pnpm's workspace filter, such as `pnpm --filter @ta
 
 Each example exact-pins the SDK version it was verified against. Its
 `tap-miniapp.config.mjs` authoring source is compiled by that SDK, which owns
-the matching `compatibility.tapSdk` value in the staged descriptor. All current
-miniapps are verified against:
+the matching `compatibility.tapSdk` value in the staged descriptor. Most
+current miniapps are verified against:
 
 ```json
 "@theaiplatform/miniapp-sdk": "0.7.0"
 ```
+
+Roadie temporarily exact-pins the published
+`0.0.0-fix-roadie-dev-origin.1` canary for app-scoped platform-session effects.
 
 Do not copy an older SDK pin from a reference repository.
 
