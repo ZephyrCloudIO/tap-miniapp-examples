@@ -1,0 +1,30 @@
+{
+  "name": "@tap-examples/agent-browser-gateway",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "build": "pnpm verify:real-only && wrangler deploy --dry-run --env=\"\" --outdir dist && pnpm verify:real-only:bundle",
+    "check:startup": "wrangler check startup --args=\"--compatibility-date 2026-08-01\"",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm verify:real-only && vitest run",
+    "types": "wrangler types --strict-vars=false",
+    "types:check": "wrangler types --strict-vars=false --check",
+    "verify:real-only": "node ../agent-browser-prototype/scripts/verify-real-only.mjs",
+    "verify:real-only:bundle": "node ../agent-browser-prototype/scripts/verify-real-only.mjs --gateway-bundle"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.6",
+    "@types/node": "26.1.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.119.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "0.10.1",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.20.1",
+    "zod": "4.4.3"
+  }
+}

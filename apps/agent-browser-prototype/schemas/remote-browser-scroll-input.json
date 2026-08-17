@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-scroll-input.json",
+  "title": "Scroll Remote Browser viewport input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "xRatio",
+    "yRatio",
+    "deltaX",
+    "deltaY",
+    "expectedControlEpoch",
+    "expectedDocumentRevision"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "xRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "yRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "deltaX": { "type": "number", "minimum": -2400, "maximum": 2400 },
+    "deltaY": { "type": "number", "minimum": -2400, "maximum": 2400 },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 },
+    "expectedDocumentRevision": { "type": "integer", "minimum": 1 }
+  },
+  "not": {
+    "properties": {
+      "deltaX": { "const": 0 },
+      "deltaY": { "const": 0 }
+    },
+    "required": ["deltaX", "deltaY"]
+  }
+}

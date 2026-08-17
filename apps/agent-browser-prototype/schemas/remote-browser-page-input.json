@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-page-input.json",
+  "title": "Remote Browser paginated telemetry input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sessionHandle"],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "cursor": { "type": "integer", "minimum": 0 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+  }
+}

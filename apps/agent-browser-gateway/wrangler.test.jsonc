@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tap-agent-browser-gateway-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-06",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_SESSIONS",
+        "class_name": "BrowserSessionCoordinator"
+      },
+      {
+        "name": "BROWSER_OWNER_QUOTAS",
+        "class_name": "BrowserOwnerQuota"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-browser-control-plane",
+      "new_sqlite_classes": ["BrowserSessionCoordinator", "BrowserOwnerQuota"]
+    }
+  ]
+}
