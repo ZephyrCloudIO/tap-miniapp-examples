@@ -71,15 +71,10 @@
       },
       "authorization": {
         "allOf": ["kart-royale.play"],
-        "onDemand": ["network.request", "credentials.use"],
         "effects": [
           { "kind": "storage", "resources": ["kart-royale"] },
           {
             "kind": "external-network",
-            "resources": ["https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
-          },
-          {
-            "kind": "platform-session",
             "resources": ["https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
           }
         ]
@@ -177,37 +172,12 @@
             "autonomyCeiling": "listen",
             "consent": "channel",
             "risk": "read"
-          },
-          {
-            "id": "network.request",
-            "resource": "tap.network:request",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
-            "delegatedActors": [],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "consequential"
-          },
-          {
-            "id": "credentials.use",
-            "resource": "tap.credentials:use",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
-            "delegatedActors": [],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "consequential"
           }
         ],
         "levels": [
           {
             "id": "player",
-            "actions": [
-              "kart-royale.play",
-              "kart-royale.read-state",
-              "network.request",
-              "credentials.use"
-            ],
+            "actions": ["kart-royale.play", "kart-royale.read-state"],
             "assignableTo": ["human"]
           },
           {
