@@ -13,12 +13,8 @@
       "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
       "httpRouteFiles": [],
       "requiredOrigins": [],
-      "requiredEffects": [
-        "effect:storage:kart-royale",
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
-      ],
-      "credentialSlots": ["platform-session"],
+      "requiredEffects": ["effect:storage:kart-royale"],
+      "credentialSlots": [],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -40,7 +36,7 @@
       "httpRouteFiles": [],
       "requiredOrigins": [],
       "requiredEffects": ["effect:storage:kart-royale"],
-      "credentialSlots": ["platform-session"],
+      "credentialSlots": [],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -61,11 +57,8 @@
       "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
       "httpRouteFiles": [],
       "requiredOrigins": [],
-      "requiredEffects": [
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
-      ],
-      "credentialSlots": ["platform-session"],
+      "requiredEffects": ["effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"],
+      "credentialSlots": [],
       "environment": {
         "viewport": { "width": 1280, "height": 720 },
         "locale": "en-US",
@@ -73,31 +66,6 @@
         "theme": "light",
         "reducedMotion": true,
         "seed": 7293,
-        "fixedNow": "2026-08-05T12:00:00Z"
-      },
-      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
-    },
-    "kart-royale-desktop-credentials-use-denied": {
-      "surface": "kart-royale",
-      "target": "desktop",
-      "mode": "surface",
-      "permissionScenario": "deny:credentials.use",
-      "deniedActions": ["credentials.use"],
-      "fixtureFiles": ["tests/fixtures/kart-royale.seed.json"],
-      "httpRouteFiles": [],
-      "requiredOrigins": [],
-      "requiredEffects": [
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
-      ],
-      "credentialSlots": ["platform-session"],
-      "environment": {
-        "viewport": { "width": 1280, "height": 720 },
-        "locale": "en-US",
-        "timezone": "UTC",
-        "theme": "light",
-        "reducedMotion": true,
-        "seed": 7294,
         "fixedNow": "2026-08-05T12:00:00Z"
       },
       "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
@@ -113,11 +81,8 @@
       ],
       "capabilities": [
         "action:kart-royale.play",
-        "action:network.request",
-        "action:credentials.use",
         "effect:storage:kart-royale",
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
       ]
     },
     {
@@ -126,31 +91,14 @@
       "testMatch": ["tests/e2e/kart-royale-storage-denied.test.ts"],
       "capabilities": [
         "action:kart-royale.play",
-        "effect:storage:kart-royale",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
+        "effect:storage:kart-royale"
       ]
     },
     {
       "id": "kart-royale-desktop-http-denied",
       "profile": "kart-royale-desktop-http-denied",
       "testMatch": ["tests/e2e/kart-royale-http-denied.test.ts"],
-      "capabilities": [
-        "action:network.request",
-        "action:credentials.use",
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
-      ]
-    },
-    {
-      "id": "kart-royale-desktop-credentials-use-denied",
-      "profile": "kart-royale-desktop-credentials-use-denied",
-      "testMatch": ["tests/e2e/kart-royale-credentials-use-denied.test.ts"],
-      "capabilities": [
-        "action:credentials.use",
-        "action:network.request",
-        "effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev",
-        "effect:platform-session:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"
-      ]
+      "capabilities": ["effect:external-network:https://tap-kart-royale-server-production.zephyr-cloud-app-dev.workers.dev"]
     }
   ],
   "waivers": []

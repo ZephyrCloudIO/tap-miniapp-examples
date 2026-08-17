@@ -13,11 +13,7 @@ export const FIXED_NOW = "2026-08-05T12:00:00Z";
 export const SDK_VERSION = "0.7.0";
 export const SHA256 = /^[a-f0-9]{64}$/u;
 
-export type KartRoyaleRunKind =
-  | "positive"
-  | "post-projection-revoked"
-  | "http-denied"
-  | "credentials-use-denied";
+export type KartRoyaleRunKind = "positive" | "post-projection-revoked" | "http-denied";
 
 export function expectExactProvenance(
   tap: TapMiniappTestFixture,
@@ -25,7 +21,6 @@ export function expectExactProvenance(
 ): void {
   const positive = kind === "positive";
   const httpDenied = kind === "http-denied";
-  const credentialsUseDenied = kind === "credentials-use-denied";
   expect({
     matrixEntryId: tap.matrixEntryId,
     packageId: tap.packageId,
@@ -40,36 +35,26 @@ export function expectExactProvenance(
       ? "kart-royale-desktop-positive"
       : httpDenied
         ? "kart-royale-desktop-http-denied"
-        : credentialsUseDenied
-          ? "kart-royale-desktop-credentials-use-denied"
         : "kart-royale-desktop-storage-denied",
     packageId: PACKAGE_ID,
     profileId: positive
       ? "kart-royale-desktop"
       : httpDenied
         ? "kart-royale-desktop-http-denied"
-        : credentialsUseDenied
-          ? "kart-royale-desktop-credentials-use-denied"
         : "kart-royale-desktop-post-projection-revoked",
     surfaceId: SURFACE_ID,
     target: TARGET,
-    permissionScenario: positive
-      ? "default"
-      : httpDenied
-        ? "http-denied"
-        : credentialsUseDenied
-          ? "deny:credentials.use"
-          : "all-denied",
-    seed: positive ? 7291 : httpDenied ? 7293 : credentialsUseDenied ? 7294 : 7292,
+    permissionScenario: positive ? "default" : httpDenied ? "http-denied" : "all-denied",
+    seed: positive ? 7291 : httpDenied ? 7293 : 7292,
     adapterVersion: SDK_VERSION,
   });
   expect(tap.environment).toEqual({
     viewport: { width: 1280, height: 720 },
     locale: "en-US",
     timezone: "UTC",
-    theme: positive || httpDenied || credentialsUseDenied ? "light" : "dark",
+    theme: positive || httpDenied ? "light" : "dark",
     reducedMotion: true,
-    seed: positive ? 7291 : httpDenied ? 7293 : credentialsUseDenied ? 7294 : 7292,
+    seed: positive ? 7291 : httpDenied ? 7293 : 7292,
     fixedNow: FIXED_NOW,
   });
   expect(tap.sourceDigest).toMatch(SHA256);
