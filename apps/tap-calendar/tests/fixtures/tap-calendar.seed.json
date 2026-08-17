@@ -1,0 +1,188 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_tap_calendar_0001",
+      "namespace": "tap-calendar",
+      "key": "users/tap-fixture-user-v1/calendar-state/v2",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 1,
+        "activeView": "work-week",
+        "accounts": [
+          {
+            "id": "fixture-account-microsoft",
+            "provider": "microsoft",
+            "label": "zack@zephyr-cloud.io",
+            "status": "connected",
+            "calendars": [
+              {
+                "id": "fixture-calendar-work",
+                "accountId": "fixture-account-microsoft",
+                "name": "Zephyr Cloud",
+                "color": "#22c55e",
+                "role": "owner",
+                "visible": true,
+                "conflicts": true,
+                "writable": true,
+                "destination": true,
+                "freshness": "live",
+                "unreadCount": 17
+              }
+            ]
+          }
+        ],
+        "events": [
+          {
+            "id": "fixture-event-customer",
+            "calendarId": "fixture-calendar-work",
+            "title": "Customer architecture call",
+            "start": "2026-08-14T14:00:00-04:00",
+            "end": "2026-08-14T14:30:00-04:00",
+            "kind": "meeting",
+            "status": "confirmed",
+            "location": "zoom",
+            "attendees": [
+              {
+                "id": "fixture-user-zack",
+                "name": "Zack Chapple",
+                "email": "zack@zephyr-cloud.io",
+                "kind": "tap",
+                "required": true
+              },
+              {
+                "id": "fixture-guest-jordan",
+                "name": "Jordan Lee",
+                "email": "jordan@example.com",
+                "kind": "external",
+                "required": true
+              }
+            ]
+          },
+          {
+            "id": "fixture-event-late-night",
+            "calendarId": "fixture-calendar-work",
+            "title": "Late-night release cutoff",
+            "start": "2026-08-14T23:45:00-04:00",
+            "end": "2026-08-15T00:00:00-04:00",
+            "kind": "meeting",
+            "status": "confirmed",
+            "location": null,
+            "attendees": []
+          }
+        ],
+        "availability": [
+          {
+            "id": "fixture-availability-standard",
+            "name": "Standard working hours",
+            "timezone": "America/New_York",
+            "preferredStart": "10:00",
+            "preferredEnd": "15:00",
+            "windows": [
+              { "day": 1, "enabled": true, "start": "09:00", "end": "17:00" },
+              { "day": 2, "enabled": true, "start": "09:00", "end": "17:00" },
+              { "day": 3, "enabled": true, "start": "09:00", "end": "17:00" },
+              { "day": 4, "enabled": true, "start": "09:00", "end": "17:00" },
+              { "day": 5, "enabled": true, "start": "09:00", "end": "17:00" },
+              { "day": 6, "enabled": false, "start": "09:00", "end": "17:00" },
+              { "day": 0, "enabled": false, "start": "09:00", "end": "17:00" }
+            ],
+            "bufferBeforeMinutes": 5,
+            "bufferAfterMinutes": 10,
+            "minimumNoticeMinutes": 120,
+            "bookingHorizonDays": 60
+          }
+        ],
+        "activeAvailabilityId": "fixture-availability-standard",
+        "bookingProfiles": [
+          {
+            "id": "fixture-profile-zack",
+            "ownerType": "individual",
+            "slug": "zephyr-zack",
+            "displayName": "Zack Chapple",
+            "timezone": "America/New_York",
+            "published": true,
+            "eventTypes": [
+              {
+                "id": "fixture-event-type-30min",
+                "slug": "30min",
+                "title": "30 minute meeting",
+                "description": "A focused conversation with Zack.",
+                "durationMinutes": 30,
+                "approvalRequired": false,
+                "location": "google-meet",
+                "destinationCalendarId": "fixture-calendar-work",
+                "availabilityScheduleId": "fixture-availability-standard",
+                "active": true,
+                "color": "#6d5dfc",
+                "analytics": {
+                  "views": 842,
+                  "slotViews": 516,
+                  "starts": 244,
+                  "requests": 197,
+                  "confirmed": 184
+                }
+              }
+            ]
+          }
+        ],
+        "bookingRequests": [],
+        "notificationPreferences": {
+          "reminderMinutes": [10],
+          "system": true,
+          "tap": true,
+          "email": true,
+          "sms": false,
+          "whatsapp": false,
+          "telegram": false,
+          "quietHoursStart": "22:00",
+          "quietHoursEnd": "07:00"
+        },
+        "notificationChannels": [
+          {
+            "id": "fixture-channel-private",
+            "name": "TAP Calendar Notifications",
+            "scope": "private",
+            "enabled": true,
+            "entries": [
+              {
+                "id": "fixture-channel-entry-booking",
+                "createdAt": "2026-08-14T13:20:00-04:00",
+                "kind": "booking",
+                "title": "Customer architecture call",
+                "summary": "Starts at 2:00 PM with one external guest.",
+                "redacted": false
+              }
+            ]
+          }
+        ],
+        "workflowNodes": [
+          {
+            "id": "examples-tap-calendar.normalize-booking-created",
+            "kind": "action",
+            "name": "Normalize booking created",
+            "description": "Normalizes a booking-created gateway payload."
+          },
+          {
+            "id": "examples-tap-calendar.normalize-booking-cancelled",
+            "kind": "action",
+            "name": "Normalize booking cancelled",
+            "description": "Normalizes a booking-cancelled gateway payload."
+          },
+          {
+            "id": "examples-tap-calendar.draft-work-block",
+            "kind": "action",
+            "name": "Draft work block",
+            "description": "Prepares a work block for human review."
+          },
+          {
+            "id": "examples-tap-calendar.prepare-channel-summary",
+            "kind": "action",
+            "name": "Prepare channel summary",
+            "description": "Creates a permission-aware channel summary."
+          }
+        ]
+      }
+    }
+  ]
+}

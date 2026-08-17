@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "title", "calendarId", "start", "end", "kind", "status", "source"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "calendarId": { "type": "string", "minLength": 1 },
+    "start": { "type": "string", "format": "date-time" },
+    "end": { "type": "string", "format": "date-time" },
+    "kind": { "const": "work-block" },
+    "status": { "const": "confirmed" },
+    "source": {
+      "type": "object",
+      "required": ["kind", "id", "label"],
+      "properties": {
+        "kind": { "const": "task" },
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

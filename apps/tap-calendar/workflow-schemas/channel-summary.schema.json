@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "body", "redacted"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "body": { "type": "string", "minLength": 1 },
+    "redacted": { "type": "boolean" },
+    "bookingId": { "type": "string" },
+    "event": { "enum": ["booking.created", "booking.cancelled"] },
+    "status": { "enum": ["pending", "confirmed", "cancelled"] }
+  },
+  "additionalProperties": false
+}

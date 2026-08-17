@@ -1,0 +1,52 @@
+{
+  "name": "@tap-examples/tap-calendar",
+  "version": "0.1.10",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "preview": "rsbuild preview",
+    "build": "pnpm build:preview && pnpm build:miniapp",
+    "build:watch": "rslib build --watch",
+    "build:watch:local": "TAP_CALENDAR_GATEWAY_URL=http://127.0.0.1:8787 rslib build --watch",
+    "build:preview": "rsbuild build",
+    "build:target": "pnpm check:mcp-timezones && node scripts/build-targets.mjs",
+    "build:miniapp": "pnpm build:target && node scripts/assemble-package.mjs && pnpm verify:package",
+    "build:miniapp:production": "TAP_CALENDAR_GATEWAY_URL=https://calendar-api.theaiplatform.app pnpm build:miniapp",
+    "build:miniapp:local": "TAP_CALENDAR_GATEWAY_URL=http://127.0.0.1:8787 pnpm build:miniapp",
+    "generate:mcp-timezones": "node scripts/generate-mcp-time-zone-data.mjs",
+    "check:mcp-timezones": "node scripts/generate-mcp-time-zone-data.mjs --check",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
+    "test": "rstest run",
+    "test:tap": "rstest run --config ./rstest.tap.config.ts",
+    "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "verify:package": "node scripts/verify-package.mjs && node ../../scripts/verify-built-package.mjs tap-package && node scripts/verify-react-runtime.mjs"
+  },
+  "dependencies": {
+    "@theaiplatform/miniapp-sdk": "0.8.0",
+    "@vvo/tzdb": "6.198.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "timezone-support": "3.1.0"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.1",
+    "@module-federation/runtime-tools": "2.8.1",
+    "@rsbuild/core": "^2.1.5",
+    "@rsbuild/plugin-react": "2.1.0",
+    "@rslib/core": "^0.23.2",
+    "@rstest/core": "0.11.5",
+    "@rstest/playwright": "0.11.5",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "ajv": "8.20.0",
+    "moment-timezone": "0.6.3",
+    "playwright": "^1.61.0",
+    "typescript": "^6.0.3"
+  }
+}

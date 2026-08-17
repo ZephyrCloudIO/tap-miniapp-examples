@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["taskId", "title", "calendarId", "start", "end"],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "calendarId": { "type": "string", "minLength": 1 },
+    "start": { "type": "string", "format": "date-time" },
+    "end": { "type": "string", "format": "date-time" },
+    "taskLabel": { "type": "string" }
+  },
+  "additionalProperties": false
+}
