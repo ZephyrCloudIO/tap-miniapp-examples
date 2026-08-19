@@ -1,0 +1,199 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_examples_model_arena_0001",
+    "publisherId": "publisher_theaiplatform_examples",
+    "organizationId": "organization_theaiplatform",
+    "namespace": "examples-model-arena",
+    "slug": "model-arena"
+  },
+  "release": {
+    "releaseId": "tap_pkg_examples_model_arena_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "Model Arena",
+    "description": "Compare AI models side-by-side with cost, latency, and TRR-informed quality metrics including two-stage rework validation.",
+    "iconAssets": ["assets/model-arena.svg"],
+    "assets": [{
+      "role": "app-icon",
+      "mediaType": "image/svg+xml",
+      "path": "assets/model-arena.svg",
+      "integrity": "pending",
+      "sizes": ["any"],
+      "theme": "any"
+    }]
+  },
+  "compatibility": {
+    "tapSdk": "0.8.0",
+    "tapHost": ">=0.1.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_model_arena_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "model-arena",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "authorization": {
+        "allOf": ["model-arena.view"],
+        "onDemand": ["model-arena.manage", "credentials.read", "network.request", "trr.read", "specialists.invoke", "vfs.write"],
+        "effects": [
+          { "kind": "storage", "resources": ["model-arena"] },
+          { "kind": "external-network", "resources": ["https://openrouter.ai"] },
+          { "kind": "credentials", "resources": ["http"] },
+          { "kind": "host-api", "resources": ["tap.specialists:invoke", "tap.vfs:write"] }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "Model Arena",
+        "description": "Compare AI models with TRR-informed quality and rework validation.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained",
+        "iconAssets": ["assets/model-arena.svg"]
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "arena-reviser",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "authorization": { "allOf": ["model-arena.manage"] },
+      "lifecycleScope": "installation",
+      "options": {
+        "manifest": "specialists/arena-reviser/0.1.0.json"
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "model-arena-app",
+      "apiVersion": 1,
+      "options": { "contributionIds": ["model-arena"] }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "model-arena-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "model-arena.view",
+            "resource": "tap.model-arena:view",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "model-arena.manage",
+            "resource": "tap.model-arena:manage",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "credentials.read",
+            "resource": "tap.credentials:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "trr.read",
+            "resource": "tap.trr:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "specialists.invoke",
+            "resource": "tap.specialists:invoke",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "vfs.write",
+            "resource": "tap.vfs:write",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          }
+        ],
+        "levels": [
+          {
+            "id": "arena-viewer",
+            "actions": ["model-arena.view"],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "arena-manager",
+            "actions": ["model-arena.view", "model-arena.manage"],
+            "assignableTo": ["human", "specialist"]
+          }
+        ],
+        "roleRecommendations": [{
+          "actor": "human",
+          "workspaceRole": "member",
+          "level": "arena-viewer"
+        }]
+      }
+    }
+  ],
+  "events": { "publishes": [] },
+  "lifecycle": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle"
+  }
+}

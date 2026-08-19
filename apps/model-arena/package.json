@@ -1,0 +1,42 @@
+{
+  "name": "@tap-examples/model-arena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "dev:harness": "vite harness",
+    "preview": "rsbuild preview",
+    "build": "pnpm build:preview && pnpm build:miniapp",
+    "build:watch": "rslib build --watch",
+    "build:preview": "rsbuild build",
+    "build:miniapp": "rslib build && node scripts/verify-react-closure.mjs && pnpm verify:package",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
+    "test": "rstest run",
+    "test:tap": "rstest run --config ./rstest.tap.config.ts",
+    "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
+    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop"
+  },
+  "dependencies": {
+    "@theaiplatform/miniapp-sdk": "0.8.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.1",
+    "@rsbuild/core": "^2.1.5",
+    "@rsbuild/plugin-react": "2.1.0",
+    "@rslib/core": "^0.23.2",
+    "@rstest/core": "0.11.5",
+    "@rstest/playwright": "0.11.5",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "cross-env": "^10.1.0",
+    "playwright": "^1.61.0",
+    "typescript": "^6.0.3",
+    "vite": "8.1.5"
+  }
+}

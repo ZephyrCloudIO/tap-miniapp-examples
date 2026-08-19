@@ -1,0 +1,127 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_model_arena_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "model-arena-desktop": {
+      "surface": "model-arena",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:model-arena"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 6932,
+        "fixedNow": "2026-08-17T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always"
+      }
+    },
+    "model-arena-desktop-post-projection-revoked": {
+      "surface": "model-arena",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:model-arena"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6933,
+        "fixedNow": "2026-08-17T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "model-arena-desktop-manage-denied": {
+      "surface": "model-arena",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:model-arena.manage",
+      "deniedActions": ["model-arena.manage"],
+      "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:storage:model-arena"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6934,
+        "fixedNow": "2026-08-17T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "model-arena-desktop-positive",
+      "profile": "model-arena-desktop",
+      "testMatch": [
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:model-arena.manage",
+        "action:model-arena.view",
+        "effect:storage:model-arena"
+      ]
+    },
+    {
+      "id": "model-arena-desktop-storage-denied",
+      "profile": "model-arena-desktop-post-projection-revoked",
+      "testMatch": [
+        "tests/e2e/model-arena-storage-denied.test.ts"
+      ],
+      "capabilities": ["effect:storage:model-arena"]
+    },
+    {
+      "id": "model-arena-desktop-manage-denied",
+      "profile": "model-arena-desktop-manage-denied",
+      "testMatch": [
+        "tests/e2e/model-arena-manage-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:model-arena.manage",
+        "action:model-arena.view",
+        "effect:storage:model-arena"
+      ]
+    }
+  ],
+  "waivers": []
+}

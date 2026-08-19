@@ -1,0 +1,124 @@
+/* ==========================================================================
+   Model Arena — Layout Styles
+   Theming comes from @theaiplatform/miniapp-sdk/ui/styles.css (imported in
+   app.tsx). Only layout and app-specific structure lives here, using the
+   SDK theme variables so light/dark host themes both work.
+   ========================================================================== */
+
+.model-arena {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.model-arena-main {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+}
+
+/* Session Composer */
+.session-composer {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mode-toggle > * {
+  flex: 1;
+}
+
+.model-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Results Viewer */
+.results-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.metric-positive {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.metric-negative {
+  color: var(--destructive);
+  font-weight: 500;
+}
+
+.metric-neutral {
+  color: var(--muted-foreground);
+}
+
+.output-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.output-panel-body {
+  padding: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 400px;
+}
+
+.output-stage-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-bottom: 0.25rem;
+}
+
+/* Session Ledger */
+.session-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ledger-search {
+  margin-bottom: 0.5rem;
+}
+
+/* Preview Banner */
+.preview-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
