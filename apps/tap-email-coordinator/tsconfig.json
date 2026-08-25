@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2023",
+    "types": ["@cloudflare/vitest-pool-workers/types", "node"]
+  },
+  "include": [
+    "worker-configuration.d.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

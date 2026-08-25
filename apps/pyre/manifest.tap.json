@@ -20,7 +20,7 @@
     "iconAssets": []
   },
   "compatibility": {
-    "tapSdk": "0.7.0",
+    "tapSdk": "0.9.0",
     "tapHost": ">=0.1.0"
   },
   "targets": {

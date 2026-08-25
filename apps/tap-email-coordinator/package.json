@@ -1,0 +1,31 @@
+{
+  "name": "@tap-examples/tap-email-coordinator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --env=\"\" --outdir dist",
+    "build:production": "wrangler deploy --dry-run --env production --outdir dist-production",
+    "check:startup": "wrangler check startup",
+    "check:startup:production": "wrangler check startup --env production",
+    "deploy:production": "wrangler deploy --env production",
+    "dev": "wrangler dev",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate:production": "wrangler d1 migrations apply DB --remote --env production",
+    "release:check": "pnpm test && pnpm typecheck && pnpm types:check && pnpm build:production && pnpm check:startup:production",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types --strict-vars=false",
+    "types:check": "wrangler types --strict-vars=false --check"
+  },
+  "dependencies": {
+    "@tap-examples/tap-email-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.6",
+    "@types/node": "26.1.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.123.0"
+  }
+}

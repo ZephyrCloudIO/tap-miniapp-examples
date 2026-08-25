@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2023",
+    "types": ["node", "@rstest/core/globals"]
+  },
+  "include": ["src/**/*.ts"]
+}

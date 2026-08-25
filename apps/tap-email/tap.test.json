@@ -1,0 +1,127 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_tap_email_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "tap-email-desktop": {
+      "surface": "tap-email",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
+      "httpRouteFiles": ["tests/fixtures/tap-email.coordinator.http-routes.json"],
+      "requiredOrigins": ["https://tap-email-coordinator.theaiplatform.app"],
+      "requiredEffects": [
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:storage:tap-email",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:user-notification:os"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7401,
+        "fixedNow": "2026-08-18T15:30:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "always" }
+    },
+    "tap-email-desktop-post-projection-revoked": {
+      "surface": "tap-email",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:storage:tap-email",
+        "effect:user-notification:os"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7402,
+        "fixedNow": "2026-08-18T15:30:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    }
+  },
+  "matrix": [
+    {
+      "id": "tap-email-desktop-positive",
+      "profile": "tap-email-desktop",
+      "testMatch": ["tests/e2e/*.tap.ts"],
+      "capabilities": [
+        "action:tap-email.view",
+        "action:tap-email.manage",
+        "action:network.request",
+        "action:channels.create",
+        "action:channels.send-message",
+        "action:notifications.show",
+        "effect:storage:tap-email",
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:user-notification:os"
+      ]
+    },
+    {
+      "id": "tap-email-desktop-storage-denied",
+      "profile": "tap-email-desktop-post-projection-revoked",
+      "testMatch": ["tests/e2e/tap-email.storage-denied.test.ts"],
+      "capabilities": [
+        "action:tap-email.manage",
+        "action:network.request",
+        "action:notifications.show",
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:storage:tap-email",
+        "effect:user-notification:os"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "action:channels.create",
+      "reason": "The default Test Lab mailbox is intentionally empty, so it cannot truthfully exercise user-approved email-to-conversation creation without embedding private mail content in a fixture.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:channels.send-message",
+      "reason": "The default Test Lab mailbox is intentionally empty and therefore has no user-approved email content to send into a private channel.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:create",
+      "reason": "This effect is reserved for the explicit email-to-conversation handoff; the privacy-safe default Test Lab mailbox contains no email to hand off.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:send-message",
+      "reason": "This effect is reserved for user-approved email-to-conversation content. Test Lab must not seed private email content into non-secret TAP JSON storage to manufacture a host call.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:notifications.show",
+      "reason": "The privacy-safe positive fixture contains no post-baseline critical mail, due reminder, or failed send, so TAP Email correctly makes no notification attempt during the smoke case.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:user-notification:os",
+      "reason": "The positive fixture intentionally has no new notification-worthy event after the initial mailbox baseline; denial remains covered by the all-denied matrix entry.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    }
+  ]
+}
