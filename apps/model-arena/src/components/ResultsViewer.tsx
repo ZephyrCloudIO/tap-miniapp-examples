@@ -15,14 +15,11 @@ import {
 import { ComparisonMode, type ModelComparisonSession } from "../domain";
 import { WorkspaceTrrPanel } from "./WorkspaceTrrPanel";
 import { shareTextToChat } from "../host";
-import { getVfsApi, sessionDir } from "../vfs";
 
 interface ResultsViewerProps {
   session: ModelComparisonSession;
   onBack: () => void;
   onFork: (session: ModelComparisonSession) => void;
-  /** Host conversation whose VFS holds this session's artifacts. */
-  conversationId?: string | undefined;
 }
 
 /** Sorted list of all stages present in the session. */
@@ -57,7 +54,7 @@ export function exportSessionMarkdown(session: ModelComparisonSession): string {
   if (isPipeline) header.push("Run", "Role");
   if (isBenchmark) header.push("Arm");
   header.push(...stages.map((s) => `Stage ${s} Tokens`), "Latency (ms)", "Cost (μ$)");
-  if (isRework) header.push("Retention", "ECRT (μ$/tok)");
+  if (isRework) header.push("Lexical retention", "Lexical ECRT (μ$/retained unit)");
   const lines: string[] = [
     `# Model Arena — ${session.id}`,
     "",
@@ -83,7 +80,7 @@ export function exportSessionMarkdown(session: ModelComparisonSession): string {
         return value === undefined ? "—" : `${value}${estimated ? "*" : ""}`;
       }),
       String(totalLatency),
-      String(result.trr.totalCostMicros),
+      String(result.trr.totalCostMicros ?? "—"),
     );
     if (isRework) {
       row.push(formatPercent(result.trr.retentionRate), String(result.trr.ecrtMicros ?? "—"));
@@ -119,7 +116,7 @@ function downloadTextFile(filename: string, content: string, mime: string): void
   URL.revokeObjectURL(url);
 }
 
-export function ResultsViewer({ session, onBack, onFork, conversationId }: ResultsViewerProps) {
+export function ResultsViewer({ session, onBack, onFork }: ResultsViewerProps) {
   const isRework = session.mode === ComparisonMode.Rework || session.mode === ComparisonMode.Benchmark;
   const isBenchmark = session.mode === ComparisonMode.Benchmark;
   const isPipeline = session.mode === ComparisonMode.Pipeline;
@@ -166,9 +163,19 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
                   : "One-Shot"} · {session.models.length} models
             {session.parentSessionId ? ` · forked from ${session.parentSessionId}` : ""}
           </p>
-          {conversationId && getVfsApi() && (
+          {session.vfsArtifactReceipt && (
             <p className="metric-neutral" style={{ margin: 0, fontSize: "0.75rem" }}>
-              Artifacts: {sessionDir(session)}/ (conversation VFS)
+              Artifacts: {session.vfsArtifactReceipt.root}/ (conversation VFS · {session.vfsArtifactReceipt.written} files)
+            </p>
+          )}
+          {session.vfsArtifactStatus && session.vfsArtifactStatus !== "written" && (
+            <p className="metric-negative" style={{ margin: 0, fontSize: "0.75rem" }}>
+              Conversation artifacts were not written ({session.vfsArtifactStatus === "not-authorized" ? "VFS permission not granted" : "VFS write failed"}).
+            </p>
+          )}
+          {session.localPersistenceFailure && (
+            <p className="metric-negative" style={{ margin: 0, fontSize: "0.75rem" }}>
+              This result remains available in memory and exports, but the local browser ledger could not retain it ({session.localPersistenceFailure}).
             </p>
           )}
           <div className="row">
@@ -204,12 +211,12 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
             {stages.map((s) => (
               <TableHead key={s}>Stage {s} Tokens</TableHead>
             ))}
-            {isRework && <TableHead>Discarded</TableHead>}
-            {isRework && <TableHead>Retention</TableHead>}
+            {isRework && <TableHead>Discarded lexical units</TableHead>}
+            {isRework && <TableHead>Lexical retention</TableHead>}
             {isRework && <TableHead>Turn Pressure</TableHead>}
             <TableHead>Latency</TableHead>
             <TableHead>Cost (μ$)</TableHead>
-            {isRework && <TableHead>ECRT (μ$/tok)</TableHead>}
+            {isRework && <TableHead>Lexical ECRT (μ$/retained unit)</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -218,7 +225,9 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
             const estimated = result.outputs.some((o) => o.estimated);
 
             return (
-              <TableRow key={`${result.runIndex ?? 0}:${result.role ?? result.arm ?? "model"}:${result.model.id}`}>
+              <TableRow
+                key={`${result.runIndex ?? 0}:${result.stepIndex ?? -1}:${result.roleId ?? result.role ?? ""}:${result.arm ?? "model"}:${result.model.id}`}
+              >
                 <TableCell>{result.model.name}</TableCell>
                 {isPipeline && <TableCell className="metric-neutral">#{(result.runIndex ?? 0) + 1}</TableCell>}
                 {isPipeline && <TableCell>{result.role ?? "—"}</TableCell>}
@@ -258,7 +267,7 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
                   </TableCell>
                 )}
                 <TableCell>{totalLatency}ms</TableCell>
-                <TableCell>{result.trr.totalCostMicros}</TableCell>
+                <TableCell>{result.trr.totalCostMicros ?? "—"}</TableCell>
                 {isRework && (
                   <TableCell className="metric-neutral">{result.trr.ecrtMicros ?? "—"}</TableCell>
                 )}
@@ -279,7 +288,7 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
       {isRework && session.results.some((r) => r.trr.rounds.length > 1) && (
         <Card>
           <CardHeader>
-            <CardTitle>Per-Round Survival</CardTitle>
+            <CardTitle>Per-Round Lexical Survival</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
@@ -288,15 +297,17 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
                   <TableHead>Model</TableHead>
                   <TableHead>Round</TableHead>
                   <TableHead>Regenerated</TableHead>
-                  <TableHead>Discarded</TableHead>
-                  <TableHead>Retention</TableHead>
+                  <TableHead>Discarded lexical units</TableHead>
+                  <TableHead>Lexical retention</TableHead>
                   <TableHead>r_i</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {session.results.flatMap((result) =>
                   result.trr.rounds.map((round) => (
-                    <TableRow key={`${result.arm ?? "model"}:${result.model.id}-r${round.stage}`}>
+                    <TableRow
+                      key={`${result.runIndex ?? 0}:${result.stepIndex ?? -1}:${result.roleId ?? ""}:${result.arm ?? "model"}:${result.model.id}-r${round.stage}`}
+                    >
                       <TableCell>
                         {result.model.name}
                         {isBenchmark ? (result.arm === "specialist" ? " · +specialist" : " · model only") : ""}
@@ -323,7 +334,7 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
           .map((runIndex) => {
             const runResults = session.results
               .filter((r) => (r.runIndex ?? 0) === runIndex)
-              .sort((a, b) => (session.pipelineRoles ?? []).findIndex((role) => role.label === a.role) - (session.pipelineRoles ?? []).findIndex((role) => role.label === b.role));
+              .sort((a, b) => (a.stepIndex ?? 0) - (b.stepIndex ?? 0));
             return (
               <div key={runIndex} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 <h3 style={{ margin: 0, fontSize: "0.9375rem" }}>
@@ -336,7 +347,12 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
                 </h3>
                 <div className="output-panels">
                   {runResults.map((result) => (
-                    <OutputPanel key={`${result.role}:${result.model.id}`} result={result} isRework={isRework} isPipeline />
+                    <OutputPanel
+                      key={`${result.runIndex ?? 0}:${result.stepIndex ?? -1}:${result.roleId ?? result.role ?? ""}:${result.arm ?? "model"}:${result.model.id}`}
+                      result={result}
+                      isRework={isRework}
+                      isPipeline
+                    />
                   ))}
                 </div>
               </div>
@@ -366,8 +382,8 @@ export function ResultsViewer({ session, onBack, onFork, conversationId }: Resul
   );
 }
 
-/** Per-model arm comparison for benchmark sessions: did the specialist arm
- *  retain more, and at what latency/cost trade-off? */
+/** Descriptive per-model deltas for benchmark sessions. Specialist runs are
+ *  contextual and stateful, so these observations are not isolated verdicts. */
 function BenchmarkDelta({ session }: { session: ModelComparisonSession }) {
   const rows = session.models.flatMap((model) => {
     const modelArm = session.results.find((r) => r.model.id === model.id && r.arm !== "specialist");
@@ -394,32 +410,27 @@ function BenchmarkDelta({ session }: { session: ModelComparisonSession }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Arm Comparison — Model only vs Model + Specialist</CardTitle>
+        <CardTitle>Observed Contextual Deltas — Specialist minus Model-only</CardTitle>
       </CardHeader>
       <CardContent>
+        <p className="metric-neutral" style={{ margin: "0 0 0.75rem", fontSize: "0.8125rem" }}>
+          Descriptive only: specialist runs use a persistent, stateful room. These deltas do not establish an
+          isolated winner or a causal effect.
+        </p>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Model</TableHead>
-              <TableHead>Retention Δ</TableHead>
-              <TableHead>ECRT Δ (μ$/tok)</TableHead>
+              <TableHead>Lexical retention Δ</TableHead>
+              <TableHead>Lexical ECRT Δ (μ$/retained unit)</TableHead>
               <TableHead>Latency Δ</TableHead>
-              <TableHead>Verdict</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map(({ model, retentionDelta, latencyDelta, ecrtDelta }) => (
               <TableRow key={model.id}>
                 <TableCell>{model.name}</TableCell>
-                <TableCell className={
-                  retentionDelta === undefined
-                    ? "metric-neutral"
-                    : retentionDelta > 0.01
-                      ? "metric-positive"
-                      : retentionDelta < -0.01
-                        ? "metric-negative"
-                        : "metric-neutral"
-                }>
+                <TableCell className="metric-neutral">
                   {retentionDelta === undefined
                     ? "—"
                     : `${retentionDelta > 0 ? "+" : ""}${(retentionDelta * 100).toFixed(1)}%`}
@@ -429,15 +440,6 @@ function BenchmarkDelta({ session }: { session: ModelComparisonSession }) {
                 </TableCell>
                 <TableCell className="metric-neutral">
                   {latencyDelta > 0 ? "+" : ""}{latencyDelta}ms
-                </TableCell>
-                <TableCell>
-                  {retentionDelta === undefined
-                    ? "—"
-                    : retentionDelta > 0.01
-                      ? "Specialist arm retained more"
-                      : retentionDelta < -0.01
-                        ? "Model-only arm retained more"
-                        : "No meaningful difference"}
                 </TableCell>
               </TableRow>
             ))}

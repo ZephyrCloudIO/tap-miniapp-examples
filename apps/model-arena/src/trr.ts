@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Model Arena — TRR Event Emission
+   Model Arena — Local TRR Audit Artifact Modeling
    ========================================================================== */
 
 import type {
@@ -15,7 +15,7 @@ import type {
   TrrTurnPressureShadowed,
 } from "./domain";
 
-/** Generate a content-free message/turn ID for TRR events. */
+/** Generate a content-free message/turn ID for local audit artifacts. */
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -27,15 +27,69 @@ function outputAtStage(result: ModelResult, stage: number): ModelOutput | undefi
 
 /** Sorted stages present for a result. */
 function stagesOf(result: ModelResult): number[] {
-  return result.outputs.map((o) => o.stage).sort((a, b) => a - b);
+  return result.outputs
+    .filter((output) => output.finishReason !== "error")
+    .map((output) => output.stage)
+    .sort((a, b) => a - b);
+}
+
+interface ContentDelta {
+  beforeCount: number;
+  afterCount: number;
+  retainedCount: number;
+  removedCount: number;
+  addedCount: number;
+}
+
+const LEXICAL_TOKEN_PATTERN = /[\p{L}\p{M}\p{N}]+(?:['’_-][\p{L}\p{M}\p{N}]+)*/gu;
+
+/**
+ * Tokenize text into normalized lexical units for retention measurement.
+ *
+ * These are deliberately not provider/billing tokens: provider token counts
+ * say how much was generated, but only the text can tell us what survived a
+ * rewrite. Case and Unicode compatibility differences do not count as churn.
+ */
+function lexicalTokens(text: string): string[] {
+  return text.normalize("NFKC").toLocaleLowerCase("en-US").match(LEXICAL_TOKEN_PATTERN) ?? [];
+}
+
+/** Compare two sequences as multisets so moved content still counts as retained. */
+function contentDelta(before: string[], after: string[]): ContentDelta {
+  const available = new Map<string, number>();
+  for (const item of before) {
+    available.set(item, (available.get(item) ?? 0) + 1);
+  }
+
+  let retainedCount = 0;
+  for (const item of after) {
+    const remaining = available.get(item) ?? 0;
+    if (remaining > 0) {
+      retainedCount += 1;
+      available.set(item, remaining - 1);
+    }
+  }
+
+  return {
+    beforeCount: before.length,
+    afterCount: after.length,
+    retainedCount,
+    removedCount: before.length - retainedCount,
+    addedCount: after.length - retainedCount,
+  };
+}
+
+function lexicalDelta(before: string, after: string): ContentDelta {
+  return contentDelta(lexicalTokens(before), lexicalTokens(after));
 }
 
 /** Compute per-round and aggregate TRR metrics from a result's outputs.
  *  Works for one-shot (no rounds) and N-round rework sessions. */
 export function computeTrrMetrics(result: Pick<ModelResult, "outputs">): TrrMetrics {
   const outputs = result.outputs;
-  const atStage = (stage: number) => outputs.find((o) => o.stage === stage);
-  const stages = outputs.map((o) => o.stage).sort((a, b) => a - b);
+  const successfulOutputs = outputs.filter((output) => output.finishReason !== "error");
+  const atStage = (stage: number) => successfulOutputs.find((o) => o.stage === stage);
+  const stages = successfulOutputs.map((o) => o.stage).sort((a, b) => a - b);
   const stage1 = atStage(1);
   const stage1Tokens = stage1?.tokens.completion ?? 0;
 
@@ -46,16 +100,16 @@ export function computeTrrMetrics(result: Pick<ModelResult, "outputs">): TrrMetr
     const curr = atStage(stage);
     if (!prev || !curr) continue;
 
-    const discarded = Math.max(0, prev.tokens.completion - curr.tokens.completion);
+    const delta = lexicalDelta(prev.text, curr.text);
     const retentionRate =
-      prev.tokens.completion > 0 ? 1 - discarded / prev.tokens.completion : undefined;
-    const total = prev.tokens.completion + curr.tokens.completion;
-    const p_i = total > 0 ? discarded / total : 0;
+      delta.beforeCount > 0 ? delta.retainedCount / delta.beforeCount : undefined;
+    const total = delta.beforeCount + delta.afterCount;
+    const p_i = total > 0 ? delta.removedCount / total : 0;
 
     rounds.push({
       stage,
       regeneratedTokens: curr.tokens.completion,
-      discardedTokens: discarded,
+      discardedTokens: delta.removedCount,
       retentionRate,
       turnPressure: computeTurnPressure(p_i).r_i,
       costMicros: curr.costMicros,
@@ -65,16 +119,19 @@ export function computeTrrMetrics(result: Pick<ModelResult, "outputs">): TrrMetr
 
   const finalStage = stages[stages.length - 1];
   const finalOutput = finalStage !== undefined ? atStage(finalStage) : undefined;
-  const finalTokens = finalOutput?.tokens.completion ?? stage1Tokens;
-
-  const totalCostMicros = outputs.reduce((sum, o) => sum + (o.costMicros ?? 0), 0);
+  const totalCostMicros =
+    outputs.length > 0 && outputs.every((output) => output.costMicros !== undefined)
+      ? outputs.reduce((sum, output) => sum + output.costMicros!, 0)
+      : undefined;
 
   const hasRework = rounds.length > 0;
-  // Approximation: tokens surviving to the final stage. Without a real diff,
-  // treat the final output's length relative to stage 1 as the retained share.
+  const overallDelta =
+    hasRework && stage1 && finalOutput ? lexicalDelta(stage1.text, finalOutput.text) : undefined;
   const overallRetention =
-    hasRework && stage1Tokens > 0 ? Math.min(1, finalTokens / stage1Tokens) : undefined;
-  const totalDiscarded = hasRework ? Math.max(0, stage1Tokens - finalTokens) : undefined;
+    overallDelta && overallDelta.beforeCount > 0
+      ? overallDelta.retainedCount / overallDelta.beforeCount
+      : undefined;
+  const totalDiscarded = overallDelta?.removedCount;
 
   return {
     stage1Tokens,
@@ -85,7 +142,9 @@ export function computeTrrMetrics(result: Pick<ModelResult, "outputs">): TrrMetr
       ? Math.max(...rounds.map((r) => r.turnPressure ?? 0))
       : undefined,
     ecrtMicros:
-      hasRework && finalTokens > 0 ? Math.round(totalCostMicros / finalTokens) : undefined,
+      overallDelta && overallDelta.retainedCount > 0 && totalCostMicros !== undefined
+        ? Math.round(totalCostMicros / overallDelta.retainedCount)
+        : undefined,
     totalCostMicros,
   };
 }
@@ -112,7 +171,7 @@ export function buildTokenBatchProduced(
     revisionId: generateId("batch"),
     workspaceId,
     messageId: generateId("msg"),
-    modelId: result.model.id,
+    modelId: output?.modelUsed ?? result.model.id,
     providerId: output?.providerUsed,
     graphemesAtEmit: text.length, // Approximate; real impl uses Intl.Segmenter
     tokensAtEmit: tokens,
@@ -130,19 +189,17 @@ export function buildTurnStamped(
 ): TrrTurnStamped {
   const output = outputAtStage(result, stage);
   const previous = stage >= 2 ? outputAtStage(result, stage - 1) : undefined;
+  const delta = previous && output ? lexicalDelta(previous.text, output.text) : undefined;
 
   return {
-    turnId: generateId("turn"),
+    turnId: output?.turnId ?? generateId("turn"),
     workspaceId,
-    modelId: result.model.id,
+    modelId: output?.modelUsed ?? result.model.id,
     providerId: output?.providerUsed,
     promptTokens: output?.tokens.prompt ?? 0,
     outputTokens: output?.tokens.completion ?? 0,
     iterationCount: stage - 1,
-    discardedCompletionTokens:
-      previous && output
-        ? Math.max(0, previous.tokens.completion - output.tokens.completion)
-        : 0,
+    discardedCompletionTokens: delta?.removedCount ?? 0,
     regeneratedTokenCount: stage >= 2 ? (output?.tokens.completion ?? 0) : 0,
     ttftMs: output?.ttftMs,
     totalLatencyMs: output?.latencyMs ?? 0,
@@ -163,10 +220,12 @@ export function buildTokenEdited(
   const current = outputAtStage(result, stage);
   if (stage < 2 || !previous || !current) return null;
 
-  const tokensRemoved = Math.max(0, previous.tokens.completion - current.tokens.completion);
-  const tokensAdded = Math.max(0, current.tokens.completion - previous.tokens.completion);
-  const graphemesRemoved = Math.max(0, previous.text.length - current.text.length);
-  const graphemesAdded = Math.max(0, current.text.length - previous.text.length);
+  const tokenDelta = lexicalDelta(previous.text, current.text);
+  const graphemeDelta = contentDelta(Array.from(previous.text), Array.from(current.text));
+  const tokensRemoved = tokenDelta.removedCount;
+  const tokensAdded = tokenDelta.addedCount;
+  const graphemesRemoved = graphemeDelta.removedCount;
+  const graphemesAdded = graphemeDelta.addedCount;
 
   // Classify severity by rule (matches zephyr-analytics aggregation.rs)
   let severityTier: TrrTokenEdited["severityTier"] = "minor";
@@ -191,7 +250,10 @@ export function buildTokenEdited(
     graphemesRemoved,
     tokensAdded,
     tokensRemoved,
-    deathMode: tokensRemoved >= previous.tokens.completion * 0.5 ? "regenerate" : "edit",
+    deathMode:
+      tokenDelta.beforeCount > 0 && tokensRemoved >= tokenDelta.beforeCount * 0.5
+        ? "regenerate"
+        : "edit",
     severityTier,
     createdAt: Date.now(),
   };
@@ -207,13 +269,13 @@ export function buildTurnPressureShadowed(
   const current = outputAtStage(result, stage);
   if (stage < 2 || !previous || !current) return null;
 
-  const discarded = Math.max(0, previous.tokens.completion - current.tokens.completion);
-  const total = previous.tokens.completion + current.tokens.completion;
-  const p_i = total > 0 ? discarded / total : 0;
+  const delta = lexicalDelta(previous.text, current.text);
+  const total = delta.beforeCount + delta.afterCount;
+  const p_i = total > 0 ? delta.removedCount / total : 0;
   const { g_of_p, r_i } = computeTurnPressure(p_i);
 
   return {
-    turnId: generateId("turn"),
+    turnId: current.turnId ?? generateId("turn"),
     workspaceId,
     iterationCount: stage - 1,
     streamRetryCount: 0,
@@ -224,8 +286,14 @@ export function buildTurnPressureShadowed(
   };
 }
 
-/** Emit all TRR events for a completed session, one set per stage per model. */
-export function emitSessionTrrEvents(
+/**
+ * Build a content-free, TRR-shaped audit record for a completed session.
+ *
+ * These records are written only to the session's VFS artifact set. They are
+ * not canonical host TRR events: managed inference records that telemetry at
+ * the host boundary, and SDK 0.12 intentionally exposes no arbitrary emitter.
+ */
+export function buildSessionTrrAuditEvents(
   session: ModelComparisonSession,
   workspaceId: string,
 ): TrrEvent[] {

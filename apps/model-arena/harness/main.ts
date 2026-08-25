@@ -1,14 +1,21 @@
 /**
- * Vite harness: loads the *built* TAP package (.tap-build/desktop) the way a
- * host would — resolve the federation manifest, load the expose chunk and its
- * CSS, then call mount() with a mocked surface context. No TAP runtime, so
- * host APIs (vfs/http/credentials/specialist/trr) are absent and the app must
- * degrade to its standalone fallbacks (direct OpenRouter fetch + local key).
+ * Vite harness: loads the assembled SDK 0.12 TAP package (dist/) the way a
+ * host would — resolve the federation manifest, initialize its remote
+ * container, request the desktop expose, then call mount() with a mocked
+ * surface context. No TAP runtime is present, so host-backed APIs remain
+ * unavailable and the app must render its supported standalone state.
  */
 
-interface MfExpose {
-  id: string;
-  assets?: { js?: { sync?: string[] }; css?: { sync?: string[] } };
+interface FederationContainer {
+  init(shareScope: Record<string, unknown>): void | Promise<void>;
+  get(expose: string): Promise<() => unknown>;
+}
+
+interface DesktopSurfaceModule {
+  mount(
+    container: HTMLElement,
+    context: Record<string, unknown>,
+  ): { unmount(): void };
 }
 
 function status(message: string, isError = false) {
@@ -21,40 +28,50 @@ function status(message: string, isError = false) {
 
 async function main() {
   const manifest = (await (await fetch("/manifest.tap.json")).json()) as {
-    package: { packageId: string; namespace: string };
-    release: { releaseId: string };
-    contributions: Array<{ id: string }>;
+    schemaVersion: number;
+    versionLabel: string;
+    localDisplay?: { slug?: string };
   };
-  const mf = (await (await fetch("/targets/desktop/mf-manifest.json")).json()) as {
-    exposes: MfExpose[];
-  };
-
-  const expose = mf.exposes.find((e) => e.id.includes("ui/desktop"));
-  const chunk = expose?.assets?.js?.sync?.[0];
-  const css = expose?.assets?.css?.sync?.[0];
-  if (!chunk) throw new Error("ui/desktop expose chunk missing — run pnpm build first");
-
-  if (css) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = `/${css}`;
-    document.head.appendChild(link);
+  if (manifest.schemaVersion !== 1) {
+    throw new Error("built package is not an SDK 0.12 source manifest");
   }
-
-  const mod = (await import(/* @vite-ignore */ `/${chunk}`)) as {
-    mount: (
-      container: HTMLElement,
-      context: Record<string, unknown>,
-    ) => { unmount(): void };
+  const mf = (await (await fetch("/targets/desktop/mf-manifest.json")).json()) as {
+    metaData: {
+      remoteEntry: { name: string; path: string };
+    };
+    exposes: Array<{ name: string; path: string }>;
   };
+
+  const expose = mf.exposes.find((candidate) => candidate.name === "ui/desktop");
+  if (!expose) throw new Error("ui/desktop expose missing — run pnpm build first");
+
+  const remoteEntryPath = [mf.metaData.remoteEntry.path, mf.metaData.remoteEntry.name]
+    .filter(Boolean)
+    .join("/");
+  if (!remoteEntryPath) throw new Error("desktop remote entry missing from federation manifest");
+
+  const remote = (await import(
+    /* @vite-ignore */ `/${remoteEntryPath}`
+  )) as FederationContainer;
+  if (typeof remote.init !== "function" || typeof remote.get !== "function") {
+    throw new Error("desktop remote entry is not a Module Federation container");
+  }
+  await remote.init({});
+  const createSurfaceModule = await remote.get(expose.path);
+  const mod = createSurfaceModule() as DesktopSurfaceModule;
+  if (typeof mod.mount !== "function") {
+    throw new Error("ui/desktop expose does not export mount()");
+  }
 
   const noop = () => () => undefined;
   const context = {
-    packageId: manifest.package.packageId,
-    packageNamespace: manifest.package.namespace,
-    releaseId: manifest.release.releaseId,
+    // Generation-2 source manifests intentionally contain no Registry-owned
+    // package/release identity. A real host injects those minted values.
+    packageId: "harness-package",
+    packageNamespace: manifest.localDisplay?.slug ?? "model-arena",
+    releaseId: `harness-release-${manifest.versionLabel}`,
     installationId: "harness-installation",
-    contributionId: manifest.contributions[0]?.id ?? "model-arena",
+    contributionId: "model-arena",
     instanceId: "harness-instance",
     hostOrigin: window.location.origin,
     packageAssetBaseUrl: `${window.location.origin}/`,
@@ -70,7 +87,7 @@ async function main() {
   const root = document.getElementById("root");
   if (!root) throw new Error("root missing");
   mod.mount(root, context);
-  status("miniapp mounted from built package — host APIs absent, standalone fallbacks active");
+  status("miniapp mounted from the built Module Federation package");
 }
 
 main().catch((error) => {

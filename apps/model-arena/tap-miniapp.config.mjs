@@ -1,7 +1,9 @@
 import manifest from "./manifest.tap.json" with { type: "json" };
 import { defineTapMiniapp } from "@theaiplatform/miniapp-sdk/authoring";
 import { commandTargetBuilder } from "@theaiplatform/miniapp-sdk/lifecycle";
+import { zephyrPublisher } from "@zephyrcloudio/miniapp-zephyr-publisher";
 import { staticContributionProvider } from "../../scripts/tap-miniapp-static-contributions.mjs";
+import { verifyReactClosure } from "./scripts/verify-react-closure.mjs";
 
 const builder = commandTargetBuilder({
   command: "pnpm",
@@ -9,9 +11,19 @@ const builder = commandTargetBuilder({
 });
 
 export default defineTapMiniapp({
-  release: { version: manifest.release.version },
-  identity: manifest.package,
-  presentation: manifest.presentation,
+  publisher: zephyrPublisher({
+    coordinates: {
+      organization: "zephyrcloudio",
+      project: "tap-miniapp-examples",
+      application: "model-arena",
+    },
+  }),
+  versionLabel: manifest.release.version,
+  presentation: {
+    ...manifest.presentation,
+    slug: "model-arena",
+    categories: ["other"],
+  },
   compatibility: { tapHost: manifest.compatibility.tapHost },
   targets: {
     desktop: {
@@ -24,6 +36,10 @@ export default defineTapMiniapp({
     },
   },
   contributions: [staticContributionProvider(manifest)],
+  dependencySlots: [],
   events: manifest.events,
-  lifecycle: manifest.lifecycle,
+  runtimePolicy: manifest.lifecycle,
+  verify: {
+    verifyRuntime: ({ packageRoot }) => verifyReactClosure(packageRoot),
+  },
 });

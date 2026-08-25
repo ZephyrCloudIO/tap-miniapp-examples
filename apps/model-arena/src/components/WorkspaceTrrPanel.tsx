@@ -50,9 +50,9 @@ function cellFields(cell: MiniAppJsonValue): Record<string, string> {
   return fields;
 }
 
-/** Workspace-level TRR analytics from the host (SDK 0.8.0 `sdk.trr`).
- *  Renders nothing outside the host; degrades to hints when the trr.read
- *  grant is withheld or no data exists yet. */
+/** Workspace-level canonical TRR analytics from the host (SDK 0.12 `sdk.trr`).
+ *  Renders nothing outside the host; degrades to hints when either TRR grant
+ *  is withheld or no data exists yet. */
 export function WorkspaceTrrPanel() {
   const [survival, setSurvival] = useState<SurvivalCounts | null>(null);
   const [ecrt, setEcrt] = useState<AggregateResult | null>(null);
@@ -80,8 +80,8 @@ export function WorkspaceTrrPanel() {
       }
       if (deathResult.status === "fulfilled") setDeathCauses(deathResult.value);
 
-      // A rejected read usually means the trr.read grant is missing.
-      if (survivalResult.status === "rejected" && ecrtResult.status === "rejected") {
+      // ECRT has its own trr.read-cost grant; other aggregates use trr.read.
+      if (survivalResult.status === "rejected" || ecrtResult.status === "rejected") {
         setWithheld(true);
       }
     })();
@@ -103,7 +103,7 @@ export function WorkspaceTrrPanel() {
           <Alert>
             <AlertTitle>TRR analytics withheld</AlertTitle>
             <AlertDescription>
-              Grant the trr.read permission to see workspace retention analytics here.
+              Grant trr.read and trr.read-cost to see all workspace retention analytics here.
             </AlertDescription>
           </Alert>
         )}

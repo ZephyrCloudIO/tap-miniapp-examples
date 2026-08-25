@@ -1,5 +1,5 @@
 import "@theaiplatform/miniapp-sdk/ui/styles.css";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
 import {
   Button,
@@ -13,6 +13,7 @@ import { SessionComposer } from "./components/SessionComposer";
 import { ResultsViewer } from "./components/ResultsViewer";
 import { SessionLedger } from "./components/SessionLedger";
 import { Dashboard } from "./components/Dashboard";
+import { getCreatorIdentity, getWorkspaceId } from "./config";
 
 interface ModelArenaAppProps {
   context?: TapFederatedSurfaceMountContext;
@@ -25,12 +26,48 @@ export function ModelArenaApp({ context, preview }: ModelArenaAppProps) {
   const [activeSession, setActiveSession] = useState<ModelComparisonSession | null>(null);
   const [forkSource, setForkSource] = useState<ModelComparisonSession | null>(null);
   const [view, setView] = useState<View>("dashboard");
+  const [isComparisonRunning, setIsComparisonRunning] = useState(false);
+  const subscribeOwner = useCallback(
+    (listener: () => void) => context?.owner.subscribe(listener) ?? (() => undefined),
+    [context],
+  );
+  const getOwnerSnapshot = useCallback(
+    () => context?.owner.getSnapshot() ?? null,
+    [context],
+  );
+  const owner = useSyncExternalStore(subscribeOwner, getOwnerSnapshot, getOwnerSnapshot);
+  const conversationId = owner?.conversationId ?? context?.conversationId;
+  const workspaceId = owner?.workspaceId ?? context?.workspaceId;
+  const storageWorkspaceId = workspaceId ?? getWorkspaceId();
+  const storageUserId = context?.userId ?? getCreatorIdentity();
+  const storageScope = JSON.stringify([storageWorkspaceId, storageUserId]);
+  const currentStorageScope = useRef(storageScope);
+  currentStorageScope.current = storageScope;
+  const [viewScope, setViewScope] = useState(storageScope);
+  const scopeIsCurrent = viewScope === storageScope;
+  const visibleView = scopeIsCurrent ? view : "dashboard";
 
-  const handleSessionCreated = useCallback((session: ModelComparisonSession) => {
+  useEffect(() => {
+    if (viewScope === storageScope) return;
+    setActiveSession(null);
+    setForkSource(null);
+    setView("dashboard");
+    setViewScope(storageScope);
+  }, [storageScope, viewScope]);
+
+  const handleSessionSelected = useCallback((session: ModelComparisonSession) => {
     setActiveSession(session);
     setForkSource(null);
     setView("results");
   }, []);
+
+  const handleSessionCreated = useCallback(
+    (session: ModelComparisonSession, sourceScope: string) => {
+      if (sourceScope !== currentStorageScope.current) return;
+      handleSessionSelected(session);
+    },
+    [handleSessionSelected],
+  );
 
   const handleNewSession = useCallback(() => {
     setActiveSession(null);
@@ -58,15 +95,17 @@ export function ModelArenaApp({ context, preview }: ModelArenaAppProps) {
         </MiniAppPageHeaderContent>
         <MiniAppPageHeaderActions>
           <Button
-            variant={view === "dashboard" ? "default" : "outline"}
+            variant={visibleView === "dashboard" ? "default" : "outline"}
             size="sm"
             onClick={handleBackToDashboard}
+            disabled={isComparisonRunning}
           >
             Dashboard
           </Button>
           <Button
-            variant={view === "ledger" ? "default" : "outline"}
+            variant={visibleView === "ledger" ? "default" : "outline"}
             size="sm"
+            disabled={isComparisonRunning}
             onClick={() => {
               setActiveSession(null);
               setForkSource(null);
@@ -75,33 +114,44 @@ export function ModelArenaApp({ context, preview }: ModelArenaAppProps) {
           >
             Ledger
           </Button>
-          <Button size="sm" onClick={handleNewSession}>
+          <Button size="sm" onClick={handleNewSession} disabled={isComparisonRunning}>
             New Comparison
           </Button>
         </MiniAppPageHeaderActions>
       </MiniAppPageHeader>
 
-      <main className="model-arena-main">
-        {view === "dashboard" && (
-          <Dashboard onSelectSession={handleSessionCreated} onNewSession={handleNewSession} />
-        )}
-        {view === "ledger" && (
-          <SessionLedger onSelectSession={handleSessionCreated} onNewSession={handleNewSession} />
-        )}
-        {view === "composer" && (
-          <SessionComposer
-            onSessionCreated={handleSessionCreated}
-            initialDraft={forkSource ?? undefined}
-            conversationId={context?.conversationId}
-            workspaceId={context?.workspaceId}
+      <main className="model-arena-main" key={storageScope}>
+        {visibleView === "dashboard" && (
+          <Dashboard
+            onSelectSession={handleSessionSelected}
+            onNewSession={handleNewSession}
+            workspaceId={storageWorkspaceId}
+            userId={storageUserId}
           />
         )}
-        {view === "results" && activeSession && (
+        {visibleView === "ledger" && (
+          <SessionLedger
+            onSelectSession={handleSessionSelected}
+            onNewSession={handleNewSession}
+            workspaceId={storageWorkspaceId}
+            userId={storageUserId}
+          />
+        )}
+        {visibleView === "composer" && (
+          <SessionComposer
+            onSessionCreated={(session) => handleSessionCreated(session, storageScope)}
+            onRunningChange={setIsComparisonRunning}
+            initialDraft={scopeIsCurrent ? forkSource ?? undefined : undefined}
+            conversationId={conversationId ?? undefined}
+            workspaceId={workspaceId ?? undefined}
+            creatorId={context?.userId}
+          />
+        )}
+        {visibleView === "results" && scopeIsCurrent && activeSession && (
           <ResultsViewer
             session={activeSession}
             onBack={handleBackToDashboard}
             onFork={handleFork}
-            conversationId={context?.conversationId}
           />
         )}
       </main>

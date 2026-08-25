@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   analyzeTapTestSource,
   assertTapDiscoveryMatchesSource,
+  resolveManifestDescriptorPackageId,
+  resolveTapStaticAppExpectation,
   TAP_RSTEST_ADAPTER,
 } from "./tap-test-policy.mjs";
 
@@ -14,6 +16,48 @@ test("mounts the surface", async ({ surface }) => {
   await expect(surface.locator("body")).toBeVisible();
 });
 `;
+
+test("keeps legacy TAP static identity strict by default", () => {
+  const expectation = resolveTapStaticAppExpectation("pyre");
+
+  assert.deepEqual(expectation, {
+    descriptorPackageField: "packageId",
+    sdkVersion: "0.7.0",
+  });
+  assert.equal(
+    resolveManifestDescriptorPackageId(
+      {
+        package: {
+          packageId: "tap_pkg_examples_pyre_0001",
+          slug: "pyre",
+        },
+      },
+      expectation,
+    ),
+    "tap_pkg_examples_pyre_0001",
+  );
+});
+
+test("uses the Generation-2 package slug only for model-arena", () => {
+  const expectation = resolveTapStaticAppExpectation("model-arena");
+
+  assert.deepEqual(expectation, {
+    descriptorPackageField: "slug",
+    sdkVersion: "0.12.0",
+  });
+  assert.equal(
+    resolveManifestDescriptorPackageId(
+      {
+        package: {
+          packageId: "tap_pkg_examples_model_arena_0001",
+          slug: "model-arena",
+        },
+      },
+      expectation,
+    ),
+    "model-arena",
+  );
+});
 
 test("accepts direct cases from the canonical Test Lab adapter", () => {
   assert.deepEqual(analyzeTapTestSource("surface.test.ts", validSource), {

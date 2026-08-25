@@ -5,6 +5,27 @@ import { fileURLToPath } from "node:url";
 export const TAP_RSTEST_ADAPTER =
   "@theaiplatform/miniapp-sdk/testing/rstest";
 
+const legacyTapStaticAppExpectation = Object.freeze({
+  descriptorPackageField: "packageId",
+  sdkVersion: "0.7.0",
+});
+const tapStaticAppExpectations = new Map([
+  ["agent-browser-prototype", legacyTapStaticAppExpectation],
+  [
+    "model-arena",
+    Object.freeze({
+      descriptorPackageField: "slug",
+      sdkVersion: "0.12.0",
+    }),
+  ],
+]);
+
+export const resolveTapStaticAppExpectation = (appName) =>
+  tapStaticAppExpectations.get(appName) ?? legacyTapStaticAppExpectation;
+
+export const resolveManifestDescriptorPackageId = (manifest, expectation) =>
+  manifest.package?.[expectation.descriptorPackageField];
+
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",

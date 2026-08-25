@@ -2,7 +2,8 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: __dirname,
-  // Serve the assembled TAP package so the harness can load the real built
-  // federation assets (mf-manifest, expose chunks, manifest.tap.json).
-  publicDir: "../.tap-build/desktop",
+  // SDK 0.12 assembles the verified, importable TAP package into dist/. Serve
+  // that package so the harness exercises its real manifest and federation
+  // assets rather than the lifecycle's temporary per-target build directory.
+  publicDir: "../dist",
 });

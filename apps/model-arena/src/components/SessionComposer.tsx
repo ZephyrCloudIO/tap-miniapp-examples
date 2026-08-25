@@ -25,33 +25,48 @@ import {
 import {
   countPipelineRuns,
   expandPipelineRuns,
+  mapSettledWithConcurrency,
+  MAX_PIPELINE_CONCURRENCY,
+  MAX_PIPELINE_OPTIONS_PER_ROLE,
+  MAX_PIPELINE_ROLES,
+  MAX_PIPELINE_RUNS,
   type PipelineRoleConfig,
   type PipelineRunStep,
 } from "../pipeline";
 import {
   buildReworkMessages,
   fetchModels,
-  reconcileOutputCost,
   sendChatCompletion,
   sendCompletion,
-} from "../openrouter";
-import { inspectHostConnection, isOpenRouterCredential, runArenaSpecialistTurn, specialistTurnOutput, type HostConnection } from "../host";
-import { computeTrrMetrics, emitSessionTrrEvents } from "../trr";
+} from "../inference";
+import {
+  isActionAllowed,
+  runArenaSpecialistTurn,
+  specialistTurnOutput,
+} from "../host";
+import { buildSessionTrrAuditEvents, computeTrrMetrics } from "../trr";
 import { sessionDir, resultSlug, writeResultOutputs, writeSessionArtifacts } from "../vfs";
-import { getCreatorIdentity, getWorkspaceId, hasApiKey, setApiKey } from "../config";
+import { getCreatorIdentity, getWorkspaceId } from "../config";
 import { saveSession } from "../storage";
 
 interface SessionComposerProps {
   onSessionCreated: (session: ModelComparisonSession) => void;
+  onRunningChange?: ((running: boolean) => void) | undefined;
   /** Pre-filled draft when forking an existing session. */
   initialDraft?: ModelComparisonSession | undefined;
   /** Host conversation the session's VFS artifacts are written to. */
   conversationId?: string | undefined;
-  /** Host workspace ID stamped on TRR events. */
+  /** Host workspace ID stamped on local TRR audit artifacts. */
   workspaceId?: string | undefined;
+  /** Host-canonical identity stamped as the session creator. */
+  creatorId?: string | undefined;
 }
 
 const MAX_REWORK_ROUNDS = 5;
+const MAX_SELECTED_MODELS = 8;
+const MAX_OUTPUT_TOKENS = 16_384;
+const HIGH_SPEND_CONFIRMATION_TURNS = 24;
+const MAX_PAID_TURNS_PER_SESSION = MAX_PIPELINE_RUNS * MAX_PIPELINE_ROLES;
 
 const DEFAULT_CRITIQUE_TEMPLATE =
   "Review your previous response critically. Identify any errors, omissions, or areas for improvement. Then provide a revised, improved version.\n\nYour previous response:\n{{output}}";
@@ -107,11 +122,11 @@ const DEFAULT_PIPELINE_ROLES: PipelineRoleDraft[] = [
 
 function draftRolesFromSession(draft?: ModelComparisonSession): PipelineRoleDraft[] {
   if (!draft?.pipelineRoles?.length) return DEFAULT_PIPELINE_ROLES;
-  return draft.pipelineRoles.map((role) => ({
+  return draft.pipelineRoles.slice(0, MAX_PIPELINE_ROLES).map((role) => ({
     id: role.id,
     label: role.label,
     instruction: role.instruction,
-    options: role.options.map((option) => ({
+    options: role.options.slice(0, MAX_PIPELINE_OPTIONS_PER_ROLE).map((option) => ({
       id: nextDraftId("opt"),
       modelId: option.model.id,
       arm: option.arm,
@@ -124,9 +139,6 @@ interface ParameterState {
   temperature: number;
   limitMaxTokens: boolean;
   maxTokens: number;
-  topP: string;
-  providerSort: "price" | "throughput" | "latency" | "";
-  zdr: boolean;
 }
 
 function defaultParameters(draft?: ModelComparisonSession): ParameterState {
@@ -136,9 +148,6 @@ function defaultParameters(draft?: ModelComparisonSession): ParameterState {
     temperature: p?.temperature ?? 0.7,
     limitMaxTokens: p?.maxTokens !== undefined,
     maxTokens: p?.maxTokens ?? 2048,
-    topP: p?.topP !== undefined ? String(p.topP) : "",
-    providerSort: p?.providerSort ?? "",
-    zdr: p?.zdr ?? false,
   };
 }
 
@@ -147,12 +156,60 @@ function toModelParameters(state: ParameterState): ModelParameters {
     temperature: state.limitTemperature ? state.temperature : undefined,
     maxTokens:
       state.limitMaxTokens && Number.isFinite(state.maxTokens) && state.maxTokens > 0
-        ? state.maxTokens
+        ? Math.min(MAX_OUTPUT_TOKENS, Math.floor(state.maxTokens))
         : undefined,
-    topP: state.topP.trim() !== "" ? parseFloat(state.topP) : undefined,
-    providerSort: state.providerSort === "" ? undefined : state.providerSort,
-    zdr: state.zdr ? true : undefined,
+    topP: undefined,
+    providerSort: undefined,
+    zdr: undefined,
   };
+}
+
+function clampReworkRounds(value: number | undefined): number {
+  const integer = Number.isFinite(value) ? Math.floor(value!) : 1;
+  return Math.min(MAX_REWORK_ROUNDS, Math.max(1, integer));
+}
+
+interface PaidSetupSignatureInput {
+  mode: ComparisonMode;
+  prompt: string;
+  systemPrompt: string;
+  selectedModels: Set<string>;
+  reworkRounds: number;
+  critiquePrompt: string;
+  parameters: ParameterState;
+  pipelineCombination: "matrix" | "linear";
+  pipelineRoles: PipelineRoleDraft[];
+}
+
+/** A deterministic snapshot of every field that can change the paid work. */
+function paidSetupSignature(input: PaidSetupSignatureInput): string {
+  const usesRework =
+    input.mode === ComparisonMode.Rework || input.mode === ComparisonMode.Benchmark;
+  const usesPipeline = input.mode === ComparisonMode.Pipeline;
+
+  return JSON.stringify({
+    mode: input.mode,
+    prompt: input.prompt.trim(),
+    systemPrompt: input.systemPrompt.trim(),
+    models: usesPipeline ? [] : [...input.selectedModels].sort(),
+    reworkRounds: usesRework ? clampReworkRounds(input.reworkRounds) : 0,
+    critiquePrompt: usesRework ? input.critiquePrompt : "",
+    parameters: toModelParameters(input.parameters),
+    pipeline: usesPipeline
+      ? {
+          combination: input.pipelineCombination,
+          roles: input.pipelineRoles.slice(0, MAX_PIPELINE_ROLES).map((role) => ({
+            id: role.id,
+            label: role.label.trim(),
+            instruction: role.instruction,
+            options: role.options.slice(0, MAX_PIPELINE_OPTIONS_PER_ROLE).map((option) => ({
+              modelId: option.modelId.trim(),
+              arm: option.arm,
+            })),
+          })),
+        }
+      : null,
+  });
 }
 
 function errorOutput(stage: number, error: unknown): ModelOutput {
@@ -162,7 +219,7 @@ function errorOutput(stage: number, error: unknown): ModelOutput {
     finishReason: "error",
     tokens: { prompt: 0, completion: 0, total: 0, reasoning: undefined, cacheRead: undefined, cacheWrite: undefined },
     latencyMs: 0,
-    ttftMs: 0,
+    ttftMs: undefined,
     costMicros: undefined,
     generationId: undefined,
     providerUsed: undefined,
@@ -170,45 +227,79 @@ function errorOutput(stage: number, error: unknown): ModelOutput {
   };
 }
 
-export function SessionComposer({ onSessionCreated, initialDraft, conversationId, workspaceId }: SessionComposerProps) {
+export function SessionComposer({
+  onSessionCreated,
+  onRunningChange,
+  initialDraft,
+  conversationId,
+  workspaceId,
+  creatorId,
+}: SessionComposerProps) {
   const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initialDraft?.systemPrompt ?? "");
   const [mode, setMode] = useState<ComparisonMode>(initialDraft?.mode ?? ComparisonMode.OneShot);
-  const [reworkRounds, setReworkRounds] = useState(initialDraft?.reworkRounds ?? 1);
+  const [reworkRounds, setReworkRounds] = useState(() =>
+    clampReworkRounds(initialDraft?.reworkRounds),
+  );
   const [critiquePrompt, setCritiquePrompt] = useState(
     initialDraft?.critiquePrompt ?? DEFAULT_CRITIQUE_TEMPLATE,
   );
   const [selectedModels, setSelectedModels] = useState<Set<string>>(
-    new Set(initialDraft?.models.map((m) => m.id) ?? []),
+    new Set(initialDraft?.models.slice(0, MAX_SELECTED_MODELS).map((m) => m.id) ?? []),
   );
   const [knownModels, setKnownModels] = useState<SelectedModel[]>(initialDraft?.models ?? []);
   const [availableModels, setAvailableModels] = useState<SelectedModel[]>([]);
   const [modelSearch, setModelSearch] = useState("");
-  const [manualModelId, setManualModelId] = useState("");
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState("");
+  const [confirmedPaidSetupSignature, setConfirmedPaidSetupSignature] = useState<string | null>(null);
   const [parameters, setParameters] = useState<ParameterState>(() => defaultParameters(initialDraft));
-  const [connection, setConnection] = useState<HostConnection | null>(null);
-  const [credentialRef, setCredentialRef] = useState<string | undefined>(undefined);
+  const [access, setAccess] = useState<{
+    checking: boolean;
+    canManage: boolean;
+    canListModels: boolean;
+    canInvoke: boolean;
+    canUseSpecialist: boolean;
+    canWriteArtifacts: boolean;
+  }>({
+    checking: true,
+    canManage: false,
+    canListModels: false,
+    canInvoke: false,
+    canUseSpecialist: false,
+    canWriteArtifacts: false,
+  });
   const [pipelineRoles, setPipelineRoles] = useState<PipelineRoleDraft[]>(() => draftRolesFromSession(initialDraft));
   const [pipelineCombination, setPipelineCombination] = useState<"matrix" | "linear">(
     initialDraft?.pipelineCombination ?? "matrix",
   );
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(() => hasApiKey());
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [showApiKeyEditor, setShowApiKeyEditor] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
-    void inspectHostConnection().then((report) => {
-      if (cancelled) return;
-      setConnection(report);
-      const openRouterCredentials = report.credentials.filter(isOpenRouterCredential);
-      // Auto-select when exactly one OpenRouter credential is stored.
-      if (openRouterCredentials.length === 1) {
-        setCredentialRef(openRouterCredentials[0]?.id);
+    void Promise.all([
+      isActionAllowed("model-arena.manage", "do"),
+      isActionAllowed("inference.list", "listen"),
+      isActionAllowed("inference.invoke", "do"),
+      isActionAllowed("specialists.invoke", "do"),
+      isActionAllowed("vfs.write", "do"),
+    ]).then(([
+      canManage,
+      canListModels,
+      canInvoke,
+      canUseSpecialist,
+      canWriteArtifacts,
+    ]) => {
+      if (!cancelled) {
+        setAccess({
+          checking: false,
+          canManage,
+          canListModels,
+          canInvoke,
+          canUseSpecialist,
+          canWriteArtifacts,
+        });
       }
     });
     return () => {
@@ -220,7 +311,8 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     setIsLoadingModels(true);
     setModelsError(null);
     try {
-      const models = await fetchModels(credentialRef);
+      if (!access.canListModels) throw new Error("Your current role cannot read the managed model catalog.");
+      const models = await fetchModels();
       setAvailableModels(models);
     } catch (error) {
       setModelsError(error instanceof Error ? error.message : String(error));
@@ -229,26 +321,11 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     }
   };
 
-  const addManualModel = () => {
-    const id = manualModelId.trim();
-    if (!id) return;
-    const model: SelectedModel = {
-      id,
-      name: id.split("/")[1] ?? id,
-      provider: id.split("/")[0] ?? "unknown",
-    };
-    if (!knownModels.some((m) => m.id === id)) {
-      setKnownModels((prev) => [...prev, model]);
-    }
-    setSelectedModels((prev) => new Set(prev).add(id));
-    setManualModelId("");
-  };
-
   const toggleModel = (modelId: string) => {
     setSelectedModels((prev) => {
       const next = new Set(prev);
       if (next.has(modelId)) next.delete(modelId);
-      else next.add(modelId);
+      else if (next.size < MAX_SELECTED_MODELS) next.add(modelId);
       return next;
     });
   };
@@ -262,16 +339,30 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     const outputs: ModelOutput[] = [];
 
     try {
-      const { output } = await sendCompletion(model.id, session.prompt, session.systemPrompt, params, 1, credentialRef);
+      if (!conversationId) throw new Error("Select a TAP conversation before running inference.");
+      const { output } = await sendCompletion(
+        conversationId,
+        model.id,
+        session.prompt,
+        session.systemPrompt,
+        params,
+        1,
+      );
       outputs.push(output);
     } catch (error) {
       outputs.push(errorOutput(1, error));
-      return { model, outputs, trr: computeTrrMetrics({ outputs }), vcvFeedback: undefined };
+      return {
+        model,
+        arm: "model" as const,
+        outputs,
+        trr: computeTrrMetrics({ outputs }),
+        vcvFeedback: undefined,
+      };
     }
 
     if (session.mode !== ComparisonMode.OneShot) {
       const template = session.critiquePrompt ?? DEFAULT_CRITIQUE_TEMPLATE;
-      for (let round = 1; round <= session.reworkRounds; round++) {
+      for (let round = 1; round <= clampReworkRounds(session.reworkRounds); round++) {
         const stage = round + 1;
         const previous = outputs[outputs.length - 1];
         if (!previous || previous.finishReason === "error") break;
@@ -282,7 +373,13 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
             previous.text,
             template,
           );
-          const { output } = await sendChatCompletion(model.id, messages, params, stage, credentialRef);
+          const { output } = await sendChatCompletion(
+            conversationId,
+            model.id,
+            messages,
+            params,
+            stage,
+          );
           outputs.push(output);
         } catch (error) {
           outputs.push(errorOutput(stage, error));
@@ -290,9 +387,6 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         }
       }
     }
-
-    // Reconcile exact cost post-hoc (best effort)
-    await Promise.allSettled(outputs.map((o) => reconcileOutputCost(o, credentialRef)));
 
     return { model, arm: "model" as const, outputs, trr: computeTrrMetrics({ outputs }), vcvFeedback: undefined };
   };
@@ -310,7 +404,11 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
       : session.prompt;
 
     try {
-      const turn = await runArenaSpecialistTurn({ content: stage1Content, modelOverride: model.id });
+      const turn = await runArenaSpecialistTurn({
+        content: stage1Content,
+        workspaceId,
+        modelOverride: model.id,
+      });
       outputs.push(specialistTurnOutput(1, turn, stage1Content));
     } catch (error) {
       outputs.push({ ...errorOutput(1, error), estimated: true });
@@ -318,7 +416,7 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     }
 
     const template = session.critiquePrompt ?? DEFAULT_CRITIQUE_TEMPLATE;
-    for (let round = 1; round <= session.reworkRounds; round++) {
+    for (let round = 1; round <= clampReworkRounds(session.reworkRounds); round++) {
       const stage = round + 1;
       const previous = outputs[outputs.length - 1];
       if (!previous || previous.finishReason === "error") break;
@@ -326,7 +424,7 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         ? template.replaceAll("{{output}}", previous.text)
         : `${template}\n\nYour previous response:\n${previous.text}`;
       try {
-        const turn = await runArenaSpecialistTurn({ content, modelOverride: model.id });
+        const turn = await runArenaSpecialistTurn({ content, workspaceId, modelOverride: model.id });
         outputs.push(specialistTurnOutput(stage, turn, content));
       } catch (error) {
         outputs.push({ ...errorOutput(stage, error), estimated: true });
@@ -342,6 +440,7 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
   };
 
   const addRole = () => {
+    if (pipelineRoles.length >= MAX_PIPELINE_ROLES) return;
     setPipelineRoles((prev) => [
       ...prev,
       {
@@ -359,7 +458,11 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
 
   const addOption = (roleId: string) => {
     setPipelineRoles((prev) =>
-      prev.map((r) => (r.id === roleId ? { ...r, options: [...r.options, emptyOption()] } : r)),
+      prev.map((r) =>
+        r.id === roleId && r.options.length < MAX_PIPELINE_OPTIONS_PER_ROLE
+          ? { ...r, options: [...r.options, emptyOption()] }
+          : r,
+      ),
     );
   };
 
@@ -381,29 +484,27 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     );
   };
 
-  /** Resolve a model ID against loaded/known models, or synthesize it. */
-  const resolveRoleModel = (modelId: string): SelectedModel => {
+  /** Resolve only host-listed or previously saved canonical models. */
+  const resolveRoleModel = (modelId: string): SelectedModel | undefined => {
     const trimmed = modelId.trim();
-    const known = [...availableModels, ...knownModels].find((m) => m.id === trimmed);
-    return (
-      known ?? {
-        id: trimmed,
-        name: trimmed.split("/")[1] ?? trimmed,
-        provider: trimmed.split("/")[0] ?? "unknown",
-      }
-    );
+    return [...availableModels, ...knownModels].find((m) => m.id === trimmed);
   };
 
   /** Valid role configs: roles with at least one filled option. */
   const pipelineConfigs = (): PipelineRoleConfig[] =>
     pipelineRoles
+      .slice(0, MAX_PIPELINE_ROLES)
       .map((role) => ({
         id: role.id,
         label: role.label.trim() || role.id,
         instruction: role.instruction,
         options: role.options
+          .slice(0, MAX_PIPELINE_OPTIONS_PER_ROLE)
           .filter((o) => o.modelId.trim() !== "")
-          .map((o) => ({ model: resolveRoleModel(o.modelId), arm: o.arm })),
+          .flatMap((o) => {
+            const model = resolveRoleModel(o.modelId);
+            return model ? [{ model, arm: o.arm }] : [];
+          }),
       }))
       .filter((role) => role.options.length > 0);
 
@@ -418,18 +519,29 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     const results: ModelComparisonSession["results"] = [];
     let contextText = "";
 
-    for (const { role, option } of steps) {
+    for (const [stepIndex, { role, option }] of steps.entries()) {
       const content = `${role.instruction}\n\nTask:\n${session.prompt}${contextText ? `\n\nContext from previous steps:${contextText}` : ""}`;
 
       let output: ModelOutput;
       try {
         if (option.arm === "specialist") {
-          const turn = await runArenaSpecialistTurn({ content, modelOverride: option.model.id });
+          const turn = await runArenaSpecialistTurn({
+            content,
+            workspaceId,
+            modelOverride: option.model.id,
+          });
           output = specialistTurnOutput(1, turn, content);
         } else {
-          const result = await sendCompletion(option.model.id, content, session.systemPrompt, params, 1, credentialRef);
+          if (!conversationId) throw new Error("Select a TAP conversation before running inference.");
+          const result = await sendCompletion(
+            conversationId,
+            option.model.id,
+            content,
+            session.systemPrompt,
+            params,
+            1,
+          );
           output = result.output;
-          await reconcileOutputCost(output, credentialRef).catch(() => undefined);
         }
       } catch (error) {
         output = { ...errorOutput(1, error), estimated: option.arm === "specialist" };
@@ -439,6 +551,8 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         model: option.model,
         arm: option.arm,
         role: role.label,
+        roleId: role.id,
+        stepIndex,
         runIndex,
         outputs: [output],
         trr: computeTrrMetrics({ outputs: [output] }),
@@ -448,7 +562,9 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
 
       // Persist the step's output to the VFS immediately — the artifact, not
       // in-memory state, is the durable handoff between steps.
-      await writeResultOutputs(session, result, conversationId).catch(() => undefined);
+      if (access.canWriteArtifacts) {
+        await writeResultOutputs(session, result, conversationId).catch(() => undefined);
+      }
 
       if (output.finishReason === "error") break; // later steps depend on this output
       const artifactPath = `${sessionDir(session)}/outputs/run-${String(runIndex).padStart(3, "0")}/${resultSlug(result)}/stage-1.json`;
@@ -471,8 +587,13 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
     session.pipelineCombination = pipelineCombination;
 
     const runs = expandPipelineRuns(configs, pipelineCombination);
-    const settled = await Promise.allSettled(
-      runs.map((steps, runIndex) => executePipelineRun(session, params, steps, runIndex)),
+    const containsSpecialist = configs.some((role) =>
+      role.options.some((option) => option.arm === "specialist"),
+    );
+    const settled = await mapSettledWithConcurrency(
+      runs,
+      (steps, runIndex) => executePipelineRun(session, params, steps, runIndex),
+      containsSpecialist ? 1 : MAX_PIPELINE_CONCURRENCY,
     );
     for (const entry of settled) {
       if (entry.status === "fulfilled") {
@@ -482,98 +603,253 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
   };
 
   const runComparison = async () => {
+    setRunError(null);
     const trimmedPrompt = prompt.trim();
     const isBenchmark = mode === ComparisonMode.Benchmark;
     const isPipeline = mode === ComparisonMode.Pipeline;
+    const boundedReworkRounds = clampReworkRounds(reworkRounds);
     const configs = isPipeline ? pipelineConfigs() : [];
+    const requiresSpecialist =
+      isBenchmark || configs.some((role) => role.options.some((option) => option.arm === "specialist"));
     const pipelineRunCount = countPipelineRuns(
       configs.map((c) => c.options.length),
       pipelineCombination,
     );
+    const estimatedPaidTurnCount = isPipeline
+      ? pipelineRunCount * Math.min(configs.length, MAX_PIPELINE_ROLES)
+      : selectedModels.size *
+        (isBenchmark ? 2 : 1) *
+        (mode === ComparisonMode.Rework || isBenchmark ? boundedReworkRounds + 1 : 1);
+    const setupSignature = paidSetupSignature({
+      mode,
+      prompt,
+      systemPrompt,
+      selectedModels,
+      reworkRounds: boundedReworkRounds,
+      critiquePrompt,
+      parameters,
+      pipelineCombination,
+      pipelineRoles,
+    });
+
+    if (estimatedPaidTurnCount > MAX_PAID_TURNS_PER_SESSION) {
+      setRunError(
+        `This setup requests ${estimatedPaidTurnCount} paid turns; the hard per-session limit is ${MAX_PAID_TURNS_PER_SESSION}.`,
+      );
+      return;
+    }
+    if (!access.canManage) {
+      setRunError("Your current role cannot run paid comparisons.");
+      return;
+    }
+    if (!access.canInvoke) {
+      setRunError("Managed inference is not authorized for this package.");
+      return;
+    }
+    if (requiresSpecialist && !access.canUseSpecialist) {
+      setRunError("Specialist execution is not authorized for this package.");
+      return;
+    }
+    if (!conversationId) {
+      setRunError("Select a TAP conversation before running a comparison.");
+      return;
+    }
+    if (
+      estimatedPaidTurnCount > HIGH_SPEND_CONFIRMATION_TURNS &&
+      confirmedPaidSetupSignature !== setupSignature
+    ) {
+      setRunError(`Confirm the ${estimatedPaidTurnCount}-turn paid run before starting.`);
+      return;
+    }
     if (!trimmedPrompt || (!isPipeline && selectedModels.size === 0) || (isPipeline && pipelineRunCount === 0)) return;
 
     setIsLoading(true);
-    const params = toModelParameters(parameters);
-    const allKnown = [...availableModels, ...knownModels];
-    const models = allKnown.filter(
-      (m, index, arr) => selectedModels.has(m.id) && arr.findIndex((x) => x.id === m.id) === index,
-    );
-    const pipelineModels = configs
-      .flatMap((c) => c.options.map((o) => o.model))
-      .filter((m, index, arr) => arr.findIndex((x) => x.id === m.id) === index);
+    onRunningChange?.(true);
+    try {
+      const [canManageNow, canInvokeNow, canUseSpecialistNow] = await Promise.all([
+        isActionAllowed("model-arena.manage", "do"),
+        isActionAllowed("inference.invoke", "do"),
+        requiresSpecialist
+          ? isActionAllowed("specialists.invoke", "do")
+          : Promise.resolve(true),
+      ]);
+      setAccess((current) => ({
+        ...current,
+        canManage: canManageNow,
+        canInvoke: canInvokeNow,
+        canUseSpecialist: requiresSpecialist
+          ? canUseSpecialistNow
+          : current.canUseSpecialist,
+      }));
+      if (!canManageNow) throw new Error("Your current role cannot run paid comparisons.");
+      if (!canInvokeNow) throw new Error("Managed inference authorization was revoked.");
+      if (requiresSpecialist && !canUseSpecialistNow) {
+        throw new Error("Specialist execution authorization was revoked.");
+      }
 
-    const session: ModelComparisonSession = {
-      id: `MA-${Date.now().toString(36).toUpperCase()}`,
-      state: mode === ComparisonMode.OneShot || isPipeline ? SessionState.Running : SessionState.ReworkRunning,
-      createdAt: new Date().toISOString(),
-      creator: getCreatorIdentity(),
-      mode,
-      prompt: trimmedPrompt,
-      systemPrompt: systemPrompt.trim() || undefined,
-      parameters: params,
-      models: isPipeline ? pipelineModels : models,
-      results: [],
-      reworkRounds: mode === ComparisonMode.Rework || isBenchmark ? reworkRounds : 0,
-      critiquePrompt: mode === ComparisonMode.Rework || isBenchmark ? critiquePrompt : undefined,
-      pipelineRoles: isPipeline ? [] : undefined,
-      pipelineCombination: isPipeline ? pipelineCombination : undefined,
-      linkedMessages: undefined,
-      tags: undefined,
-      parentSessionId: initialDraft?.id,
-    };
+      const params = toModelParameters(parameters);
+      const allKnown = [...availableModels, ...knownModels];
+      const models = allKnown
+        .filter(
+          (model, index, candidates) =>
+            selectedModels.has(model.id) &&
+            candidates.findIndex((candidate) => candidate.id === model.id) === index,
+        )
+        .slice(0, MAX_SELECTED_MODELS);
+      if (!isPipeline && models.length === 0) {
+        throw new Error("None of the selected models are available in the managed model catalog.");
+      }
+      const pipelineModels = configs
+        .flatMap((config) => config.options.map((option) => option.model))
+        .filter(
+          (model, index, candidates) =>
+            candidates.findIndex((candidate) => candidate.id === model.id) === index,
+        );
+      const actualPaidTurnCount = isPipeline
+        ? pipelineRunCount * Math.min(configs.length, MAX_PIPELINE_ROLES)
+        : models.length *
+          (isBenchmark ? 2 : 1) *
+          (mode === ComparisonMode.Rework || isBenchmark ? boundedReworkRounds + 1 : 1);
+      if (actualPaidTurnCount > MAX_PAID_TURNS_PER_SESSION) {
+        throw new Error(
+          `The resolved setup exceeds the ${MAX_PAID_TURNS_PER_SESSION}-turn per-session limit.`,
+        );
+      }
 
-    if (isPipeline) {
-      // Runs execute in parallel; steps within a run stay sequential.
-      setProgress(`Running ${pipelineRunCount} pipeline run${pipelineRunCount === 1 ? "" : "s"}...`);
-      await runPipeline(session, params);
-    } else {
-      // Dispatch all pipelines in parallel; each model runs its own stage
-      // pipeline per arm (benchmark mode adds the specialist arm).
-      setProgress(`Running ${models.length} model${models.length === 1 ? "" : "s"}...`);
-      const pipelines = models.flatMap((model) =>
-        isBenchmark
-          ? [runModelPipeline(session, model, params), runSpecialistPipeline(session, model)]
-          : [runModelPipeline(session, model, params)],
-      );
-      const settled = await Promise.allSettled(pipelines);
-      settled.forEach((entry, i) => {
-        if (entry.status === "fulfilled") {
-          session.results.push(entry.value);
-          return;
+      const session: ModelComparisonSession = {
+        id: `MA-${Date.now().toString(36).toUpperCase()}`,
+        state:
+          mode === ComparisonMode.OneShot || isPipeline
+            ? SessionState.Running
+            : SessionState.ReworkRunning,
+        createdAt: new Date().toISOString(),
+        creator: creatorId ?? getCreatorIdentity(),
+        mode,
+        prompt: trimmedPrompt,
+        systemPrompt: systemPrompt.trim() || undefined,
+        parameters: params,
+        models: isPipeline ? pipelineModels : models,
+        results: [],
+        reworkRounds:
+          mode === ComparisonMode.Rework || isBenchmark ? boundedReworkRounds : 0,
+        critiquePrompt:
+          mode === ComparisonMode.Rework || isBenchmark ? critiquePrompt : undefined,
+        pipelineRoles: isPipeline ? [] : undefined,
+        pipelineCombination: isPipeline ? pipelineCombination : undefined,
+        linkedMessages: undefined,
+        tags: undefined,
+        parentSessionId: initialDraft?.id,
+      };
+
+      if (isPipeline) {
+        // Specialist-containing pipelines serialize whole runs because the
+        // specialist room is stateful; model-only pipelines retain bounded concurrency.
+        setProgress(
+          `Running ${pipelineRunCount} pipeline run${pipelineRunCount === 1 ? "" : "s"}...`,
+        );
+        await runPipeline(session, params);
+      } else {
+        setProgress(`Running ${models.length} model${models.length === 1 ? "" : "s"}...`);
+        const modelSettled = await mapSettledWithConcurrency(models, (model) =>
+          runModelPipeline(session, model, params),
+        );
+        // Every specialist arm completes before the next begins so two models'
+        // turns cannot interleave in the same persistent room.
+        const specialistSettled = isBenchmark
+          ? await mapSettledWithConcurrency(
+              models,
+              (model) => runSpecialistPipeline(session, model),
+              1,
+            )
+          : [];
+
+        for (const [index, model] of models.entries()) {
+          const modelEntry = modelSettled[index];
+          if (modelEntry?.status === "fulfilled") {
+            session.results.push(modelEntry.value);
+          } else if (modelEntry) {
+            const outputs = [errorOutput(1, modelEntry.reason)];
+            session.results.push({
+              model,
+              arm: isBenchmark ? "model" : undefined,
+              outputs,
+              trr: computeTrrMetrics({ outputs }),
+              vcvFeedback: undefined,
+            });
+          }
+
+          const specialistEntry = specialistSettled[index];
+          if (specialistEntry?.status === "fulfilled") {
+            session.results.push(specialistEntry.value);
+          } else if (specialistEntry) {
+            const outputs = [{ ...errorOutput(1, specialistEntry.reason), estimated: true }];
+            session.results.push({
+              model,
+              arm: "specialist",
+              outputs,
+              trr: computeTrrMetrics({ outputs }),
+              vcvFeedback: undefined,
+            });
+          }
         }
-        const armCount = isBenchmark ? 2 : 1;
-        const model = models[Math.floor(i / armCount)];
-        if (!model) return;
-        const outputs = [errorOutput(1, entry.reason)];
-        session.results.push({
-          model,
-          arm: isBenchmark ? (i % armCount === 0 ? "model" : "specialist") : undefined,
-          outputs,
-          trr: computeTrrMetrics({ outputs }),
-          vcvFeedback: undefined,
-        });
-      });
+      }
+
+      session.state =
+        mode === ComparisonMode.Rework || isBenchmark
+          ? SessionState.ReworkCompleted
+          : SessionState.Completed;
+
+      // Build a content-free audit artifact. The managed inference host records
+      // the canonical TRR turn telemetry; the SDK does not accept arbitrary emits.
+      const trrAuditEvents = buildSessionTrrAuditEvents(
+        session,
+        workspaceId ?? getWorkspaceId(),
+      );
+      console.log("Local TRR audit records built:", trrAuditEvents.length);
+
+      // Write the durable artifact set to the conversation VFS (no-op outside
+      // the host). Pipeline runs already wrote per-role outputs as they ran.
+      const canWriteArtifactsNow = await isActionAllowed("vfs.write", "do");
+      setAccess((current) => ({ ...current, canWriteArtifacts: canWriteArtifactsNow }));
+      let vfsResult: Awaited<ReturnType<typeof writeSessionArtifacts>> = null;
+      if (canWriteArtifactsNow) {
+        try {
+          vfsResult = await writeSessionArtifacts(session, trrAuditEvents, conversationId);
+          session.vfsArtifactStatus = vfsResult ? "written" : "failed";
+        } catch {
+          session.vfsArtifactStatus = "failed";
+        }
+      } else {
+        session.vfsArtifactStatus = "not-authorized";
+      }
+      if (vfsResult) {
+        session.vfsArtifactReceipt = {
+          ...vfsResult,
+          writtenAt: new Date().toISOString(),
+        };
+        session.vfsArtifactStatus = "written";
+        console.log(
+          `Model Arena artifacts written to VFS: ${vfsResult.root} (${vfsResult.written} files)`,
+        );
+      }
+
+      const saveResult = saveSession(
+        session,
+        workspaceId ?? getWorkspaceId(),
+        creatorId ?? getCreatorIdentity(),
+      );
+      if (!saveResult.persisted) {
+        session.localPersistenceFailure = saveResult.failure;
+      }
+
+      onSessionCreated(session);
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLoading(false);
+      setProgress("");
+      onRunningChange?.(false);
     }
-
-    session.state =
-      mode === ComparisonMode.Rework || isBenchmark ? SessionState.ReworkCompleted : SessionState.Completed;
-
-    // Emit TRR events against the host workspace when mounted in TAP.
-    const trrEvents = emitSessionTrrEvents(session, workspaceId ?? getWorkspaceId());
-    console.log("TRR events emitted:", trrEvents);
-
-    saveSession(session);
-
-    // Write the durable artifact set to the conversation VFS (no-op outside
-    // the host). Pipeline runs already wrote per-role outputs as they ran.
-    const vfsResult = await writeSessionArtifacts(session, trrEvents, conversationId).catch(() => null);
-    if (vfsResult) {
-      console.log(`Model Arena artifacts written to VFS: ${vfsResult.root} (${vfsResult.written} files)`);
-    }
-
-    setIsLoading(false);
-    setProgress("");
-    onSessionCreated(session);
   };
 
   const filteredModels = modelSearch.trim()
@@ -582,68 +858,80 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         return m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q);
       })
     : availableModels;
+  const executablePipelineConfigs = pipelineConfigs();
+  const executablePipelineRunCount = countPipelineRuns(
+    executablePipelineConfigs.map((config) => config.options.length),
+    pipelineCombination,
+  );
+  const pipelineRequiresSpecialist = executablePipelineConfigs.some((role) =>
+    role.options.some((option) => option.arm === "specialist"),
+  );
+  const estimatedPaidTurnCount =
+    mode === ComparisonMode.Pipeline
+      ? executablePipelineRunCount *
+        Math.min(executablePipelineConfigs.length, MAX_PIPELINE_ROLES)
+      : selectedModels.size *
+        (mode === ComparisonMode.Benchmark ? 2 : 1) *
+        (mode === ComparisonMode.Rework || mode === ComparisonMode.Benchmark
+          ? clampReworkRounds(reworkRounds) + 1
+          : 1);
+  const currentPaidSetupSignature = paidSetupSignature({
+    mode,
+    prompt,
+    systemPrompt,
+    selectedModels,
+    reworkRounds,
+    critiquePrompt,
+    parameters,
+    pipelineCombination,
+    pipelineRoles,
+  });
+  const needsHighSpendConfirmation =
+    estimatedPaidTurnCount > HIGH_SPEND_CONFIRMATION_TURNS;
 
   return (
     <div className="session-composer">
       <FieldGroup>
         <Field>
-          <FieldLabel>OpenRouter Connection</FieldLabel>
-          {connection === null ? (
-            <FieldDescription>Checking host connection…</FieldDescription>
-          ) : connection.hostHttp ? (
-            <HostCredentialPicker
-              connection={connection}
-              credentialRef={credentialRef}
-              onSelect={setCredentialRef}
-            />
+          <FieldLabel>Managed Inference</FieldLabel>
+          {access.checking ? (
+            <FieldDescription>Checking signed package authority…</FieldDescription>
+          ) : !access.canManage ? (
+            <Alert data-testid="model-arena-manage-denied">
+              <AlertTitle>Comparison access is read-only</AlertTitle>
+              <AlertDescription>
+                Your current role can review saved sessions but cannot run paid comparisons.
+              </AlertDescription>
+            </Alert>
+          ) : !access.canListModels || !access.canInvoke ? (
+            <Alert variant="destructive">
+              <AlertTitle>Managed inference is not authorized</AlertTitle>
+              <AlertDescription>
+                This signed package needs model-catalog and inference grants before it can run comparisons.
+              </AlertDescription>
+            </Alert>
+          ) : !conversationId ? (
+            <Alert>
+              <AlertTitle>Select a conversation</AlertTitle>
+              <AlertDescription>
+                Model Arena attaches paid turns and durable artifacts to the active TAP conversation.
+              </AlertDescription>
+            </Alert>
           ) : (
-            <>
-              <FieldDescription>
-                No host HTTP transport detected (standalone preview). Using a local developer key instead.
-              </FieldDescription>
-              {apiKeyConfigured && !showApiKeyEditor ? (
-                <div className="row">
-                  <FieldDescription>Local key configured</FieldDescription>
-                  <Button variant="outline" size="sm" onClick={() => setShowApiKeyEditor(true)}>
-                    Change
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setApiKey("");
-                      setApiKeyConfigured(false);
-                    }}
-                  >
-                    Clear
-                  </Button>
-                </div>
-              ) : (
-                <div className="row">
-                  <Input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="sk-or-..."
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    variant="secondary"
-                    disabled={!apiKeyInput.trim()}
-                    onClick={() => {
-                      setApiKey(apiKeyInput);
-                      setApiKeyConfigured(hasApiKey());
-                      setApiKeyInput("");
-                      setShowApiKeyEditor(false);
-                    }}
-                  >
-                    Save Key
-                  </Button>
-                </div>
-              )}
-            </>
+            <FieldDescription>
+              TAP owns provider credentials, routing, cost attribution, and content-free telemetry. No API key enters this miniapp.
+            </FieldDescription>
           )}
         </Field>
+
+        {!access.checking && !access.canWriteArtifacts && (
+          <Alert>
+            <AlertTitle>Conversation artifacts are unavailable</AlertTitle>
+            <AlertDescription>
+              Comparisons can still be kept in this browser, but this role cannot write durable VFS artifacts.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {initialDraft && (
           <Alert>
@@ -705,11 +993,18 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
             </Button>
           </div>
           {mode === ComparisonMode.Benchmark && (
-            <FieldDescription>
-              Runs each model twice: direct calls (model arm) and through the Arena Reviser specialist
-              (specialist arm), with identical prompts and rework rounds. Specialist-arm token counts are
-              estimated — the host reports text, not usage.
-            </FieldDescription>
+            <Alert variant={!access.checking && !access.canUseSpecialist ? "destructive" : undefined}>
+              <AlertTitle>
+                {!access.checking && !access.canUseSpecialist
+                  ? "Specialist benchmark is not authorized"
+                  : "Contextual specialist benchmark"}
+              </AlertTitle>
+              <AlertDescription>
+                {!access.checking && !access.canUseSpecialist
+                  ? "Grant specialists.invoke or choose a direct-model mode."
+                  : "Direct model arms are isolated. The specialist arm intentionally reuses TAP's private persistent room, so it carries prior context and is not a statistically isolated A/B arm. Specialist usage is estimated."}
+              </AlertDescription>
+            </Alert>
           )}
           {mode === ComparisonMode.Pipeline && (
             <FieldDescription>
@@ -722,6 +1017,19 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         {mode === ComparisonMode.Pipeline && (
           <Field>
             <FieldLabel>Pipeline Roles</FieldLabel>
+            {availableModels.length === 0 && (
+              <div className="row">
+                <Button
+                  variant="secondary"
+                  onClick={loadModels}
+                  isLoading={isLoadingModels}
+                  disabled={access.checking || !access.canListModels}
+                >
+                  {isLoadingModels ? "Loading Models..." : "Load Managed Models"}
+                </Button>
+                {modelsError && <FieldDescription>{modelsError}</FieldDescription>}
+              </div>
+            )}
             <datalist id="ma-role-models">
               {[...availableModels, ...knownModels]
                 .filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
@@ -739,11 +1047,12 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                 <option value="linear">Linear — pair options by position</option>
               </NativeSelect>
               <span className="metric-neutral" style={{ fontSize: "0.8125rem" }}>
-                {countPipelineRuns(
-                  pipelineRoles.map((r) => r.options.filter((o) => o.modelId.trim() !== "").length),
-                  pipelineCombination,
-                )}{" "}
+                {executablePipelineRunCount}{" "}
                 run(s)
+              </span>
+              <span className="metric-neutral" style={{ fontSize: "0.75rem" }}>
+                Maximum {MAX_PIPELINE_ROLES} roles, {MAX_PIPELINE_OPTIONS_PER_ROLE} options per role,
+                and {MAX_PIPELINE_RUNS} runs; up to 4 runs execute concurrently.
               </span>
             </div>
 
@@ -792,7 +1101,7 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                         list="ma-role-models"
                         value={option.modelId}
                         onChange={(e) => updateOption(role.id, option.id, { modelId: e.target.value })}
-                        placeholder="model id, e.g. openai/gpt-4o"
+                        placeholder="Choose a managed model from the catalog"
                         style={{ flex: 1 }}
                       />
                       <NativeSelect
@@ -804,7 +1113,9 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                         }
                       >
                         <option value="model">Model only</option>
-                        <option value="specialist">Model + Specialist</option>
+                        <option value="specialist" disabled={!access.canUseSpecialist}>
+                          Model + Specialist
+                        </option>
                       </NativeSelect>
                       <Button
                         variant="ghost"
@@ -817,14 +1128,24 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                     </div>
                   ))}
                   <div>
-                    <Button variant="outline" size="sm" onClick={() => addOption(role.id)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addOption(role.id)}
+                      disabled={role.options.length >= MAX_PIPELINE_OPTIONS_PER_ROLE}
+                    >
                       Add Option
                     </Button>
                   </div>
                 </div>
               ))}
               <div>
-                <Button variant="outline" size="sm" onClick={addRole}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addRole}
+                  disabled={pipelineRoles.length >= MAX_PIPELINE_ROLES}
+                >
                   Add Role
                 </Button>
               </div>
@@ -873,10 +1194,16 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         {mode !== ComparisonMode.Pipeline && (
         <Field>
           <FieldLabel>Models{selectedModels.size > 0 ? ` — ${selectedModels.size} selected` : ""}</FieldLabel>
+          <FieldDescription>Select up to {MAX_SELECTED_MODELS} models with eligible managed routes.</FieldDescription>
           {availableModels.length === 0 ? (
             <>
-              <Button variant="secondary" onClick={loadModels} isLoading={isLoadingModels}>
-                {isLoadingModels ? "Loading Models..." : "Load Models from OpenRouter"}
+              <Button
+                variant="secondary"
+                onClick={loadModels}
+                isLoading={isLoadingModels}
+                disabled={access.checking || !access.canListModels}
+              >
+                {isLoadingModels ? "Loading Models..." : "Load Managed Models"}
               </Button>
               {modelsError && (
                 <Alert variant="destructive">
@@ -902,6 +1229,7 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                   shape="pill"
                   variant={selectedModels.has(model.id) ? "default" : "outline"}
                   onClick={() => toggleModel(model.id)}
+                  disabled={!selectedModels.has(model.id) && selectedModels.size >= MAX_SELECTED_MODELS}
                 >
                   {model.name}
                 </Button>
@@ -915,35 +1243,21 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                     shape="pill"
                     variant={selectedModels.has(model.id) ? "default" : "outline"}
                     onClick={() => toggleModel(model.id)}
+                    disabled={!selectedModels.has(model.id) && selectedModels.size >= MAX_SELECTED_MODELS}
                   >
                     {model.name}
                   </Button>
                 ))}
             </div>
           )}
-          <div className="row">
-            <Input
-              type="text"
-              value={manualModelId}
-              onChange={(e) => setManualModelId(e.target.value)}
-              placeholder="Or add a model by ID, e.g. openai/gpt-4o"
-              style={{ flex: 1 }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addManualModel();
-                }
-              }}
-            />
-            <Button variant="secondary" onClick={addManualModel} disabled={!manualModelId.trim()}>
-              Add
-            </Button>
-          </div>
         </Field>
         )}
 
         <Field>
           <FieldLabel>Parameters</FieldLabel>
+          <FieldDescription>
+            TAP exposes portable temperature and output-token controls. Provider selection and effective ZDR policy remain host-managed.
+          </FieldDescription>
           <div className="form-grid">
             <Field>
               <FieldLabel className="row">
@@ -989,70 +1303,68 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
                 <Input
                   type="number"
                   min={1}
+                  max={MAX_OUTPUT_TOKENS}
                   value={parameters.maxTokens}
                   onChange={(e) =>
                     setParameters((p) => ({ ...p, maxTokens: parseInt(e.target.value, 10) }))
                   }
                 />
               ) : (
-                <FieldDescription>No cap — model decides when to stop</FieldDescription>
+                <FieldDescription>
+                  Host default: 4,096 tokens (maximum {MAX_OUTPUT_TOKENS.toLocaleString()})
+                </FieldDescription>
               )}
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="ma-top-p">Top P (optional)</FieldLabel>
-              <Input
-                id="ma-top-p"
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                value={parameters.topP}
-                onChange={(e) => setParameters((p) => ({ ...p, topP: e.target.value }))}
-                placeholder="Model default"
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="ma-provider-sort">Provider sort (optional)</FieldLabel>
-              <NativeSelect
-                id="ma-provider-sort"
-                value={parameters.providerSort}
-                onChange={(e) =>
-                  setParameters((p) => ({
-                    ...p,
-                    providerSort: e.target.value as ParameterState["providerSort"],
-                  }))
-                }
-              >
-                <option value="">No preference</option>
-                <option value="price">Price</option>
-                <option value="throughput">Throughput</option>
-                <option value="latency">Latency</option>
-              </NativeSelect>
-            </Field>
-            <Field>
-              <FieldLabel className="row">
-                <Checkbox
-                  checked={parameters.zdr}
-                  onCheckedChange={(checked) =>
-                    setParameters((p) => ({ ...p, zdr: checked === true }))
-                  }
-                />
-                Zero data retention only
-              </FieldLabel>
             </Field>
           </div>
         </Field>
+
+        {estimatedPaidTurnCount > 0 && (
+          <Alert variant={needsHighSpendConfirmation ? "destructive" : undefined}>
+            <AlertTitle>
+              Up to {estimatedPaidTurnCount} paid turn{estimatedPaidTurnCount === 1 ? "" : "s"}
+            </AlertTitle>
+            <AlertDescription>
+              The estimate includes every model, rework round, benchmark arm, and pipeline role in this setup.
+            </AlertDescription>
+            {needsHighSpendConfirmation && (
+              <FieldLabel className="row">
+                <Checkbox
+                  checked={confirmedPaidSetupSignature === currentPaidSetupSignature}
+                  onCheckedChange={(checked) =>
+                    setConfirmedPaidSetupSignature(
+                      checked === true ? currentPaidSetupSignature : null,
+                    )
+                  }
+                />
+                Confirm this paid run
+              </FieldLabel>
+            )}
+          </Alert>
+        )}
+
+        {runError && (
+          <Alert variant="destructive">
+            <AlertTitle>Comparison could not start</AlertTitle>
+            <AlertDescription>{runError}</AlertDescription>
+          </Alert>
+        )}
 
         <Button
           onClick={runComparison}
           disabled={
             isLoading ||
+            access.checking ||
+            !access.canManage ||
+            !access.canInvoke ||
+            ((mode === ComparisonMode.Benchmark ||
+              (mode === ComparisonMode.Pipeline && pipelineRequiresSpecialist)) &&
+              !access.canUseSpecialist) ||
+            !conversationId ||
             !prompt.trim() ||
+            (needsHighSpendConfirmation &&
+              confirmedPaidSetupSignature !== currentPaidSetupSignature) ||
             (mode === ComparisonMode.Pipeline
-              ? countPipelineRuns(
-                  pipelineRoles.map((r) => r.options.filter((o) => o.modelId.trim() !== "").length),
-                  pipelineCombination,
-                ) === 0
+              ? executablePipelineRunCount === 0
               : selectedModels.size === 0)
           }
           isLoading={isLoading}
@@ -1063,59 +1375,5 @@ export function SessionComposer({ onSessionCreated, initialDraft, conversationId
         </Button>
       </FieldGroup>
     </div>
-  );
-}
-
-/** Credential picker for host mode: metadata only, secrets never enter JS. */
-function HostCredentialPicker({
-  connection,
-  credentialRef,
-  onSelect,
-}: {
-  connection: HostConnection;
-  credentialRef: string | undefined;
-  onSelect: (id: string | undefined) => void;
-}) {
-  const matches = connection.credentials.filter(isOpenRouterCredential);
-  const options = matches.length > 0 ? matches : connection.credentials;
-
-  if (!connection.credentialDiscovery || connection.credentials.length === 0) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>No OpenRouter credential found</AlertTitle>
-        <AlertDescription>
-          Add an OpenRouter HTTP credential (bearer token) in TAP Settings, then reload this app.
-          Requests are made by the host and the secret never enters the miniapp.
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
-  return (
-    <>
-      {matches.length === 1 ? (
-        <FieldDescription>
-          Using workspace credential: {matches[0]?.displayName} ({matches[0]?.credentialType})
-        </FieldDescription>
-      ) : (
-        <NativeSelect
-          value={credentialRef ?? ""}
-          onChange={(e) => onSelect(e.target.value || undefined)}
-        >
-          <option value="">Select a credential…</option>
-          {options.map((credential) => (
-            <option key={credential.id} value={credential.id}>
-              {credential.displayName} ({credential.credentialType})
-            </option>
-          ))}
-        </NativeSelect>
-      )}
-      {matches.length === 0 && (
-        <FieldDescription>
-          No stored credential mentions OpenRouter — showing all {connection.credentials.length} stored credential
-          {connection.credentials.length === 1 ? "" : "s"} above.
-        </FieldDescription>
-      )}
-    </>
   );
 }

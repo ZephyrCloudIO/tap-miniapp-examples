@@ -1,7 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["@rstest/core/globals", "node"]
+    "incremental": true,
+    "noEmit": true,
+    "tsBuildInfoFile": ".turbo/typecheck.tap.tsbuildinfo"
   },
-  "include": ["src", "tests", "*.config.ts"]
+  "include": ["tests/e2e/**/*.ts", "rstest.tap.config.ts"],
+  "exclude": ["node_modules", "dist", ".tap-build", ".turbo"]
 }

@@ -24,6 +24,8 @@ import { loadSessions } from "../storage";
 interface DashboardProps {
   onSelectSession: (session: ModelComparisonSession) => void;
   onNewSession: () => void;
+  workspaceId: string;
+  userId: string;
 }
 
 interface ModelAggregate {
@@ -33,6 +35,7 @@ interface ModelAggregate {
   runs: number;
   retentionValues: number[];
   totalCostMicros: number;
+  unknownCostRuns: number;
   totalLatencyMs: number;
 }
 
@@ -48,23 +51,33 @@ function formatMicros(micros: number): string {
   return `$${(micros / 1_000_000).toFixed(4)}`;
 }
 
+function formatCostSummary(knownMicros: number, unknownRuns: number): string {
+  if (unknownRuns === 0) return formatMicros(knownMicros);
+  if (knownMicros === 0) return "Unknown";
+  return `${formatMicros(knownMicros)} + ${unknownRuns} unknown`;
+}
+
 /** Dashboard over the local session ledger: what have we compared, which
  *  models retain best, and what did it cost. */
-export function Dashboard({ onSelectSession, onNewSession }: DashboardProps) {
-  const [sessions] = useState<ModelComparisonSession[]>(() => loadSessions());
+export function Dashboard({ onSelectSession, onNewSession, workspaceId, userId }: DashboardProps) {
+  const [sessions] = useState<ModelComparisonSession[]>(() =>
+    loadSessions(workspaceId, userId),
+  );
 
   const stats = useMemo(() => {
     const byMode = new Map<ComparisonMode, number>();
     const byModel = new Map<string, ModelAggregate>();
     let totalRuns = 0;
     let totalCostMicros = 0;
+    let unknownCostRuns = 0;
     const retentionValues: number[] = [];
 
     for (const session of sessions) {
       byMode.set(session.mode, (byMode.get(session.mode) ?? 0) + 1);
       for (const result of session.results) {
         totalRuns += 1;
-        totalCostMicros += result.trr.totalCostMicros;
+        if (result.trr.totalCostMicros === undefined) unknownCostRuns += 1;
+        else totalCostMicros += result.trr.totalCostMicros;
         const agg = byModel.get(result.model.id) ?? {
           modelId: result.model.id,
           name: result.model.name,
@@ -72,10 +85,12 @@ export function Dashboard({ onSelectSession, onNewSession }: DashboardProps) {
           runs: 0,
           retentionValues: [],
           totalCostMicros: 0,
+          unknownCostRuns: 0,
           totalLatencyMs: 0,
         };
         agg.runs += 1;
-        agg.totalCostMicros += result.trr.totalCostMicros;
+        if (result.trr.totalCostMicros === undefined) agg.unknownCostRuns += 1;
+        else agg.totalCostMicros += result.trr.totalCostMicros;
         agg.totalLatencyMs += result.outputs.reduce((s, o) => s + o.latencyMs, 0);
         if (result.trr.retentionRate !== undefined) {
           agg.retentionValues.push(result.trr.retentionRate);
@@ -94,6 +109,7 @@ export function Dashboard({ onSelectSession, onNewSession }: DashboardProps) {
       byModel: [...byModel.values()].sort((a, b) => b.runs - a.runs),
       totalRuns,
       totalCostMicros,
+      unknownCostRuns,
       avgRetention:
         retentionValues.length > 0
           ? retentionValues.reduce((s, v) => s + v, 0) / retentionValues.length
@@ -128,10 +144,12 @@ export function Dashboard({ onSelectSession, onNewSession }: DashboardProps) {
         </Card>
         <Card>
           <CardHeader><CardTitle style={{ fontSize: "0.75rem", fontWeight: 500 }}>Total Cost</CardTitle></CardHeader>
-          <CardContent style={{ fontSize: "1.5rem", fontWeight: 600 }}>{formatMicros(stats.totalCostMicros)}</CardContent>
+          <CardContent style={{ fontSize: "1.5rem", fontWeight: 600 }}>
+            {formatCostSummary(stats.totalCostMicros, stats.unknownCostRuns)}
+          </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle style={{ fontSize: "0.75rem", fontWeight: 500 }}>Avg Retention</CardTitle></CardHeader>
+          <CardHeader><CardTitle style={{ fontSize: "0.75rem", fontWeight: 500 }}>Avg Lexical Retention</CardTitle></CardHeader>
           <CardContent style={{ fontSize: "1.5rem", fontWeight: 600 }}>
             {stats.avgRetention === undefined ? "—" : `${(stats.avgRetention * 100).toFixed(1)}%`}
           </CardContent>
@@ -154,7 +172,7 @@ export function Dashboard({ onSelectSession, onNewSession }: DashboardProps) {
               <TableRow>
                 <TableHead>Model</TableHead>
                 <TableHead>Runs</TableHead>
-                <TableHead>Avg Retention</TableHead>
+                <TableHead>Avg Lexical Retention</TableHead>
                 <TableHead>Avg Latency</TableHead>
                 <TableHead>Cost</TableHead>
               </TableRow>
@@ -178,7 +196,9 @@ export function Dashboard({ onSelectSession, onNewSession }: DashboardProps) {
                   <TableCell className="metric-neutral">
                     {agg.runs > 0 ? `${Math.round(agg.totalLatencyMs / agg.runs)}ms` : "—"}
                   </TableCell>
-                  <TableCell>{formatMicros(agg.totalCostMicros)}</TableCell>
+                  <TableCell>
+                    {formatCostSummary(agg.totalCostMicros, agg.unknownCostRuns)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

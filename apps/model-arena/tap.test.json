@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_model_arena_0001",
+  "packageId": "model-arena",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "model-arena-desktop": {
@@ -13,7 +13,11 @@
       "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
       "httpRouteFiles": [],
       "requiredOrigins": [],
-      "requiredEffects": ["effect:storage:model-arena"],
+      "requiredEffects": [
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ],
       "credentialSlots": [],
       "environment": {
         "viewport": {
@@ -41,7 +45,11 @@
       "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
       "httpRouteFiles": [],
       "requiredOrigins": [],
-      "requiredEffects": ["effect:storage:model-arena"],
+      "requiredEffects": [
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ],
       "credentialSlots": [],
       "environment": {
         "viewport": {
@@ -69,7 +77,11 @@
       "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
       "httpRouteFiles": [],
       "requiredOrigins": [],
-      "requiredEffects": ["effect:storage:model-arena"],
+      "requiredEffects": [
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ],
       "credentialSlots": [],
       "environment": {
         "viewport": {
@@ -87,6 +99,102 @@
         "trace": "failure-only",
         "screenshots": "failure-only"
       }
+    },
+    "model-arena-desktop-inference-denied": {
+      "surface": "model-arena",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:inference.invoke",
+      "deniedActions": ["inference.invoke"],
+      "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6935,
+        "fixedNow": "2026-08-17T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "model-arena-desktop-specialist-denied": {
+      "surface": "model-arena",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:specialists.invoke",
+      "deniedActions": ["specialists.invoke"],
+      "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6936,
+        "fixedNow": "2026-08-17T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "model-arena-desktop-vfs-denied": {
+      "surface": "model-arena",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:vfs.write",
+      "deniedActions": ["vfs.write"],
+      "fixtureFiles": ["tests/fixtures/model-arena.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 6937,
+        "fixedNow": "2026-08-17T12:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
     }
   },
   "matrix": [
@@ -94,7 +202,35 @@
       "id": "model-arena-desktop-positive",
       "profile": "model-arena-desktop",
       "testMatch": [
-        "tests/e2e/tap-surface.smoke.test.ts"
+        "tests/e2e/tap-surface.smoke.tap.ts"
+      ],
+      "capabilities": [
+        "action:model-arena.manage",
+        "action:model-arena.view",
+        "action:inference.list",
+        "action:inference.invoke",
+        "action:trr.read",
+        "action:trr.read-cost",
+        "action:specialists.invoke",
+        "action:vfs.write",
+        "effect:storage:model-arena",
+        "effect:host-api:tap.specialists:invoke",
+        "effect:host-api:tap.vfs:write"
+      ]
+    },
+    {
+      "id": "model-arena-desktop-storage-denied",
+      "profile": "model-arena-desktop-post-projection-revoked",
+      "testMatch": [
+        "tests/e2e/model-arena-storage-denied.tap.ts"
+      ],
+      "capabilities": ["effect:storage:model-arena"]
+    },
+    {
+      "id": "model-arena-desktop-manage-denied",
+      "profile": "model-arena-desktop-manage-denied",
+      "testMatch": [
+        "tests/e2e/model-arena-manage-denied.tap.ts"
       ],
       "capabilities": [
         "action:model-arena.manage",
@@ -103,23 +239,33 @@
       ]
     },
     {
-      "id": "model-arena-desktop-storage-denied",
-      "profile": "model-arena-desktop-post-projection-revoked",
+      "id": "model-arena-desktop-inference-denied",
+      "profile": "model-arena-desktop-inference-denied",
       "testMatch": [
-        "tests/e2e/model-arena-storage-denied.test.ts"
+        "tests/e2e/model-arena-inference-denied.tap.ts"
       ],
-      "capabilities": ["effect:storage:model-arena"]
+      "capabilities": ["action:inference.invoke"]
     },
     {
-      "id": "model-arena-desktop-manage-denied",
-      "profile": "model-arena-desktop-manage-denied",
+      "id": "model-arena-desktop-specialist-denied",
+      "profile": "model-arena-desktop-specialist-denied",
       "testMatch": [
-        "tests/e2e/model-arena-manage-denied.test.ts"
+        "tests/e2e/model-arena-specialist-denied.tap.ts"
       ],
       "capabilities": [
-        "action:model-arena.manage",
-        "action:model-arena.view",
-        "effect:storage:model-arena"
+        "action:specialists.invoke",
+        "effect:host-api:tap.specialists:invoke"
+      ]
+    },
+    {
+      "id": "model-arena-desktop-vfs-denied",
+      "profile": "model-arena-desktop-vfs-denied",
+      "testMatch": [
+        "tests/e2e/model-arena-vfs-denied.tap.ts"
+      ],
+      "capabilities": [
+        "action:vfs.write",
+        "effect:host-api:tap.vfs:write"
       ]
     }
   ],

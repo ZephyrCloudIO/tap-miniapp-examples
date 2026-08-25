@@ -45,17 +45,26 @@ export interface ModelOutput {
   finishReason: string;
   tokens: TokenCount;
   latencyMs: number;
-  ttftMs: number;
+  /** Null in TAP's current unary inference transport. */
+  ttftMs: number | undefined;
   costMicros: number | undefined;
+  /** Canonical host turn used to correlate content-free telemetry. */
+  turnId?: string | undefined;
   generationId: string | undefined;
+  /** Effective model after host routing/alias resolution. */
+  modelUsed?: string | undefined;
   providerUsed: string | undefined;
   fallbackChain: string[] | undefined;
+  /** True when TAP used a host-managed provider route. */
+  managed?: boolean;
+  /** Whether the effective managed route applied zero-data-retention policy. */
+  zdrApplied?: boolean;
   /** True when token counts were estimated locally (e.g. specialist turns,
    *  where the host returns text but not usage). */
   estimated?: boolean;
 }
 
-/** Token counts from OpenRouter. */
+/** Token counts reported by the effective managed provider route. */
 export interface TokenCount {
   prompt: number;
   completion: number;
@@ -69,11 +78,11 @@ export interface TokenCount {
 export interface ReworkRoundMetrics {
   /** Stage number of this round's revised output (2 = first rework). */
   stage: number;
-  /** Completion tokens produced in this round. */
+  /** Provider-reported (or locally estimated) completion tokens produced in this round. */
   regeneratedTokens: number;
-  /** Tokens from the previous stage that did not survive this round. */
+  /** Normalized lexical tokens from the previous text that did not survive this round. */
   discardedTokens: number;
-  /** Retention across this round only: 1 - discarded / previousTokens. */
+  /** Multiset lexical-token overlap with the previous text (moved tokens still survive). */
   retentionRate: number | undefined;
   /** Turn pressure r_i for this round. */
   turnPressure: number | undefined;
@@ -83,22 +92,22 @@ export interface ReworkRoundMetrics {
   latencyMs: number;
 }
 
-/** TRR metrics for a single model in a session. */
+/** Local lexical rework metrics for a single model in a session. */
 export interface TrrMetrics {
-  /** Stage 1 tokens emitted. */
+  /** Provider-reported (or locally estimated) completion tokens emitted at stage 1. */
   stage1Tokens: number;
   /** Per-round rework metrics, one entry per stage >= 2. */
   rounds: ReworkRoundMetrics[];
-  /** Total tokens discarded across all rework rounds. */
+  /** Stage-1 normalized lexical tokens absent from the final text. */
   discardedTokens: number | undefined;
-  /** Overall retention: fraction of stage-1 tokens surviving the final stage. */
+  /** Multiset lexical-token overlap between stage 1 and the final text. */
   retentionRate: number | undefined;
   /** Aggregate turn pressure r_i (max across rounds). */
   turnPressure: number | undefined;
-  /** Effective cost per retained token in micros. */
+  /** Effective cost per retained normalized lexical token in micros. */
   ecrtMicros: number | undefined;
-  /** Total cost across all stages in micros. */
-  totalCostMicros: number;
+  /** Total cost across all stages in micros; unknown if any stage lacks cost. */
+  totalCostMicros: number | undefined;
 }
 
 /** Per-model result in a comparison session. */
@@ -108,6 +117,10 @@ export interface ModelResult {
   arm?: BenchmarkArm | undefined;
   /** Pipeline role label this result fulfills; undefined outside pipeline mode. */
   role?: string | undefined;
+  /** Stable pipeline role ID; unlike the display label, this must not be localized or renamed. */
+  roleId?: string | undefined;
+  /** Zero-based position of this result within its pipeline run. */
+  stepIndex?: number | undefined;
   /** Pipeline run index this result belongs to (matrix/linear expansion). */
   runIndex?: number | undefined;
   outputs: ModelOutput[];
@@ -155,15 +168,32 @@ export interface ModelComparisonSession {
   linkedMessages: string[] | undefined;
   tags: string[] | undefined;
   parentSessionId: string | undefined;
+  /** Present only after the complete artifact set was written successfully. */
+  vfsArtifactReceipt?: {
+    root: string;
+    written: number;
+    writtenAt: string;
+  } | undefined;
+  /** Durable artifact outcome for transparent denied/failed-write reporting. */
+  vfsArtifactStatus?: "written" | "not-authorized" | "failed" | undefined;
+  /** Present only when the bounded browser ledger could not retain this run. */
+  localPersistenceFailure?:
+    | "storage-unavailable"
+    | "session-too-large"
+    | "quota"
+    | undefined;
 }
 
-/** Generation parameters. Fields left undefined are omitted from the
- *  request so the provider/model default applies (e.g. no max token cap). */
+/** Generation parameters. Fields left undefined are omitted so the managed
+ *  inference API default applies (`maxTokens` defaults to 4,096). */
 export interface ModelParameters {
   temperature: number | undefined;
   maxTokens: number | undefined;
+  /** Legacy session field. Managed inference does not accept this control. */
   topP: number | undefined;
+  /** Legacy session field. TAP owns provider routing for managed inference. */
   providerSort: "price" | "throughput" | "latency" | undefined;
+  /** Legacy requested setting. Read the effective `ModelOutput.zdrApplied` instead. */
   zdr: boolean | undefined;
 }
 
@@ -226,7 +256,7 @@ export interface TrrTokenEdited {
   createdAt: number;
 }
 
-/** Union of all TRR events Model Arena can emit. */
+/** Union of TRR-shaped records Model Arena can model in local audit artifacts. */
 export type TrrEvent =
   | { kind: "tokenBatchProduced"; data: TrrTokenBatchProduced }
   | { kind: "turnStamped"; data: TrrTurnStamped }

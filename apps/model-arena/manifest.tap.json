@@ -15,7 +15,7 @@
   },
   "presentation": {
     "name": "Model Arena",
-    "description": "Compare AI models side-by-side with cost, latency, and TRR-informed quality metrics including two-stage rework validation.",
+    "description": "Compare host-managed AI models side-by-side with cost, latency, and transparent lexical rework metrics.",
     "iconAssets": ["assets/model-arena.svg"],
     "assets": [{
       "role": "app-icon",
@@ -27,8 +27,8 @@
     }]
   },
   "compatibility": {
-    "tapSdk": "0.8.0",
-    "tapHost": ">=0.1.0"
+    "tapSdk": "0.12.0",
+    "tapHost": ">=2.4.1"
   },
   "targets": {
     "desktop": {
@@ -56,18 +56,16 @@
       },
       "authorization": {
         "allOf": ["model-arena.view"],
-        "onDemand": ["model-arena.manage", "credentials.read", "network.request", "trr.read", "specialists.invoke", "vfs.write"],
+        "onDemand": ["model-arena.manage", "inference.list", "inference.invoke", "trr.read", "trr.read-cost", "specialists.invoke", "vfs.write"],
         "effects": [
           { "kind": "storage", "resources": ["model-arena"] },
-          { "kind": "external-network", "resources": ["https://openrouter.ai"] },
-          { "kind": "credentials", "resources": ["http"] },
           { "kind": "host-api", "resources": ["tap.specialists:invoke", "tap.vfs:write"] }
         ]
       },
       "lifecycleScope": "mount",
       "options": {
         "displayName": "Model Arena",
-        "description": "Compare AI models with TRR-informed quality and rework validation.",
+        "description": "Compare managed AI models with cost, latency, and lexical rework validation.",
         "placement": "workspace-left",
         "scope": "workspace",
         "instancePolicy": "per-workspace",
@@ -121,28 +119,38 @@
             "risk": "write"
           },
           {
-            "id": "credentials.read",
-            "resource": "tap.credentials:read",
+            "id": "inference.list",
+            "resource": "inference",
             "scopes": ["workspace"],
             "directActors": ["human"],
             "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "inference.invoke",
+            "resource": "inference",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "trr.read",
+            "resource": "tap.trr:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
             "autonomyCeiling": "listen",
             "consent": "none",
             "risk": "read"
           },
           {
-            "id": "network.request",
-            "resource": "tap.network:request",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
-            "delegatedActors": ["specialist"],
-            "autonomyCeiling": "do",
-            "consent": "reusable",
-            "risk": "write"
-          },
-          {
-            "id": "trr.read",
-            "resource": "tap.trr:read",
+            "id": "trr.read-cost",
+            "resource": "tap.trr:read-cost",
             "scopes": ["workspace"],
             "directActors": ["human"],
             "delegatedActors": ["specialist"],
@@ -179,14 +187,14 @@
           },
           {
             "id": "arena-manager",
-            "actions": ["model-arena.view", "model-arena.manage"],
+            "actions": ["model-arena.view", "model-arena.manage", "inference.list", "inference.invoke", "trr.read", "trr.read-cost", "specialists.invoke", "vfs.write"],
             "assignableTo": ["human", "specialist"]
           }
         ],
         "roleRecommendations": [{
           "actor": "human",
           "workspaceRole": "member",
-          "level": "arena-viewer"
+          "level": "arena-manager"
         }]
       }
     }

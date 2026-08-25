@@ -8,8 +8,8 @@
        prompt.md
        metrics.json
        receipt.json
-       outputs/<model-slug>/stage-N.json
-       trr-events/<kind>/<index>.json
+       outputs/<result-slug>/stage-N.json
+       trr-audit-events/<kind>/<index>.json
 
    The SDK's MiniAppVfsApi is write-only (writeFile/mkdir), so artifacts are
    written durably as they are produced; the local ledger index remains the
@@ -34,14 +34,26 @@ export function modelSlug(modelId: string): string {
   return modelId.replaceAll("/", "--").replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-/** Result directory name, disambiguating benchmark arms and pipeline roles. */
+function identitySlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/^-+|-+$/g, "") || "unnamed";
+}
+
+/** Result directory name, disambiguating benchmark arms and pipeline steps.
+ *  Pipeline identity includes both the stable role ID and its run-local step
+ *  index so duplicate display labels and repeated models cannot overwrite one
+ *  another. */
 export function resultSlug(result: ModelResult): string {
-  const suffix = result.role
-    ? `--${result.role.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`
-    : result.arm === "specialist"
-      ? "--specialist"
-      : "";
-  return `${modelSlug(result.model.id)}${suffix}`;
+  const suffixes: string[] = [];
+  if (result.role) suffixes.push(identitySlug(result.role));
+  if (result.roleId) suffixes.push(`role-${identitySlug(result.roleId)}`);
+  if (result.stepIndex !== undefined) {
+    suffixes.push(`step-${String(result.stepIndex).padStart(3, "0")}`);
+  }
+  if (suffixes.length === 0 && result.arm === "specialist") suffixes.push("specialist");
+  return [modelSlug(result.model.id), ...suffixes].join("--");
 }
 
 /** Per-run folder for a session. */
@@ -74,9 +86,13 @@ export function outputArtifact(output: ModelOutput): Record<string, unknown> {
     latencyMs: output.latencyMs,
     ttftMs: output.ttftMs,
     costMicros: output.costMicros,
+    turnId: output.turnId,
     generationId: output.generationId,
+    modelUsed: output.modelUsed,
     providerUsed: output.providerUsed,
     fallbackChain: output.fallbackChain,
+    managed: output.managed,
+    zdrApplied: output.zdrApplied,
     estimated: output.estimated ?? false,
     writtenAt: new Date().toISOString(),
   };
@@ -86,10 +102,10 @@ export function outputArtifact(output: ModelOutput): Record<string, unknown> {
  *  assert the layout without a host. */
 export function planSessionArtifacts(
   session: ModelComparisonSession,
-  trrEvents: TrrEvent[],
+  trrAuditEvents: TrrEvent[],
 ): { directories: string[]; files: { path: string; data: Uint8Array }[] } {
   const root = sessionDir(session);
-  const directories = [root, `${root}/outputs`, `${root}/trr-events`];
+  const directories = [root, `${root}/outputs`, `${root}/trr-audit-events`];
   const files: { path: string; data: Uint8Array }[] = [];
 
   files.push({ path: `${root}/session.json`, data: bytes(session) });
@@ -106,6 +122,9 @@ export function planSessionArtifacts(
         model: r.model.id,
         arm: r.arm,
         role: r.role,
+        roleId: r.roleId,
+        stepIndex: r.stepIndex,
+        runIndex: r.runIndex,
         trr: r.trr,
       })),
     ),
@@ -120,9 +139,16 @@ export function planSessionArtifacts(
           model: r.model.id,
           arm: r.arm,
           role: r.role,
+          roleId: r.roleId,
+          stepIndex: r.stepIndex,
+          runIndex: r.runIndex,
           stage: o.stage,
+          turnId: o.turnId,
           generationId: o.generationId,
+          modelUsed: o.modelUsed,
           providerUsed: o.providerUsed,
+          managed: o.managed,
+          zdrApplied: o.zdrApplied,
         })),
       ),
     }),
@@ -137,10 +163,10 @@ export function planSessionArtifacts(
   }
 
   const eventsByKind = new Map<string, number>();
-  for (const event of trrEvents) {
+  for (const event of trrAuditEvents) {
     const index = eventsByKind.get(event.kind) ?? 0;
     eventsByKind.set(event.kind, index + 1);
-    const dir = `${root}/trr-events/${event.kind}`;
+    const dir = `${root}/trr-audit-events/${event.kind}`;
     if (!directories.includes(dir)) directories.push(dir);
     files.push({ path: `${dir}/${String(index).padStart(3, "0")}.json`, data: bytes(event.data) });
   }
@@ -173,13 +199,13 @@ export async function writeResultOutputs(
  *  conversation context is unavailable (standalone preview). */
 export async function writeSessionArtifacts(
   session: ModelComparisonSession,
-  trrEvents: TrrEvent[],
+  trrAuditEvents: TrrEvent[],
   conversationId: string | undefined,
 ): Promise<VfsWriteResult | null> {
   const vfs = getVfsApi();
   if (!vfs || !conversationId) return null;
 
-  const { directories, files } = planSessionArtifacts(session, trrEvents);
+  const { directories, files } = planSessionArtifacts(session, trrAuditEvents);
   for (const dir of directories) {
     await vfs.mkdir(conversationId, dir);
   }

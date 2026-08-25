@@ -20,15 +20,24 @@ import { deleteSession, loadSessions } from "../storage";
 interface SessionLedgerProps {
   onSelectSession: (session: ModelComparisonSession) => void;
   onNewSession: () => void;
+  workspaceId: string;
+  userId: string;
 }
 
-export function SessionLedger({ onSelectSession, onNewSession }: SessionLedgerProps) {
-  const [sessions, setSessions] = useState<ModelComparisonSession[]>(() => loadSessions());
+export function SessionLedger({
+  onSelectSession,
+  onNewSession,
+  workspaceId,
+  userId,
+}: SessionLedgerProps) {
+  const [sessions, setSessions] = useState<ModelComparisonSession[]>(() =>
+    loadSessions(workspaceId, userId),
+  );
   const [search, setSearch] = useState("");
 
   const handleDelete = (event: MouseEvent, sessionId: string) => {
     event.stopPropagation();
-    setSessions(deleteSession(sessionId));
+    setSessions(deleteSession(sessionId, workspaceId, userId));
   };
 
   const filtered = search.trim()
