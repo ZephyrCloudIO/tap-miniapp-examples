@@ -1,0 +1,332 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap_pkg_examples_agent_browser_prototype_0001",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "agent-browser-live-desktop": {
+      "surface": "agent-browser-prototype",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": [],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:browser-control:tap.browser:session.control",
+        "effect:browser-control:tap.browser:session.observe"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8226,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "always" }
+    },
+    "agent-browser-workflow-desktop": {
+      "surface": "agent-browser-workflow",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/agent-browser.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflow-runs:cancel",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8227,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "always" }
+    },
+    "agent-browser-workflow-desktop-workflows-list-denied": {
+      "surface": "agent-browser-workflow",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.list",
+      "deniedActions": ["workflows.list"],
+      "fixtureFiles": ["tests/fixtures/agent-browser.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:host-api:tap.workflows:list"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8228,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "agent-browser-workflow-desktop-workflows-invoke-denied": {
+      "surface": "agent-browser-workflow",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.invoke",
+      "deniedActions": ["workflows.invoke"],
+      "fixtureFiles": ["tests/fixtures/agent-browser.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8229,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "agent-browser-workflow-desktop-runs-read-denied": {
+      "surface": "agent-browser-workflow",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.runs.read",
+      "deniedActions": ["workflows.runs.read"],
+      "fixtureFiles": ["tests/fixtures/agent-browser.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8230,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "agent-browser-workflow-desktop-cancel-denied": {
+      "surface": "agent-browser-workflow",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:workflows.runs.cancel",
+      "deniedActions": ["workflows.runs.cancel"],
+      "fixtureFiles": ["tests/fixtures/agent-browser-running.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:host-api:tap.workflow-runs:cancel",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8231,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "agent-browser-workflow-desktop-effects-denied": {
+      "surface": "agent-browser-workflow",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/agent-browser.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8236,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "agent-browser-live-desktop-browser-effects-denied": {
+      "surface": "agent-browser-prototype",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": [],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8233,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    },
+    "agent-browser-live-desktop-control-denied": {
+      "surface": "agent-browser-prototype",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:browser.session.control",
+      "deniedActions": ["browser.session.control"],
+      "fixtureFiles": [],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:browser-control:tap.browser:session.control",
+        "effect:browser-control:tap.browser:session.observe"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8234,
+        "fixedNow": "2026-08-06T16:00:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    }
+  },
+  "matrix": [
+    {
+      "id": "agent-browser-live-desktop-positive",
+      "profile": "agent-browser-live-desktop",
+      "testMatch": ["tests/e2e/tap-surface.smoke.test.ts"],
+      "capabilities": [
+        "action:agent-browser.view",
+        "action:browser.session.control",
+        "action:browser.session.observe",
+        "effect:browser-control:tap.browser:session.control",
+        "effect:browser-control:tap.browser:session.observe"
+      ]
+    },
+    {
+      "id": "agent-browser-workflow-desktop-positive",
+      "profile": "agent-browser-workflow-desktop",
+      "testMatch": ["tests/e2e/tap-workflow-surface.smoke.test.ts"],
+      "capabilities": [
+        "action:agent-browser.view",
+        "action:workflows.runs.cancel",
+        "action:workflows.runs.read",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:host-api:tap.workflow-runs:cancel",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ]
+    },
+    {
+      "id": "agent-browser-workflow-desktop-workflows-list-denied",
+      "profile": "agent-browser-workflow-desktop-workflows-list-denied",
+      "testMatch": ["tests/e2e/agent-browser-workflows-list-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.list",
+        "effect:host-api:tap.workflows:list"
+      ]
+    },
+    {
+      "id": "agent-browser-workflow-desktop-workflows-invoke-denied",
+      "profile": "agent-browser-workflow-desktop-workflows-invoke-denied",
+      "testMatch": ["tests/e2e/agent-browser-workflows-invoke-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ]
+    },
+    {
+      "id": "agent-browser-workflow-desktop-runs-read-denied",
+      "profile": "agent-browser-workflow-desktop-runs-read-denied",
+      "testMatch": ["tests/e2e/agent-browser-runs-read-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.runs.read",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ]
+    },
+    {
+      "id": "agent-browser-workflow-desktop-cancel-denied",
+      "profile": "agent-browser-workflow-desktop-cancel-denied",
+      "testMatch": ["tests/e2e/agent-browser-cancel-denied.test.ts"],
+      "capabilities": [
+        "action:workflows.runs.cancel",
+        "action:workflows.runs.read",
+        "action:workflows.invoke",
+        "action:workflows.list",
+        "effect:host-api:tap.workflow-runs:cancel",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflows:list"
+      ]
+    },
+    {
+      "id": "agent-browser-workflow-desktop-effects-denied",
+      "profile": "agent-browser-workflow-desktop-effects-denied",
+      "testMatch": ["tests/e2e/agent-browser-workflow-effects-denied.test.ts"],
+      "capabilities": [
+        "effect:host-api:tap.workflow-runs:cancel",
+        "effect:host-api:tap.workflow-runs:read"
+      ]
+    },
+    {
+      "id": "agent-browser-live-desktop-browser-effects-denied",
+      "profile": "agent-browser-live-desktop-browser-effects-denied",
+      "testMatch": ["tests/e2e/agent-browser-effects-denied.test.ts"],
+      "capabilities": [
+        "effect:browser-control:tap.browser:session.control",
+        "effect:browser-control:tap.browser:session.observe"
+      ]
+    },
+    {
+      "id": "agent-browser-live-desktop-control-denied",
+      "profile": "agent-browser-live-desktop-control-denied",
+      "testMatch": ["tests/e2e/agent-browser-control-denied.test.ts"],
+      "capabilities": ["action:browser.session.control"]
+    }
+  ],
+  "waivers": []
+}

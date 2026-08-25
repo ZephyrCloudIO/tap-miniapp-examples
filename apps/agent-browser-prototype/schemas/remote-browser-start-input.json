@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-start-input.json",
+  "title": "Start Remote Browser input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["url"],
+  "properties": {
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://",
+      "description": "Allowed HTTP(S) page to open in Cloudflare Kitesurf."
+    },
+    "keepAliveMs": {
+      "type": "integer",
+      "minimum": 60000,
+      "maximum": 600000,
+      "default": 600000
+    },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "deviceScaleFactor", "mobile"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 320, "maximum": 1920 },
+        "height": { "type": "integer", "minimum": 240, "maximum": 1200 },
+        "deviceScaleFactor": { "type": "number", "minimum": 1, "maximum": 3 },
+        "mobile": { "type": "boolean" }
+      },
+      "default": {
+        "width": 1440,
+        "height": 900,
+        "deviceScaleFactor": 1,
+        "mobile": false
+      },
+      "description": "CSS viewport dimensions and device emulation settings applied before navigation."
+    }
+  }
+}

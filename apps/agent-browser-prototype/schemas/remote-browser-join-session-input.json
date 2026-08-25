@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-join-session-input.json",
+  "title": "Join Remote Browser room input",
+  "description": "Use the exact RB1 room code shown by Remote Browser. The structured handle form is retained for existing integrations and exact participant resumption.",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roomCode"],
+      "properties": {
+        "roomCode": {
+          "type": "string",
+          "pattern": "^RB1\\.[0-9A-Za-z_-]{22}\\.[0-9A-Za-z_-]{43}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionHandle"],
+      "properties": {
+        "sessionHandle": { "type": "string", "format": "uuid" },
+        "invitationToken": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z_-]{43}$"
+        }
+      }
+    }
+  ]
+}

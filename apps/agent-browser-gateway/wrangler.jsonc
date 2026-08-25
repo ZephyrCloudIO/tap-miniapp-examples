@@ -1,0 +1,68 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tap-agent-browser-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-06",
+  "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_SESSIONS",
+        "class_name": "BrowserSessionCoordinator"
+      },
+      {
+        "name": "BROWSER_OWNER_QUOTAS",
+        "class_name": "BrowserOwnerQuota"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-browser-control-plane",
+      "new_sqlite_classes": ["BrowserSessionCoordinator", "BrowserOwnerQuota"]
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "",
+    "ALLOWED_HOSTS": "blog.cloudflare.com,developers.cloudflare.com,kitesurf.cloudflare.app",
+    "TAP_BROWSER_ASSERTION_ISSUER": "tap-desktop-host",
+    "TAP_BROWSER_ASSERTION_AUDIENCE": "tap-agent-browser-gateway",
+    "WORKFLOW_SERVICE_ACTOR_ID": "ze-workflows",
+    "WORKFLOW_SERVICE_WORKSPACE_ID": "",
+    "WORKFLOW_SERVICE_PACKAGE_ID": "ze-workflows",
+    "WORKFLOW_SERVICE_INSTALLATION_ID": "ze-workflows-service",
+    "WORKFLOW_SERVICE_CONTRIBUTION_ID": "agent-browser-snapshot",
+    "MCP_LOCAL_WORKSPACE_ID": "kitesurf-test",
+    "MCP_LOCAL_PACKAGE_ID": "tap_pkg_examples_agent_browser_prototype_0001",
+    "MCP_LOCAL_CONTRIBUTION_ID": "remote-browser-tools",
+    "MAX_ACTIVE_SESSIONS_PER_WORKSPACE": "8",
+    "MAX_ACTIVE_SESSIONS_PER_ACTOR": "3",
+    "MAX_SESSION_CREATES_PER_MINUTE": "6",
+    "MAX_SNAPSHOTS_PER_MINUTE": "30",
+    "BROWSER_RUN_INACTIVITY_TIMEOUT_MS": "600000",
+    "MAX_SESSION_LIFETIME_MS": "3600000"
+  },
+  "secrets": {
+    "required": [
+      "TAP_BROWSER_ASSERTION_PUBLIC_JWK",
+      "MCP_LOCAL_INSTALLATION_ATTESTATION_SECRET",
+      "WORKFLOW_SERVICE_TOKEN"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  }
+}

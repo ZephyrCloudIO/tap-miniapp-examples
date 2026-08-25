@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-navigate-input.json",
+  "title": "Navigate Remote Browser input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "url",
+    "expectedControlEpoch",
+    "expectedDocumentRevision"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 },
+    "expectedDocumentRevision": { "type": "integer", "minimum": 1 }
+  }
+}

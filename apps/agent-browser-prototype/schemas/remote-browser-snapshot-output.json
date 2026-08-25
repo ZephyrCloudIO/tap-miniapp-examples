@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-snapshot-output.json",
+  "title": "Inspect Remote Browser page output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "url",
+    "title",
+    "documentRevision",
+    "control",
+    "telemetryCoverageStartedAt",
+    "elements",
+    "truncated"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "url": { "type": "string" },
+    "title": { "type": "string" },
+    "documentRevision": { "type": "integer", "minimum": 1 },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holder", "participantId", "epoch", "expiresAt"],
+      "properties": {
+        "holder": { "enum": ["agent", "human"] },
+        "participantId": { "type": ["string", "null"], "pattern": "^rp_[0-9a-f]{64}$" },
+        "epoch": { "type": "integer", "minimum": 1 },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "telemetryCoverageStartedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "elements": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "role",
+          "name",
+          "description",
+          "value",
+          "disabled",
+          "focused"
+        ],
+        "properties": {
+          "ref": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+          "role": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "value": { "type": ["string", "null"] },
+          "disabled": { "type": "boolean" },
+          "focused": { "type": "boolean" }
+        }
+      }
+    },
+    "truncated": { "type": "boolean" }
+  }
+}

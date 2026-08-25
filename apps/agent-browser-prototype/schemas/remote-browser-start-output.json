@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-start-output.json",
+  "title": "Start Remote Browser output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "url",
+    "title",
+    "documentRevision",
+    "control",
+    "telemetryCoverageStartedAt",
+    "expiresAt"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "url": { "type": "string" },
+    "title": { "type": "string" },
+    "documentRevision": { "type": "integer", "minimum": 1 },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holder", "participantId", "epoch", "expiresAt"],
+      "properties": {
+        "holder": { "enum": ["agent", "human"] },
+        "participantId": { "type": ["string", "null"], "pattern": "^rp_[0-9a-f]{64}$" },
+        "epoch": { "type": "integer", "minimum": 1 },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "telemetryCoverageStartedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

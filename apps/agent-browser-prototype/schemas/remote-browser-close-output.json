@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-close-output.json",
+  "title": "Close Remote Browser output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sessionHandle", "state"],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "state": { "enum": ["closing", "closed"] }
+  }
+}

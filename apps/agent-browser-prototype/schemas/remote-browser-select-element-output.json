@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-select-element-output.json",
+  "title": "Selected Remote Browser element output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "elementRef",
+    "documentRevision",
+    "control",
+    "telemetryCoverageStartedAt",
+    "representation",
+    "selector",
+    "html",
+    "mediaType",
+    "byteLength"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "elementRef": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "documentRevision": { "type": "integer", "minimum": 1 },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holder", "participantId", "epoch", "expiresAt"],
+      "properties": {
+        "holder": { "enum": ["agent", "human"] },
+        "participantId": { "type": ["string", "null"], "pattern": "^rp_[0-9a-f]{64}$" },
+        "epoch": { "type": "integer", "minimum": 1 },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "telemetryCoverageStartedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "representation": { "enum": ["selector", "html", "png"] },
+    "selector": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 },
+    "html": { "type": ["string", "null"], "minLength": 1, "maxLength": 131072 },
+    "mediaType": { "enum": ["image/png", null] },
+    "byteLength": { "type": ["integer", "null"], "minimum": 1, "maximum": 6291456 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "representation": { "const": "selector" } } },
+      "then": {
+        "properties": {
+          "selector": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "html": { "const": null },
+          "mediaType": { "const": null },
+          "byteLength": { "const": null }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "representation": { "const": "html" } } },
+      "then": {
+        "properties": {
+          "selector": { "const": null },
+          "html": { "type": "string", "minLength": 1, "maxLength": 131072 },
+          "mediaType": { "const": null },
+          "byteLength": { "const": null }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "representation": { "const": "png" } } },
+      "then": {
+        "properties": {
+          "selector": { "const": null },
+          "html": { "const": null },
+          "mediaType": { "const": "image/png" },
+          "byteLength": { "type": "integer", "minimum": 1, "maximum": 6291456 }
+        }
+      }
+    }
+  ]
+}
