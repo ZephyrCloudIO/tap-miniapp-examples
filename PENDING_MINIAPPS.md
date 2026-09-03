@@ -8,3 +8,4 @@ This list tracks publication blockers in `tap-miniapp-examples`. These sources r
 | Engineering Change | Package MCP runtime | Agency converts source-lock digests to runtime SRI values without recomputing QuickJS expose integrity. Runtime reconciliation rejects `./mcp/engineering-change-mcp`. |
 | Personal Health Ledger | Administration MCP runtime | Agency converts source-lock digests to runtime SRI values without recomputing QuickJS expose integrity. Runtime reconciliation rejects `./mcp/administration`. |
 | Pyre | Package MCP runtime | Agency converts source-lock digests to runtime SRI values without recomputing QuickJS expose integrity. Runtime reconciliation rejects `./mcp/pyre-mcp`. |
+| Unofficial Suno Player | Channel attachment | Adding the installed package to a channel fails. Capture the exact host error before attempting a fix. |
