@@ -134,6 +134,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/engineering-change:
     dependencies:
@@ -189,6 +192,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/family-task-board:
     dependencies:
@@ -241,6 +247,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/kart-royale:
     dependencies:
@@ -296,6 +305,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
       zephyr-rsbuild-plugin:
         specifier: 1.2.1
         version: 1.2.1(@rsbuild/core@2.1.9(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.7(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(webpack@5.109.2)
@@ -391,6 +403,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/pyre:
     dependencies:
@@ -446,6 +461,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/unofficial-suno-player:
     dependencies:
@@ -504,6 +522,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/vanta-companion:
     dependencies:
@@ -559,6 +580,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.2.4
+        version: 1.2.4
 
   apps/vanta-companion-api:
     dependencies:

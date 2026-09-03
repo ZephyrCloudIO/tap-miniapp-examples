@@ -46,6 +46,7 @@
     "playwright": "^1.61.0",
     "puppeteer": "^25.3.0",
     "typescript": "^6.0.3",
+    "zephyr-agent": "1.2.4",
     "zephyr-rsbuild-plugin": "1.2.1"
   }
 }
