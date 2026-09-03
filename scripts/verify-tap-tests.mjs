@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseRstestListJson } from "./tap-test-discovery.mjs";
+import { hasTapMiniappAuthoringConfig } from "./tap-miniapp-authoring.mjs";
 import {
   analyzeTapTestSource,
   assertTapDiscoveryMatchesSource,
@@ -20,9 +21,9 @@ const repositoryRoot = path.resolve(
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const defaultExpectedSdkVersion = "0.7.0";
+const defaultExpectedSdkVersion = "0.13.0";
 const expectedSdkVersionByApp = new Map([
-  ["agent-browser-prototype", "0.7.0"],
+  ["agent-browser-prototype", "0.13.0"],
 ]);
 const expectedRstestVersion = "0.11.5";
 const expectedPlaywrightVersion = "^1.61.0";
@@ -219,9 +220,12 @@ for (const appName of selectedApps.filter((candidate) =>
       descriptor.schemaVersion === 2,
       `${label}: tap.test.json schemaVersion must be 2.`,
     );
+    const expectedPackageId = hasTapMiniappAuthoringConfig(appDirectory)
+      ? manifest.package?.slug
+      : manifest.package?.packageId;
     check(
-      descriptor.packageId === manifest.package?.packageId,
-      `${label}: descriptor packageId must match manifest.package.packageId.`,
+      descriptor.packageId === expectedPackageId,
+      `${label}: descriptor packageId must match the package authoring identity.`,
     );
 
     const sdkVersions = [

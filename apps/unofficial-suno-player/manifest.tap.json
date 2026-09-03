@@ -30,8 +30,8 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.7.0",
-    "tapHost": ">=0.1.0"
+    "tapSdk": "0.13.0",
+    "tapHost": ">=2.5.5"
   },
   "targets": {
     "desktop": {
@@ -131,7 +131,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "workflowId": "examples-unofficial-suno-player.manual-brief",
+        "workflowId": "unofficial-suno-player.manual-brief",
         "exportName": "workflow",
         "manifest": {
           "id": "targets/workflow-host/schemas/manual-brief-workflow.schema.json",
@@ -158,7 +158,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "nodeKind": "examples-unofficial-suno-player.manual-brief-checkpoint",
+        "nodeKind": "unofficial-suno-player.manual-brief-checkpoint",
         "exportName": "node",
         "config": {
           "id": "targets/workflow-host/schemas/manual-brief-node-config.schema.json",

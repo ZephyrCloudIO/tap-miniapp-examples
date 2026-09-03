@@ -9,9 +9,8 @@ const builder = commandTargetBuilder({
 });
 
 export default defineTapMiniapp({
-  release: { version: manifest.release.version },
-  identity: manifest.package,
-  presentation: manifest.presentation,
+  versionLabel: manifest.release.version,
+  presentation: { ...manifest.presentation, slug: manifest.package.slug, categories: ["other"] },
   compatibility: { tapHost: manifest.compatibility.tapHost },
   targets: {
     desktop: {
@@ -25,5 +24,5 @@ export default defineTapMiniapp({
   },
   contributions: [staticContributionProvider(manifest)],
   events: manifest.events,
-  lifecycle: manifest.lifecycle,
+  runtimePolicy: manifest.lifecycle,
 });

@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_vanta_companion_0001",
+  "packageId": "vanta-companion",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "vanta-companion-desktop": {
