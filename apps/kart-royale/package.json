@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@tap-examples/kart-royale-protocol": "workspace:*",
-    "@theaiplatform/miniapp-sdk": "0.13.0",
+    "@theaiplatform/miniapp-sdk": "0.15.0",
     "n8ao": "^2.0.0",
     "postprocessing": "^6.39.3",
     "simplex-noise": "^4.0.3",

@@ -26,7 +26,7 @@ the matching `compatibility.tapSdk` value in the staged descriptor. All current
 miniapps are verified against:
 
 ```json
-"@theaiplatform/miniapp-sdk": "0.13.0"
+"@theaiplatform/miniapp-sdk": "0.15.0"
 ```
 
 Do not copy an older SDK pin from a reference repository.
