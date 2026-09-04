@@ -36,6 +36,9 @@ function context(
       }),
       subscribe: () => () => undefined,
     },
+    launches: {
+      subscribe: () => () => undefined,
+    },
     hostAuthority,
   };
 }

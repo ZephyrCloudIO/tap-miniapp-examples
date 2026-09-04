@@ -20,8 +20,8 @@
     "iconAssets": []
   },
   "compatibility": {
-    "tapSdk": "0.7.0",
-    "tapHost": ">=0.1.0"
+    "tapSdk": "0.15.0",
+    "tapHost": ">=2.5.5"
   },
   "targets": {
     "desktop": {

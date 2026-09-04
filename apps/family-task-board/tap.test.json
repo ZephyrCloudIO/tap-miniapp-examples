@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_family_task_board_0001",
+  "packageId": "family-task-board",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "family-task-board-desktop": {

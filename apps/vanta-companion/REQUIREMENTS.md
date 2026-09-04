@@ -9,7 +9,7 @@ This checklist distinguishes executable implementation from documented platform 
 - [x] Separate preview `localStorage` and packaged `sdk.storage` implementations
 - [x] Visible loading, saving, success, conflict, empty, permission, and failure states
 - [x] Responsive SDK-component UI with keyboard focus, dark tokens, compact layout, and reduced motion
-- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.7.0` pin, and matching `compatibility.tapSdk`
+- [x] Desktop federated surface, lifecycle, exact `@theaiplatform/miniapp-sdk@0.15.0` pin, and matching `compatibility.tapSdk`
 - [x] View-only mount prerequisite with product and host operations declared on demand
 - [x] `vanta-companion.coordinate` and `vanta-companion.analyze` enforced through fail-closed host authorization checks before side effects
 - [x] Surface mount/unmount events declared and scoped to the Vanta contribution
