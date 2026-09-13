@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-claim-control-input.json",
+  "title": "Claim Remote Browser control input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sessionHandle", "expectedControlEpoch"],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 },
+    "leaseMs": {
+      "type": "integer",
+      "minimum": 60000,
+      "maximum": 600000,
+      "default": 120000
+    }
+  }
+}

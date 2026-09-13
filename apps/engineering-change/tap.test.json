@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_engineering_change_0001",
+  "packageId": "engineering-change",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "engineering-change-desktop": {

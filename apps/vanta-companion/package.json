@@ -7,9 +7,10 @@
     "dev": "rsbuild dev",
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
+    "publish": "tap-miniapp publish",
     "build:watch": "rslib build --watch",
     "build:preview": "rsbuild build",
-    "build:miniapp": "rslib build && pnpm verify:react-closure && pnpm verify:package",
+    "build:miniapp": "tap-miniapp build",
     "typecheck": "tsc --noEmit",
     "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
     "test": "rstest run && node --test scripts/react-closure.node.mjs",
@@ -20,7 +21,7 @@
     "verify:react-closure": "node scripts/verify-react-closure.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.9.0",
+    "@theaiplatform/miniapp-sdk": "0.15.0",
     "lucide-react": "^1.14.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
@@ -35,8 +36,10 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@zephyrcloudio/miniapp-zephyr-publisher": "2.15.0",
     "ajv": "^8.20.0",
     "playwright": "^1.61.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zephyr-agent": "1.2.4"
   }
 }

@@ -11,9 +11,10 @@
     "dev": "rsbuild dev",
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
+    "publish": "tap-miniapp publish",
     "build:watch": "rslib build --watch",
     "build:preview": "rsbuild build",
-    "build:miniapp": "pnpm build:miniapp:desktop && pnpm build:miniapp:quickjs && pnpm build:miniapp:assemble && pnpm verify:package",
+    "build:miniapp": "tap-miniapp build",
     "build:miniapp:desktop": "cross-env TAP_PACKAGE_TARGET=desktop rslib build",
     "build:miniapp:quickjs": "cross-env TAP_PACKAGE_TARGET=quickjs rslib build",
     "build:lifecycle-target": "rslib build",
@@ -26,8 +27,8 @@
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.9.0",
     "@tap-examples/kart-royale-protocol": "workspace:*",
+    "@theaiplatform/miniapp-sdk": "0.15.0",
     "n8ao": "^2.0.0",
     "postprocessing": "^6.39.3",
     "simplex-noise": "^4.0.3",
@@ -41,9 +42,11 @@
     "@rstest/playwright": "0.11.5",
     "@types/node": "^24.13.2",
     "@types/three": "^0.185.1",
+    "@zephyrcloudio/miniapp-zephyr-publisher": "2.15.0",
     "playwright": "^1.61.0",
     "puppeteer": "^25.3.0",
     "typescript": "^6.0.3",
+    "zephyr-agent": "1.2.4",
     "zephyr-rsbuild-plugin": "1.2.1"
   }
 }

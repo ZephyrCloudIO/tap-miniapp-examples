@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-select-element-input.json",
+  "title": "Select Remote Browser element input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "representation",
+    "expectedControlEpoch",
+    "expectedDocumentRevision"
+  ],
+  "properties": {
+    "sessionHandle": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Opaque handle returned by remote_browser_start."
+    },
+    "elementRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Opaque, document-bound element reference returned by remote_browser_snapshot."
+    },
+    "xRatio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Horizontal hit-test coordinate normalized to the current page viewport."
+    },
+    "yRatio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Vertical hit-test coordinate normalized to the current page viewport."
+    },
+    "representation": {
+      "enum": ["selector", "html", "png"],
+      "description": "Requested representation of the selected element. PNG bytes are returned as an MCP image content block."
+    },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 },
+    "expectedDocumentRevision": { "type": "integer", "minimum": 1 }
+  },
+  "oneOf": [
+    {
+      "required": ["elementRef"],
+      "not": {
+        "anyOf": [
+          { "required": ["xRatio"] },
+          { "required": ["yRatio"] }
+        ]
+      }
+    },
+    {
+      "required": ["xRatio", "yRatio"],
+      "not": { "required": ["elementRef"] }
+    }
+  ]
+}

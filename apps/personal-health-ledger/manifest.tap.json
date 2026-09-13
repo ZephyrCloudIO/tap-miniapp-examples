@@ -28,7 +28,7 @@
       }
     ]
   },
-  "compatibility": { "tapSdk": "0.9.0", "tapHost": ">=0.1.0" },
+  "compatibility": { "tapSdk": "0.15.0", "tapHost": ">=2.5.5" },
   "targets": {
     "desktop": {
       "remoteName": "tap_personal_health_ledger_desktop",

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-fill-input.json",
+  "title": "Fill Remote Browser input input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "elementRef",
+    "value",
+    "expectedControlEpoch",
+    "expectedDocumentRevision"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "elementRef": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "value": {
+      "type": "string",
+      "maxLength": 10000,
+      "description": "Non-credential value. The gateway refuses sensitive fields and never echoes this value."
+    },
+    "expectedControlEpoch": { "type": "integer", "minimum": 1 },
+    "expectedDocumentRevision": { "type": "integer", "minimum": 1 }
+  }
+}

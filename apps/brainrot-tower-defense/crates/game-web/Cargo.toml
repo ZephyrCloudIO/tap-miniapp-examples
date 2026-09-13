@@ -2,7 +2,7 @@
 name="game-web"
 version.workspace=true
 edition.workspace=true
-license.workspace=true
+license="MIT"
 description="Rust/WASM browser lifecycle and UI for the Brainrot Tower Defense TAP example"
 readme="README.md"
 repository="https://github.com/ZephyrCloudIO/tap-miniapp-examples"
@@ -13,6 +13,7 @@ wasm-opt = [
   "-Oz",
   "--enable-bulk-memory",
   "--enable-nontrapping-float-to-int",
+  "--enable-sign-ext",
 ]
 [dependencies]
 game-core.workspace=true

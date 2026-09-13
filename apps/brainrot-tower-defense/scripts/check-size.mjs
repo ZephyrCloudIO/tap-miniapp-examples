@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const wasmUrl = new URL("../pkg/brainrot_game_web_bg.wasm", import.meta.url);
 const packageAssetsUrl = new URL(
-  "../.tap-build/desktop/targets/desktop/assets/",
+  "../dist/targets/desktop/assets/",
   import.meta.url,
 );
 const wasmBytes = (await stat(wasmUrl)).size;

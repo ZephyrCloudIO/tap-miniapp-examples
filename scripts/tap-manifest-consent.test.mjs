@@ -4,10 +4,12 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const CURRENT_HOST_INCOMPATIBLE_CONSENTS = new Set([
-  "fresh-decision",
-  "once",
+const CALL_BOUND_HOST_CONSENTS = new Map([
+  ["browser.session.control", "fresh-decision"],
+  ["browser.session.handoff", "once"],
+  ["workflows.runs.cancel", "once"],
 ]);
+const TRANSIENT_CONSENTS = new Set(["fresh-decision", "once"]);
 const AUTHORIZATION_ACTION_LISTS = ["allOf", "anyOf", "onDemand"];
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,7 +47,8 @@ function findIncompatibleAuthorizationReferences(manifestPath) {
         const action = actions.get(actionId);
         if (
           action &&
-          CURRENT_HOST_INCOMPATIBLE_CONSENTS.has(action.consent)
+          TRANSIENT_CONSENTS.has(action.consent) &&
+          CALL_BOUND_HOST_CONSENTS.get(actionId) !== action.consent
         ) {
           failures.push(
             `${contribution.kind}:${contribution.id} references ` +
@@ -59,7 +62,7 @@ function findIncompatibleAuthorizationReferences(manifestPath) {
   return failures;
 }
 
-test("source manifests use reusable consent for active governed actions", () => {
+test("source manifests use only host-enforceable active consent modes", () => {
   const manifestPaths = findSourceManifests();
   assert.ok(manifestPaths.length > 0, "expected source TAP manifests");
 
@@ -73,7 +76,7 @@ test("source manifests use reusable consent for active governed actions", () => 
   assert.deepEqual(
     failures,
     [],
-    "The current host cannot honor once or fresh-decision grants for " +
+    "The current host cannot honor this once or fresh-decision grant for " +
       `contribution authorization:\n${failures.join("\n")}`,
   );
 });
