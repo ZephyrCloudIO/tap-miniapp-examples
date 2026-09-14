@@ -221,7 +221,10 @@ for (const appName of selectedApps.filter((candidate) =>
       `${label}: tap.test.json schemaVersion must be 2.`,
     );
     const expectedPackageId = hasTapMiniappAuthoringConfig(appDirectory)
-      ? manifest.package?.slug
+      // SDK 0.15 still accepts the authoring-config descriptor shape used by
+      // TAP Email, where the package slug lives under presentation. Newer
+      // source descriptors carry the same authoring identity in package.slug.
+      ? (manifest.package?.slug ?? manifest.presentation?.slug)
       : manifest.package?.packageId;
     check(
       descriptor.packageId === expectedPackageId,

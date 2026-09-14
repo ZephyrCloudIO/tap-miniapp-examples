@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "mailId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:@/-]{0,255}$"
+    }
+  },
+  "type": "object",
+  "properties": {
+    "accountIds": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mailId" },
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true
+    },
+    "text": { "type": ["string", "null"], "maxLength": 512 },
+    "afterInclusive": { "type": ["string", "null"], "format": "date-time" },
+    "beforeExclusive": { "type": ["string", "null"], "format": "date-time" },
+    "unread": { "type": ["boolean", "null"] },
+    "starred": { "type": ["boolean", "null"] },
+    "needsResponse": { "type": ["boolean", "null"] },
+    "waitingOnOthers": { "type": ["boolean", "null"] },
+    "inInbox": { "type": ["boolean", "null"] },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+      "maxItems": 20
+    },
+    "cursor": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 20 }
+  },
+  "required": ["accountIds"],
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://tap-email-coordinator.theaiplatform.app/v1/mailbox",
+      "headers": [],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "credentialRef": "platform-session",
+    "response": {
+      "finalUrl": "https://tap-email-coordinator.theaiplatform.app/v1/mailbox",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        { "name": "content-type", "value": "application/json; charset=utf-8" }
+      ],
+      "bodyText": "{\"mailbox\":{\"schemaVersion\":1,\"accounts\":[],\"threads\":[]}}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 66,
+      "elapsedMs": 4,
+      "contentType": "application/json; charset=utf-8"
+    },
+    "repeat": 1
+  }
+]

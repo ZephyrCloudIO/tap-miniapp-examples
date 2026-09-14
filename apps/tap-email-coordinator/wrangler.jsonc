@@ -1,0 +1,127 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tap-email-coordinator",
+  "main": "src/index.ts",
+  // Latest date supported by the repository's pinned Worker test runtime.
+  "compatibility_date": "2026-07-21",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "ALLOW_DEV_IDENTITY": "true",
+    "TAP_INTROSPECTION_URL": "",
+    "ALLOWED_ORIGINS": "http://localhost:3000",
+    "GOOGLE_REDIRECT_URI": "http://localhost:8787/v1/oauth/google/callback"
+  },
+  "secrets": {
+    "required": [
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_TOKEN_ENCRYPTION_KEY",
+      "ATTACHMENT_STAGING_ENCRYPTION_KEY"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tap-email-coordinator",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENT_STAGING",
+      "bucket_name": "tap-email-attachment-staging"
+    }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "COMMAND_QUEUE", "queue": "tap-email-commands" },
+      { "binding": "SYNC_QUEUE", "queue": "tap-email-sync" }
+    ],
+    "consumers": [
+      {
+        "queue": "tap-email-commands",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "tap-email-commands-dead-letter"
+      },
+      {
+        "queue": "tap-email-sync",
+        "max_batch_size": 1,
+        "max_batch_timeout": 2,
+        "max_retries": 5,
+        "dead_letter_queue": "tap-email-sync-dead-letter"
+      }
+    ]
+  },
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "env": {
+    "production": {
+      "name": "tap-email-coordinator-production",
+      "routes": [
+        {
+          "pattern": "tap-email-coordinator.theaiplatform.app",
+          "custom_domain": true
+        }
+      ],
+      "vars": {
+        "ALLOW_DEV_IDENTITY": "false",
+        "TAP_INTROSPECTION_URL": "https://session.theaiplatform.app/v1/sessions/introspect",
+        "ALLOWED_ORIGINS": "https://app.theaiplatform.app",
+        "GOOGLE_REDIRECT_URI": "https://tap-email-coordinator.theaiplatform.app/v1/oauth/google/callback"
+      },
+      "secrets": {
+        "required": [
+          "GOOGLE_CLIENT_ID",
+          "GOOGLE_CLIENT_SECRET",
+          "GOOGLE_TOKEN_ENCRYPTION_KEY",
+          "ATTACHMENT_STAGING_ENCRYPTION_KEY"
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tap-email-coordinator-production",
+          "database_id": "f865fc5a-5ae2-4e7e-a1b7-5b834a454ec4",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ATTACHMENT_STAGING",
+          "bucket_name": "tap-email-attachment-staging-production"
+        }
+      ],
+      "queues": {
+        "producers": [
+          { "binding": "COMMAND_QUEUE", "queue": "tap-email-commands-production" },
+          { "binding": "SYNC_QUEUE", "queue": "tap-email-sync-production" }
+        ],
+        "consumers": [
+          {
+            "queue": "tap-email-commands-production",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "tap-email-commands-dead-letter-production"
+          },
+          {
+            "queue": "tap-email-sync-production",
+            "max_batch_size": 1,
+            "max_batch_timeout": 2,
+            "max_retries": 5,
+            "dead_letter_queue": "tap-email-sync-dead-letter-production"
+          }
+        ]
+      },
+      "triggers": { "crons": ["* * * * *"] }
+    }
+  }
+}

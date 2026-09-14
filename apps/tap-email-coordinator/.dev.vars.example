@@ -1,0 +1,7 @@
+# Copy this file to .dev.vars and fill in local-only credentials.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# Generate 32 random bytes and encode them as unpadded base64url.
+GOOGLE_TOKEN_ENCRYPTION_KEY=
+# Use a distinct 32-byte unpadded base64url key for temporary outbound files.
+ATTACHMENT_STAGING_ENCRYPTION_KEY=

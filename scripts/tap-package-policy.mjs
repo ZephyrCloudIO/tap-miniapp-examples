@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -50,6 +51,118 @@ async function readRequiredFile(packageRoot, relativePath, label) {
       { cause: error },
     );
   }
+}
+
+async function readRequiredBytes(packageRoot, relativePath, label) {
+  const resolved = resolveArtifact(packageRoot, relativePath, label);
+  try {
+    return await fs.readFile(resolved);
+  } catch (error) {
+    throw new Error(
+      `${label} is missing or unreadable: ${relativePath}`,
+      { cause: error },
+    );
+  }
+}
+
+function sha256Digest(contents) {
+  return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
+function sourceManifestAuthority(buildManifest) {
+  const permissions = [
+    ...new Set(
+      (buildManifest.contributions ?? []).flatMap((contribution) => [
+        ...(contribution.authorization?.allOf ?? []),
+        ...(contribution.authorization?.onDemand ?? []),
+      ]),
+    ),
+  ].sort();
+  const resourcesByKind = new Map();
+  for (const contribution of buildManifest.contributions ?? []) {
+    for (const effect of contribution.authorization?.effects ?? []) {
+      const resources = resourcesByKind.get(effect.kind) ?? new Set();
+      for (const resource of effect.resources ?? []) resources.add(resource);
+      resourcesByKind.set(effect.kind, resources);
+    }
+  }
+  const runtimeEffects = [...resourcesByKind]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([kind, resources]) => ({ kind, resources: [...resources].sort() }));
+  return { permissions, runtimeEffects };
+}
+
+async function readPolicyDescriptor(packageRoot) {
+  const source = JSON.parse(
+    await readRequiredFile(
+      packageRoot,
+      "manifest.tap.json",
+      "TAP package manifest",
+    ),
+  );
+  if (source.schemaVersion !== 2 || !Array.isArray(source.artifacts)) {
+    return { descriptor: source, sourceManifest: null };
+  }
+
+  const artifactsByPath = new Map();
+  for (const artifact of source.artifacts) {
+    if (
+      typeof artifact?.path !== "string" ||
+      typeof artifact?.digest !== "string" ||
+      !Number.isSafeInteger(artifact?.length) ||
+      artifactsByPath.has(artifact.path)
+    ) {
+      throw new Error("Generation-2 TAP source manifest has an invalid artifact inventory.");
+    }
+    const contents = await readRequiredBytes(
+      packageRoot,
+      artifact.path,
+      `TAP package artifact ${artifact.path}`,
+    );
+    if (
+      contents.byteLength !== artifact.length ||
+      sha256Digest(contents) !== artifact.digest
+    ) {
+      throw new Error(
+        `TAP package artifact ${artifact.path} does not match its source-manifest record.`,
+      );
+    }
+    artifactsByPath.set(artifact.path, artifact);
+  }
+  if (!artifactsByPath.has("tap-miniapp.build.json")) {
+    throw new Error("TAP source manifest must inventory tap-miniapp.build.json.");
+  }
+  const descriptor = JSON.parse(
+    await readRequiredFile(
+      packageRoot,
+      "tap-miniapp.build.json",
+      "TAP Miniapp build manifest",
+    ),
+  );
+  if (descriptor.versionLabel !== source.versionLabel) {
+    throw new Error(
+      "Source manifest versionLabel must match the inventoried build manifest.",
+    );
+  }
+  const authority = sourceManifestAuthority(descriptor);
+  if (
+    JSON.stringify(authority.permissions) !== JSON.stringify(source.permissions) ||
+    JSON.stringify(authority.runtimeEffects) !== JSON.stringify(source.runtimeEffects)
+  ) {
+    throw new Error(
+      "Source manifest authority summaries must exactly match the inventoried build manifest.",
+    );
+  }
+  const descriptorTargets = Object.keys(descriptor.targets ?? {}).sort();
+  const sourceTargets = (source.targets ?? [])
+    .map((target) => target?.target)
+    .sort();
+  if (JSON.stringify(descriptorTargets) !== JSON.stringify(sourceTargets)) {
+    throw new Error(
+      "Source manifest target locks must exactly match the inventoried build manifest.",
+    );
+  }
+  return { descriptor, sourceManifest: source };
 }
 
 function assertQualifiedWorkflowIdentifier(value, namespace, label) {
@@ -152,8 +265,7 @@ function assertPackageRuntimeStorageReads(contribution, server) {
 
 export function assertTapManifestRuntimePolicy(manifest) {
   assertRecord(manifest, "TAP package manifest");
-  const packageDescriptor = assertRecord(manifest.package, "manifest.package");
-  const namespace = packageDescriptor.namespace;
+  const namespace = manifest.package?.namespace ?? manifest.presentation?.slug;
   if (typeof namespace !== "string" || namespace.length === 0) {
     throw new Error("manifest.package.namespace must be a non-empty string.");
   }
@@ -269,17 +381,14 @@ function collectFederationAssets(federationManifest) {
 
 export async function assertBuiltTapPackage(packageRootInput) {
   const packageRoot = path.resolve(packageRootInput);
-  const manifestSource = await readRequiredFile(
-    packageRoot,
-    "manifest.tap.json",
-    "TAP package manifest",
-  );
-  let manifest;
+  let policyPackage;
   try {
-    manifest = JSON.parse(manifestSource);
+    policyPackage = await readPolicyDescriptor(packageRoot);
   } catch (error) {
-    throw new Error("TAP package manifest is not valid JSON.", { cause: error });
+    throw new Error("TAP package descriptor is invalid.", { cause: error });
   }
+  const manifest = policyPackage.descriptor;
+  const generation2Source = policyPackage.sourceManifest !== null;
 
   const targets = assertTapManifestRuntimePolicy(manifest);
   let assetCount = 0;
@@ -374,7 +483,14 @@ export async function assertBuiltTapPackage(packageRootInput) {
           `${targetName} JavaScript asset ${asset} contains browser-only automatic publicPath discovery.`,
         );
       }
-      if (isQuickJsRuntime && QUICKJS_FORBIDDEN_RUNTIME.test(source)) {
+      // Generation-2 packages have already passed the SDK's token-aware
+      // QuickJS closure verifier. This legacy text heuristic cannot distinguish
+      // a forbidden global from harmless words embedded in string literals.
+      if (
+        !generation2Source &&
+        isQuickJsRuntime &&
+        QUICKJS_FORBIDDEN_RUNTIME.test(source)
+      ) {
         throw new Error(
           `${targetName} JavaScript asset ${asset} imports a browser, Node, network, timer, or WASM runtime into QuickJS.`,
         );
@@ -391,12 +507,7 @@ export async function assertBuiltTapPackage(packageRootInput) {
 
 export async function assertPackageRuntimeMcpAbi(packageRootInput) {
   const packageRoot = path.resolve(packageRootInput);
-  const manifestSource = await readRequiredFile(
-    packageRoot,
-    "manifest.tap.json",
-    "TAP package manifest",
-  );
-  const manifest = JSON.parse(manifestSource);
+  const { descriptor: manifest } = await readPolicyDescriptor(packageRoot);
   const packageRuntimeServers = (manifest.contributions ?? []).filter(
     (contribution) =>
       contribution.kind === "mcp.server" &&

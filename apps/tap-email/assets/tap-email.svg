@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="TAP Email">
+  <defs>
+    <linearGradient id="g" x1="18" y1="16" x2="110" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f2c66d"/>
+      <stop offset="1" stop-color="#e56f4c"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="#171817"/>
+  <path d="M24 39c0-6 5-11 11-11h58c6 0 11 5 11 11v50c0 6-5 11-11 11H35c-6 0-11-5-11-11V39Z" fill="url(#g)"/>
+  <path d="m31 40 33 27 33-27" fill="none" stroke="#171817" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m31 90 24-22m42 22L73 68" fill="none" stroke="#171817" stroke-width="7" stroke-linecap="round"/>
+</svg>

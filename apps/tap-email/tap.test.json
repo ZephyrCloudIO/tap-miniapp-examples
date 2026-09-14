@@ -1,0 +1,219 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap-email",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "tap-email-desktop": {
+      "surface": "tap-email",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
+      "httpRouteFiles": ["tests/fixtures/tap-email.coordinator.http-routes.json"],
+      "requiredOrigins": ["https://tap-email-coordinator.theaiplatform.app"],
+      "requiredEffects": [
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:storage:tap-email",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.chat:send-text",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:user-notification:os",
+        "effect:user-file:pick-open",
+        "effect:user-file:read",
+        "effect:user-file:pick-save",
+        "effect:user-file:overwrite"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7401,
+        "fixedNow": "2026-08-18T15:30:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "always" }
+    },
+    "tap-email-desktop-post-projection-revoked": {
+      "surface": "tap-email",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:storage:tap-email",
+        "effect:user-notification:os"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7402,
+        "fixedNow": "2026-08-18T15:30:00Z"
+      },
+      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+    }
+  },
+  "matrix": [
+    {
+      "id": "tap-email-desktop-positive",
+      "profile": "tap-email-desktop",
+      "testMatch": ["tests/e2e/*.tap.ts"],
+      "capabilities": [
+        "action:tap-email.view",
+        "action:tap-email.manage",
+        "action:network.request",
+        "action:credentials.use",
+        "action:storage.profile.files.read",
+        "action:storage.profile.files.write",
+        "action:storage.profile.sqlite",
+        "action:storage.profile.zvec",
+        "action:embeddings.models.read",
+        "action:embeddings.compute",
+        "action:chat.compose",
+        "action:task.write",
+        "action:artifacts.read",
+        "action:channels.list",
+        "action:channels.create",
+        "action:channels.send-message",
+        "action:notifications.show",
+        "action:navigation.open-external",
+        "action:files.pick-open",
+        "action:files.read",
+        "action:files.pick-save",
+        "action:files.overwrite",
+        "action:workflows.list",
+        "action:workflows.invoke",
+        "action:workflows.runs.read",
+        "effect:storage:tap-email",
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.chat:send-text",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:user-notification:os",
+        "effect:user-file:pick-open",
+        "effect:user-file:read",
+        "effect:user-file:pick-save",
+        "effect:user-file:overwrite"
+      ]
+    },
+    {
+      "id": "tap-email-desktop-storage-denied",
+      "profile": "tap-email-desktop-post-projection-revoked",
+      "testMatch": ["tests/e2e/tap-email.storage-denied.test.ts"],
+      "capabilities": [
+        "action:tap-email.manage",
+        "action:network.request",
+        "action:credentials.use",
+        "action:storage.profile.files.write",
+        "action:storage.profile.sqlite",
+        "action:storage.profile.zvec",
+        "action:embeddings.compute",
+        "action:task.write",
+        "action:notifications.show",
+        "action:navigation.open-external",
+        "action:files.pick-open",
+        "action:files.read",
+        "action:files.pick-save",
+        "action:files.overwrite",
+        "action:workflows.invoke",
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:storage:tap-email",
+        "effect:user-notification:os",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:user-file:pick-open",
+        "effect:user-file:read",
+        "effect:user-file:pick-save",
+        "effect:user-file:overwrite"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "action:task.write",
+      "reason": "Creating a canonical task requires a user-selected email. The privacy-safe positive Test Lab mailbox is intentionally empty; denial remains covered by the all-denied matrix entry.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:artifacts.read",
+      "reason": "Artifact resolution begins only when the host launches Email this from a supported TAP work item; the surface smoke profile cannot mint a real short-lived artifact reference.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:channels.list",
+      "reason": "Existing TAP destinations are loaded only after the user opens the review-first Discuss in TAP dialog; the default privacy-safe Test Lab mailbox contains no selectable email thread.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:list",
+      "reason": "Channel discovery is deferred until a user reviews an email handoff; the default privacy-safe Test Lab mailbox contains no selectable email thread.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:chat.compose",
+      "reason": "Chloe prompting requires a user-selected email, while the default Test Lab mailbox intentionally contains no private email body to place in the host Chat composer.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.chat:send-text",
+      "reason": "The host Chat handoff is exercised only from a user-selected private email; the default Test Lab mailbox intentionally provides no email body to stage.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:channels.create",
+      "reason": "The default Test Lab mailbox is intentionally empty, so it cannot truthfully exercise user-approved email-to-conversation creation without embedding private mail content in a fixture.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:channels.send-message",
+      "reason": "The default Test Lab mailbox is intentionally empty and therefore has no user-approved email content to send into a private channel.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:create",
+      "reason": "This effect is reserved for the explicit email-to-conversation handoff; the privacy-safe default Test Lab mailbox contains no email to hand off.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:send-message",
+      "reason": "This effect is reserved for user-approved email-to-conversation content. Test Lab must not seed private email content into non-secret TAP JSON storage to manufacture a host call.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "action:notifications.show",
+      "reason": "The privacy-safe positive fixture contains no post-baseline critical mail, due reminder, or failed send, so TAP Email correctly makes no notification attempt during the smoke case.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    },
+    {
+      "capability": "effect:user-notification:os",
+      "reason": "The positive fixture intentionally has no new notification-worthy event after the initial mailbox baseline; denial remains covered by the all-denied matrix entry.",
+      "expiresAt": "2027-02-28T00:00:00Z"
+    }
+  ]
+}

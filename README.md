@@ -60,6 +60,7 @@ Each example has its own product brief under [`miniapps`](./miniapps). The brief
 | 6 | [Personal Health Ledger](./miniapps/06-personal-health-ledger.md) | Consumer | Private health records plus research and safety APIs | Approved |
 | 7 | [Engineering Change](./miniapps/07-engineering-change.md) | Enterprise | App-defined plot ledger, CKG evidence, and policy-gated review | Proposed |
 | 8 | [Kart Royale](./miniapps/08-kart-royale.md) | Consumer | TAP storage plus a Cloudflare session server for channel multiplayer | Approved concept; multiplayer implemented |
+| 9 | [TAP Email](./miniapps/09-tap-email.md) | Consumer | Encrypted cloud Gmail model plus private profile SQLite cache | Live v0 implemented; deployment configuration required |
 
 ## Local references
 
