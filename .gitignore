@@ -15,6 +15,8 @@ node_modules/
 .dev.vars.*
 !.dev.vars.example
 dist/
+/apps/tap-email/dist-*/
+/tmp/
 .tap-build/
 .tap-package/
 tap-package/

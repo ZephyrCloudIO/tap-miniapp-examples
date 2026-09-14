@@ -1,0 +1,655 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "buildSchemaVersion": 2,
+  "versionLabel": "0.1.0",
+  "presentation": {
+    "name": "TAP Email",
+    "slug": "tap-email",
+    "description": "Keyboard-first unified email with coverage-aware Operational Zero.",
+    "categories": ["communication", "productivity"],
+    "iconAssets": ["assets/tap-email.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/tap-email.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "any"
+      }
+    ]
+  },
+  "compatibility": {
+    "tapSdk": "0.15.0",
+    "tapHost": ">=2.9.0"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_email_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
+        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+      }
+    },
+    "quickjs": {
+      "remoteName": "tap_email_quickjs",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./mcp/tap-email-mcp": { "integrity": "pending", "runtime": "quickjs" }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "tap-email",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+      },
+      "publishes": [
+        "tap-email.surface.mounted",
+        "tap-email.surface.unmounted",
+        "tap-email.context.changed"
+      ],
+      "authorization": {
+        "allOf": ["tap-email.view"],
+        "onDemand": [
+          "tap-email.manage",
+          "network.request",
+          "credentials.use",
+          "storage.profile.files.read",
+          "storage.profile.files.write",
+          "storage.profile.sqlite",
+          "storage.profile.zvec",
+          "embeddings.models.read",
+          "embeddings.compute",
+          "chat.compose",
+          "task.write",
+          "artifacts.read",
+          "channels.list",
+          "channels.create",
+          "channels.send-message",
+          "notifications.show",
+          "navigation.open-external",
+          "files.pick-open",
+          "files.read",
+          "files.pick-save",
+          "files.overwrite",
+          "workflows.list",
+          "workflows.invoke",
+          "workflows.runs.read"
+        ],
+        "effects": [
+          { "kind": "storage", "resources": ["tap-email"] },
+          {
+            "kind": "external-network",
+            "resources": ["https://tap-email-coordinator.theaiplatform.app"]
+          },
+          {
+            "kind": "credentials",
+            "resources": ["http"]
+          },
+          {
+            "kind": "external-navigation",
+            "resources": ["https://accounts.google.com"]
+          },
+          {
+            "kind": "host-api",
+            "resources": [
+              "tap.channels:create",
+              "tap.channels:list",
+              "tap.channels:send-message",
+              "tap.chat:send-text",
+              "tap.workflows:list",
+              "tap.workflows:invoke",
+              "tap.workflow-runs:read"
+            ]
+          },
+          { "kind": "user-notification", "resources": ["os"] },
+          { "kind": "user-file", "resources": ["pick-open", "read", "pick-save", "overwrite"] }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "TAP Email",
+        "description": "Triage every connected email account from one keyboard-first panel.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "retained",
+        "iconAssets": ["assets/tap-email.svg"]
+      }
+    },
+    {
+      "kind": "action.command",
+      "id": "tap-email-email-this",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "authorization": {
+        "allOf": ["artifacts.read"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "label": "Email this…",
+        "description": "Resolve this TAP item into a new email draft for review.",
+        "contexts": [
+          "channel-message",
+          "pull-request",
+          "task",
+          "repository-issue"
+        ],
+        "launch": {
+          "kind": "ui.surface",
+          "contributionId": "tap-email"
+        }
+      }
+    },
+    {
+      "kind": "specialist",
+      "id": "tap-email-specialist",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "authorization": {
+        "allOf": [
+          "tap-email.specialist",
+          "tap-email.view"
+        ]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "manifest": "specialists/tap-email-specialist/0.1.0.json"
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "tap-email-mcp",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": { "expose": "./mcp/tap-email-mcp", "runtime": "quickjs" }
+      },
+      "authorization": {
+        "allOf": ["tap-email.view"],
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-11-25",
+        "implementation": { "type": "package-runtime" },
+        "consumerPolicy": {
+          "contributionIds": ["tap-email-specialist"],
+          "externalConsumers": ["selected-specialists"]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-mailbox-summary",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["tap-email.view"],
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-mcp",
+        "toolName": "get_mailbox_summary",
+        "timeoutMs": 1000,
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }],
+        "storageReads": [
+          { "namespace": "tap-email", "keyTemplate": "operational/v1" }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-active-context",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["tap-email.view"],
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-mcp",
+        "toolName": "get_active_email_context",
+        "timeoutMs": 1000,
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }],
+        "storageReads": [
+          { "namespace": "tap-email", "keyTemplate": "operational/v1" }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-activity-summary",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": ["tap-email.view"],
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-mcp",
+        "toolName": "get_email_activity_summary",
+        "timeoutMs": 1000,
+        "effects": [{ "kind": "storage", "resources": ["tap-email"] }],
+        "storageReads": [
+          { "namespace": "tap-email", "keyTemplate": "activity/v1" }
+        ]
+      }
+    },
+    {
+      "kind": "agent.skill",
+      "id": "email-operations",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": { "runtime": "host-declarative" }
+      },
+      "authorization": {
+        "allOf": ["tap-email.view"]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "files": ["SKILL.md"]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "tap-email-app",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": [
+          "tap-email",
+          "tap-email-specialist",
+          "tap-email-mcp",
+          "tap-email-mailbox-summary",
+          "tap-email-active-context",
+          "tap-email-activity-summary",
+          "tap-email-email-this",
+          "email-operations"
+        ]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "tap-email-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "tap-email.view",
+            "resource": "tap.tap-email:view",
+            "scopes": ["user", "workspace"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "tap-email.manage",
+            "resource": "tap.tap-email:manage",
+            "scopes": ["user", "workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "tap-email.specialist",
+            "resource": "tap.specialist:tap-email-specialist",
+            "scopes": ["user", "workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": ["specialist"],
+            "autonomyCeiling": "plan",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["user", "workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "credentials.use",
+            "resource": "tap.credentials:use",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "storage.profile.files.read",
+            "resource": "profile-storage-files",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "storage.profile.files.write",
+            "resource": "profile-storage-files",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "storage.profile.sqlite",
+            "resource": "profile-storage-sqlite",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "storage.profile.zvec",
+            "resource": "profile-storage-zvec",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "embeddings.models.read",
+            "resource": "local-embedding-models",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "embeddings.compute",
+            "resource": "local-embedding-compute",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "chat.compose",
+            "resource": "tap.chat:send-text",
+            "scopes": ["conversation"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "task.write",
+            "resource": "tap.task:write",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "artifacts.read",
+            "resource": "artifact",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "channels.list",
+            "resource": "tap.channels:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "channels.create",
+            "resource": "tap.channels:create",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "channels.send-message",
+            "resource": "tap.channels:send-message",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "channels.manage-specialists",
+            "resource": "tap.channels:manage-specialists",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "specialists.invoke",
+            "resource": "tap.specialists:invoke",
+            "scopes": ["workspace", "channel"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "notifications.show",
+            "resource": "os",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "navigation.open-external",
+            "resource": "external-navigation",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "files.pick-open",
+            "resource": "user-file-picker",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "files.read",
+            "resource": "user-selected-files",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "files.pick-save",
+            "resource": "user-file-picker",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "files.overwrite",
+            "resource": "user-selected-files",
+            "scopes": ["user"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "write"
+          },
+          {
+            "id": "workflows.list",
+            "resource": "tap.workflows:list",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          },
+          {
+            "id": "workflows.invoke",
+            "resource": "tap.workflows:invoke",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
+          {
+            "id": "workflows.runs.read",
+            "resource": "tap.workflow-runs:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "none",
+            "risk": "read"
+          }
+        ],
+        "levels": [
+          {
+            "id": "email-reader",
+            "actions": ["tap-email.view"],
+            "assignableTo": ["human", "specialist"]
+          },
+          {
+            "id": "email-owner",
+            "actions": [
+              "tap-email.view",
+              "tap-email.manage",
+              "tap-email.specialist",
+              "network.request",
+              "credentials.use",
+              "storage.profile.files.read",
+              "storage.profile.files.write",
+              "storage.profile.sqlite",
+              "storage.profile.zvec",
+              "embeddings.models.read",
+              "embeddings.compute",
+              "chat.compose",
+              "task.write",
+              "artifacts.read",
+              "channels.list",
+              "channels.create",
+              "channels.send-message",
+              "channels.manage-specialists",
+              "specialists.invoke",
+              "notifications.show",
+              "navigation.open-external",
+              "files.pick-open",
+              "files.read",
+              "files.pick-save",
+              "files.overwrite",
+              "workflows.list",
+              "workflows.invoke",
+              "workflows.runs.read"
+            ],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          { "actor": "human", "workspaceRole": "member", "level": "email-owner" }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {
+        "name": "tap-email.surface.mounted",
+        "schema": "urn:tap:tap-email:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "tap-email.surface.unmounted",
+        "schema": "urn:tap:tap-email:surface-event:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "tap-email.context.changed",
+        "schema": "urn:tap:tap-email:active-context:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      }
+    ]
+  },
+  "runtimePolicy": {
+    "checkpoint": "retained",
+    "lifecycleExpose": "./tap/lifecycle",
+    "profileStorageQuotaBytes": 1073741824
+  }
+}

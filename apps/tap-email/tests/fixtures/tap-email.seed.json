@@ -1,0 +1,18 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap_pkg_examples_tap_email_0001",
+      "namespace": "tap-email",
+      "key": "preferences/v1",
+      "revision": 1,
+      "value": {
+        "imagesEnabled": true,
+        "trackingPixelsEnabled": true,
+        "notificationsConfigured": false,
+        "notificationAccountIds": [],
+        "shortcutOverrides": {}
+      }
+    }
+  ]
+}

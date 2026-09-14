@@ -1,0 +1,51 @@
+{
+  "name": "@tap-examples/tap-email",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "preview": "rsbuild preview",
+    "build": "pnpm build:preview && pnpm build:miniapp",
+    "publish": "tap-miniapp publish",
+    "build:watch": "rslib build --watch",
+    "build:preview": "rsbuild build",
+    "build:miniapp": "tap-miniapp build --output .tap-package && pnpm verify:package",
+    "build:miniapp:local": "tap-miniapp build --config tap-miniapp.desktop-dev.config.mjs --output dist-local-dev",
+    "build:miniapp:desktop": "cross-env TAP_PACKAGE_TARGET=desktop rslib build",
+    "build:miniapp:quickjs": "cross-env TAP_PACKAGE_TARGET=quickjs rslib build",
+    "build:miniapp:assemble": "node scripts/assemble-package.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tap": "tsc --project ./tsconfig.tap-test.json --noEmit",
+    "test": "rstest run",
+    "test:tap": "rstest run --config ./rstest.tap.config.ts",
+    "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "verify:package": "node scripts/verify-sdk-package.mjs && node ../../scripts/verify-built-package.mjs .tap-package && node scripts/verify-react-runtime.mjs"
+  },
+  "dependencies": {
+    "@tap-examples/tap-email-protocol": "workspace:*",
+    "@theaiplatform/miniapp-sdk": "0.15.0",
+    "dompurify": "^3.4.15",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "2.8.1",
+    "@rsbuild/core": "^2.1.5",
+    "@rsbuild/plugin-react": "2.1.0",
+    "@rslib/core": "^0.23.2",
+    "@rstest/core": "0.11.5",
+    "@rstest/playwright": "0.11.5",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@zephyrcloudio/miniapp-zephyr-publisher": "2.15.0",
+    "ajv": "^8.20.0",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.61.0",
+    "typescript": "6.0.3",
+    "zephyr-agent": "1.2.4"
+  }
+}
