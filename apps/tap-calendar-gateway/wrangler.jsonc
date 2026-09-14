@@ -61,8 +61,8 @@
       ],
       "vars": {
         "ALLOWED_ORIGINS": "https://cal.with-tap.ai,http://tauri.localhost",
-        "AUTH0_DOMAIN": "auth.zephyr-cloud.io",
-        "AUTH0_AUDIENCE": "https://api.zephyr-cloud.io",
+        "AUTH0_DOMAIN": "auth.theaiplatform.app",
+        "AUTH0_AUDIENCE": "https://api.theaiplatform.app",
         "PUBLIC_BASE_URL": "https://calendar-api.theaiplatform.app",
         "PUBLIC_BOOKING_BASE_URL": "https://cal.with-tap.ai",
         "PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAAESPERDaCkgFvRr5",
