@@ -1,6 +1,7 @@
 import manifest from './manifest.tap.json' with { type: 'json' };
 import { defineTapMiniapp } from '@theaiplatform/miniapp-sdk/authoring';
 import { commandTargetBuilder } from '@theaiplatform/miniapp-sdk/lifecycle';
+import { zephyrPublisher } from '@zephyrcloudio/miniapp-zephyr-publisher';
 import { staticContributionProvider } from '../../scripts/tap-miniapp-static-contributions.mjs';
 
 const builder = commandTargetBuilder({
@@ -38,4 +39,11 @@ export default defineTapMiniapp({
   contributions: [staticContributionProvider(manifest)],
   events: manifest.events,
   runtimePolicy: manifest.runtimePolicy,
+  publisher: zephyrPublisher({
+    coordinates: {
+      organization: 'zephyrcloudio',
+      project: 'tap-miniapp-examples',
+      application: 'tap-email',
+    },
+  }),
 });
