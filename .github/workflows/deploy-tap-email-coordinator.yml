@@ -2,21 +2,18 @@ name: Deploy TAP Email Coordinator
 
 on:
   workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - ".github/workflows/deploy-tap-email-coordinator.yml"
-      - "apps/tap-email-coordinator/**"
-      - "apps/tap-email-protocol/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
 
 concurrency:
   group: tap-email-coordinator-production
   cancel-in-progress: false
 
 permissions:
+  actions: read
+  checks: read
   contents: read
   packages: read
 
@@ -24,7 +21,113 @@ env:
   TAP_EMAIL_COORDINATOR_PRODUCTION_URL: https://tap-email-coordinator.theaiplatform.app
 
 jobs:
+  authorize-revision:
+    name: Select a CI-approved revision
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy-sha: ${{ steps.revision.outputs.deploy-sha }}
+      should-deploy: ${{ steps.revision.outputs.should-deploy }}
+    steps:
+      - name: Require successful repository CI
+        id: revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_RUN_CHECK_SUITE_ID: ${{ github.event.workflow_run.check_suite_id }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
+            deploy_sha="$WORKFLOW_RUN_SHA"
+
+            read -r before_sha after_sha < <(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/${GITHUB_REPOSITORY}/check-suites/${WORKFLOW_RUN_CHECK_SUITE_ID}" \
+                --jq '[.before, .after] | @tsv'
+            )
+
+            if [[ "$after_sha" != "$deploy_sha" ]]; then
+              echo "::error::The completed CI check suite does not match its reported head SHA."
+              exit 1
+            fi
+
+            changed_paths="$(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/${GITHUB_REPOSITORY}/compare/${before_sha}...${after_sha}" \
+                --jq '.files[].filename'
+            )"
+            changed_path_count="$(wc -l <<< "$changed_paths" | tr -d ' ')"
+            should_deploy=false
+
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/deploy-tap-email-coordinator.yml | \
+                  apps/tap-email-coordinator/* | \
+                  apps/tap-email-protocol/* | \
+                  package.json | \
+                  pnpm-lock.yaml | \
+                  pnpm-workspace.yaml)
+                  should_deploy=true
+                  break
+                  ;;
+              esac
+            done <<< "$changed_paths"
+
+            if [[ "$changed_path_count" -ge 300 ]]; then
+              echo "::notice::The GitHub comparison reached its 300-file response limit; deploying fail-safe."
+              should_deploy=true
+            fi
+          else
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Manual production deployments must target the main branch."
+              exit 1
+            fi
+
+            deploy_sha="$GITHUB_SHA"
+            successful_ci_runs="$(
+              gh api \
+                --method GET \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                -f branch=main \
+                -f event=push \
+                -f head_sha="$deploy_sha" \
+                -f status=success \
+                -f per_page=1 \
+                --jq '.total_count'
+            )"
+
+            if [[ "$successful_ci_runs" -lt 1 ]]; then
+              echo "::error::No successful CI push run exists for ${deploy_sha}; deploy only after CI succeeds for this exact revision."
+              exit 1
+            fi
+
+            should_deploy=true
+          fi
+
+          if [[ ! "$deploy_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The CI-approved deployment revision is not a full commit SHA."
+            exit 1
+          fi
+
+          echo "Deploying CI-approved revision ${deploy_sha}."
+          echo "deploy-sha=${deploy_sha}" >> "$GITHUB_OUTPUT"
+          echo "should-deploy=${should_deploy}" >> "$GITHUB_OUTPUT"
+
   verify-and-deploy:
+    needs: authorize-revision
+    if: needs.authorize-revision.outputs.should-deploy == 'true'
     runs-on: ubuntu-latest
     environment:
       name: tap-email-coordinator-production
@@ -32,6 +135,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.authorize-revision.outputs.deploy-sha }}
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
@@ -101,6 +207,13 @@ jobs:
             }
           }
 
+          if (
+            process.env.GOOGLE_TOKEN_ENCRYPTION_KEY ===
+            process.env.ATTACHMENT_STAGING_ENCRYPTION_KEY
+          ) {
+            fail('GOOGLE_TOKEN_ENCRYPTION_KEY and ATTACHMENT_STAGING_ENCRYPTION_KEY must be distinct.');
+          }
+
           try {
             const url = new URL(process.env.TAP_EMAIL_COORDINATOR_PRODUCTION_URL);
             if (
@@ -157,7 +270,7 @@ jobs:
           fi
 
       - name: Apply migrations, upload secrets, and deploy
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

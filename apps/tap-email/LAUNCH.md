@@ -60,15 +60,21 @@ The final command assembles and verifies the installable package at
 
 ## 3. Deploy the coordinator
 
-Merge the reviewed pull request to `main`, or manually run **Deploy TAP Email
-Coordinator** in GitHub Actions. The workflow:
+Merge the reviewed pull request to `main`. A successful `CI` push run then
+starts **Deploy TAP Email Coordinator** for that exact commit when a coordinator
+source, protocol, lockfile, workspace, package, or deployment-workflow file
+changed. Comparisons at GitHub's 300-file response limit deploy fail-safe. A
+manual run is also available on `main`, but fails closed unless the selected
+commit already has a successful `CI` push run. The workflow:
 
-1. validates the six environment secrets without printing their values;
-2. repeats the Worker release gates;
-3. creates the named production D1 database on the first run;
-4. applies D1 migrations before routing new code;
-5. uploads the four Worker runtime secrets and deploys the production Worker;
-6. waits for semantic success from `/health` and `/ready`.
+1. proves that the exact deployment commit passed repository CI;
+2. validates the six environment secrets without printing their values and
+   rejects reused encryption keys;
+3. repeats the Worker release gates;
+4. creates the named production D1 database on the first run;
+5. applies D1 migrations before routing new code;
+6. uploads the four Worker runtime secrets and deploys the production Worker;
+7. waits for semantic success from `/health` and `/ready`.
 
 Wrangler provisions the named R2 bucket and Queues from the checked-in
 production environment. Treat a failed readiness probe as a failed deployment,
