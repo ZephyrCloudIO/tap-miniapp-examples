@@ -3,6 +3,7 @@ import {
   cancelPublicBookingManagement,
   createPublicBooking,
   loadPublicBookingManagement,
+  loadPublicBookingProfile,
   loadPublicAvailability,
   loadPublicBookingPage,
   PublicCalendarApiError,
@@ -13,6 +14,7 @@ import {
   PUBLIC_MANAGEMENT_CANCEL_SCHEMA_VERSION,
   PUBLIC_MANAGEMENT_SCHEMA_VERSION,
   PUBLIC_PAGE_SCHEMA_VERSION,
+  PUBLIC_PROFILE_SCHEMA_VERSION,
 } from "./contracts";
 
 const originalFetch = globalThis.fetch;
@@ -49,6 +51,26 @@ describe("public Calendar API client", () => {
       turnstileSiteKey: "site-key",
     },
   };
+
+  it("loads an empty claimed profile anonymously", async () => {
+    const profile = {
+      schemaVersion: PUBLIC_PROFILE_SCHEMA_VERSION,
+      canonicalUrl: "https://cal.with-tap.ai/alex-morgan",
+      profile: { displayName: "Alex Morgan", initials: "AM" },
+      eventTypes: [],
+    };
+    const fetchMock = rs.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(profile), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    Reflect.set(globalThis, "fetch", fetchMock);
+
+    await expect(loadPublicBookingProfile("alex-morgan")).resolves.toEqual(profile);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/public/profiles/alex-morgan",
+      expect.objectContaining({ credentials: "omit" }),
+    );
+  });
 
   it("uses slug-safe anonymous URLs and omits credentials", async () => {
     const page = {

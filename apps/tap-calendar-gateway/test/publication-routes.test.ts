@@ -35,6 +35,19 @@ const publicationPage = (title = "30 minute meeting") => ({
   },
 });
 
+const profilePublication = (
+  expectedGeneration = 0,
+  publications: readonly Record<string, unknown>[] = [publicationPage()],
+) => ({
+  schemaVersion: "tap.calendar.profile-publication.v1",
+  sourceProfileId: "profile-route-1",
+  profileSlug: "route-owner",
+  displayName: "Route Owner",
+  ownerType: "individual",
+  expectedGeneration,
+  publications,
+});
+
 const request = (path: string, body: unknown) => new Request(
   `https://calendar-api.theaiplatform.app${path}`,
   {
@@ -80,11 +93,10 @@ beforeEach(async () => {
 
 describe("organizer publication routes", () => {
   it("publishes and unpublishes a whole profile through the authenticated organizer boundary", async () => {
-    const published = await worker.fetch(request("/v1/publications/profiles", {
-      schemaVersion: "tap.calendar.profile-publication.v1",
-      expectedGeneration: 0,
-      publications: [publicationPage()],
-    }), env);
+    const published = await worker.fetch(request(
+      "/v1/publications/profiles",
+      profilePublication(),
+    ), env);
     expect(published.status).toBe(200);
     const receipt = await published.json<{
       publication: {
@@ -114,22 +126,39 @@ describe("organizer publication routes", () => {
     });
   });
 
+  it("claims a public profile namespace without requiring an Event Type", async () => {
+    const published = await worker.fetch(request(
+      "/v1/publications/profiles",
+      profilePublication(0, []),
+    ), env);
+    expect(published.status).toBe(200);
+    expect(await published.json()).toMatchObject({
+      publication: {
+        sourceProfileId: "profile-route-1",
+        profileSlug: "route-owner",
+        generation: 1,
+        idempotentReplay: false,
+        pages: [],
+      },
+    });
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT COUNT(*) AS count FROM public_booking_pages",
+    ).first<number>("count")).toBe(0);
+  });
+
   it("returns the current generation on a stale organizer write", async () => {
-    await worker.fetch(request("/v1/publications/profiles", {
-      schemaVersion: "tap.calendar.profile-publication.v1",
-      expectedGeneration: 0,
-      publications: [publicationPage()],
-    }), env);
-    await worker.fetch(request("/v1/publications/profiles", {
-      schemaVersion: "tap.calendar.profile-publication.v1",
-      expectedGeneration: 1,
-      publications: [publicationPage("Current title")],
-    }), env);
-    const stale = await worker.fetch(request("/v1/publications/profiles", {
-      schemaVersion: "tap.calendar.profile-publication.v1",
-      expectedGeneration: 1,
-      publications: [publicationPage("Stale title")],
-    }), env);
+    await worker.fetch(request(
+      "/v1/publications/profiles",
+      profilePublication(),
+    ), env);
+    await worker.fetch(request(
+      "/v1/publications/profiles",
+      profilePublication(1, [publicationPage("Current title")]),
+    ), env);
+    const stale = await worker.fetch(request(
+      "/v1/publications/profiles",
+      profilePublication(1, [publicationPage("Stale title")]),
+    ), env);
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "publication_conflict",

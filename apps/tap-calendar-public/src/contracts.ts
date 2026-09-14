@@ -1,4 +1,5 @@
 export const PUBLIC_PAGE_SCHEMA_VERSION = "tap.calendar.public-page.v1" as const;
+export const PUBLIC_PROFILE_SCHEMA_VERSION = "tap.calendar.public-profile.v1" as const;
 export const PUBLIC_AVAILABILITY_SCHEMA_VERSION = "tap.calendar.public-availability.v1" as const;
 export const PUBLIC_BOOKING_SCHEMA_VERSION = "tap.calendar.public-booking.v1" as const;
 export const PUBLIC_MANAGEMENT_SCHEMA_VERSION = "tap.calendar.public-management.v1" as const;
@@ -8,6 +9,25 @@ export const PUBLIC_MANAGEMENT_RESCHEDULE_SCHEMA_VERSION =
   "tap.calendar.public-management-reschedule.v1" as const;
 
 export type PublicMeetingLocation = "google-meet" | "phone" | "in-person" | "custom";
+
+export interface PublicBookingProfile {
+  readonly schemaVersion: typeof PUBLIC_PROFILE_SCHEMA_VERSION;
+  readonly canonicalUrl: string;
+  readonly profile: {
+    readonly displayName: string;
+    readonly initials: string;
+  };
+  readonly eventTypes: readonly {
+    readonly eventTypeSlug: string;
+    readonly canonicalUrl: string;
+    readonly title: string;
+    readonly description?: string;
+    readonly durationMinutes: number;
+    readonly location: PublicMeetingLocation;
+    readonly locationLabel: string;
+    readonly approvalRequired: boolean;
+  }[];
+}
 
 export interface PublicBookingPage {
   readonly schemaVersion: typeof PUBLIC_PAGE_SCHEMA_VERSION;
@@ -174,6 +194,48 @@ export function isPublicApiErrorBody(value: unknown): value is PublicApiErrorBod
     boundedText(value.error, 128) &&
     boundedText(value.message, 1000) &&
     (value.retryable === undefined || typeof value.retryable === "boolean");
+}
+
+export function isPublicBookingProfile(
+  value: unknown,
+  profileSlug: string,
+): value is PublicBookingProfile {
+  if (
+    !SLUG.test(profileSlug) ||
+    !isRecord(value) ||
+    value.schemaVersion !== PUBLIC_PROFILE_SCHEMA_VERSION ||
+    !exactPublicUrl(value.canonicalUrl, `/${encodeURIComponent(profileSlug)}`) ||
+    !isRecord(value.profile) ||
+    !boundedText(value.profile.displayName, 160) ||
+    !boundedText(value.profile.initials, 12) ||
+    !Array.isArray(value.eventTypes) ||
+    value.eventTypes.length > 100
+  ) return false;
+
+  const eventTypeSlugs = new Set<string>();
+  for (const eventType of value.eventTypes) {
+    if (
+      !isRecord(eventType) ||
+      !boundedText(eventType.eventTypeSlug, 64) ||
+      !SLUG.test(eventType.eventTypeSlug) ||
+      eventTypeSlugs.has(eventType.eventTypeSlug) ||
+      !exactPublicUrl(
+        eventType.canonicalUrl,
+        `/${encodeURIComponent(profileSlug)}/${encodeURIComponent(eventType.eventTypeSlug)}`,
+      ) ||
+      !boundedText(eventType.title, 160) ||
+      !(eventType.description === undefined ||
+        (typeof eventType.description === "string" && eventType.description.length <= 4096)) ||
+      !Number.isInteger(eventType.durationMinutes) ||
+      Number(eventType.durationMinutes) < 5 ||
+      Number(eventType.durationMinutes) > 1_440 ||
+      !["google-meet", "phone", "in-person", "custom"].includes(String(eventType.location)) ||
+      !boundedText(eventType.locationLabel, 160) ||
+      typeof eventType.approvalRequired !== "boolean"
+    ) return false;
+    eventTypeSlugs.add(eventType.eventTypeSlug);
+  }
+  return true;
 }
 
 export function isPublicBookingPage(

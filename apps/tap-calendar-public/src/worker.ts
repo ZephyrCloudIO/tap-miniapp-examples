@@ -8,6 +8,7 @@ export interface PublicBookingWorkerEnv {
 }
 
 const PUBLIC_PAGE_API_PREFIX = "/api/public/pages/";
+const PUBLIC_PROFILE_API_PREFIX = "/api/public/profiles/";
 const PUBLIC_MANAGEMENT_API_PATHS = new Set([
   "/api/public/manage",
   "/api/public/manage/cancel",
@@ -31,6 +32,9 @@ const CONTENT_SECURITY_POLICY = [
 
 function isPublicGatewayPath(pathname: string): boolean {
   return pathname.startsWith(PUBLIC_PAGE_API_PREFIX)
+    || (pathname.startsWith(PUBLIC_PROFILE_API_PREFIX) &&
+      !pathname.slice(PUBLIC_PROFILE_API_PREFIX.length).includes("/") &&
+      pathname.length > PUBLIC_PROFILE_API_PREFIX.length)
     || PUBLIC_MANAGEMENT_API_PATHS.has(pathname);
 }
 

@@ -15,10 +15,13 @@ import {
   availabilityQueryWindow,
   buildPublicAvailability,
   parsePublicBookingPagePath,
+  parsePublicBookingProfilePath,
+  projectPublicBookingProfile,
   preparePublicSlotSigningKey,
   projectPublicBookingPage,
   publicAvailabilityQuery,
   PublicBookingReadError,
+  resolvePublishedPublicBookingProfile,
   resolvePublishedPublicBookingPage,
   verifyPublicSlotToken,
 } from "./public-booking-read";
@@ -1009,6 +1012,23 @@ async function getPublishedPublicBookingPage(
         env.PUBLIC_TURNSTILE_SITE_KEY,
       ),
       now: Date.now(),
+    }));
+  } catch (error) {
+    return publicBookingReadApiError(error);
+  }
+}
+
+async function getPublishedPublicBookingProfile(
+  profileSlug: string,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  try {
+    const resolved = await resolvePublishedPublicBookingProfile(
+      env.CALENDAR_DB.withSession("first-primary"),
+      profileSlug,
+    );
+    return json(projectPublicBookingProfile(resolved, {
+      baseUrl: publicBookingBaseUrl(env),
     }));
   } catch (error) {
     return publicBookingReadApiError(error);
@@ -8628,6 +8648,24 @@ async function route(
   }
   if (path.startsWith("/api/public/manage")) {
     throw publicBookingManagementUnavailable();
+  }
+  const publicProfileSlug = parsePublicBookingProfilePath(path);
+  if (request.method === "GET" && publicProfileSlug) {
+    if (url.search) {
+      throw new ApiError(
+        400,
+        "invalid_public_request",
+        "This public booking request is invalid.",
+      );
+    }
+    return getPublishedPublicBookingProfile(publicProfileSlug, env);
+  }
+  if (path === "/api/public/profiles" || path.startsWith("/api/public/profiles/")) {
+    throw new ApiError(
+      404,
+      "public_profile_unavailable",
+      "This booking profile is unavailable.",
+    );
   }
   const publicBookingRoute = parsePublicBookingPagePath(path);
   if (request.method === "GET" && publicBookingRoute?.resource === "page") {

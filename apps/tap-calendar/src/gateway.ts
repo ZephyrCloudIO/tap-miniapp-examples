@@ -372,6 +372,10 @@ const serializePublicBookingProfilePublication = (
   value: PublicBookingProfilePublicationInput,
 ): Readonly<Record<string, unknown>> => ({
   schemaVersion: value.schemaVersion,
+  sourceProfileId: value.sourceProfileId,
+  profileSlug: value.profileSlug,
+  displayName: value.displayName,
+  ownerType: value.ownerType,
   expectedGeneration: value.expectedGeneration,
   publications: value.publications.map(serializePublicBookingPublication),
 });
@@ -388,12 +392,12 @@ function publishedBookingProfileReceipt(
   value: unknown,
   input: PublicBookingProfilePublicationInput,
 ): CalendarGatewayPublishedBookingProfile {
-  const first = input.publications[0];
   if (
-    !first ||
     !input.publications.every(publication =>
-      publication.sourceProfileId === first.sourceProfileId &&
-      publication.profileSlug === first.profileSlug
+      publication.sourceProfileId === input.sourceProfileId &&
+      publication.profileSlug === input.profileSlug &&
+      publication.displayName === input.displayName &&
+      publication.ownerType === input.ownerType
     ) ||
     !isRecord(value) ||
     !hasExactKeys(value, [
@@ -406,8 +410,8 @@ function publishedBookingProfileReceipt(
       "pages",
     ]) ||
     !isReceiptIdentifier(value.profileId) ||
-    value.sourceProfileId !== first.sourceProfileId ||
-    value.profileSlug !== first.profileSlug ||
+    value.sourceProfileId !== input.sourceProfileId ||
+    value.profileSlug !== input.profileSlug ||
     !isPublicationGeneration(value.generation) ||
     value.generation < 1 ||
     !isCanonicalIsoInstant(value.publishedAt) ||
@@ -456,7 +460,7 @@ function publishedBookingProfileReceipt(
       !isReceiptIdentifier(page.pageId) ||
       !isReceiptIdentifier(page.revisionId) ||
       !isReceiptIdentifier(page.sourceEventTypeId) ||
-      page.profileSlug !== first.profileSlug ||
+      page.profileSlug !== input.profileSlug ||
       !isCanonicalIsoInstant(page.publishedAt)
     ) {
       return invalidPublicationReceipt(
@@ -468,7 +472,7 @@ function publishedBookingProfileReceipt(
       !desired ||
       page.eventTypeSlug !== desired.eventTypeSlug ||
       page.canonicalUrl !==
-        `https://cal.with-tap.ai/${first.profileSlug}/${desired.eventTypeSlug}` ||
+        `https://cal.with-tap.ai/${input.profileSlug}/${desired.eventTypeSlug}` ||
       pageIds.has(page.pageId) ||
       revisionIds.has(page.revisionId) ||
       receivedSourceIds.has(page.sourceEventTypeId)

@@ -55,11 +55,21 @@ const page = (overrides: Record<string, unknown> = {}) => ({
 const profilePublication = (options: {
   expectedGeneration?: number;
   pages?: readonly Record<string, unknown>[];
-} = {}) => parsePublicBookingProfilePublication({
-  schemaVersion: "tap.calendar.profile-publication.v1",
-  expectedGeneration: options.expectedGeneration ?? 0,
-  publications: options.pages ?? [page()],
-});
+  identity?: Readonly<Record<string, unknown>>;
+} = {}) => {
+  const publications = options.pages ?? [page()];
+  const first = publications[0] ?? page();
+  return parsePublicBookingProfilePublication({
+    schemaVersion: "tap.calendar.profile-publication.v1",
+    sourceProfileId: first.sourceProfileId,
+    profileSlug: first.profileSlug,
+    displayName: first.displayName,
+    ownerType: first.ownerType,
+    ...options.identity,
+    expectedGeneration: options.expectedGeneration ?? 0,
+    publications,
+  });
+};
 
 async function publish(options: {
   input?: ReturnType<typeof profilePublication>;
@@ -130,20 +140,186 @@ describe("public booking publication", () => {
   it("validates a bounded, internally consistent whole-profile snapshot", () => {
     const parsed = profilePublication();
     expect(parsed.expectedGeneration).toBe(0);
+    expect(parsed).toMatchObject({
+      sourceProfileId: "profile-source-1",
+      profileSlug: "alex-morgan",
+      displayName: "Alex Morgan",
+      ownerType: "individual",
+    });
     expect(parsed.publications[0]?.profileSlug).toBe("alex-morgan");
     expect(parsed.publications[0]?.schedule.overrides[0]).toMatchObject({
       date: "2026-08-22",
       timeZone: "Europe/London",
     });
-    expect(() => profilePublication({ pages: [] })).toThrowError(
+    expect(profilePublication({ pages: [] })).toMatchObject({
+      sourceProfileId: "profile-source-1",
+      profileSlug: "alex-morgan",
+      publications: [],
+    });
+  });
+
+  it("requires explicit identity for an empty profile and derives it for legacy nonempty requests", () => {
+    expect(() => parsePublicBookingProfilePublication({
+      schemaVersion: "tap.calendar.profile-publication.v1",
+      expectedGeneration: 0,
+      publications: [],
+    })).toThrowError(
       expect.objectContaining({ code: "invalid_publication" }),
     );
+    const legacy = parsePublicBookingProfilePublication({
+      schemaVersion: "tap.calendar.profile-publication.v1",
+      expectedGeneration: 0,
+      publications: [page()],
+    });
+    expect(legacy).toMatchObject({
+      sourceProfileId: "profile-source-1",
+      profileSlug: "alex-morgan",
+      displayName: "Alex Morgan",
+      ownerType: "individual",
+    });
     expect(() => profilePublication({
       pages: [page(), page({ sourceProfileId: "different-profile", sourceEventTypeId: "event-2" })],
     })).toThrowError(expect.objectContaining({ code: "invalid_publication" }));
     expect(() => profilePublication({
       pages: [page({ profileSlug: "api" })],
     })).toThrowError(expect.objectContaining({ code: "profile_slug_reserved" }));
+  });
+
+  it("reserves and publishes an empty profile namespace without creating pages", async () => {
+    const result = await publish({ input: profilePublication({ pages: [] }) });
+    expect(result).toMatchObject({
+      sourceProfileId: "profile-source-1",
+      profileSlug: "alex-morgan",
+      generation: 1,
+      idempotentReplay: false,
+      pages: [],
+    });
+    expect(await env.CALENDAR_DB.prepare(
+      `SELECT source_profile_id, current_slug, display_name, owner_type,
+              status, publication_generation
+         FROM public_booking_profiles`,
+    ).first()).toMatchObject({
+      source_profile_id: "profile-source-1",
+      current_slug: "alex-morgan",
+      display_name: "Alex Morgan",
+      owner_type: "individual",
+      status: "published",
+      publication_generation: 1,
+    });
+    const counts = await env.CALENDAR_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM public_booking_profile_slugs) AS slugs,
+         (SELECT COUNT(*) FROM public_booking_owner_profile_slots) AS owner_slots,
+         (SELECT COUNT(*) FROM public_booking_profile_generations) AS generations,
+         (SELECT COUNT(*) FROM public_booking_pages) AS pages,
+         (SELECT COUNT(*) FROM public_booking_page_revisions) AS revisions`,
+    ).first<{
+      slugs: number;
+      owner_slots: number;
+      generations: number;
+      pages: number;
+      revisions: number;
+    }>();
+    expect(counts).toEqual({
+      slugs: 1,
+      owner_slots: 1,
+      generations: 1,
+      pages: 0,
+      revisions: 0,
+    });
+  });
+
+  it("replays an identical empty-profile claim and rejects a stale different claim", async () => {
+    const input = profilePublication({ pages: [] });
+    const first = await publish({ input });
+    const replay = await publish({
+      input,
+      publishedAt: "2026-08-16T18:05:00.000Z",
+    });
+    expect(replay).toMatchObject({
+      profileId: first.profileId,
+      generation: 1,
+      publishedAt: first.publishedAt,
+      idempotentReplay: true,
+      pages: [],
+    });
+    await expect(publish({
+      input: profilePublication({
+        pages: [],
+        identity: { displayName: "A different profile name" },
+      }),
+      publishedAt: "2026-08-16T18:06:00.000Z",
+    })).rejects.toMatchObject({
+      code: "publication_conflict",
+      status: 409,
+      currentGeneration: 1,
+    });
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT COUNT(*) AS count FROM public_booking_profile_generations",
+    ).first<number>("count")).toBe(1);
+  });
+
+  it("prevents another owner from claiming an empty profile's reserved slug", async () => {
+    await publish({ input: profilePublication({ pages: [] }) });
+    const secondScope = { workspace: "workspace-other", principal: "user-other" };
+    await expect(publish({
+      requestScope: secondScope,
+      input: profilePublication({
+        pages: [],
+        identity: {
+          sourceProfileId: "profile-source-other",
+          profileSlug: "alex-morgan",
+          displayName: "Other Owner",
+          ownerType: "individual",
+        },
+      }),
+    })).rejects.toMatchObject({
+      code: "profile_slug_unavailable",
+      status: 409,
+    });
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT COUNT(*) AS count FROM public_booking_profiles",
+    ).first<number>("count")).toBe(1);
+  });
+
+  it("adds pages to an empty published profile and later accepts an empty authoritative page set", async () => {
+    const empty = await publish({ input: profilePublication({ pages: [] }) });
+    const populated = await publish({
+      input: profilePublication({ expectedGeneration: empty.generation }),
+      publishedAt: "2026-08-16T18:10:00.000Z",
+    });
+    expect(populated).toMatchObject({
+      profileId: empty.profileId,
+      generation: 2,
+      idempotentReplay: false,
+      pages: [{
+        sourceEventTypeId: "event-type-source-1",
+        canonicalUrl: "https://cal.with-tap.ai/alex-morgan/30min",
+      }],
+    });
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT COUNT(*) AS count FROM public_booking_page_revisions",
+    ).first<number>("count")).toBe(1);
+
+    const emptied = await publish({
+      input: profilePublication({
+        expectedGeneration: populated.generation,
+        pages: [],
+      }),
+      publishedAt: "2026-08-16T18:15:00.000Z",
+    });
+    expect(emptied).toMatchObject({
+      profileId: empty.profileId,
+      generation: 3,
+      idempotentReplay: false,
+      pages: [],
+    });
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT status FROM public_booking_pages",
+    ).first<string>("status")).toBe("unpublished");
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT COUNT(*) AS count FROM public_booking_page_revisions",
+    ).first<number>("count")).toBe(1);
   });
 
   it("persists multiple pages, immutable revisions, and guest-safe projections in one generation", async () => {

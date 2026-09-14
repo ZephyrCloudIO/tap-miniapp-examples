@@ -18,6 +18,10 @@ import {
 
 const profilePublicationInput = (): PublicBookingProfilePublicationInput => ({
   schemaVersion: "tap.calendar.profile-publication.v1",
+  sourceProfileId: "profile-source-1",
+  profileSlug: "alex-morgan",
+  displayName: "Alex Morgan",
+  ownerType: "individual",
   expectedGeneration: 3,
   publications: [{
     schemaVersion: "tap.calendar.publication.v1",
@@ -439,6 +443,34 @@ describe("Calendar gateway client", () => {
     await expect(
       client.publishPublicBookingProfile(profilePublicationInput()),
     ).rejects.toMatchObject({ status: 502, code: "gateway_response_invalid" });
+  });
+
+  it("accepts a server-confirmed profile namespace with no Event Type pages", async () => {
+    const input: PublicBookingProfilePublicationInput = {
+      ...profilePublicationInput(),
+      expectedGeneration: 0,
+      publications: [],
+    };
+    const publication = {
+      profileId: "public-profile-1",
+      sourceProfileId: input.sourceProfileId,
+      profileSlug: input.profileSlug,
+      generation: 1,
+      publishedAt: "2026-08-16T18:00:00.000Z",
+      idempotentReplay: false,
+      pages: [],
+    };
+    const client = createCalendarGatewayClient({
+      baseUrl: "https://calendar-api.theaiplatform.app",
+      workspaceId: "workspace-1",
+      principalId: "user-1",
+      transport: async () => ({
+        status: 200,
+        bodyText: JSON.stringify({ publication }),
+      }),
+    });
+
+    await expect(client.publishPublicBookingProfile(input)).resolves.toEqual(publication);
   });
 
   it("rejects publication receipts with an off-origin canonical URL", async () => {

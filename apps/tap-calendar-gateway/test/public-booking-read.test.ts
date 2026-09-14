@@ -6,9 +6,12 @@ import {
   buildPublicAvailability,
   generatePublicAvailabilityCandidates,
   parsePublicBookingPagePath,
+  parsePublicBookingProfilePath,
+  projectPublicBookingProfile,
   projectPublicBookingPage,
   publicAvailabilityQuery,
   publicSlotSatisfiesPublishedSchedule,
+  resolvePublishedPublicBookingProfile,
   resolvePublishedPublicBookingPage,
   signPublicSlotToken,
   verifyPublicSlotToken,
@@ -89,6 +92,7 @@ const query = (overrides: Partial<PublicAvailabilityQuery> = {}): PublicAvailabi
 });
 
 async function seedPublishedPage(options: {
+  readonly storedPublicSnapshot?: unknown;
   readonly storedPrivateSnapshot?: PrivatePageSnapshot;
 } = {}): Promise<void> {
   const createdAt = "2026-08-16T11:00:00.000Z";
@@ -140,10 +144,37 @@ async function seedPublishedPage(options: {
     ).bind(
       revisionId,
       "snapshot-hash-public-read-1",
-      JSON.stringify(publicSnapshot),
+      JSON.stringify(options.storedPublicSnapshot ?? publicSnapshot),
       JSON.stringify(options.storedPrivateSnapshot ?? privateSnapshot),
       createdAt,
     ),
+  ]);
+}
+
+async function seedPublishedProfileWithoutPages(): Promise<void> {
+  const createdAt = "2026-08-16T11:00:00.000Z";
+  await env.CALENDAR_DB.batch([
+    env.CALENDAR_DB.prepare(
+      `INSERT INTO public_booking_profiles (
+         id, workspace_id, principal_id, source_profile_id, current_slug,
+         display_name, owner_type, status, publication_generation,
+         created_at, updated_at, published_at
+       ) VALUES (?, ?, ?, ?, ?, ?, 'individual', 'published', 1, ?, ?, ?)`,
+    ).bind(
+      "profile-public-read",
+      privateSnapshot.workspaceId,
+      privateSnapshot.principalId,
+      "source-profile-public-read",
+      "alex-morgan",
+      publicSnapshot.displayName,
+      createdAt,
+      createdAt,
+      createdAt,
+    ),
+    env.CALENDAR_DB.prepare(
+      `INSERT INTO public_booking_profile_slugs (slug, profile_id, active, created_at)
+       VALUES ('alex-morgan', 'profile-public-read', 1, ?)`,
+    ).bind(createdAt),
   ]);
 }
 
@@ -162,6 +193,11 @@ beforeEach(async () => {
 
 describe("anonymous public booking request parsing", () => {
   it("accepts only canonical slug routes", () => {
+    expect(parsePublicBookingProfilePath("/api/public/profiles/alex-morgan"))
+      .toBe("alex-morgan");
+    expect(parsePublicBookingProfilePath("/api/public/profiles/Alex-Morgan")).toBeNull();
+    expect(parsePublicBookingProfilePath("/api/public/profiles/%61lex-morgan")).toBeNull();
+    expect(parsePublicBookingProfilePath("/api/public/profiles/alex-morgan/30min")).toBeNull();
     expect(parsePublicBookingPagePath("/api/public/pages/alex-morgan/30min"))
       .toEqual({ profileSlug: "alex-morgan", eventTypeSlug: "30min", resource: "page" });
     expect(parsePublicBookingPagePath("/api/public/pages/alex-morgan/30min/availability"))
@@ -199,6 +235,116 @@ describe("anonymous public booking request parsing", () => {
       timeZone: "Mars/Olympus",
       pageRevision: revisionId,
     }))).toThrowError(expect.objectContaining({ code: "invalid_time_zone" }));
+  });
+});
+
+describe("published profile resolution", () => {
+  it("projects exact guest-safe event summaries in deterministic slug order", async () => {
+    await seedPublishedPage();
+    const briefSnapshot: PublicPageSnapshot = {
+      ...publicSnapshot,
+      title: "Brief phone call",
+      description: "",
+      durationMinutes: 15,
+      location: "phone",
+      locationLabel: "Phone call",
+      approvalRequired: true,
+    };
+    const createdAt = "2026-08-16T11:05:00.000Z";
+    await env.CALENDAR_DB.batch([
+      env.CALENDAR_DB.prepare(
+        `INSERT INTO public_booking_pages (
+           id, profile_id, source_event_type_id, current_slug,
+           current_revision_id, status, created_at, updated_at, published_at
+         ) VALUES ('page-public-read-brief', 'profile-public-read',
+                   'source-event-public-read-brief', '15min',
+                   'public-revision-read-brief', 'published', ?, ?, ?)`,
+      ).bind(createdAt, createdAt, createdAt),
+      env.CALENDAR_DB.prepare(
+        `INSERT INTO public_booking_page_slugs (profile_id, slug, page_id, active, created_at)
+         VALUES ('profile-public-read', '15min', 'page-public-read-brief', 1, ?)`,
+      ).bind(createdAt),
+      env.CALENDAR_DB.prepare(
+        `INSERT INTO public_booking_page_revisions (
+           id, page_id, snapshot_hash, public_snapshot_json, private_snapshot_json, created_at
+         ) VALUES ('public-revision-read-brief', 'page-public-read-brief',
+                   'snapshot-hash-public-read-brief', ?, ?, ?)`,
+      ).bind(JSON.stringify(briefSnapshot), JSON.stringify(privateSnapshot), createdAt),
+    ]);
+
+    const resolved = await resolvePublishedPublicBookingProfile(
+      env.CALENDAR_DB.withSession("first-primary"),
+      "alex-morgan",
+    );
+    expect(resolved.eventTypes.map(eventType => eventType.eventTypeSlug))
+      .toEqual(["15min", "30min"]);
+    const projected = projectPublicBookingProfile(resolved, {
+      baseUrl: "https://cal.with-tap.ai",
+    });
+    expect(projected).toEqual({
+      schemaVersion: "tap.calendar.public-profile.v1",
+      canonicalUrl: "https://cal.with-tap.ai/alex-morgan",
+      profile: { displayName: "Alex Morgan", initials: "AM" },
+      eventTypes: [{
+        eventTypeSlug: "15min",
+        canonicalUrl: "https://cal.with-tap.ai/alex-morgan/15min",
+        title: "Brief phone call",
+        durationMinutes: 15,
+        location: "phone",
+        locationLabel: "Phone call",
+        approvalRequired: true,
+      }, {
+        eventTypeSlug: "30min",
+        canonicalUrl: "https://cal.with-tap.ai/alex-morgan/30min",
+        title: "30 minute meeting",
+        description: "Pick a time that works for you.",
+        durationMinutes: 30,
+        location: "google-meet",
+        locationLabel: "Google Meet",
+        approvalRequired: false,
+      }],
+    });
+    expect(JSON.stringify(projected)).not.toMatch(
+      /workspace-public-read|principal-public-read|calendar-destination-read|calendar-conflict-read/u,
+    );
+  });
+
+  it("returns a published profile with no Event Types", async () => {
+    await seedPublishedProfileWithoutPages();
+    const resolved = await resolvePublishedPublicBookingProfile(
+      env.CALENDAR_DB,
+      "alex-morgan",
+    );
+    expect(projectPublicBookingProfile(resolved, {
+      baseUrl: "https://cal.with-tap.ai",
+    })).toEqual({
+      schemaVersion: "tap.calendar.public-profile.v1",
+      canonicalUrl: "https://cal.with-tap.ai/alex-morgan",
+      profile: { displayName: "Alex Morgan", initials: "AM" },
+      eventTypes: [],
+    });
+  });
+
+  it("uses one generic 404 and fails closed on a malformed current public snapshot", async () => {
+    const unavailable = { code: "public_profile_unavailable", status: 404 };
+    await expect(resolvePublishedPublicBookingProfile(env.CALENDAR_DB, "missing-profile"))
+      .rejects.toMatchObject(unavailable);
+    await expect(resolvePublishedPublicBookingProfile(env.CALENDAR_DB, "Malformed-Profile"))
+      .rejects.toMatchObject(unavailable);
+
+    await seedPublishedPage({
+      storedPublicSnapshot: {
+        ...publicSnapshot,
+        durationMinutes: "private-calendar-id",
+      },
+    });
+    await expect(resolvePublishedPublicBookingProfile(env.CALENDAR_DB, "alex-morgan"))
+      .rejects.toMatchObject({ code: "published_page_invalid", status: 503 });
+    await env.CALENDAR_DB.prepare(
+      "UPDATE public_booking_profiles SET status = 'unpublished' WHERE id = 'profile-public-read'",
+    ).run();
+    await expect(resolvePublishedPublicBookingProfile(env.CALENDAR_DB, "alex-morgan"))
+      .rejects.toMatchObject(unavailable);
   });
 });
 

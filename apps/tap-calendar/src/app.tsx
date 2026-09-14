@@ -4282,11 +4282,12 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
   const totals = state.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => ({ views: sum.views + eventType.analytics.views, confirmed: sum.confirmed + eventType.analytics.confirmed }), { views: 0, confirmed: 0 });
   const liveProfiles = state.bookingProfiles.filter(profile =>
     deriveBookingProfilePublicationState(profile).liveStatus === "published");
-  const livePageCount = liveProfiles.reduce(
+  const liveEventPageCount = liveProfiles.reduce(
     (count, profile) => count + profile.eventTypes.filter(eventType =>
       isEventTypePublicationLive(profile, eventType)).length,
     0,
   );
+  const liveUrlCount = liveProfiles.length + liveEventPageCount;
   const hasWritableDestination = Boolean(providerWritableDestination(state));
   const hasAvailabilitySchedule = state.availability.length > 0;
   const canCreateEventType = hasWritableDestination && hasAvailabilitySchedule;
@@ -4363,7 +4364,7 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
       <section className="summary-grid">
         <MetricCard icon={<Eye />} label="Page views" value={totals.views.toLocaleString()} detail="Privacy-preserving, no fingerprinting" tone="blue" />
         <MetricCard icon={<MousePointerClick />} label="Confirmed bookings" value={totals.confirmed.toLocaleString()} detail={`${((totals.confirmed / Math.max(1, totals.views)) * 100).toFixed(1)}% view-to-booking conversion`} tone="green" />
-        <MetricCard icon={<Link2 />} label="Published URLs" value={String(livePageCount)} detail="Server-confirmed cal.with-tap.ai pages" tone="violet" />
+        <MetricCard icon={<Link2 />} label="Published URLs" value={String(liveUrlCount)} detail="Profile and Event Type URLs confirmed by the server" tone="violet" />
         <MetricCard icon={<ShieldCheck />} label="Public protection" value="Managed" detail="Cloudflare Turnstile verification plus gateway rate limits" tone="green" />
       </section>
       <div className="section-heading"><div><span className="eyebrow">Public scheduling</span><h2>Booking Profiles & Event Types</h2><p>Public booking v1 supports individual profiles with globally reserved slugs.</p></div><button type="button" className="primary-button" onClick={() => setProfileEditor("new")}><Plus /> New Booking Profile</button></div>
@@ -4378,6 +4379,8 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
       {state.bookingProfiles.map(profile => {
         const publicationState = deriveBookingProfilePublicationState(profile);
         const serverPublished = publicationState.liveStatus === "published";
+        const liveEventTypes = profile.eventTypes.filter(eventType =>
+          isEventTypePublicationLive(profile, eventType));
         const statusLabel = publicationState.pending
           ? publicationState.desiredStatus === "unpublished"
             ? "Unpublishing"
@@ -4385,7 +4388,7 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
               ? "Changes pending"
               : "Publish required"
           : serverPublished
-            ? "Published"
+            ? liveEventTypes.length === 0 ? "Claimed" : "Published"
             : publicationState.liveStatus === "unpublished"
               ? "Unpublished"
               : "Draft";
@@ -4418,7 +4421,7 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
                 <footer><button type="button" className="secondary-button" onClick={() => onPreview(profile.id, eventType.id)}><Eye /> Preview page</button><button type="button" className="secondary-button" onClick={() => setInsights({ profile, eventType })}><BarChart3 /> Insights</button></footer>
               </article>
             );})}
-            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span>{canCreateEventType ? "Create one to publish a scheduling URL under this profile." : eventTypeCreationHint}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button> : null}</div> : null}
+            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span>{serverPublished ? "Your profile URL is claimed and live. Add an Event Type when you’re ready to accept bookings." : canCreateEventType ? "Claim this profile URL now, then add an Event Type when you’re ready." : eventTypeCreationHint}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button> : null}</div> : null}
           </div>
         </section>
       );})}
@@ -4453,12 +4456,12 @@ function BookingProfileDialog({
   const hasActiveEventTypes = profile?.eventTypes.some(eventType => eventType.active) ?? false;
   return (
     <Modal title={editing ? "Booking Profile settings" : "New Booking Profile"} description="Choose the globally unique first segment of every public scheduling URL in this profile." onClose={onClose}>
-      <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; if (!isSupportedTimeZone(timezone)) { setError("Choose a valid IANA time zone."); return; } if (ownerType !== "individual" && published) { setError("Public booking v1 supports individual profiles only."); return; } if (published && !hasActiveEventTypes) { setError("Create and activate at least one Event Type before publishing this profile."); return; } setSubmitting(true); const next: BookingProfile = { id: profile?.id ?? createEntityId("profile"), displayName: displayName.trim(), ownerType, slug: slug.trim(), timezone, published, eventTypes: profile?.eventTypes ?? [], ...(profile?.publication === undefined ? {} : { publication: profile.publication }), ...(profile?.pendingPublication === undefined ? {} : { pendingPublication: profile.pendingPublication }) }; void onSubmit(next).then(message => setError(message)).finally(() => setSubmitting(false)); }}>
+      <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; if (!isSupportedTimeZone(timezone)) { setError("Choose a valid IANA time zone."); return; } if (ownerType !== "individual" && published) { setError("Public booking v1 supports individual profiles only."); return; } setSubmitting(true); const next: BookingProfile = { id: profile?.id ?? createEntityId("profile"), displayName: displayName.trim(), ownerType, slug: slug.trim(), timezone, published, eventTypes: profile?.eventTypes ?? [], ...(profile?.publication === undefined ? {} : { publication: profile.publication }), ...(profile?.pendingPublication === undefined ? {} : { pendingPublication: profile.pendingPublication }) }; void onSubmit(next).then(message => setError(message)).finally(() => setSubmitting(false)); }}>
         {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
         <div className="form-grid"><label className="field"><span>Owner</span><select value={ownerType} disabled={submitting} onChange={event => setOwnerType(event.currentTarget.value as BookingProfile["ownerType"])}><option value="individual">Individual</option><option value="team" disabled>Team · not supported in public v1</option><option value="organization" disabled>Organization · not supported in public v1</option></select></label><TimeZoneCombobox label="Time zone" name="profile-timezone" value={timezone} onValueChange={setTimezone} required disabled={submitting} /></div>
         <label className="field"><span>Display name</span><input name="profile-name" autoComplete="organization" value={displayName} required maxLength={120} onChange={event => setDisplayName(event.currentTarget.value)} /></label>
         <label className="field"><span>Profile Slug</span><input name="profile-slug" autoComplete="off" value={slug} required readOnly={slugReserved} aria-describedby="profile-slug-description" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" onChange={event => setSlug(event.currentTarget.value.toLowerCase())} /><small id="profile-slug-description">{slugReserved ? "This globally reserved slug cannot be changed." : `cal.with-tap.ai/${slug || "your-slug"}`}</small></label>
-        <label className="approval-check"><input type="checkbox" checked={published} disabled={submitting || (!hasActiveEventTypes && !published)} onChange={event => setPublished(event.currentTarget.checked)} /><span><strong>Publish on cal.with-tap.ai</strong><small>{hasActiveEventTypes ? "The gateway reserves the URL and atomically publishes every active Event Type." : "Create an active Event Type first. New profiles are saved as drafts."}</small></span></label>
+        <label className="approval-check"><input type="checkbox" checked={published} disabled={submitting} onChange={event => setPublished(event.currentTarget.checked)} /><span><strong>Claim and publish this profile</strong><small>{hasActiveEventTypes ? "Reserve the profile URL and publish every active Event Type." : `Reserve cal.with-tap.ai/${slug || "your-slug"} now. Add Event Types whenever you’re ready.`}</small></span></label>
         <div className="privacy-preview"><Globe2 /><div><strong>Globally unique profile namespace</strong><p>{state.bookingProfiles.filter(item => item.id !== profile?.id).length} other profile slugs are reserved in this Calendar state.</p><small>Event Type slugs only need to be unique inside this profile.</small></div></div>
         <DialogActions onCancel={onClose} submitLabel={editing ? "Save profile" : "Create profile"} submitting={submitting} />
       </form>

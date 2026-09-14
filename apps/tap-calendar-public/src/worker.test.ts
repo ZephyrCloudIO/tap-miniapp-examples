@@ -20,6 +20,7 @@ function envWith(
 
 describe("public booking Worker", () => {
   it.each([
+    "/api/public/profiles/alex-morgan",
     "/api/public/pages/alex-morgan/30min",
     "/api/public/pages/alex-morgan/30min/availability",
     "/api/public/pages/alex-morgan/30min/bookings",
@@ -40,6 +41,8 @@ describe("public booking Worker", () => {
 
   it.each([
     "/api/public",
+    "/api/public/profiles",
+    "/api/public/profiles/alex-morgan/anything-else",
     "/api/public/manage/anything-else",
     "/api/private",
     "/api/v1/connections",

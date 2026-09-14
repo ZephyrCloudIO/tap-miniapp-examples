@@ -64,6 +64,10 @@ describe("public booking publication projection", () => {
     if (!result.ok) return;
     expect(result.publication).toMatchObject({
       schemaVersion: "tap.calendar.profile-publication.v1",
+      sourceProfileId: profile.id,
+      profileSlug: profile.slug,
+      displayName: profile.displayName,
+      ownerType: "individual",
       expectedGeneration: 7,
     });
     expect(result.publication.publications.map(page => page.eventTypeSlug)).toEqual(
@@ -74,14 +78,28 @@ describe("public booking publication projection", () => {
     )).toBe(true);
   });
 
-  it("fails closed for an empty live page set or an invalid generation", () => {
+  it("publishes a profile namespace without Event Types and rejects invalid profiles", () => {
     const state = createInitialCalendarState();
     const profile = state.bookingProfiles[0]!;
-    expect(buildPublicBookingProfilePublication(
+    const empty = buildPublicBookingProfilePublication(
       state,
       { ...profile, eventTypes: profile.eventTypes.map(eventType => ({ ...eventType, active: false })) },
       0,
-    )).toMatchObject({ ok: false, message: expect.stringContaining("one Event Type") });
+    );
+    expect(empty).toMatchObject({
+      ok: true,
+      publication: {
+        sourceProfileId: profile.id,
+        profileSlug: profile.slug,
+        displayName: profile.displayName,
+        publications: [],
+      },
+    });
+    expect(buildPublicBookingProfilePublication(
+      state,
+      { ...profile, ownerType: "team", eventTypes: [] },
+      0,
+    )).toMatchObject({ ok: false, message: expect.stringContaining("individual") });
     expect(buildPublicBookingProfilePublication(state, profile, -1)).toMatchObject({
       ok: false,
       message: expect.stringContaining("generation"),
@@ -107,5 +125,16 @@ describe("public booking publication projection", () => {
           : schedule),
     };
     expect(publicBookingProfilePublicationFingerprint(scheduleChanged, profile)).not.toBe(original);
+
+    const emptyProfile = { ...profile, eventTypes: [] };
+    const emptyOriginal = publicBookingProfilePublicationFingerprint(state, emptyProfile);
+    expect(publicBookingProfilePublicationFingerprint(
+      state,
+      { ...emptyProfile, displayName: `${emptyProfile.displayName} updated` },
+    )).not.toBe(emptyOriginal);
+    expect(publicBookingProfilePublicationFingerprint(
+      state,
+      { ...emptyProfile, slug: `${emptyProfile.slug}-new` },
+    )).not.toBe(emptyOriginal);
   });
 });
