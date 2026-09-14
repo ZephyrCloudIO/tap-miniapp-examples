@@ -190,8 +190,38 @@ import {
   openEmailSemanticIndex,
   type EmailSemanticIndex,
 } from './semantic-email-index';
+
+const sessionAttachmentCache = new Map<string, Uint8Array>();
+let sessionAttachmentCacheBytes = 0;
+const maximumSessionAttachmentCacheBytes = 32 * 1_024 * 1_024;
+function attachmentCacheIdentityKey(identity: AttachmentCacheIdentity): string {
+  return JSON.stringify([identity.accountId, identity.threadId, identity.messageId, identity.resourceId, identity.sizeBytes]);
+}
+function loadSessionAttachment(identity: AttachmentCacheIdentity): Uint8Array | null {
+  const key = attachmentCacheIdentityKey(identity);
+  const bytes = sessionAttachmentCache.get(key);
+  if (!bytes) return null;
+  sessionAttachmentCache.delete(key); sessionAttachmentCache.set(key, bytes);
+  return bytes;
+}
+function saveSessionAttachment(identity: AttachmentCacheIdentity, bytes: Uint8Array): void {
+  if (bytes.byteLength > maximumSessionAttachmentCacheBytes) return;
+  const key = attachmentCacheIdentityKey(identity);
+  const previous = sessionAttachmentCache.get(key);
+  if (previous) sessionAttachmentCacheBytes -= previous.byteLength;
+  sessionAttachmentCache.delete(key);
+  const copy = new Uint8Array(bytes);
+  sessionAttachmentCache.set(key, copy); sessionAttachmentCacheBytes += copy.byteLength;
+  while (sessionAttachmentCacheBytes > maximumSessionAttachmentCacheBytes) {
+    const oldest = sessionAttachmentCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    sessionAttachmentCacheBytes -= sessionAttachmentCache.get(oldest)?.byteLength ?? 0;
+    sessionAttachmentCache.delete(oldest);
+  }
+}
 import {
   ThreadMessageList,
+  type ContextualAttachmentLoader,
   type ContextualAttachmentSaver,
   type ContextualRemoteImageLoader,
   type MessageExpansionRequest,
@@ -846,6 +876,39 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     return task;
   }, [coordinatorNetworkReady, preview, store]);
 
+  const loadMessageAttachment = useCallback<ContextualAttachmentLoader>(async (
+    context: AttachmentMessageContext,
+    attachment: EmailAttachment,
+    options,
+  ) => {
+    const identity: AttachmentCacheIdentity = {
+      accountId: context.accountId,
+      threadId: context.threadId,
+      messageId: context.messageId,
+      resourceId: attachment.resourceId,
+      sizeBytes: attachment.sizeBytes,
+    };
+    if (options.cacheMode !== 'bypass') {
+      const cached = loadSessionAttachment(identity) ?? await store.loadAttachment(identity).catch(() => null);
+      if (cached) return cached;
+    }
+    if (!coordinatorNetworkReady) {
+      throw new AttachmentExportError(
+        'offline',
+        'Attachment download is unavailable until the mailbox connection is ready.',
+      );
+    }
+
+    const client = coordinatorRef.current ?? createCoordinatorClient();
+    coordinatorRef.current = client;
+    const downloaded = await client.downloadAttachment(context, attachment);
+    if (options.cacheMode === 'read-only' || options.cacheMode === 'read-write') {
+      saveSessionAttachment(identity, downloaded);
+      await store.saveAttachment(identity, downloaded).catch(() => undefined);
+    }
+    return downloaded;
+  }, [coordinatorNetworkReady, store]);
+
   const saveMessageAttachment = useCallback<ContextualAttachmentSaver>(async (
     context: AttachmentMessageContext,
     attachment: EmailAttachment,
@@ -855,30 +918,12 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     files: attachmentFiles,
     idempotencyKey: `tap-email:attachment-export:${idFactory()}`,
     onPhase,
-    loadAttachment: async () => {
-      const identity: AttachmentCacheIdentity = {
-        accountId: context.accountId,
-        threadId: context.threadId,
-        messageId: context.messageId,
-        resourceId: attachment.resourceId,
-        sizeBytes: attachment.sizeBytes,
-      };
-      const cached = await store.loadAttachment(identity).catch(() => null);
-      if (cached) return cached;
-      if (!coordinatorNetworkReady) {
-        throw new AttachmentExportError(
-          'offline',
-          'Attachment download is unavailable until the mailbox connection is ready.',
-        );
-      }
-
-      const client = coordinatorRef.current ?? createCoordinatorClient();
-      coordinatorRef.current = client;
-      const downloaded = await client.downloadAttachment(context, attachment);
-      await store.saveAttachment(identity, downloaded).catch(() => undefined);
-      return downloaded;
-    },
-  }), [attachmentFiles, coordinatorNetworkReady, idFactory, store]);
+    loadAttachment: () => loadMessageAttachment(
+      context,
+      attachment,
+      { cacheMode: 'read-write' },
+    ),
+  }), [attachmentFiles, idFactory, loadMessageAttachment]);
 
   const stageDraftAttachments = useCallback(async (
     accountId: string,
@@ -2864,6 +2909,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                     expansionRequest={messageExpansionRequest}
                     imagesEnabled={state.preferences.imagesEnabled}
                     key={emailThreadKey(thread)}
+                    loadAttachment={preview ? null : loadMessageAttachment}
                     loadRemoteImages={loadRemoteImages}
                     messages={thread.messages}
                     onKeyDown={handleKeyDown}

@@ -6,6 +6,7 @@ import type {
 import { describe, expect, it, rstest as rs } from '@rstest/core';
 import {
   AttachmentExportError,
+  attachmentExportErrorMessage,
   attachmentPickerMimeType,
   attachmentSuggestedName,
   exportAttachment,
@@ -172,5 +173,15 @@ describe('attachment export', () => {
       .toBeLessThanOrEqual(180);
     expect(attachmentPickerMimeType('Text/Plain; charset=UTF-8')).toBe('text/plain');
     expect(attachmentPickerMimeType('not a mime type')).toBe('application/octet-stream');
+  });
+
+  it('explains a rejected picker gesture instead of reporting a generic save failure', () => {
+    expect(attachmentExportErrorMessage(Object.assign(
+      new Error('A fresh gesture is required.'),
+      {
+        name: 'MiniAppHostActionError',
+        code: 'user-gesture-required',
+      },
+    ))).toBe('Select Retry to open the Save dialog.');
   });
 });

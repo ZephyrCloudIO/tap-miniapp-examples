@@ -20,6 +20,12 @@ import {
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const tinyPngBytes = Uint8Array.from(
+  atob(tinyPngBase64),
+  character => character.charCodeAt(0),
+);
+
 function participant(name: string, address = `${name.toLowerCase()}@example.com`) {
   return { name, address };
 }
@@ -52,6 +58,7 @@ const defaultProps = {
   appTheme: 'dark' as const,
   attachmentExportSupported: true,
   imagesEnabled: true,
+  loadAttachment: null,
   loadRemoteImages: async () => ({}),
   onKeyDown: () => undefined,
   saveAttachment: async () => 'saved' as const,
@@ -242,6 +249,49 @@ describe('TAP Email thread message disclosure', () => {
     await act(async () => attachments.querySelector<HTMLButtonElement>('button')?.click());
     expect(saveAttachment).toHaveBeenCalledTimes(1);
 
+    await unmount(root, container);
+  });
+
+  it('loads an image preview with the exact message identity only after a click', async () => {
+    const imageAttachment = {
+      resourceId: 'image_1',
+      fileName: 'image.png',
+      mimeType: 'image/png',
+      sizeBytes: tinyPngBytes.byteLength,
+      disposition: 'inline' as const,
+      contentId: 'image@example.com',
+    };
+    const imageMessage = {
+      ...message(
+        'message-with-image',
+        'Avery',
+        '2026-09-12T13:00:00.000Z',
+        'Image attached',
+      ),
+      attachments: [imageAttachment],
+    };
+    const loadAttachment = rs.fn(async () => tinyPngBytes);
+    const { container, root } = await mountMessages(
+      [imageMessage],
+      'thread-1',
+      { loadAttachment },
+    );
+
+    expect(loadAttachment).not.toHaveBeenCalled();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Preview image.png"]')?.click();
+    });
+
+    expect(loadAttachment).toHaveBeenCalledWith(
+      {
+        accountId: 'account-1',
+        threadId: 'thread-1',
+        messageId: 'message-with-image',
+      },
+      imageAttachment,
+      { cacheMode: 'read-only' },
+    );
+    expect(document.body.querySelector('[role="dialog"] img')).not.toBeNull();
     await unmount(root, container);
   });
 

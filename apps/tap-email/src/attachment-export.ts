@@ -159,6 +159,9 @@ export function attachmentExportErrorMessage(error: unknown): string {
     if (error.code === 'file_denied') {
       return 'TAP Email does not have permission to save this attachment.';
     }
+    if (error.code === 'user-gesture-required') {
+      return 'Select Retry to open the Save dialog.';
+    }
     if (error.code === 'file_stale') {
       return 'The selected file changed before it could be saved. Choose it again.';
     }
