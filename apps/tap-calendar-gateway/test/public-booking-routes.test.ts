@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCalendarGatewayWorker,
 } from "../src/index";
@@ -14,6 +14,7 @@ const slotSigningKey = "public-slot-test-key-32-bytes-minimum-value";
 const turnstileSiteKey = "1x00000000000000000000AA";
 const turnstileSecret = "1x0000000000000000000000000000000AA";
 const managementSecret = "public-management-test-secret-at-least-32-bytes";
+const testNow = Date.parse("2026-08-16T12:00:00.000Z");
 const providerEvents = new Map<string, Readonly<Record<string, unknown>>>();
 let providerInsertCalls = 0;
 let turnstileAccepted = true;
@@ -232,6 +233,8 @@ describe("anonymous public booking reads", () => {
   const worker = createCalendarGatewayWorker(providerFetch(() => freeBusyMode));
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(testNow);
     freeBusyMode = "complete";
     turnstileAccepted = true;
     beforeNextProviderCommitAvailabilityResult = null;
@@ -258,6 +261,10 @@ describe("anonymous public booking reads", () => {
       env.CALENDAR_DB.prepare("DELETE FROM provider_calendars"),
       env.CALENDAR_DB.prepare("DELETE FROM calendar_connections"),
     ]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const connectAndPublish = async (options: {

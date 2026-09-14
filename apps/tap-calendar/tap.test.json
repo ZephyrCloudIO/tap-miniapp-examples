@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_tap_calendar_0001",
+  "packageId": "tap-calendar",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "tap-calendar-desktop": {
@@ -374,12 +374,12 @@
   "waivers": [
     {
       "capability": "effect:external-navigation:https://accounts.google.com",
-      "reason": "The specific navigation.open-external denial row exercises the direct-click host rejection for this exact provider origin. SDK 0.8.0 Test Lab tooling predates the action-to-external-navigation-effect mapping, so this temporary waiver prevents duplicate all-denied coverage.",
+      "reason": "The specific navigation.open-external denial row exercises the direct-click host rejection for this exact provider origin, so this temporary waiver prevents duplicate all-denied coverage.",
       "expiresAt": "2026-10-31T00:00:00Z"
     },
     {
       "capability": "effect:external-navigation:https://login.microsoftonline.com",
-      "reason": "Google and Microsoft share the same exact-origin host action and bounded failure path, which is covered by the specific navigation.open-external denial row and provider-origin unit tests. SDK 0.8.0 Test Lab tooling cannot yet attribute this effect to that action.",
+      "reason": "Google and Microsoft share the same exact-origin host action and bounded failure path, which is covered by the specific navigation.open-external denial row and provider-origin unit tests.",
       "expiresAt": "2026-10-31T00:00:00Z"
     },
     {

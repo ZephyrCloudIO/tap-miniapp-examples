@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tap.local/schemas/agent-browser/remote-browser-share-session-output.json",
+  "title": "Share Remote Browser room output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionHandle",
+    "invitationToken",
+    "invitationExpiresAt",
+    "remainingUses"
+  ],
+  "properties": {
+    "sessionHandle": { "type": "string", "format": "uuid" },
+    "invitationToken": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{43}$"
+    },
+    "invitationExpiresAt": { "type": "string", "format": "date-time" },
+    "remainingUses": { "const": 2 }
+  }
+}

@@ -19,15 +19,15 @@ describe("calendar event cache storage", () => {
     const set = rs.fn(async () => ({ revision: 8 }));
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set } });
 
-    const address = calendarPrincipalStorageAddresses("user-zack").eventCache;
-    await expect(loadCalendarEventCache(false, "user-zack")).resolves.toEqual({
+    const address = calendarPrincipalStorageAddresses("user-alex").eventCache;
+    await expect(loadCalendarEventCache(false, "user-alex")).resolves.toEqual({
       cache,
       revision: 7,
     });
     expect(get).toHaveBeenCalledWith(address);
 
     await expect(
-      saveCalendarEventCache(cache, false, 7, "user-zack"),
+      saveCalendarEventCache(cache, false, 7, "user-alex"),
     ).resolves.toBe(8);
     expect(set).toHaveBeenCalledWith(expect.objectContaining({
       ...address,
@@ -43,7 +43,7 @@ describe("calendar event cache storage", () => {
     }));
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set: rs.fn() } });
 
-    await expect(loadCalendarEventCache(false, "user-zack")).resolves.toEqual({
+    await expect(loadCalendarEventCache(false, "user-alex")).resolves.toEqual({
       cache: createEmptyCalendarEventCache(),
       revision: 3,
     });

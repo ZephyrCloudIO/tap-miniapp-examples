@@ -1,17 +1,21 @@
 import manifest from "./manifest.tap.json" with { type: "json" };
 import { defineTapMiniapp } from "@theaiplatform/miniapp-sdk/authoring";
 import { commandTargetBuilder } from "@theaiplatform/miniapp-sdk/lifecycle";
+import { zephyrPublisher } from "@zephyrcloudio/miniapp-zephyr-publisher";
 import { staticContributionProvider } from "../../scripts/tap-miniapp-static-contributions.mjs";
+import { verifySingleReactRuntime } from "./scripts/verify-react-runtime.mjs";
 
 const builder = commandTargetBuilder({
   command: "pnpm",
-  args: ["exec", "rslib", "build"],
+  args: ["run", "build:target"],
 });
 
 export default defineTapMiniapp({
-  release: { version: manifest.release.version },
-  identity: manifest.package,
-  presentation: manifest.presentation,
+  versionLabel: manifest.release.version,
+  presentation: {
+    ...manifest.presentation,
+    slug: manifest.package.slug,
+  },
   compatibility: { tapHost: manifest.compatibility.tapHost },
   targets: {
     desktop: {
@@ -55,5 +59,16 @@ export default defineTapMiniapp({
   },
   contributions: [staticContributionProvider(manifest)],
   events: manifest.events,
-  lifecycle: manifest.lifecycle,
+  runtimePolicy: manifest.lifecycle,
+  publisher: zephyrPublisher({
+    coordinates: {
+      organization: "zephyrcloudio",
+      project: "tap-miniapp-examples",
+      application: "tap-calendar",
+    },
+  }),
+  verify: {
+    verifyRuntime: ({ packageRoot }) =>
+      verifySingleReactRuntime(packageRoot),
+  },
 });

@@ -22,8 +22,8 @@ const profilePublicationInput = (): PublicBookingProfilePublicationInput => ({
   publications: [{
     schemaVersion: "tap.calendar.publication.v1",
     sourceProfileId: "profile-source-1",
-    profileSlug: "zephyr-zack",
-    displayName: "Zackary Chapple",
+    profileSlug: "alex-morgan",
+    displayName: "Alex Morgan",
     ownerType: "individual",
     sourceEventTypeId: "event-type-source-1",
     eventTypeSlug: "30min",
@@ -60,7 +60,7 @@ const profilePublicationReceipt = () => ({
   publication: {
     profileId: "public-profile-1",
     sourceProfileId: "profile-source-1",
-    profileSlug: "zephyr-zack",
+    profileSlug: "alex-morgan",
     generation: 4,
     publishedAt: "2026-08-16T18:00:00.000Z",
     idempotentReplay: false,
@@ -69,9 +69,9 @@ const profilePublicationReceipt = () => ({
       pageId: "public-page-1",
       revisionId: "public-revision-1",
       sourceEventTypeId: "event-type-source-1",
-      profileSlug: "zephyr-zack",
+      profileSlug: "alex-morgan",
       eventTypeSlug: "30min",
-      canonicalUrl: "https://cal.with-tap.ai/zephyr-zack/30min",
+      canonicalUrl: "https://cal.with-tap.ai/alex-morgan/30min",
       publishedAt: "2026-08-16T18:00:00.000Z",
     }],
   },
@@ -274,7 +274,7 @@ describe("Calendar gateway client", () => {
             ownerPrincipalId: "user-1",
             provider: "google",
             mode: "local",
-            label: "zack@example.com",
+            label: "alex@example.com",
             status: "connected",
             createdAt: "2026-08-14T19:00:00.000Z",
             updatedAt: "2026-08-14T19:00:00.000Z",
@@ -294,7 +294,7 @@ describe("Calendar gateway client", () => {
       client.createLocalConnection({
         id: "account-1",
         provider: "google",
-        label: "zack@example.com",
+        label: "alex@example.com",
         calendars: [],
       }),
     ).resolves.toMatchObject({ id: "account-1", mode: "local" });
@@ -444,7 +444,7 @@ describe("Calendar gateway client", () => {
   it("rejects publication receipts with an off-origin canonical URL", async () => {
     const receipt = profilePublicationReceipt();
     receipt.publication.pages[0]!.canonicalUrl =
-      "https://cal.with-tap.ai.attacker.example/zephyr-zack/30min";
+      "https://cal.with-tap.ai.attacker.example/alex-morgan/30min";
     const client = createCalendarGatewayClient({
       baseUrl: "http://127.0.0.1:8787",
       workspaceId: "workspace-1",

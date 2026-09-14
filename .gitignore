@@ -19,3 +19,7 @@ dist/
 .tap-package/
 tap-package/
 .tap-receipts/
+.scratch/
+dist-production/
+worker-dist/
+*.cpuprofile

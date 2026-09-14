@@ -298,15 +298,15 @@ describe("TAP Calendar domain", () => {
     const initial = publicationStateFixture();
     const marked = markPublicBookingProfilePublicationPending(
       initial,
-      "fixture-profile-zack",
+      "fixture-profile-alex",
       "2026-08-16T14:00:00.000Z",
     );
     const pending = marked.bookingProfiles[0]!.pendingPublication;
     const receipt: BookingProfileServerPublicationReceipt = {
-      sourceProfileId: "fixture-profile-zack",
+      sourceProfileId: "fixture-profile-alex",
       generation: 1,
       status: "published",
-      reservedSlug: "zephyr-zack",
+      reservedSlug: "alex-morgan",
       updatedAt: "2026-08-16T14:00:01.000Z",
       eventTypes: [{
         sourceEventTypeId: "fixture-event-type-advisory",
@@ -328,7 +328,7 @@ describe("TAP Calendar domain", () => {
     expect(profile.publication).toEqual({
       generation: 1,
       status: "published",
-      reservedSlug: "zephyr-zack",
+      reservedSlug: "alex-morgan",
       updatedAt: "2026-08-16T14:00:01.000Z",
     });
     expect(profile.pendingPublication).toBeUndefined();
@@ -346,10 +346,10 @@ describe("TAP Calendar domain", () => {
   it("marks only pages included in the confirmed profile generation as live", () => {
     const initial = publicationStateFixture();
     const first = applyPublicBookingProfilePublicationReceipt(initial, {
-      sourceProfileId: "fixture-profile-zack",
+      sourceProfileId: "fixture-profile-alex",
       generation: 1,
       status: "published",
-      reservedSlug: "zephyr-zack",
+      reservedSlug: "alex-morgan",
       updatedAt: "2026-08-16T14:00:01.000Z",
       eventTypes: initial.bookingProfiles[0]!.eventTypes.map(eventType => ({
         sourceEventTypeId: eventType.id,
@@ -358,10 +358,10 @@ describe("TAP Calendar domain", () => {
       })),
     });
     const second = applyPublicBookingProfilePublicationReceipt(first, {
-      sourceProfileId: "fixture-profile-zack",
+      sourceProfileId: "fixture-profile-alex",
       generation: 2,
       status: "published",
-      reservedSlug: "zephyr-zack",
+      reservedSlug: "alex-morgan",
       updatedAt: "2026-08-16T14:05:00.000Z",
       eventTypes: [{
         sourceEventTypeId: "fixture-event-type-30min",
@@ -387,14 +387,14 @@ describe("TAP Calendar domain", () => {
     const initial = publicationStateFixture();
     const firstMarked = markPublicBookingProfilePublicationPending(
       initial,
-      "fixture-profile-zack",
+      "fixture-profile-alex",
       "2026-08-16T14:00:00.000Z",
     );
     const acknowledged = firstMarked.bookingProfiles[0]!.pendingPublication;
     const changed = {
       ...firstMarked,
       bookingProfiles: firstMarked.bookingProfiles.map(profile =>
-        profile.id === "fixture-profile-zack"
+        profile.id === "fixture-profile-alex"
           ? {
               ...profile,
               displayName: "Updated while publishing",
@@ -407,10 +407,10 @@ describe("TAP Calendar domain", () => {
       ),
     } satisfies CalendarState;
     const applied = applyPublicBookingProfilePublicationReceipt(changed, {
-      sourceProfileId: "fixture-profile-zack",
+      sourceProfileId: "fixture-profile-alex",
       generation: 1,
       status: "published",
-      reservedSlug: "zephyr-zack",
+      reservedSlug: "alex-morgan",
       updatedAt: "2026-08-16T14:00:01.000Z",
       eventTypes: [],
     }, acknowledged);
@@ -433,10 +433,10 @@ describe("TAP Calendar domain", () => {
   it("locks received slugs while preserving unrelated profile and Event Type edits", () => {
     const initial = publicationStateFixture();
     const profile = applyPublicBookingProfilePublicationReceipt(initial, {
-      sourceProfileId: "fixture-profile-zack",
+      sourceProfileId: "fixture-profile-alex",
       generation: 1,
       status: "published",
-      reservedSlug: "zephyr-zack",
+      reservedSlug: "alex-morgan",
       updatedAt: "2026-08-16T14:00:01.000Z",
       eventTypes: [{
         sourceEventTypeId: "fixture-event-type-30min",
@@ -460,7 +460,7 @@ describe("TAP Calendar domain", () => {
     };
     const guarded = enforceImmutablePublicationSlugs(profile, candidate);
 
-    expect(guarded.slug).toBe("zephyr-zack");
+    expect(guarded.slug).toBe("alex-morgan");
     expect(guarded.displayName).toBe("A better display name");
     expect(guarded.eventTypes[0]).toMatchObject({
       slug: "30min",
@@ -1360,8 +1360,8 @@ describe("TAP Calendar domain", () => {
   });
 
   it("creates the agreed public URL and rejects unsafe slugs", () => {
-    expect(publicBookingUrl("zephyr-zack", "30min")).toBe(
-      "https://cal.with-tap.ai/zephyr-zack/30min",
+    expect(publicBookingUrl("alex-morgan", "30min")).toBe(
+      "https://cal.with-tap.ai/alex-morgan/30min",
     );
     expect(validateSlug("Bad Slug")).not.toBeNull();
     expect(() => publicBookingUrl("../admin", "30min")).toThrow();
@@ -1517,7 +1517,7 @@ describe("TAP Calendar domain", () => {
       });
       expect(
         result.state.bookingProfiles
-          .find(profile => profile.id === "profile-zack")
+          .find(profile => profile.id === "profile-alex")
           ?.eventTypes.every(eventType =>
             eventType.availabilityScheduleId === "availability-standard"
           ),
@@ -1773,7 +1773,7 @@ describe("TAP Calendar domain", () => {
     it("rejects duplicate, invalid, and unnamed Booking Profiles", () => {
       const initial = createInitialCalendarState();
       expect(
-        addBookingProfile(initial, bookingProfileFixture({ slug: "zephyr-zack" })),
+        addBookingProfile(initial, bookingProfileFixture({ slug: "alex-morgan" })),
       ).toMatchObject({ ok: false, error: { code: "duplicate-slug" } });
       expect(
         addBookingProfile(initial, bookingProfileFixture({ slug: "Bad Slug" })),

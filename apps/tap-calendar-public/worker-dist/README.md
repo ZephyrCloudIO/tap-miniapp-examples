@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "tap-calendar-public-production" generated at 2026-08-17T04:07:15.879Z.

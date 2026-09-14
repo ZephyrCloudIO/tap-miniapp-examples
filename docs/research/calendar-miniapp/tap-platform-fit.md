@@ -1,16 +1,18 @@
-# Tap platform fit for a calendar miniapp
+# Tap platform fit for a calendar miniapp (historical SDK 0.7 snapshot)
 
-**Research pass:** 4 of 4  
-**Researched:** 2026-08-14  
+> This document records the August 2026 discovery baseline. TAP Calendar now targets SDK 0.16.0; current implementation and manifest files take precedence. In particular, SDK 0.16 reserves `action.command` for artifact contexts, so the implemented scheduler uses the supported channel-app surface rather than a composer command.
+
+**Research pass:** 4 of 4
+**Researched:** 2026-08-14
 **Question:** Which parts of the proposed calendar product can be built with Tap Miniapp SDK 0.7.0, and which require new platform primitives?
 
 ## Evidence boundary
 
 This pass inspected three first-party source sets:
 
-- This example repo pins `@theaiplatform/miniapp-sdk` **0.7.0** and describes it as the verified version for every current example ([root README](../../../README.md), [root package.json](../../../package.json)).
+- At the time of this research, this example repo pinned `@theaiplatform/miniapp-sdk` **0.7.0** ([root README](../../../README.md), [root package.json](../../../package.json)).
 - The published 0.7.0 SDK tarball is the authoritative public package contract: [`@theaiplatform/miniapp-sdk@0.7.0`](https://registry.npmjs.org/@theaiplatform/miniapp-sdk/-/miniapp-sdk-0.7.0.tgz). Its `dist/sdk.d.ts`, `config-schema.json`, and `README.md` were inspected directly.
-- The local Tap host checkout at `/Users/zackarychapple/code/ze-miniapp/ze-agency-tauri` is useful implementation evidence but is **older**: commit `80317ab4ef182cdc0fc44ef4eebb6629bc21f466` from 2026-07-30, with SDK package version 0.4.5. The local `tap-miniapps` checkout is likewise on SDK 0.4.5 at commit `c8ad7dbd9e631a862575d7d7c0468b57b9b98d0a`. Absence in those checkouts cannot disprove a 0.7.0 feature.
+- An older local Tap host checkout was useful implementation evidence: commit `80317ab4ef182cdc0fc44ef4eebb6629bc21f466` from 2026-07-30, with SDK package version 0.4.5. The companion miniapps checkout was likewise on SDK 0.4.5 at commit `c8ad7dbd9e631a862575d7d7c0468b57b9b98d0a`. Absence in those snapshots could not disprove a 0.7.0 feature.
 
 The findings below distinguish an SDK contract from a host guarantee. A declared type or contribution means the package can request the capability; end-to-end acceptance still requires a 0.7.0-compatible desktop/mobile host and Test Lab coverage.
 
@@ -33,14 +35,14 @@ The findings below distinguish an SDK contract from a host guarantee. A declared
 
 - `channels.list`, `getAccess`, `getTimeline`, and `sendMessage` are available in 0.7.0. `MiniAppChannel` contains room metadata but **not its participant roster**.
 - `MiniAppPresenceApi` returns only participants who joined the miniapp's package-scoped ephemeral presence room. It is not the durable Tap channel membership list and cannot safely populate “everyone in this channel.”
-- The Tap chat v2 backend does have a canonical participant API (`GetRoomParticipants`) in `/Users/zackarychapple/code/ze-miniapp/ze-agency-tauri/protos/proto/tap/chat/v2/chat_api.proto`, but the 0.7.0 miniapp API does not expose it.
+- The Tap chat v2 backend snapshot did have a canonical participant API (`GetRoomParticipants`), but the 0.7.0 miniapp API did not expose it.
 - Tasks can be created, read, and updated, but their SDK shape has no extension field or typed relation to an external calendar event. A link can be stored in text or in the calendar app's own storage, but that would not make the relation native or independently discoverable from the task.
 
 ### External accounts and provider calls
 
 - Host-mediated HTTP supports selected stored bearer/basic/header/API-key credentials without exposing secret values to miniapp JavaScript. `mcp.oauth` can declare host-custodied OAuth for an HTTPS MCP server.
 - The generic UI SDK exposes only Tap user-profile auth. It does not expose a calendar-provider OAuth connection manager, provider account/calendar enumeration, refresh/revocation health, or Google/Microsoft domain delegation contract.
-- An existing Google Workspace miniapp in the older local `tap-miniapps` checkout proves that a host-specific Google control plane can be built, but it covers Drive/Docs/Sheets/Slides/Forms and an older SDK; it is not a Calendar API contract (`/Users/zackarychapple/code/ze-miniapp/tap-miniapps/apps/google-workspace/manifest.tap.json`).
+- An existing Google Workspace miniapp in the older local checkout proved that a host-specific Google control plane could be built, but it covered Drive/Docs/Sheets/Slides/Forms and an older SDK; it was not a Calendar API contract.
 
 ## Seven requested minimums: fit matrix
 
@@ -52,7 +54,7 @@ The findings below distinguish an SDK contract from a host guarantee. A declared
 | 4. Calendar blocks for chat and tasks | **Partial** | Chat blocks and task CRUD exist. A calendar chat block can be contributed; a context action can start from a message/task. A durable typed relation between a booking/block and a Tap task/chat artifact is not standardized, and task records have no extension relation field. |
 | 5. Configure availability | **Supported at the UI/storage layer; backend required** | A surface can edit schedules and storage can retain preferences. Correct free/busy intersection, time zones/DST, recurrence, buffers, holds, and concurrency require the calendar service, not a new UI primitive. |
 | 6. Schedule meetings with multiple people | **Partial** | UI, external API calls, workflows, and provider calendar writes are possible. Tap does not supply a multi-calendar availability engine, guest identity model, booking hold/commit service, routing algorithms, or lifecycle notification service. |
-| 7. Slash command for selected channel participants | **Partial, with two platform gaps** | `action.command` can represent a schedule action and a miniapp surface can render the participant dialog. The SDK does not standardize a slash/composer placement, and it does not expose the channel participant roster. Tap must add both, or the product must use an existing context-action/command placement and ask users to search invitees instead. |
+| 7. Slash command for selected channel participants | **Partial, with two platform gaps** | In the 0.7 research model, `action.command` could represent a schedule action and a miniapp surface could render the participant dialog. The SDK did not standardize a slash/composer placement, and it did not expose the channel participant roster. SDK 0.16 subsequently reserved `action.command` for artifact contexts, so the shipped Calendar contribution uses the channel-app scheduler surface. |
 
 ## Recommended architecture boundary
 

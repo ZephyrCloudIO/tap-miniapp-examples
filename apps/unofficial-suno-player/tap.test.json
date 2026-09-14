@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_unofficial_suno_player_0001",
+  "packageId": "unofficial-suno-player",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "unofficial-suno-player-desktop": {

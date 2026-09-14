@@ -46,7 +46,7 @@ describe("organizer authentication", () => {
           expect(token).toBe("verified-token");
           return {
             subject: "jwt-subject",
-            email: "zack@example.com",
+            email: "alex@example.com",
             emailVerified: true,
           };
         },

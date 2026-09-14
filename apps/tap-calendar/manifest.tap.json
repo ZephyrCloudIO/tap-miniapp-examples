@@ -30,8 +30,8 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.8.0",
-    "tapHost": ">=2.3.4"
+    "tapSdk": "0.16.0",
+    "tapHost": ">=2.5.5"
   },
   "targets": {
     "desktop": {
@@ -203,19 +203,6 @@
       }
     },
     {
-      "kind": "action.command",
-      "id": "schedule",
-      "apiVersion": 1,
-      "lifecycleScope": "installation",
-      "options": {
-        "label": "Schedule a meeting",
-        "placements": [
-          "channel-composer",
-          "launch:ui.surface:tap-calendar-channel-scheduler"
-        ]
-      }
-    },
-    {
       "kind": "mcp.server",
       "id": "calendar-tools",
       "apiVersion": 1,
@@ -347,7 +334,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "nodeKind": "examples-tap-calendar.normalize-booking-created",
+        "nodeKind": "tap-calendar.normalize-booking-created",
         "exportName": "normalizebookingcreated",
         "config": {
           "id": "targets/workflow-host/schemas/empty-config.schema.json",
@@ -396,7 +383,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "nodeKind": "examples-tap-calendar.normalize-booking-cancelled",
+        "nodeKind": "tap-calendar.normalize-booking-cancelled",
         "exportName": "normalizebookingcancelled",
         "config": {
           "id": "targets/workflow-host/schemas/empty-config.schema.json",
@@ -445,7 +432,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "nodeKind": "examples-tap-calendar.draft-work-block",
+        "nodeKind": "tap-calendar.draft-work-block",
         "exportName": "draftworkblock",
         "config": {
           "id": "targets/workflow-host/schemas/empty-config.schema.json",
@@ -494,7 +481,7 @@
       "authorization": { "allOf": ["workflows.invoke"] },
       "lifecycleScope": "contribution",
       "options": {
-        "nodeKind": "examples-tap-calendar.prepare-channel-summary",
+        "nodeKind": "tap-calendar.prepare-channel-summary",
         "exportName": "preparechannelsummary",
         "config": {
           "id": "targets/workflow-host/schemas/empty-config.schema.json",
@@ -541,7 +528,6 @@
         "contributionIds": [
           "tap-calendar",
           "tap-calendar-channel-scheduler",
-          "schedule",
           "calendar-tools",
           "calendar-list-events",
           "calendar-daily-summary",

@@ -28,10 +28,6 @@ const singleReactRuntimePlugin: RsbuildPlugin = {
   },
 };
 
-if (process.env.ZEPHYR_PUBLISH === "true") {
-  throw new Error("Build the complete TAP Calendar package before publishing.");
-}
-
 const targetConfigurations = {
   desktop: {
     name: "tap_tap_calendar_desktop",

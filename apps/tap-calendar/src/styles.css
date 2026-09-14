@@ -884,12 +884,6 @@ p { text-wrap: pretty; }
 .public-booking-fields [data-slot="textarea"] { min-height: 94px; resize: vertical; }
 .public-booking-details .consent-check { min-height: 52px; border-color: var(--public-border); border-radius: 11px; background: #fcfbff; padding: 12px 13px; }
 .public-booking-details .consent-check span { color: var(--public-muted); font-size: 12px; line-height: 1.5; }
-.turnstile-sim { display: flex; min-height: 52px; align-items: center; gap: 10px; border: 1px solid var(--public-border); border-radius: 11px; background: #fafafb; padding: 11px 13px; }
-.turnstile-sim > svg:first-child { flex: 0 0 19px; width: 19px; color: #df772b; }
-.turnstile-sim > span { display: grid; flex: 1; gap: 3px; }
-.turnstile-sim strong { color: #393644; font-size: 12px; }
-.turnstile-sim small { color: var(--public-muted); font-size: 10px; }
-.turnstile-sim > svg:last-child { width: 17px; color: #149467; }
 .public-booking-card-success { width: min(620px, 100%); min-height: 0; grid-template-columns: 1fr; }
 .public-booking-success { display: grid; width: 100%; justify-items: center; padding: clamp(46px, 7vw, 74px); text-align: center; }
 .public-booking-success > span { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 50%; background: #e8f8f2; color: #138b65; }

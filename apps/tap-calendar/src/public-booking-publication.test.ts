@@ -29,7 +29,7 @@ describe("public booking publication projection", () => {
     });
     expect(result.publication.conflictCalendarIds).toContain(eventType.destinationCalendarId);
     expect(JSON.stringify(result.publication)).not.toMatch(
-      /zack@|maya@|event-zack|booking-pending/u,
+      /alex\.personal@|maya@|event-alex|booking-pending/u,
     );
   });
 

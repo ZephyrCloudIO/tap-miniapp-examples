@@ -24,23 +24,23 @@ const emptyAnalytics = (): FunnelAnalytics => ({
 /** @internal Deterministic fixture for domain tests. Runtime storage starts empty. */
 export function createInitialCalendarState(): CalendarState {
   const self: CalendarAttendee = {
-    id: "user-zack",
-    name: "Zack Chapple",
-    email: "zack@zephyr-cloud.io",
+    id: "user-alex",
+    name: "Alex Morgan",
+    email: "alex@example.com",
     kind: "tap",
     required: true,
   };
   const maya: CalendarAttendee = {
     id: "user-maya",
     name: "Maya Chen",
-    email: "maya@with-tap.ai",
+    email: "maya@example.com",
     kind: "tap",
     required: true,
   };
   const theo: CalendarAttendee = {
     id: "user-theo",
     name: "Theo Martin",
-    email: "theo@with-tap.ai",
+    email: "theo@example.com",
     kind: "tap",
     required: true,
   };
@@ -84,13 +84,13 @@ export function createInitialCalendarState(): CalendarState {
       {
         id: "acct-google",
         provider: "google",
-        label: "zackarychapple30@gmail.com",
+        label: "alex.personal@example.com",
         status: "connected",
         calendars: [
           {
             id: "cal-google-main",
             accountId: "acct-google",
-            name: "zackarychapple30@gmail.com",
+            name: "alex.personal@example.com",
             color: "#93c5fd",
             role: "owner",
             visible: true,
@@ -116,7 +116,7 @@ export function createInitialCalendarState(): CalendarState {
       {
         id: "acct-microsoft",
         provider: "microsoft",
-        label: "zack@zephyr-cloud.io",
+        label: "alex@example.com",
         status: "connected",
         calendars: [
           {
@@ -135,7 +135,7 @@ export function createInitialCalendarState(): CalendarState {
           {
             id: "cal-dmitry",
             accountId: "acct-microsoft",
-            name: "dmitry@zephyr-cloud.io",
+            name: "shared.calendar@example.com",
             color: "#f97316",
             role: "free-busy",
             visible: true,
@@ -148,7 +148,7 @@ export function createInitialCalendarState(): CalendarState {
           {
             id: "cal-charlie",
             accountId: "acct-microsoft",
-            name: "Transferred from charlie@zephyr-cloud.io",
+            name: "Transferred from archived.calendar@example.com",
             color: "#e879f9",
             role: "writer",
             visible: false,
@@ -315,10 +315,10 @@ export function createInitialCalendarState(): CalendarState {
     activeAvailabilityId: "availability-standard",
     bookingProfiles: [
       {
-        id: "profile-zack",
+        id: "profile-alex",
         ownerType: "individual",
-        slug: "zephyr-zack",
-        displayName: "Zack Chapple",
+        slug: "alex-morgan",
+        displayName: "Alex Morgan",
         timezone: "America/New_York",
         published: true,
         eventTypes: [
@@ -326,7 +326,7 @@ export function createInitialCalendarState(): CalendarState {
             id: "event-type-30min",
             slug: "30min",
             title: "30 minute meeting",
-            description: "A focused conversation with Zack.",
+            description: "A focused conversation with Alex.",
             durationMinutes: 30,
             approvalRequired: false,
             location: "google-meet",
@@ -415,7 +415,7 @@ export function createInitialCalendarState(): CalendarState {
     notificationChannels: [
       {
         id: "channel-personal",
-        name: "TAP Calendar · Zack",
+        name: "TAP Calendar · Alex",
         scope: "private",
         enabled: true,
         entries: [
@@ -457,25 +457,25 @@ export function createInitialCalendarState(): CalendarState {
     ],
     workflowNodes: [
       {
-        id: "examples-tap-calendar.normalize-booking-created",
+        id: "tap-calendar.normalize-booking-created",
         kind: "trigger",
         name: "Normalize Booking created",
         description: "Normalizes a Booking-created payload delivered by the Calendar gateway.",
       },
       {
-        id: "examples-tap-calendar.normalize-booking-cancelled",
+        id: "tap-calendar.normalize-booking-cancelled",
         kind: "trigger",
         name: "Normalize Booking cancelled",
         description: "Normalizes a Booking-cancelled payload delivered by the Calendar gateway.",
       },
       {
-        id: "examples-tap-calendar.draft-work-block",
+        id: "tap-calendar.draft-work-block",
         kind: "action",
         name: "Draft Work Block",
         description: "Prepares a task, channel, or message-linked Work Block for review.",
       },
       {
-        id: "examples-tap-calendar.prepare-channel-summary",
+        id: "tap-calendar.prepare-channel-summary",
         kind: "action",
         name: "Prepare channel summary",
         description: "Prepares a permission-aware Calendar Channel Summary for delivery.",

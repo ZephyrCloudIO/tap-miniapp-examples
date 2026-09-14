@@ -25,7 +25,7 @@ const signingKey = "test-only-public-slot-signing-key-1234567890";
 
 const publicSnapshot: PublicPageSnapshot = {
   schemaVersion: "tap.calendar.public-page-snapshot.v1",
-  displayName: "Zackary Chapple",
+  displayName: "Alex Morgan",
   title: "30 minute meeting",
   description: "Pick a time that works for you.",
   durationMinutes: 30,
@@ -73,7 +73,7 @@ function resolvedFixture(options: {
     profileId: "profile-public-read",
     pageId: "page-public-read",
     revisionId: options.revision ?? revisionId,
-    profileSlug: "zackary-chapple",
+    profileSlug: "alex-morgan",
     eventTypeSlug: "30min",
     publishedAt: "2026-08-16T11:00:00.000Z",
     publicSnapshot: options.public ?? publicSnapshot,
@@ -104,7 +104,7 @@ async function seedPublishedPage(options: {
       privateSnapshot.workspaceId,
       privateSnapshot.principalId,
       "source-profile-public-read",
-      "zackary-chapple",
+      "alex-morgan",
       publicSnapshot.displayName,
       createdAt,
       createdAt,
@@ -112,7 +112,7 @@ async function seedPublishedPage(options: {
     ),
     env.CALENDAR_DB.prepare(
       `INSERT INTO public_booking_profile_slugs (slug, profile_id, active, created_at)
-       VALUES ('zackary-chapple', 'profile-public-read', 1, ?)`,
+       VALUES ('alex-morgan', 'profile-public-read', 1, ?)`,
     ).bind(createdAt),
     env.CALENDAR_DB.prepare(
       `INSERT INTO public_booking_pages (
@@ -162,14 +162,14 @@ beforeEach(async () => {
 
 describe("anonymous public booking request parsing", () => {
   it("accepts only canonical slug routes", () => {
-    expect(parsePublicBookingPagePath("/api/public/pages/zackary-chapple/30min"))
-      .toEqual({ profileSlug: "zackary-chapple", eventTypeSlug: "30min", resource: "page" });
-    expect(parsePublicBookingPagePath("/api/public/pages/zackary-chapple/30min/availability"))
-      .toEqual({ profileSlug: "zackary-chapple", eventTypeSlug: "30min", resource: "availability" });
-    expect(parsePublicBookingPagePath("/api/public/pages/zackary-chapple/30min/bookings"))
-      .toEqual({ profileSlug: "zackary-chapple", eventTypeSlug: "30min", resource: "bookings" });
-    expect(parsePublicBookingPagePath("/api/public/pages/zackary-chapple/30min/")).toBeNull();
-    expect(parsePublicBookingPagePath("/api/public/pages/%7Aackary-chapple/30min")).toBeNull();
+    expect(parsePublicBookingPagePath("/api/public/pages/alex-morgan/30min"))
+      .toEqual({ profileSlug: "alex-morgan", eventTypeSlug: "30min", resource: "page" });
+    expect(parsePublicBookingPagePath("/api/public/pages/alex-morgan/30min/availability"))
+      .toEqual({ profileSlug: "alex-morgan", eventTypeSlug: "30min", resource: "availability" });
+    expect(parsePublicBookingPagePath("/api/public/pages/alex-morgan/30min/bookings"))
+      .toEqual({ profileSlug: "alex-morgan", eventTypeSlug: "30min", resource: "bookings" });
+    expect(parsePublicBookingPagePath("/api/public/pages/alex-morgan/30min/")).toBeNull();
+    expect(parsePublicBookingPagePath("/api/public/pages/%61lex-morgan/30min")).toBeNull();
     expect(parsePublicBookingPagePath("/api/public/pages/../30min")).toBeNull();
   });
 
@@ -207,7 +207,7 @@ describe("published page resolution", () => {
     await seedPublishedPage();
     const resolved = await resolvePublishedPublicBookingPage(
       env.CALENDAR_DB.withSession("first-primary"),
-      "zackary-chapple",
+      "alex-morgan",
       "30min",
     );
     expect(resolved.privateSnapshot).toMatchObject({
@@ -223,8 +223,8 @@ describe("published page resolution", () => {
     expect(projected).toMatchObject({
       schemaVersion: "tap.calendar.public-page.v1",
       pageRevision: revisionId,
-      canonicalUrl: "https://cal.with-tap.ai/zackary-chapple/30min",
-      profile: { displayName: "Zackary Chapple", initials: "ZC" },
+      canonicalUrl: "https://cal.with-tap.ai/alex-morgan/30min",
+      profile: { displayName: "Alex Morgan", initials: "AM" },
       bookingWindow: { firstDate: "2026-08-16", lastDate: "2026-10-14" },
     });
     expect(JSON.stringify(projected)).not.toMatch(
@@ -238,7 +238,7 @@ describe("published page resolution", () => {
     });
     await expect(resolvePublishedPublicBookingPage(
       env.CALENDAR_DB,
-      "zackary-chapple",
+      "alex-morgan",
       "30min",
     )).rejects.toMatchObject({ code: "published_page_invalid", status: 503 });
   });
@@ -247,7 +247,7 @@ describe("published page resolution", () => {
     await expect(resolvePublishedPublicBookingPage(env.CALENDAR_DB, "missing-profile", "30min"))
       .rejects.toMatchObject({ code: "public_page_unavailable", status: 404 });
     await seedPublishedPage();
-    const resolved = await resolvePublishedPublicBookingPage(env.CALENDAR_DB, "zackary-chapple", "30min");
+    const resolved = await resolvePublishedPublicBookingPage(env.CALENDAR_DB, "alex-morgan", "30min");
     await env.CALENDAR_DB.prepare(
       `INSERT INTO public_booking_page_revisions (
          id, page_id, snapshot_hash, public_snapshot_json, private_snapshot_json, created_at

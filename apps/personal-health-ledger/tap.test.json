@@ -1,7 +1,7 @@
 {
   "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
   "schemaVersion": 2,
-  "packageId": "tap_pkg_examples_personal_health_ledger_0001",
+  "packageId": "personal-health-ledger",
   "configPath": "rstest.tap.config.ts",
   "profiles": {
     "personal-health-ledger-desktop": {

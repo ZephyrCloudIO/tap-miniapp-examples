@@ -2,7 +2,7 @@
   "storage": [
     {
       "workspaceId": "tap-fixture-workspace-v1",
-      "packageId": "tap_pkg_examples_tap_calendar_0001",
+      "packageId": "tap-calendar",
       "namespace": "tap-calendar",
       "key": "users/tap-fixture-user-v1/calendar-state/v2",
       "revision": 1,
@@ -13,7 +13,7 @@
           {
             "id": "fixture-account-microsoft",
             "provider": "microsoft",
-            "label": "zack@zephyr-cloud.io",
+            "label": "alex@example.com",
             "status": "connected",
             "calendars": [
               {
@@ -44,9 +44,9 @@
             "location": "zoom",
             "attendees": [
               {
-                "id": "fixture-user-zack",
-                "name": "Zack Chapple",
-                "email": "zack@zephyr-cloud.io",
+                "id": "fixture-user-alex",
+                "name": "Alex Morgan",
+                "email": "alex@example.com",
                 "kind": "tap",
                 "required": true
               },
@@ -96,10 +96,10 @@
         "activeAvailabilityId": "fixture-availability-standard",
         "bookingProfiles": [
           {
-            "id": "fixture-profile-zack",
+            "id": "fixture-profile-alex",
             "ownerType": "individual",
-            "slug": "zephyr-zack",
-            "displayName": "Zack Chapple",
+            "slug": "alex-morgan",
+            "displayName": "Alex Morgan",
             "timezone": "America/New_York",
             "published": true,
             "eventTypes": [
@@ -107,7 +107,7 @@
                 "id": "fixture-event-type-30min",
                 "slug": "30min",
                 "title": "30 minute meeting",
-                "description": "A focused conversation with Zack.",
+                "description": "A focused conversation with Alex.",
                 "durationMinutes": 30,
                 "approvalRequired": false,
                 "location": "google-meet",
@@ -158,25 +158,25 @@
         ],
         "workflowNodes": [
           {
-            "id": "examples-tap-calendar.normalize-booking-created",
+            "id": "tap-calendar.normalize-booking-created",
             "kind": "action",
             "name": "Normalize booking created",
             "description": "Normalizes a booking-created gateway payload."
           },
           {
-            "id": "examples-tap-calendar.normalize-booking-cancelled",
+            "id": "tap-calendar.normalize-booking-cancelled",
             "kind": "action",
             "name": "Normalize booking cancelled",
             "description": "Normalizes a booking-cancelled gateway payload."
           },
           {
-            "id": "examples-tap-calendar.draft-work-block",
+            "id": "tap-calendar.draft-work-block",
             "kind": "action",
             "name": "Draft work block",
             "description": "Prepares a work block for human review."
           },
           {
-            "id": "examples-tap-calendar.prepare-channel-summary",
+            "id": "tap-calendar.prepare-channel-summary",
             "kind": "action",
             "name": "Prepare channel summary",
             "description": "Creates a permission-aware channel summary."

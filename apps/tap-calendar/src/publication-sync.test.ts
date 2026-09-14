@@ -25,7 +25,7 @@ const deferred = <T>(): Deferred<T> => {
 
 describe("public Booking Profile sync orchestration", () => {
   it("queues and rebases an unpublish after a remotely committed ambiguous publish", async () => {
-    const profileId = "profile-zack";
+    const profileId = "profile-alex";
     let state: CalendarState = markPublicBookingProfilePublicationPending(
       createInitialCalendarState(),
       profileId,
@@ -69,7 +69,7 @@ describe("public Booking Profile sync orchestration", () => {
         remote.generation += 1;
         remote.status = "unpublished";
         return {
-          profileId: "public-profile-zack",
+          profileId: "public-profile-alex",
           sourceProfileId: input.sourceProfileId,
           generation: remote.generation,
           unpublishedAt: "2026-08-16T20:00:03.000Z",

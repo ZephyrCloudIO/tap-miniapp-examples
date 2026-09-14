@@ -6,7 +6,7 @@ import {
   type TapRstestFixtures,
 } from "@theaiplatform/miniapp-sdk/testing/rstest";
 
-export const PACKAGE_ID = "tap_pkg_examples_tap_calendar_0001";
+export const PACKAGE_ID = "tap-calendar";
 export const SURFACE_ID = "tap-calendar";
 export const TARGET = "desktop";
 export const STORAGE_NAMESPACE = "tap-calendar";
@@ -65,7 +65,7 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.8.0",
+    adapterVersion: "0.16.0",
     allowedNetworkOrigins: [
       "http://127.0.0.1:8787",
       "https://calendar-api.theaiplatform.app",

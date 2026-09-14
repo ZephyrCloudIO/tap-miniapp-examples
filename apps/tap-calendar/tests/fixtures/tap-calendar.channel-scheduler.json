@@ -2,7 +2,7 @@
   "storage": [
     {
       "workspaceId": "tap-fixture-workspace-v1",
-      "packageId": "tap_pkg_examples_tap_calendar_0001",
+      "packageId": "tap-calendar",
       "namespace": "tap-calendar",
       "key": "users/tap-fixture-user-v1/calendar-state/v2",
       "revision": 1,

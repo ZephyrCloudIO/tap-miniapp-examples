@@ -72,7 +72,7 @@ function runtimeFixture(
   value: MiniAppJsonValue = null,
   context: CalendarMcpExecutionContext = {
     channelId: null,
-    userId: "user-zack",
+    userId: "user-alex",
   },
   eventCache: MiniAppJsonValue = value === null
     ? null
@@ -138,7 +138,7 @@ describe("TAP Calendar MCP tools", () => {
 
   it("reads only the two declared TAP Calendar storage addresses", async () => {
     const { runtime, reads } = runtimeFixture(stored(createInitialCalendarState()));
-    const addresses = calendarMcpStorageAddresses("user-zack");
+    const addresses = calendarMcpStorageAddresses("user-alex");
     const server = createCalendarMcpServer(runtime);
     const dailySummaryServer = createDailySummaryMcpServer(runtime);
     await server.tools.list_events.execute({});
@@ -227,7 +227,7 @@ describe("TAP Calendar MCP tools", () => {
     const server = createCalendarMcpServer(
       runtimeFixture(
         stored(state),
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(cache),
       ).runtime,
     );
@@ -333,7 +333,7 @@ describe("TAP Calendar MCP tools", () => {
     };
     const server = createDailySummaryMcpServer(runtimeFixture(
       stored(state),
-      { channelId: null, userId: "user-zack" },
+      { channelId: null, userId: "user-alex" },
       storedJson(eventCacheFixture({ events: dailyEvents })),
     ).runtime);
     const result = (await server.tools.summarize_day.execute({
@@ -394,7 +394,7 @@ describe("TAP Calendar MCP tools", () => {
     const server = createDailySummaryMcpServer(
       runtimeFixture(
         stored(createInitialCalendarState()),
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(eventCacheFixture({ partial: true })),
       ).runtime,
     );
@@ -705,7 +705,7 @@ describe("TAP Calendar MCP tools", () => {
     const partialServer = createCalendarMcpServer(
       runtimeFixture(
         state,
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(eventCacheFixture({ partial: true })),
       ).runtime,
     );
@@ -729,7 +729,7 @@ describe("TAP Calendar MCP tools", () => {
     const narrowServer = createCalendarMcpServer(
       runtimeFixture(
         state,
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(eventCacheFixture({
           timeMin: "2026-08-18T13:00:00.000Z",
           timeMax: "2026-08-18T14:00:00.000Z",
@@ -752,7 +752,7 @@ describe("TAP Calendar MCP tools", () => {
     const staleServer = createCalendarMcpServer(
       runtimeFixture(
         state,
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(eventCacheFixture({ syncedAt: "2026-08-15T15:54:59.999Z" })),
       ).runtime,
     );
@@ -789,7 +789,7 @@ describe("TAP Calendar MCP tools", () => {
     const server = createCalendarMcpServer(
       runtimeFixture(
         stored(createInitialCalendarState()),
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(cache),
       ).runtime,
     );
@@ -912,7 +912,7 @@ describe("TAP Calendar MCP tools", () => {
     const server = createCalendarMcpServer(
       runtimeFixture(
         stored(createInitialCalendarState()),
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(cache),
       ).runtime,
     );
@@ -944,7 +944,7 @@ describe("TAP Calendar MCP tools", () => {
     const staleServer = createCalendarMcpServer(
       runtimeFixture(
         stored(createInitialCalendarState()),
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         storedJson(eventCacheFixture({ syncedAt: "2026-08-15T15:54:59.999Z" })),
       ).runtime,
     );
@@ -991,7 +991,7 @@ describe("TAP Calendar MCP tools", () => {
     const malformedCache = createCalendarMcpServer(
       runtimeFixture(
         stored(createInitialCalendarState()),
-        { channelId: null, userId: "user-zack" },
+        { channelId: null, userId: "user-alex" },
         { schemaVersion: 1, entries: [{ unbounded: true }] },
       ).runtime,
     );

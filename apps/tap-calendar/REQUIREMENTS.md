@@ -77,7 +77,7 @@ infrastructure before production release.
 - [x] Reserve globally unique profile slugs and profile-local Event Type slugs
   in the gateway with immutable ownership fences and bounded per-owner quotas.
 - [x] Generate `cal.with-tap.ai/{profileSlug}/{eventTypeSlug}` URLs, including
-  `cal.with-tap.ai/zephyr-zack/30min`.
+  `cal.with-tap.ai/alex-morgan/30min`.
 - [x] Create and edit Booking Profiles, choose individual/team/organization
   ownership and globally unique slugs, and create profile-local Event Types.
 - [x] Bind every new Event Type to an explicit Availability Schedule, preserve
@@ -122,8 +122,8 @@ infrastructure before production release.
   channel-summary preparation.
 - [x] Keep workflow nodes pure and honest: no native durable trigger is claimed.
 - [x] Include a working in-app schedule dialog that accepts multiple participants.
-- [x] Contribute a channel-scoped `Schedule` surface and `/schedule` command
-  launch contract; both reuse the provider-backed workspace scheduling path.
+- [x] Contribute a channel-scoped `Schedule` surface that reuses the
+  provider-backed workspace scheduling path.
 - [x] Bind each channel scheduling surface to its trusted TAP principal and
   expose only connected, writable destinations owned by that exact principal;
   missing or mismatched ownership fails closed rather than inheriting another
@@ -137,9 +137,9 @@ infrastructure before production release.
 - [x] Fall back honestly to manual external guests when the host roster
   capability is unavailable; never infer membership from presence or timeline
   messages.
-- [ ] Production TAP hosts must ship the action-command launcher/schema and
-  exact-bound channel participant capability before those optional integrations
-  are available outside compatible development hosts.
+- [ ] Production TAP hosts must ship typed channel participant discovery before
+  member discovery can be validated end to end outside the compatibility
+  adapter.
 - [ ] Durable booking-created/cancelled workflow triggers originate from the
   Zephyr gateway; the package normalizers are ready to receive those payloads.
 

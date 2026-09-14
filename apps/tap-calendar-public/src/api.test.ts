@@ -29,7 +29,7 @@ describe("public Calendar API client", () => {
     bookingReference: "booking-reference-1234",
     status: "confirmed" as const,
     guest: { name: "Guest", email: "guest@example.com" },
-    host: { displayName: "Zack" },
+    host: { displayName: "Alex" },
     event: {
       title: "30 minute meeting",
       startsAt: "2026-08-18T14:00:00.000Z",
@@ -42,7 +42,7 @@ describe("public Calendar API client", () => {
     },
     actions: { canCancel: true, canReschedule: true },
     reschedulePage: {
-      profileSlug: "zack",
+      profileSlug: "alex-morgan",
       eventTypeSlug: "30min",
       pageRevision: "revision-1",
       bookingWindow: { firstDate: "2026-08-16", lastDate: "2026-10-15" },
@@ -54,8 +54,8 @@ describe("public Calendar API client", () => {
     const page = {
       schemaVersion: PUBLIC_PAGE_SCHEMA_VERSION,
       pageRevision: "revision-1",
-      canonicalUrl: "https://cal.with-tap.ai/zack/30min",
-      profile: { displayName: "Zack", initials: "ZC" },
+      canonicalUrl: "https://cal.with-tap.ai/alex-morgan/30min",
+      profile: { displayName: "Alex Morgan", initials: "AM" },
       eventType: {
         title: "30 minute meeting",
         durationMinutes: 30,
@@ -72,9 +72,9 @@ describe("public Calendar API client", () => {
     }));
     Reflect.set(globalThis, "fetch", fetchMock);
 
-    await expect(loadPublicBookingPage("zack", "30min")).resolves.toEqual(page);
+    await expect(loadPublicBookingPage("alex-morgan", "30min")).resolves.toEqual(page);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/public/pages/zack/30min",
+      "/api/public/pages/alex-morgan/30min",
       expect.objectContaining({ credentials: "omit" }),
     );
   });
@@ -93,14 +93,14 @@ describe("public Calendar API client", () => {
     Reflect.set(globalThis, "fetch", fetchMock);
 
     await loadPublicAvailability({
-      profileSlug: "zack",
+      profileSlug: "alex-morgan",
       eventTypeSlug: "30min",
       month: "2026-08-01",
       viewerTimeZone: "America/Los_Angeles",
       pageRevision: "revision-1",
     });
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "/api/public/pages/zack/30min/availability?month=2026-08-01&timeZone=America%2FLos_Angeles&pageRevision=revision-1",
+      "/api/public/pages/alex-morgan/30min/availability?month=2026-08-01&timeZone=America%2FLos_Angeles&pageRevision=revision-1",
     );
   });
 
@@ -115,7 +115,7 @@ describe("public Calendar API client", () => {
     )));
 
     await expect(loadPublicAvailability({
-      profileSlug: "zack",
+      profileSlug: "alex-morgan",
       eventTypeSlug: "30min",
       month: "2026-08-01",
       viewerTimeZone: "America/Los_Angeles",
@@ -142,7 +142,7 @@ describe("public Calendar API client", () => {
     ));
 
     await expect(loadPublicAvailability({
-      profileSlug: "zack",
+      profileSlug: "alex-morgan",
       eventTypeSlug: "30min",
       month: "2026-08-01",
       viewerTimeZone: "America/Los_Angeles",
@@ -167,7 +167,7 @@ describe("public Calendar API client", () => {
       JSON.stringify({ error: "internal_secret", message: { private: "do not render" } }),
       { status: 500 },
     )));
-    await expect(loadPublicBookingPage("zack", "30min")).rejects.toMatchObject({
+    await expect(loadPublicBookingPage("alex-morgan", "30min")).rejects.toMatchObject({
       code: "http_500",
       message: "TAP Calendar could not complete the request.",
       retryable: true,
@@ -179,7 +179,7 @@ describe("public Calendar API client", () => {
       JSON.stringify({ schemaVersion: PUBLIC_PAGE_SCHEMA_VERSION, canonicalUrl: "https://evil.example/page" }),
       { status: 200 },
     )));
-    await expect(loadPublicBookingPage("zack", "30min")).rejects.toMatchObject({
+    await expect(loadPublicBookingPage("alex-morgan", "30min")).rejects.toMatchObject({
       code: "public_response_invalid",
       status: 502,
     });
@@ -196,7 +196,7 @@ describe("public Calendar API client", () => {
       { status: 200 },
     )));
     await expect(createPublicBooking({
-      profileSlug: "zack",
+      profileSlug: "alex-morgan",
       eventTypeSlug: "30min",
       request: {
         schemaVersion: PUBLIC_BOOKING_SCHEMA_VERSION,

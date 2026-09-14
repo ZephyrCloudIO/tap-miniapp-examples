@@ -14,8 +14,8 @@ const scope = { workspace: "workspace-public", principal: "user-public" };
 const page = (overrides: Record<string, unknown> = {}) => ({
   schemaVersion: "tap.calendar.publication.v1",
   sourceProfileId: "profile-source-1",
-  profileSlug: "zackary-chapple",
-  displayName: "Zackary Chapple",
+  profileSlug: "alex-morgan",
+  displayName: "Alex Morgan",
   ownerType: "individual",
   sourceEventTypeId: "event-type-source-1",
   eventTypeSlug: "30min",
@@ -91,7 +91,7 @@ async function seedOwnedCalendars(options: {
       `INSERT INTO calendar_connections (
          id, workspace_id, principal_id, provider, mode, label, status,
          credential_ciphertext, token_expires_at, created_at, updated_at
-       ) VALUES (?, ?, ?, 'google', 'oauth', 'zack@example.com', 'connected',
+       ) VALUES (?, ?, ?, 'google', 'oauth', 'alex@example.com', 'connected',
                  'ciphertext', ?, ?, ?)`,
     ).bind(connectionId, workspace, principal, "2026-08-16T20:00:00.000Z", now, now),
     env.CALENDAR_DB.prepare(
@@ -130,7 +130,7 @@ describe("public booking publication", () => {
   it("validates a bounded, internally consistent whole-profile snapshot", () => {
     const parsed = profilePublication();
     expect(parsed.expectedGeneration).toBe(0);
-    expect(parsed.publications[0]?.profileSlug).toBe("zackary-chapple");
+    expect(parsed.publications[0]?.profileSlug).toBe("alex-morgan");
     expect(parsed.publications[0]?.schedule.overrides[0]).toMatchObject({
       date: "2026-08-22",
       timeZone: "Europe/London",
@@ -159,11 +159,11 @@ describe("public booking publication", () => {
     expect(result).toMatchObject({
       generation: 1,
       idempotentReplay: false,
-      profileSlug: "zackary-chapple",
+      profileSlug: "alex-morgan",
     });
     expect(result.pages.map(candidate => candidate.canonicalUrl)).toEqual([
-      "https://cal.with-tap.ai/zackary-chapple/30min",
-      "https://cal.with-tap.ai/zackary-chapple/60min",
+      "https://cal.with-tap.ai/alex-morgan/30min",
+      "https://cal.with-tap.ai/alex-morgan/60min",
     ]);
     expect(await env.CALENDAR_DB.prepare(
       "SELECT COUNT(*) AS count FROM public_booking_page_revisions",
@@ -297,7 +297,7 @@ describe("public booking publication", () => {
     await expect(publish({
       input: profilePublication({
         expectedGeneration: 1,
-        pages: [page({ profileSlug: "zack-calendar" })],
+        pages: [page({ profileSlug: "alex-calendar" })],
       }),
     })).rejects.toMatchObject({ code: "profile_slug_immutable" });
     await expect(publish({

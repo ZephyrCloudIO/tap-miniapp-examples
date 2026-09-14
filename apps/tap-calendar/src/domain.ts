@@ -509,25 +509,25 @@ const defaultNotificationPreferences = (): NotificationPreferences => ({
 
 const defaultWorkflowNodes = (): readonly CalendarWorkflowNode[] => [
   {
-    id: "examples-tap-calendar.normalize-booking-created",
+    id: "tap-calendar.normalize-booking-created",
     kind: "trigger",
     name: "Normalize Booking created",
     description: "Normalizes a Booking-created payload delivered by the Calendar gateway.",
   },
   {
-    id: "examples-tap-calendar.normalize-booking-cancelled",
+    id: "tap-calendar.normalize-booking-cancelled",
     kind: "trigger",
     name: "Normalize Booking cancelled",
     description: "Normalizes a Booking-cancelled payload delivered by the Calendar gateway.",
   },
   {
-    id: "examples-tap-calendar.draft-work-block",
+    id: "tap-calendar.draft-work-block",
     kind: "action",
     name: "Draft Work Block",
     description: "Prepares a task, channel, or message-linked Work Block for review.",
   },
   {
-    id: "examples-tap-calendar.prepare-channel-summary",
+    id: "tap-calendar.prepare-channel-summary",
     kind: "action",
     name: "Prepare channel summary",
     description: "Prepares a permission-aware Calendar Channel Summary for delivery.",

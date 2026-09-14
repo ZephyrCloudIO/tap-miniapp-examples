@@ -1,6 +1,6 @@
 # Calendly capability baseline for a Tap calendar miniapp
 
-Research date: 2026-08-14  
+Research date: 2026-08-14
 Scope: current Calendly product capabilities relevant to replacing Calendly or Cal.com. Sources are limited to Calendly's current product, Help Center, developer, security, and legal pages.
 
 ## Executive summary
@@ -113,4 +113,3 @@ The initial Tap list covers personal/team calendar aggregation, proactive remind
 5. The guest identity model for channel members, organization users, outside email invitees, contacts without connected calendars, and invitees who must not need a Tap account.
 6. Whether embedded/public scheduling and APIs are first-class platform surfaces, including OAuth scopes, webhooks, tenant isolation, audit logs, admin templates, data retention/deletion, accessibility, branding, localization, and regulated-data posture.
 7. Which Calendly limitations Tap intentionally preserves versus fixes: event-specific calendar targeting, enforceable cancellation windows, editable poll votes, workflow-enabled polls/one-offs, direct API rescheduling, and richer diagnostics.
-

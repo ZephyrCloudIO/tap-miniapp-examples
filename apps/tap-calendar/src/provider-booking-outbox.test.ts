@@ -344,13 +344,13 @@ describe("provider booking outbox", () => {
       return { revision };
     });
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set } });
-    const outbox = createProviderBookingOutbox(false, "user-zack");
+    const outbox = createProviderBookingOutbox(false, "user-alex");
 
     const first = await outbox.putBeforeProviderCall(preparation());
     const replay = await outbox.putBeforeProviderCall(preparation());
 
     expect(replay).toEqual(first);
-    const address = calendarPrincipalStorageAddresses("user-zack").bookingOutbox;
+    const address = calendarPrincipalStorageAddresses("user-alex").bookingOutbox;
     expect(get).toHaveBeenCalledWith(address);
     expect(set).toHaveBeenCalledTimes(1);
     expect(set).toHaveBeenCalledWith(expect.objectContaining({
@@ -850,11 +850,11 @@ describe("provider booking outbox", () => {
   it("uses a revisioned localStorage envelope in preview", async () => {
     const storage = new MemoryStorage();
     Reflect.set(globalThis, "localStorage", storage);
-    const outbox = createProviderBookingOutbox(true, "user-zack");
+    const outbox = createProviderBookingOutbox(true, "user-alex");
 
     await outbox.putBeforeProviderCall(preparation());
     const raw = storage.getItem(
-      `${previewProviderBookingOutboxStorageKey}:user-zack`,
+      `${previewProviderBookingOutboxStorageKey}:user-alex`,
     );
 
     expect(raw).not.toBeNull();
@@ -863,7 +863,7 @@ describe("provider booking outbox", () => {
       value: { schemaVersion: 1 },
     });
     expect(
-      (await createProviderBookingOutbox(true, "user-zack").load()).records,
+      (await createProviderBookingOutbox(true, "user-alex").load()).records,
     ).toHaveLength(1);
   });
 });

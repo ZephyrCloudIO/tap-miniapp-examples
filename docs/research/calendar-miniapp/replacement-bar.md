@@ -1,7 +1,7 @@
 # Calendar miniapp: the Calendly/Cal.com replacement bar
 
-**Research pass:** 3 of 4  
-**Researched:** 2026-08-14  
+**Research pass:** 3 of 4
+**Researched:** 2026-08-14
 **Question:** What product and operational capabilities are required before a calendar miniapp inside Tap can credibly claim to replace Calendly or Cal.com for any customer?
 
 ## Executive finding

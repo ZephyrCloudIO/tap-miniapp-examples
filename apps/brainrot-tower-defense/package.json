@@ -7,12 +7,13 @@
     "wasm": "wasm-pack build crates/game-web --target bundler --release --out-dir ../../pkg --out-name brainrot_game_web && node scripts/fix-wasm-package.mjs",
     "validate:content": "cargo test -p game-content all_content_is_valid --quiet",
     "build:preview": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rsbuild build",
-    "build:miniapp": "pnpm validate:content && pnpm validate:assets && pnpm wasm && pnpm build:miniapp:desktop && pnpm build:miniapp:quickjs && pnpm build:miniapp:assemble && pnpm verify:package",
+    "build:miniapp": "tap-miniapp build",
     "build:miniapp:desktop": "cross-env TAP_PACKAGE_TARGET=desktop rslib build",
     "build:miniapp:quickjs": "cross-env TAP_PACKAGE_TARGET=quickjs rslib build",
     "build:lifecycle-target": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build",
     "build:miniapp:assemble": "node scripts/assemble-package.mjs",
     "build": "pnpm build:preview && pnpm build:miniapp && pnpm check:size",
+    "publish": "tap-miniapp publish",
     "build:watch": "pnpm validate:content && pnpm validate:assets && pnpm wasm && rslib build --watch",
     "dev": "pnpm validate:content && pnpm wasm && rsbuild dev",
     "typecheck": "cargo check --workspace --all-targets",
@@ -30,7 +31,7 @@
     "check:size": "node scripts/check-size.mjs"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.7.0"
+    "@theaiplatform/miniapp-sdk": "0.15.0"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.1",
@@ -40,8 +41,10 @@
     "@rstest/core": "0.11.5",
     "@rstest/playwright": "0.11.5",
     "@types/node": "^24.13.2",
+    "@zephyrcloudio/miniapp-zephyr-publisher": "2.15.0",
     "ajv": "^8.20.0",
     "playwright": "^1.61.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zephyr-agent": "1.2.4"
   }
 }

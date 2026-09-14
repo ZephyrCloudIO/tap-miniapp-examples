@@ -1,6 +1,6 @@
 # Cal.com capability research for a Tap calendar miniapp
 
-Research date: 2026-08-14  
+Research date: 2026-08-14
 Scope: current Cal.com capabilities that define the product bar for replacing Cal.com, using only Cal.com-owned documentation, product/pricing pages, and the official Cal.com GitHub organization.
 
 ## Executive summary

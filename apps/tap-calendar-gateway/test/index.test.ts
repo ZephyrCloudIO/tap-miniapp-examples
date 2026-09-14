@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, {
   createCalendarGatewayWorker,
   createGatewayPublicBookingManagementProvider,
@@ -14,6 +14,7 @@ import { publicBookingProviderOperationId } from "../src/public-booking-create";
 const origin = "http://localhost:3000";
 const workspace = "workspace-local-test";
 const principal = "user-local-test";
+const testNow = Date.parse("2026-08-16T12:00:00.000Z");
 
 const isRecordForTest = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -82,6 +83,8 @@ const calendar = (id: string, role: "owner" | "reader" = "owner") => ({
 });
 
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(testNow);
   await env.CALENDAR_DB.batch([
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_email_outbox"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_management_mutations"),
@@ -111,6 +114,10 @@ beforeEach(async () => {
   ]);
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("TAP Calendar local gateway", () => {
   it("normalizes Google timed, all-day, and attendee fields without provider metadata", () => {
     expect(normalizeGoogleCalendarEvent({
@@ -122,8 +129,8 @@ describe("TAP Calendar local gateway", () => {
       transparency: "transparent",
       hangoutLink: "https://meet.google.com/test",
       attendees: [{
-        email: "zack@example.com",
-        displayName: "Zack",
+        email: "alex@example.com",
+        displayName: "Alex",
         self: true,
         responseStatus: "declined",
       }],
@@ -136,7 +143,7 @@ describe("TAP Calendar local gateway", () => {
       location: "google-meet",
       busy: false,
       allDay: false,
-      attendees: [{ name: "Zack", email: "zack@example.com", required: true }],
+      attendees: [{ name: "Alex", email: "alex@example.com", required: true }],
     });
     expect(normalizeGoogleCalendarEvent({
       id: "event-all-day",
@@ -346,7 +353,7 @@ describe("TAP Calendar local gateway", () => {
         json: {
           id: "account-google-local",
           provider: "google",
-          label: "zack@example.com",
+          label: "alex@example.com",
           calendars: [calendar("calendar-primary"), calendar("calendar-shared", "reader")],
         },
       }),
@@ -360,7 +367,7 @@ describe("TAP Calendar local gateway", () => {
         workspaceId: workspace,
         provider: "google",
         mode: "local",
-        label: "zack@example.com",
+        label: "alex@example.com",
         status: "connected",
         calendars: [
           { id: "calendar-primary", writable: true, role: "owner" },

@@ -15,7 +15,7 @@ describe("TAP Calendar storage", () => {
     const set = rs.fn();
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set } });
 
-    const loaded = await loadCalendarState(false, "user-zack");
+    const loaded = await loadCalendarState(false, "user-alex");
 
     expect(loaded).toMatchObject({
       revision: 0,
@@ -28,7 +28,7 @@ describe("TAP Calendar storage", () => {
     });
     expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith(
-      calendarPrincipalStorageAddresses("user-zack").state,
+      calendarPrincipalStorageAddresses("user-alex").state,
     );
     expect(set).not.toHaveBeenCalled();
   });
@@ -60,7 +60,7 @@ describe("TAP Calendar storage", () => {
     const set = rs.fn();
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set } });
 
-    const loaded = await loadCalendarState(false, "user-zack");
+    const loaded = await loadCalendarState(false, "user-alex");
 
     expect(loaded.revision).toBe(9);
     expect(loaded.state.accounts).toHaveLength(legacy.accounts.length);

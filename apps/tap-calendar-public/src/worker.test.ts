@@ -20,9 +20,9 @@ function envWith(
 
 describe("public booking Worker", () => {
   it.each([
-    "/api/public/pages/zack/30min",
-    "/api/public/pages/zack/30min/availability",
-    "/api/public/pages/zack/30min/bookings",
+    "/api/public/pages/alex-morgan/30min",
+    "/api/public/pages/alex-morgan/30min/availability",
+    "/api/public/pages/alex-morgan/30min/bookings",
     "/api/public/manage",
     "/api/public/manage/cancel",
     "/api/public/manage/reschedule",
@@ -60,7 +60,7 @@ describe("public booking Worker", () => {
 
   it("serves deep links through the asset binding with production security headers", async () => {
     const { env, assetFetch, gatewayFetch } = envWith();
-    const request = new Request("https://cal.with-tap.ai/zephyr-zack/30min");
+    const request = new Request("https://cal.with-tap.ai/alex-morgan/30min");
 
     const response = await publicBookingWorker.fetch(request, env);
 

@@ -6,6 +6,8 @@ Public-facing example applications that demonstrate what developers can build wi
 
 This repository is a [Turborepo](https://turbo.build/repo) monorepo managed with pnpm. Miniapps live under `apps/` and can provide the standard `dev`, `build`, `typecheck`, `test`, and `clean` scripts consumed by the root task pipeline.
 
+Publishing uses the private `@zephyrcloudio/miniapp-zephyr-publisher` package from GitHub Packages. Configure a user-level GitHub Packages token with `read:packages` before installing dependencies.
+
 ```bash
 pnpm install
 pnpm dev
@@ -20,11 +22,11 @@ Target a single example with pnpm's workspace filter, such as `pnpm --filter @ta
 
 Each example exact-pins the SDK version it was verified against. Its
 `tap-miniapp.config.mjs` authoring source is compiled by that SDK, which owns
-the matching `compatibility.tapSdk` value in the staged descriptor. All current
-miniapps are verified against:
+the matching `compatibility.tapSdk` value in the staged descriptor. Existing
+miniapps remain verified on `0.15.0`; TAP Calendar uses the current release:
 
 ```json
-"@theaiplatform/miniapp-sdk": "0.7.0"
+"@theaiplatform/miniapp-sdk": "0.16.0"
 ```
 
 Do not copy an older SDK pin from a reference repository.

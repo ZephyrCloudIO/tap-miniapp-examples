@@ -1,0 +1,17 @@
+{
+  "workflows": [
+    {
+      "workflowId": "agent-browser-snapshot-workflow",
+      "name": "Remote Browser snapshot",
+      "type": "manual",
+      "createdAt": 1786032000000,
+      "updatedAt": 1786032001000,
+      "result": {
+        "success": true,
+        "status": "running",
+        "message": "Fixture browser snapshot is running.",
+        "runId": "agent-browser-fixture-run-active"
+      }
+    }
+  ]
+}

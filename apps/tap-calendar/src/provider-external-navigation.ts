@@ -16,11 +16,7 @@ export type ProviderExternalNavigationOutcome =
   | "opened"
   | ProviderExternalNavigationErrorCode;
 
-/**
- * SDK 0.8 hosts may project this optional method before the published SDK
- * declaration includes it. Keep the compatibility cast narrow and remove it
- * once the public declaration catches up with the host contract.
- */
+/** Narrow dependency boundary for host feature detection and unit tests. */
 export interface ProviderExternalNavigationApi {
   readonly openExternal?: (options: {
     readonly url: string;

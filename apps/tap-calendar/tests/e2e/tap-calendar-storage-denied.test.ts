@@ -29,12 +29,12 @@ test("keeps the stored calendar unchanged when storage writes are denied", async
   await expect(surface.getByRole("alert")).toBeVisible();
 
   const accountMenuTrigger = surface.getByRole("button", {
-    name: "Account actions for zack@zephyr-cloud.io",
+    name: "Account actions for alex@example.com",
     exact: true,
   });
   await accountMenuTrigger.click();
   await surface
-    .getByRole("menu", { name: "Actions for zack@zephyr-cloud.io", exact: true })
+    .getByRole("menu", { name: "Actions for alex@example.com", exact: true })
     .getByRole("menuitem", { name: "Hide all calendars", exact: true })
     .click();
   await expect(visibility).toBeChecked();

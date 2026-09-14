@@ -19,7 +19,7 @@ test("renders honest first-run states without demo customer data", async ({ surf
   await expectReadySurface(surface);
   await expect(surface.getByRole("heading", { name: "Connect your first calendar", exact: true })).toBeVisible();
   await expect(surface.getByText("Customer architecture call", { exact: true })).toHaveCount(0);
-  await expect(surface.getByText("Zack Chapple", { exact: true })).toHaveCount(0);
+  await expect(surface.getByText("Alex Morgan", { exact: true })).toHaveCount(0);
 
   for (const [screen, emptyHeading] of [
     ["Availability", "Set your availability"],

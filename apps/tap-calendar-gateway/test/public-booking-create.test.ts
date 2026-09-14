@@ -35,7 +35,7 @@ const endsAt = "2026-08-17T13:30:00.000Z";
 
 const publicSnapshot: PublicPageSnapshot = {
   schemaVersion: "tap.calendar.public-page-snapshot.v1",
-  displayName: "Zackary Chapple",
+  displayName: "Alex Morgan",
   title: "30 minute meeting",
   description: "Pick a time that works for you.",
   durationMinutes: 30,
@@ -71,7 +71,7 @@ const pageFixture = (
   profileId: "profile-public-create",
   pageId: "page-public-create",
   revisionId,
-  profileSlug: "zackary-chapple",
+  profileSlug: "alex-morgan",
   eventTypeSlug: "30min",
   publishedAt: "2026-08-16T11:00:00.000Z",
   publicSnapshot,

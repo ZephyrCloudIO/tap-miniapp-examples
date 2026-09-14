@@ -58,9 +58,9 @@ owner before the surface will expose one as a scheduling destination. This
 release does not claim a team-owned calendar ACL; shared/provider calendars are
 still connected under the individual TAP principal who authorized them.
 
-Inside a TAP channel, open **Mini Apps → Schedule** or use `/schedule`. Both
-entries target the retained, channel-scoped scheduling surface rather than the
-full Calendar workspace. The surface prefers the typed
+Inside a TAP channel, open **Mini Apps → Schedule**. This entry targets the
+retained, channel-scoped scheduling surface rather than the full Calendar
+workspace. The surface prefers the typed
 `sdk.channels.getParticipants` method. Until the published SDK advances past
 the current release, one isolated compatibility adapter invokes that same current-host action
 over the SDK frame protocol and fails closed if exact frame authority cannot
@@ -79,7 +79,7 @@ authorization, follow the `.dev.vars` and callback setup in
 [`../tap-calendar-gateway/README.md`](../tap-calendar-gateway/README.md).
 Provider sign-in leaves the sandbox only through the host-governed
 `navigation.open-external` action. The workspace surface declares the exact
-Google and Microsoft authorization origins and requires TAP 2.3.4 or newer;
+Google and Microsoft authorization origins and requires TAP 2.5.5 or newer;
 the pending connection state always keeps a direct-click browser action available.
 
 One account can add several calendars during setup, and its account menu can add
@@ -101,7 +101,7 @@ After creating and publishing a profile and Event Type, its public route is
 directly testable—for example:
 
 ```text
-http://localhost:3000/zephyr-zack/30min
+http://localhost:3000/alex-morgan/30min
 ```
 
 ## Install in TAP
@@ -132,7 +132,7 @@ standalone Rsbuild preview remains local by design and also accepts
 `?gateway=http%3A%2F%2F127.0.0.1%3A9797` for a different loopback port.
 
 In TAP, open **Settings → Miniapps → Custom → Local directory** and select the
-Finder-visible `apps/tap-calendar/tap-package` directory. Then choose
+Finder-visible `apps/tap-calendar/dist` directory. Then choose
 **Discover packages** and install TAP Calendar for the workspace.
 
 ## Validate
@@ -155,8 +155,9 @@ matrix includes seeded positive, empty-first-run, and storage-denied profiles.
 - `desktop` exposes `./tap/lifecycle` and one shared `./ui/desktop` entry. The
   host mounts that entry as either the full workspace Calendar or the compact
   `tap-calendar-channel-scheduler` channel surface by contribution ID.
-- The `schedule` action command is scoped to channel composers and launches the
-  channel scheduler with the host-bound channel context.
+- The channel scheduler remains available from the channel app menu. SDK 0.16
+  reserves `action.command` for artifact-context actions, so it cannot model a
+  channel-composer slash command.
 - `quickjs` exposes `./mcp/calendar-tools` for event/availability/draft tools and
   the aggregate-only `./mcp/calendar-daily-summary` server for daily briefings.
 - `workflow-host` exposes `./workflow-host/catalog` and embeds the referenced

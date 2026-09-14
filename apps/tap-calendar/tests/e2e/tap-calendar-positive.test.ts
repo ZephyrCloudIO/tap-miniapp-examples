@@ -408,7 +408,7 @@ test("manages a connected account from its accessible actions menu", async ({
   await surface.getByRole("button", { name: "Settings", exact: true }).click();
 
   const trigger = surface.getByRole("button", {
-    name: "Account actions for zack@zephyr-cloud.io",
+    name: "Account actions for alex@example.com",
     exact: true,
   });
   await expect(trigger).toBeEnabled();
@@ -417,7 +417,7 @@ test("manages a connected account from its accessible actions menu", async ({
   await trigger.click();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
   const menu = surface.getByRole("menu", {
-    name: "Actions for zack@zephyr-cloud.io",
+    name: "Actions for alex@example.com",
     exact: true,
   });
   const firstItem = menu.getByRole("menuitem", {
