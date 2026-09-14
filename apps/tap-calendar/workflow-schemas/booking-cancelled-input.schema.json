@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["bookingId", "cancelledAt"],
+  "properties": {
+    "bookingId": { "type": "string", "minLength": 1 },
+    "eventTypeId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "start": { "type": "string", "format": "date-time" },
+    "end": { "type": "string", "format": "date-time" },
+    "cancelledAt": { "type": "string", "format": "date-time" },
+    "reason": { "type": "string" },
+    "guestName": { "type": "string" },
+    "guestEmail": { "type": "string" }
+  },
+  "additionalProperties": true
+}

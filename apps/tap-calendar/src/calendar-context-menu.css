@@ -1,0 +1,83 @@
+.calendar-context-menu__trigger {
+  display: contents;
+}
+
+.calendar-context-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  width: max-content;
+  min-width: 168px;
+  max-width: calc(100vw - 16px);
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover);
+  padding: 4px;
+  box-shadow: 0 14px 38px color-mix(in srgb, #000 20%, transparent);
+}
+
+.calendar-context-menu[data-ready="false"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.calendar-context-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 7px 10px;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 590;
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendar-context-menu button:hover,
+.calendar-context-menu button:focus-visible {
+  background: var(--accent);
+}
+
+.calendar-context-menu button:focus-visible {
+  outline-offset: -2px;
+}
+
+.calendar-context-menu button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.calendar-context-menu button svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+
+.calendar-context-menu .calendar-context-menu__destructive {
+  color: #c9473f;
+}
+
+.calendar-context-menu .calendar-context-menu__destructive:hover,
+.calendar-context-menu .calendar-context-menu__destructive:focus-visible {
+  background: color-mix(in srgb, #c9473f 11%, var(--accent));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .calendar-context-menu[data-ready="true"] {
+    animation: calendar-context-menu-enter 90ms ease-out;
+    transform-origin: top left;
+  }
+}
+
+@keyframes calendar-context-menu-enter {
+  from {
+    opacity: 0;
+    transform: scale(.98);
+  }
+}

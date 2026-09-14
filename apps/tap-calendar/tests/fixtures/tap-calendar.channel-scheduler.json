@@ -1,0 +1,55 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "tap-calendar",
+      "namespace": "tap-calendar",
+      "key": "users/tap-fixture-user-v1/calendar-state/v2",
+      "revision": 1,
+      "value": {
+        "schemaVersion": 1,
+        "activeView": "work-week",
+        "accounts": [
+          {
+            "id": "fixture-account-google",
+            "provider": "google",
+            "label": "calendar@example.test",
+            "status": "connected",
+            "calendars": [
+              {
+                "id": "fixture-calendar-google",
+                "accountId": "fixture-account-google",
+                "name": "Calendar",
+                "color": "#6d5dfc",
+                "role": "owner",
+                "visible": true,
+                "conflicts": true,
+                "writable": true,
+                "destination": true,
+                "freshness": "live"
+              }
+            ]
+          }
+        ],
+        "events": [],
+        "availability": [],
+        "activeAvailabilityId": "",
+        "bookingProfiles": [],
+        "bookingRequests": [],
+        "notificationPreferences": {
+          "reminderMinutes": [10],
+          "system": true,
+          "tap": true,
+          "email": true,
+          "sms": false,
+          "whatsapp": false,
+          "telegram": false,
+          "quietHoursStart": "22:00",
+          "quietHoursEnd": "07:00"
+        },
+        "notificationChannels": [],
+        "workflowNodes": []
+      }
+    }
+  ]
+}

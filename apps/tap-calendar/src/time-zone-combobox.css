@@ -1,0 +1,161 @@
+.time-zone-field {
+  min-width: 0;
+}
+
+.time-zone-field > label {
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.time-zone-combobox__control {
+  position: relative;
+  min-width: 0;
+}
+
+.time-zone-combobox__control > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 11px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.field .time-zone-combobox__control input {
+  padding-right: 39px;
+  padding-left: 33px;
+}
+
+.time-zone-combobox__control > button {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.time-zone-combobox__control > button:hover,
+.time-zone-combobox__control > button:focus-visible {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.time-zone-combobox__control > button svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 120ms ease;
+}
+
+.time-zone-combobox__control[data-open="true"] > button svg {
+  transform: rotate(180deg);
+}
+
+.time-zone-combobox__listbox {
+  position: fixed;
+  z-index: 1000;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover);
+  padding: 4px;
+  color: var(--foreground);
+  box-shadow: 0 18px 48px color-mix(in srgb, #000 28%, transparent);
+}
+
+.modal-card.time-zone-popover-open {
+  overflow: visible;
+}
+
+.time-zone-combobox__option {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 7px;
+  padding: 7px 9px;
+  cursor: default;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 42px;
+}
+
+.time-zone-combobox__option[data-active="true"] {
+  background: var(--accent);
+}
+
+.time-zone-combobox__option[aria-selected="true"] {
+  color: var(--calendar-accent);
+}
+
+.time-zone-combobox__option > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.time-zone-combobox__option strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-zone-combobox__option small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-zone-combobox__option > svg {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.time-zone-combobox__empty {
+  padding: 18px 12px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  text-align: center;
+}
+
+.calendar-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .time-zone-combobox__listbox {
+    animation: time-zone-combobox-enter 90ms ease-out;
+  }
+}
+
+@keyframes time-zone-combobox-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(.995);
+  }
+}

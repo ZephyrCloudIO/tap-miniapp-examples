@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["bookingId", "title", "start", "end", "status"],
+  "properties": {
+    "bookingId": { "type": "string", "minLength": 1 },
+    "eventTypeId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "start": { "type": "string", "format": "date-time" },
+    "end": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["pending", "confirmed"] },
+    "guestName": { "type": "string" },
+    "guestEmail": { "type": "string" },
+    "location": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

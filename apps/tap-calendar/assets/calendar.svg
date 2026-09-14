@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">TAP Calendar</title>
+  <defs>
+    <linearGradient id="calendar-gradient" x1="8" y1="4" x2="58" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7868ff"/>
+      <stop offset="1" stop-color="#4d3de5"/>
+    </linearGradient>
+  </defs>
+  <rect x="5" y="8" width="54" height="51" rx="13" fill="url(#calendar-gradient)"/>
+  <path d="M5 23h54" stroke="#fff" stroke-opacity=".7" stroke-width="4"/>
+  <path d="M19 5v10M45 5v10" stroke="#fff" stroke-linecap="round" stroke-width="5"/>
+  <rect x="15" y="31" width="10" height="9" rx="3" fill="#fff" fill-opacity=".96"/>
+  <rect x="28" y="31" width="10" height="9" rx="3" fill="#fff" fill-opacity=".72"/>
+  <rect x="41" y="31" width="8" height="9" rx="3" fill="#fff" fill-opacity=".48"/>
+  <rect x="15" y="44" width="10" height="8" rx="3" fill="#fff" fill-opacity=".6"/>
+  <rect x="28" y="44" width="21" height="8" rx="3" fill="#5ee0ac"/>
+</svg>

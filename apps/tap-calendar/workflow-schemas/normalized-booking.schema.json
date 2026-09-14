@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["bookingId", "event", "status"],
+  "properties": {
+    "bookingId": { "type": "string", "minLength": 1 },
+    "eventTypeId": { "type": "string" },
+    "event": { "enum": ["booking.created", "booking.cancelled"] },
+    "status": { "enum": ["pending", "confirmed", "cancelled"] },
+    "title": { "type": "string" },
+    "start": { "type": "string", "format": "date-time" },
+    "end": { "type": "string", "format": "date-time" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "guestName": { "type": "string" },
+    "guestEmail": { "type": "string" },
+    "location": { "type": ["string", "null"] },
+    "reason": { "type": "string" },
+    "audience": {
+      "type": "object",
+      "properties": {
+        "canSeeGuestIdentity": { "type": "boolean" },
+        "canSeeMeetingDetails": { "type": "boolean" },
+        "canSeeLocation": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

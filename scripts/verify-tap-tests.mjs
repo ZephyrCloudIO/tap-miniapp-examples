@@ -24,6 +24,7 @@ const appsRoot = path.join(repositoryRoot, "apps");
 const defaultExpectedSdkVersion = "0.15.0";
 const expectedSdkVersionByApp = new Map([
   ["agent-browser-prototype", "0.15.0"],
+  ["tap-calendar", "0.16.0"],
 ]);
 const expectedRstestVersion = "0.11.5";
 const expectedPlaywrightVersion = "^1.61.0";

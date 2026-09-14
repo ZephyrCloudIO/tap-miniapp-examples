@@ -1,0 +1,476 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "tap-calendar",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "tap-calendar-desktop": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:external-navigation:https://login.microsoftonline.com",
+        "effect:credentials:http",
+        "effect:storage:tap-calendar",
+        "effect:user-notification:os",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 8141,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-desktop-external-navigation-denied": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:navigation.open-external",
+      "deniedActions": ["navigation.open-external"],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:external-navigation:https://login.microsoftonline.com",
+        "effect:storage:tap-calendar"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8147,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-desktop-storage-denied": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:storage.write",
+      "deniedActions": ["storage.write"],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:storage:tap-calendar",
+        "effect:user-notification:os",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8142,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-desktop-empty": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.empty.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:storage:tap-calendar"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 8143,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-channel-scheduler": {
+      "surface": "tap-calendar-channel-scheduler",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.channel-scheduler.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:storage:tap-calendar",
+        "effect:host-api:tap.channels:read"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 520, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8144,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-desktop-credentials-use-denied": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.use",
+      "deniedActions": ["credentials.use"],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:storage:tap-calendar"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8145,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-channel-scheduler-credentials-use-denied": {
+      "surface": "tap-calendar-channel-scheduler",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:credentials.use",
+      "deniedActions": ["credentials.use"],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.channel-scheduler.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "http://127.0.0.1:8787",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:storage:tap-calendar"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": { "width": 520, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8146,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "tap-calendar-desktop-positive",
+      "profile": "tap-calendar-desktop",
+      "testMatch": [
+        "tests/e2e/tap-calendar-positive.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ],
+      "capabilities": [
+        "action:calendar.view",
+        "action:calendar.manage",
+        "action:calendar.approve",
+        "action:calendar.publish",
+        "action:credentials.use",
+        "action:network.request",
+        "action:notifications.show",
+        "action:channels.create",
+        "action:channels.list",
+        "action:channels.read",
+        "action:channels.send-message",
+        "action:task.read",
+        "action:workflows.list",
+        "action:workflows.invoke",
+        "action:navigation.open-external",
+        "effect:credentials:http",
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:external-navigation:https://login.microsoftonline.com",
+        "effect:storage:tap-calendar",
+        "effect:user-notification:os",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:read",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke"
+      ]
+    },
+    {
+      "id": "tap-calendar-desktop-external-navigation-denied",
+      "profile": "tap-calendar-desktop-external-navigation-denied",
+      "testMatch": [
+        "tests/e2e/tap-calendar-external-navigation-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:navigation.open-external",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:external-navigation:https://login.microsoftonline.com"
+      ]
+    },
+    {
+      "id": "tap-calendar-desktop-storage-denied",
+      "profile": "tap-calendar-desktop-storage-denied",
+      "testMatch": ["tests/e2e/tap-calendar-storage-denied.test.ts"],
+      "capabilities": ["effect:storage:tap-calendar"]
+    },
+    {
+      "id": "tap-calendar-desktop-credentials-use-denied",
+      "profile": "tap-calendar-desktop-credentials-use-denied",
+      "testMatch": ["tests/e2e/tap-calendar-credentials-use-denied.test.ts"],
+      "capabilities": [
+        "action:credentials.use",
+        "action:network.request",
+        "effect:credentials:http"
+      ]
+    },
+    {
+      "id": "tap-calendar-desktop-empty",
+      "profile": "tap-calendar-desktop-empty",
+      "testMatch": ["tests/e2e/tap-calendar-empty.test.ts"],
+      "capabilities": [
+        "action:calendar.view",
+        "action:calendar.manage",
+        "action:credentials.use",
+        "action:network.request",
+        "effect:credentials:http",
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:storage:tap-calendar"
+      ]
+    },
+    {
+      "id": "tap-calendar-channel-scheduler",
+      "profile": "tap-calendar-channel-scheduler",
+      "testMatch": ["tests/e2e/tap-calendar-channel-scheduler.test.ts"],
+      "capabilities": [
+        "action:calendar.view",
+        "action:calendar.manage",
+        "action:credentials.use",
+        "action:network.request",
+        "action:channels.read",
+        "effect:credentials:http",
+        "effect:external-network:http://127.0.0.1:8787",
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:storage:tap-calendar",
+        "effect:host-api:tap.channels:read"
+      ]
+    },
+    {
+      "id": "tap-calendar-channel-scheduler-credentials-use-denied",
+      "profile": "tap-calendar-channel-scheduler-credentials-use-denied",
+      "testMatch": [
+        "tests/e2e/tap-calendar-channel-credentials-use-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:credentials.use",
+        "action:network.request",
+        "effect:credentials:http"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "effect:external-navigation:https://accounts.google.com",
+      "reason": "The specific navigation.open-external denial row exercises the direct-click host rejection for this exact provider origin, so this temporary waiver prevents duplicate all-denied coverage.",
+      "expiresAt": "2026-10-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:external-navigation:https://login.microsoftonline.com",
+      "reason": "Google and Microsoft share the same exact-origin host action and bounded failure path, which is covered by the specific navigation.open-external denial row and provider-origin unit tests.",
+      "expiresAt": "2026-10-31T00:00:00Z"
+    },
+    {
+      "capability": "action:network.request",
+      "reason": "Gateway request success and normalized failures are covered in the typed client and Worker integration suites; local Surface Test Lab HTTP scripts remain deterministic fixtures rather than a live Wrangler dependency.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:external-network:http://127.0.0.1:8787",
+      "reason": "The exact loopback origin is exercised by the local Worker smoke test and gateway client suite; a network-denied Surface Test Lab row would duplicate the host-governed network.request boundary.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:external-network:https://calendar-api.theaiplatform.app",
+      "reason": "The exact production Calendar organizer origin is exercised by the host-managed platform-session transport unit test and the native exact-origin allowlist test; Test Lab's network-denied boundary is already represented by the network.request waiver.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:storage:tap-calendar",
+      "reason": "The workspace Calendar surface proves storage-write denial. The channel scheduler Test Lab journey intentionally stops before submitting a provider booking, so manufacturing a channel storage-write denial would misrepresent that non-mutating fixture.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:calendar.manage",
+      "reason": "The surface now checks calendar.manage before every state mutation and its denial/error behavior is unit-tested; the minimal two-profile matrix keeps one representative storage-write denial row.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:calendar.approve",
+      "reason": "Approval and decline explicitly check calendar.approve and the authority boundary is unit-tested; provider-side atomic hold approval still belongs to the Zephyr gateway.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:calendar.publish",
+      "reason": "Booking Profile, Event Type, route, and analytics mutations check calendar.publish and the authority boundary is unit-tested; actual cal.with-tap.ai deployment remains a Zephyr gateway operation.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:channels.create",
+      "reason": "The SDK adapter's channel creation authorization and failure paths are unit-tested; this intentionally minimal two-profile surface matrix does not create workspace channels.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:channels.send-message",
+      "reason": "The SDK adapter's permission-aware send and denial behavior is unit-tested; the minimal surface fixture does not post a real workspace message.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:notifications.show",
+      "reason": "The SDK adapter's notification authorization, unavailable-host, delivery, and suppression paths are unit-tested; OS notification delivery is not deterministic in Surface Test Lab.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "action:workflows.invoke",
+      "reason": "The package contributes pure workflow nodes but does not invoke a saved workflow from this local surface, so adding an invoke-denied row would claim an interaction that is not implemented.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:create",
+      "reason": "Channel creation is covered at the typed SDK adapter boundary; the minimal surface matrix does not mutate a real workspace channel roster.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:list",
+      "reason": "Channel discovery is covered at the typed SDK adapter boundary; this fixture focuses on calendar storage hydration and write denial.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:read",
+      "reason": "Channel access checks are covered at the typed SDK adapter boundary; the local fixture does not disclose or project a real channel timeline.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.channels:send-message",
+      "reason": "Permission-aware channel-summary posting is covered at the typed SDK adapter boundary; this minimal surface matrix does not create external workspace messages.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.workflows:list",
+      "reason": "Saved-workflow discovery and unavailable-host behavior are unit-tested at the SDK adapter boundary; this fixture does not project host workflow data.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.workflows:invoke",
+      "reason": "The surface advertises the host-governed workflow boundary but does not invoke a saved workflow in this package, so there is no truthful Test Lab effect to deny yet.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:user-notification:os",
+      "reason": "OS delivery cannot be asserted deterministically in Surface Test Lab; authorization, suppression, unavailable-host, and delivery-result handling are unit-tested in the SDK adapter.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    }
+  ]
+}
