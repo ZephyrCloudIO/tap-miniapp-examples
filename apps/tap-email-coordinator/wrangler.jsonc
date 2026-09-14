@@ -89,6 +89,7 @@
         {
           "binding": "DB",
           "database_name": "tap-email-coordinator-production",
+          "database_id": "f865fc5a-5ae2-4e7e-a1b7-5b834a454ec4",
           "migrations_dir": "migrations"
         }
       ],
