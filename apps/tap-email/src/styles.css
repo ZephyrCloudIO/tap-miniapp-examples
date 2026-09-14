@@ -177,8 +177,7 @@ kbd {
     transform 120ms ease,
     visibility 0s linear 120ms;
 }
-.account-switcher.is-command-held .account-shortcut,
-.account-switcher button:is(:hover, :focus-visible) .account-shortcut {
+.account-switcher button:hover .account-shortcut {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);

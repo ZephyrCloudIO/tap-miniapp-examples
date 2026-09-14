@@ -48,14 +48,6 @@ async function renderSwitcher(
   };
 }
 
-function commandEvent(type: 'keydown' | 'keyup', metaKey: boolean): KeyboardEvent {
-  return new KeyboardEvent(type, {
-    bubbles: true,
-    key: 'Meta',
-    metaKey,
-  });
-}
-
 describe('AccountSwitcher', () => {
   it('keeps shortcut hints out of button names and selects the requested account', async () => {
     const selected: string[] = [];
@@ -76,23 +68,20 @@ describe('AccountSwitcher', () => {
     }
   });
 
-  it('reveals all hints only while Command is held and clears a lost keyup on blur', async () => {
+  it('does not reveal every hint when Command is held', async () => {
     const harness = await renderSwitcher();
 
     try {
       const switcher = harness.container.querySelector('.account-switcher')!;
       expect(switcher.classList.contains('is-command-held')).toBe(false);
 
-      await act(async () => window.dispatchEvent(commandEvent('keydown', true)));
-      expect(switcher.classList.contains('is-command-held')).toBe(true);
-
-      await act(async () => window.dispatchEvent(commandEvent('keyup', false)));
-      expect(switcher.classList.contains('is-command-held')).toBe(false);
-
-      await act(async () => window.dispatchEvent(commandEvent('keydown', true)));
-      expect(switcher.classList.contains('is-command-held')).toBe(true);
-
-      await act(async () => window.dispatchEvent(new Event('blur')));
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true,
+          key: 'Meta',
+          metaKey: true,
+        }));
+      });
       expect(switcher.classList.contains('is-command-held')).toBe(false);
     } finally {
       await harness.unmount();

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import type { EmailAccount } from './domain';
 
 type AccountSwitcherAccount = Pick<
@@ -17,38 +17,8 @@ export function AccountSwitcher({
   onSelect,
   selectedAccountId,
 }: AccountSwitcherProps) {
-  const [commandHeld, setCommandHeld] = useState(false);
-
-  useEffect(() => {
-    const showCommandHints = (event: KeyboardEvent) => {
-      if (event.key === 'Meta' || event.metaKey) setCommandHeld(true);
-    };
-    const updateCommandHints = (event: KeyboardEvent) => {
-      if (event.key === 'Meta' || !event.metaKey) setCommandHeld(false);
-    };
-    const hideCommandHints = () => setCommandHeld(false);
-    const hideCommandHintsWhenInactive = () => {
-      if (document.visibilityState !== 'visible') hideCommandHints();
-    };
-
-    window.addEventListener('keydown', showCommandHints);
-    window.addEventListener('keyup', updateCommandHints);
-    window.addEventListener('blur', hideCommandHints);
-    document.addEventListener('visibilitychange', hideCommandHintsWhenInactive);
-
-    return () => {
-      window.removeEventListener('keydown', showCommandHints);
-      window.removeEventListener('keyup', updateCommandHints);
-      window.removeEventListener('blur', hideCommandHints);
-      document.removeEventListener('visibilitychange', hideCommandHintsWhenInactive);
-    };
-  }, []);
-
   return (
-    <div
-      aria-label="Account view"
-      className={`account-switcher${commandHeld ? ' is-command-held' : ''}`}
-    >
+    <div aria-label="Account view" className="account-switcher">
       <button
         className={selectedAccountId === 'all' ? 'is-active' : ''}
         onClick={() => onSelect('all')}
