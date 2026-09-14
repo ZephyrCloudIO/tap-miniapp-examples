@@ -445,19 +445,40 @@ kbd {
 .message-attachments { margin: 13px 0 0; border-top: 1px solid var(--mail-border-soft); padding-top: 9px; }
 .message-attachments h3 { margin: 0 0 4px; color: var(--mail-dim); font: 650 9px/1.4 ui-sans-serif, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .message-attachments ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.message-attachment { min-width: 0; display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid var(--mail-border-soft); border-radius: 7px; background: var(--mail-panel-raised); padding: 6px 7px; }
+.message-attachment { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid var(--mail-border-soft); border-radius: 7px; background: var(--mail-panel-raised); padding: 6px 7px; }
+.message-attachment-details, .message-attachment-preview { min-width: 0; display: grid; grid-template-columns: 25px minmax(0, 1fr); align-items: center; gap: 8px; }
+.message-attachment-preview { margin: -3px; border: 0; border-radius: 6px; background: transparent; padding: 3px; cursor: zoom-in; text-align: left; }
+.message-attachment-preview:hover:not(:disabled) { background: var(--mail-hover); }
+.message-attachment-preview:hover:not(:disabled) .message-attachment-icon { color: var(--mail-accent); }
+.message-attachment-preview:focus-visible { outline: 2px solid var(--mail-focus-border); outline-offset: 2px; }
+.message-attachment-preview:disabled { cursor: default; opacity: .55; }
 .message-attachment-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 6px; background: var(--mail-panel-soft); color: var(--mail-dim); }
 .message-attachment-icon svg { width: 13px; height: 13px; }
 .message-attachment-copy { min-width: 0; display: grid; gap: 1px; }
 .message-attachment-name { overflow: hidden; color: var(--mail-text); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .message-attachment-meta, .message-attachment-error { color: var(--mail-dim); font-size: 9px; line-height: 1.35; }
-.message-attachment-error { color: var(--mail-danger); }
+.message-attachment-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-attachment-error { grid-column: 1 / -1; margin-left: 33px; color: var(--mail-danger); }
 .message-attachment-save { min-width: 92px; min-height: 29px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--mail-border); border-radius: 6px; background: transparent; color: var(--mail-muted); padding: 4px 7px; cursor: pointer; font: 650 10px/1 ui-sans-serif, sans-serif; }
 .message-attachment-save:hover:not(:disabled), .message-attachment-save:focus-visible { border-color: var(--mail-focus-border); background: var(--mail-hover); color: var(--mail-text); }
 .message-attachment-save:focus-visible { outline: 2px solid var(--mail-focus-border); outline-offset: 2px; }
 .message-attachment-save:disabled { cursor: default; opacity: .55; }
 .message-attachment-save svg { width: 13px; height: 13px; }
 .message-attachment-save .is-spinning { animation: sync-status-spin .8s linear infinite; }
+.attachment-preview-dialog { width: min(820px, calc(100vw - 32px)); max-width: 820px; max-height: calc(100dvh - 32px); display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0; overflow: hidden; padding: 0; border: 1px solid var(--mail-border); border-radius: 16px; background: var(--mail-panel); color: var(--mail-text); box-shadow: var(--mail-shadow); animation: dialog-in .16s cubic-bezier(.2,.8,.2,1); }
+.attachment-preview-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--mail-border); padding: 13px 15px 12px 18px; }
+.attachment-preview-header > div { min-width: 0; }
+.attachment-preview-header h2, .attachment-preview-header p { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-preview-header h2 { margin-top: 3px; font-size: 15px; }
+.attachment-preview-header p { margin-top: 2px; color: var(--mail-dim); font-size: 10px; }
+.attachment-preview-header > button { flex: 0 0 auto; color: var(--mail-muted); }
+.attachment-preview-header > button svg { width: 16px; height: 16px; }
+.attachment-preview-stage { width: 100%; height: min(620px, 66dvh, max(0px, calc(100dvh - 112px))); min-height: 0; max-height: none; display: grid; place-items: center; overflow: auto; overscroll-behavior: contain; background: color-mix(in srgb, var(--mail-reader) 94%, var(--mail-panel-soft)); padding: clamp(14px, 3vw, 28px); }
+.attachment-preview-stage > img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; border-radius: 8px; object-fit: contain; box-shadow: 0 12px 34px rgb(0 0 0 / .16); }
+.attachment-preview-status { width: 100%; min-height: min(160px, 45dvh); display: grid; place-items: center; align-content: center; gap: 10px; color: var(--mail-muted); text-align: center; font-size: 11px; }
+.attachment-preview-status > svg { width: 22px; height: 22px; color: var(--mail-accent); }
+.attachment-preview-status .is-spinning { animation: sync-status-spin .8s linear infinite; }
+.attachment-preview-status > button { margin-top: 3px; }
 .plain-message-body { max-width: 72ch; margin: 10px 0 0; overflow-wrap: anywhere; color: var(--mail-copy); white-space: pre-wrap; font: 400 15px/1.72 Georgia, Charter, serif; }
 .plain-message-quote { border-inline-start: 2px solid var(--mail-border); padding-inline-start: 16px; color: var(--mail-muted); }
 .rich-message-shell { width: 100%; min-width: 0; margin: 15px 0 0; padding: clamp(16px, 2.4vw, 26px); border: 1px solid var(--mail-border-soft); border-radius: 9px; background: var(--mail-reader); color-scheme: inherit; }
@@ -713,6 +734,7 @@ kbd {
 
 @media (hover: none) and (pointer: coarse) {
   .nav-shortcut { display: none; }
+  .message-attachment-preview, .message-attachment-save { min-height: 44px; }
 }
 
 @media (max-width: 720px) {
@@ -758,10 +780,19 @@ kbd {
   .attention-panel-summary > time { display: none; }
   .thread-message-toggle { grid-template-columns: minmax(64px, 92px) minmax(0, 1fr) auto 18px; gap: 7px; }
   .thread-message.is-expanded .thread-message-toggle { grid-template-columns: 31px minmax(0, 1fr) auto 18px; }
+  .attachment-preview-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .attachment-preview-stage { height: min(520px, 68dvh, max(0px, calc(100dvh - 96px))); min-height: 0; max-height: none; padding: 10px; }
+  .attachment-preview-stage > img { max-height: 100%; }
   .reminder-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
   .dialog-title-row { padding-inline: 13px; }
   .reminder-input { padding-inline: 13px; }
   .reminder-presets button { padding-inline: 13px; }
+}
+
+@media (max-width: 360px) {
+  .message-attachment { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .message-attachment-save { width: 100%; }
+  .message-attachment-error { margin-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -19,6 +19,8 @@ import type {
 import type { EmailAttachment, EmailMessage } from './domain';
 import {
   MessageAttachments,
+  type AttachmentLoadOptions,
+  type LoadMessageAttachment,
   type SaveMessageAttachment,
 } from './message-attachments';
 import { RichMessageBody } from './rich-message';
@@ -33,6 +35,12 @@ export type ContextualAttachmentSaver = (
   attachment: EmailAttachment,
   onPhase: (phase: AttachmentExportPhase) => void,
 ) => Promise<AttachmentExportResult>;
+
+export type ContextualAttachmentLoader = (
+  context: AttachmentMessageContext,
+  attachment: EmailAttachment,
+  options: AttachmentLoadOptions,
+) => Promise<Uint8Array>;
 
 interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
   readonly appTheme: MiniAppTheme;
@@ -50,6 +58,7 @@ export interface ThreadMessageListProps {
   readonly attachmentExportSupported: boolean;
   readonly expansionRequest?: MessageExpansionRequest | null;
   readonly imagesEnabled: boolean;
+  readonly loadAttachment: ContextualAttachmentLoader | null;
   readonly loadRemoteImages: ContextualRemoteImageLoader;
   readonly messages: readonly EmailMessage[];
   readonly onKeyDown: (event: globalThis.KeyboardEvent) => void;
@@ -230,6 +239,7 @@ function ThreadMessageCard({
   collapsible,
   expanded,
   imagesEnabled,
+  loadAttachment,
   loadRemoteImages,
   message,
   onKeyDown,
@@ -249,6 +259,19 @@ function ThreadMessageCard({
       onPhase,
     ),
     [accountId, message.messageId, saveAttachment, threadId],
+  );
+  const loadMessageAttachment = useCallback<LoadMessageAttachment>(
+    (attachment, options) => {
+      if (!loadAttachment) {
+        return Promise.reject(new Error('Attachment preview is unavailable.'));
+      }
+      return loadAttachment(
+        { accountId, threadId, messageId: message.messageId },
+        attachment,
+        options,
+      );
+    },
+    [accountId, loadAttachment, message.messageId, threadId],
   );
   const className = `thread-message${expanded ? ' is-expanded' : ' is-collapsed'}`;
 
@@ -293,6 +316,7 @@ function ThreadMessageCard({
           <MessageAttachments
             attachments={message.attachments ?? []}
             exportSupported={attachmentExportSupported}
+            onLoadAttachment={loadAttachment ? loadMessageAttachment : null}
             onSaveAttachment={saveMessageAttachment}
           />
         </div>
@@ -313,6 +337,7 @@ export function ThreadMessageList({
   attachmentExportSupported,
   expansionRequest,
   imagesEnabled,
+  loadAttachment,
   loadRemoteImages,
   messages,
   onKeyDown,
@@ -382,6 +407,7 @@ export function ThreadMessageList({
       expanded={!collapsible || (expansionOverrides[message.messageId] ?? message.messageId === latestMessageId)}
       imagesEnabled={imagesEnabled}
       key={message.messageId}
+      loadAttachment={loadAttachment}
       loadRemoteImages={loadRemoteImages}
       message={message}
       onKeyDown={onKeyDown}
