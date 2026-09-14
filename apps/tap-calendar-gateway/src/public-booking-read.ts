@@ -5,6 +5,7 @@ import type {
 
 const PUBLIC_PAGE_SNAPSHOT_SCHEMA_VERSION = "tap.calendar.public-page-snapshot.v1" as const;
 const PRIVATE_PAGE_SNAPSHOT_SCHEMA_VERSION = "tap.calendar.private-page-snapshot.v1" as const;
+const PUBLIC_PROFILE_SCHEMA_VERSION = "tap.calendar.public-profile.v1" as const;
 const PUBLIC_PAGE_SCHEMA_VERSION = "tap.calendar.public-page.v1" as const;
 const PUBLIC_AVAILABILITY_SCHEMA_VERSION = "tap.calendar.public-availability.v1" as const;
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -109,6 +110,35 @@ export interface ProjectedPublicBookingPage {
   };
 }
 
+export interface ResolvedPublishedPublicBookingProfile {
+  readonly profileId: string;
+  readonly profileSlug: string;
+  readonly displayName: string;
+  readonly eventTypes: readonly {
+    readonly eventTypeSlug: string;
+    readonly publicSnapshot: PublicPageSnapshot;
+  }[];
+}
+
+export interface ProjectedPublicBookingProfile {
+  readonly schemaVersion: typeof PUBLIC_PROFILE_SCHEMA_VERSION;
+  readonly canonicalUrl: string;
+  readonly profile: {
+    readonly displayName: string;
+    readonly initials: string;
+  };
+  readonly eventTypes: readonly {
+    readonly eventTypeSlug: string;
+    readonly canonicalUrl: string;
+    readonly title: string;
+    readonly description?: string;
+    readonly durationMinutes: number;
+    readonly location: PublicPageSnapshot["location"];
+    readonly locationLabel: string;
+    readonly approvalRequired: boolean;
+  }[];
+}
+
 export interface PublicBusyInterval {
   readonly start: string;
   readonly end: string;
@@ -172,6 +202,14 @@ interface PublishedPageRow {
   readonly published_at: string;
   readonly public_snapshot_json: string;
   readonly private_snapshot_json: string;
+}
+
+interface PublishedProfilePageRow {
+  readonly profile_id: string;
+  readonly profile_slug: string;
+  readonly display_name: string;
+  readonly event_type_slug: string | null;
+  readonly public_snapshot_json: string | null;
 }
 
 interface WallClockParts {
@@ -383,6 +421,11 @@ export function parsePublicBookingPagePath(pathname: string): PublicBookingPageR
   };
 }
 
+export function parsePublicBookingProfilePath(pathname: string): string | null {
+  const match = /^\/api\/public\/profiles\/([a-z0-9]+(?:-[a-z0-9]+)*)$/u.exec(pathname);
+  return match?.[1] && validSlug(match[1]) ? match[1] : null;
+}
+
 export function publicAvailabilityQuery(searchParams: URLSearchParams): PublicAvailabilityQuery {
   const allowed = new Set(["month", "timeZone", "pageRevision"]);
   const entries = [...searchParams.entries()];
@@ -418,6 +461,87 @@ function parseSnapshotJson(value: string): unknown {
   } catch {
     return invalidStoredSnapshot();
   }
+}
+
+export async function resolvePublishedPublicBookingProfile(
+  database: PublicBookingReadDatabase,
+  profileSlug: string,
+): Promise<ResolvedPublishedPublicBookingProfile> {
+  if (!validSlug(profileSlug)) {
+    throw new PublicBookingReadError(
+      404,
+      "public_profile_unavailable",
+      "This booking profile is unavailable.",
+    );
+  }
+  const rows = (await database.prepare(
+    `SELECT profiles.id AS profile_id,
+            profile_slugs.slug AS profile_slug,
+            profiles.display_name,
+            published_pages.event_type_slug,
+            published_pages.public_snapshot_json
+       FROM public_booking_profile_slugs AS profile_slugs
+       INNER JOIN public_booking_profiles AS profiles
+         ON profiles.id = profile_slugs.profile_id
+       LEFT JOIN (
+         SELECT pages.profile_id,
+                page_slugs.slug AS event_type_slug,
+                revisions.public_snapshot_json
+           FROM public_booking_pages AS pages
+           INNER JOIN public_booking_page_slugs AS page_slugs
+             ON page_slugs.page_id = pages.id
+            AND page_slugs.profile_id = pages.profile_id
+           INNER JOIN public_booking_page_revisions AS revisions
+             ON revisions.id = pages.current_revision_id
+            AND revisions.page_id = pages.id
+          WHERE pages.status = 'published'
+            AND page_slugs.active = 1
+            AND pages.current_slug = page_slugs.slug COLLATE NOCASE
+       ) AS published_pages
+         ON published_pages.profile_id = profiles.id
+      WHERE profile_slugs.slug = ? COLLATE NOCASE
+        AND profile_slugs.active = 1
+        AND profiles.current_slug = profile_slugs.slug COLLATE NOCASE
+        AND profiles.status = 'published'
+      ORDER BY published_pages.event_type_slug COLLATE NOCASE,
+               published_pages.event_type_slug`,
+  ).bind(profileSlug).all<PublishedProfilePageRow>()).results;
+  const profile = rows[0];
+  if (!profile) {
+    throw new PublicBookingReadError(
+      404,
+      "public_profile_unavailable",
+      "This booking profile is unavailable.",
+    );
+  }
+  if (
+    !validIdentifier(profile.profile_id) ||
+    !validSlug(profile.profile_slug) ||
+    !validIdentifier(profile.display_name, 160)
+  ) return invalidStoredSnapshot();
+  const eventTypes = rows.flatMap(page => {
+    if (
+      page.profile_id !== profile.profile_id ||
+      page.profile_slug !== profile.profile_slug ||
+      page.display_name !== profile.display_name
+    ) return invalidStoredSnapshot();
+    if (page.event_type_slug === null && page.public_snapshot_json === null) return [];
+    if (
+      typeof page.event_type_slug !== "string" ||
+      !validSlug(page.event_type_slug) ||
+      typeof page.public_snapshot_json !== "string"
+    ) return invalidStoredSnapshot();
+    return [{
+      eventTypeSlug: page.event_type_slug,
+      publicSnapshot: parsePublicSnapshot(parseSnapshotJson(page.public_snapshot_json)),
+    }];
+  });
+  return {
+    profileId: profile.profile_id,
+    profileSlug: profile.profile_slug,
+    displayName: profile.display_name,
+    eventTypes,
+  };
 }
 
 export async function resolvePublishedPublicBookingPage(
@@ -647,6 +771,38 @@ const normalizedPublicBaseUrl = (value: string): URL => {
   }
   return url;
 };
+
+export function projectPublicBookingProfile(
+  resolved: ResolvedPublishedPublicBookingProfile,
+  options: { readonly baseUrl: string },
+): ProjectedPublicBookingProfile {
+  const base = normalizedPublicBaseUrl(options.baseUrl);
+  const profilePath = `/${encodeURIComponent(resolved.profileSlug)}`;
+  return {
+    schemaVersion: PUBLIC_PROFILE_SCHEMA_VERSION,
+    canonicalUrl: new URL(profilePath, base).toString(),
+    profile: {
+      displayName: resolved.displayName,
+      initials: initials(resolved.displayName),
+    },
+    eventTypes: resolved.eventTypes.map(eventType => {
+      const snapshot = eventType.publicSnapshot;
+      return {
+        eventTypeSlug: eventType.eventTypeSlug,
+        canonicalUrl: new URL(
+          `${profilePath}/${encodeURIComponent(eventType.eventTypeSlug)}`,
+          base,
+        ).toString(),
+        title: snapshot.title,
+        ...(snapshot.description ? { description: snapshot.description } : {}),
+        durationMinutes: snapshot.durationMinutes,
+        location: snapshot.location,
+        locationLabel: snapshot.locationLabel,
+        approvalRequired: snapshot.approvalRequired,
+      };
+    }),
+  };
+}
 
 export function projectPublicBookingPage(
   resolved: ResolvedPublishedPublicBookingPage,

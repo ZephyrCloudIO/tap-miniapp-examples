@@ -83,6 +83,10 @@ export interface PublicBookingPublicationInput {
 
 export interface PublicBookingProfilePublicationInput {
   readonly schemaVersion: typeof PROFILE_PUBLICATION_SCHEMA_VERSION;
+  readonly sourceProfileId: string;
+  readonly profileSlug: string;
+  readonly displayName: string;
+  readonly ownerType: "individual";
   readonly expectedGeneration: number;
   readonly publications: readonly PublicBookingPublicationInput[];
 }
@@ -410,23 +414,41 @@ export function parsePublicBookingProfilePublication(
   }
   if (
     !Array.isArray(value.publications) ||
-    value.publications.length === 0 ||
     value.publications.length > MAX_PAGES_PER_PROFILE
   ) {
     throw new PublicBookingPublicationError(
       400,
       "invalid_publication",
-      `publications must contain 1–${MAX_PAGES_PER_PROFILE} active Event Types.`,
+      `publications may contain at most ${MAX_PAGES_PER_PROFILE} active Event Types.`,
     );
   }
   const publications = value.publications.map(parsePublicBookingPublication);
-  const first = publications[0]!;
+  const first = publications[0];
+  const sourceProfileId = value.sourceProfileId === undefined && first
+    ? first.sourceProfileId
+    : requiredString(value.sourceProfileId, "sourceProfileId");
+  const profileSlug = value.profileSlug === undefined && first
+    ? first.profileSlug
+    : slug(value.profileSlug, "profileSlug");
+  const displayName = value.displayName === undefined && first
+    ? first.displayName
+    : requiredString(value.displayName, "displayName", 160);
+  const ownerType = value.ownerType === undefined && first
+    ? first.ownerType
+    : value.ownerType;
+  if (ownerType !== "individual") {
+    throw new PublicBookingPublicationError(
+      400,
+      "unsupported_owner_type",
+      "Public booking v1 supports individual owners only.",
+    );
+  }
   if (
     publications.some(publication =>
-      publication.sourceProfileId !== first.sourceProfileId ||
-      publication.profileSlug !== first.profileSlug ||
-      publication.displayName !== first.displayName ||
-      publication.ownerType !== first.ownerType
+      publication.sourceProfileId !== sourceProfileId ||
+      publication.profileSlug !== profileSlug ||
+      publication.displayName !== displayName ||
+      publication.ownerType !== ownerType
     )
   ) {
     throw new PublicBookingPublicationError(
@@ -435,7 +457,7 @@ export function parsePublicBookingProfilePublication(
       "Every page in a profile publication must identify the same Booking Profile.",
     );
   }
-  if (RESERVED_PROFILE_SLUGS.has(first.profileSlug)) {
+  if (RESERVED_PROFILE_SLUGS.has(profileSlug)) {
     throw new PublicBookingPublicationError(
       409,
       "profile_slug_reserved",
@@ -454,6 +476,10 @@ export function parsePublicBookingProfilePublication(
   }
   return {
     schemaVersion: PROFILE_PUBLICATION_SCHEMA_VERSION,
+    sourceProfileId,
+    profileSlug,
+    displayName,
+    ownerType,
     expectedGeneration: publicationGeneration(value.expectedGeneration, "expectedGeneration"),
     publications,
   };
@@ -794,13 +820,12 @@ export async function publishPublicBookingProfile(options: {
   readonly now?: string;
 }): Promise<PublishedBookingProfileRecord> {
   const now = options.now ?? new Date().toISOString();
-  const first = options.input.publications[0]!;
   let profile = await loadProfile(
     options.database,
     options.scope,
-    first.sourceProfileId,
+    options.input.sourceProfileId,
   );
-  if (profile && profile.current_slug !== first.profileSlug) {
+  if (profile && profile.current_slug !== options.input.profileSlug) {
     throw new PublicBookingPublicationError(
       409,
       "profile_slug_immutable",
@@ -809,7 +834,7 @@ export async function publishPublicBookingProfile(options: {
   }
   const slugOwner = await options.database.prepare(
     "SELECT profile_id FROM public_booking_profile_slugs WHERE slug = ? COLLATE NOCASE",
-  ).bind(first.profileSlug).first<SlugOwnerRow>();
+  ).bind(options.input.profileSlug).first<SlugOwnerRow>();
   if (slugOwner && slugOwner.profile_id !== profile?.id) {
     throw new PublicBookingPublicationError(
       409,
@@ -828,7 +853,7 @@ export async function publishPublicBookingProfile(options: {
     inputs: options.input.publications,
   });
   if (profile && options.input.expectedGeneration !== profile.publication_generation) {
-    if (profileAlreadyMatches(profile, existingPages, prepared, first.displayName)) {
+    if (profileAlreadyMatches(profile, existingPages, prepared, options.input.displayName)) {
       return publishedProfileRecord({
         profile,
         publications: prepared,
@@ -859,9 +884,9 @@ export async function publishPublicBookingProfile(options: {
         profileId,
         options.scope.workspace,
         options.scope.principal,
-        first.sourceProfileId,
-        first.profileSlug,
-        first.displayName,
+        options.input.sourceProfileId,
+        options.input.profileSlug,
+        options.input.displayName,
         targetGeneration,
         now,
         now,
@@ -875,7 +900,7 @@ export async function publishPublicBookingProfile(options: {
       options.database.prepare(
         `INSERT INTO public_booking_profile_slugs (slug, profile_id, active, created_at)
          VALUES (?, ?, 1, ?)`,
-      ).bind(first.profileSlug, profileId, now),
+      ).bind(options.input.profileSlug, profileId, now),
     );
   }
   statements.push(
@@ -893,7 +918,7 @@ export async function publishPublicBookingProfile(options: {
               published_at = COALESCE(published_at, ?)
         WHERE id = ? AND publication_generation = ?`,
     ).bind(
-      first.displayName,
+      options.input.displayName,
       targetGeneration,
       now,
       now,
@@ -985,7 +1010,7 @@ export async function publishPublicBookingProfile(options: {
   try {
     await options.database.batch(statements);
   } catch (error) {
-    profile = await loadProfile(options.database, options.scope, first.sourceProfileId);
+    profile = await loadProfile(options.database, options.scope, options.input.sourceProfileId);
     if (profile) {
       const currentPages = await loadPages(options.database, profile.id);
       const currentPrepared = await preparePublications({
@@ -995,7 +1020,7 @@ export async function publishPublicBookingProfile(options: {
         existingPages: currentPages,
         inputs: options.input.publications,
       });
-      if (profileAlreadyMatches(profile, currentPages, currentPrepared, first.displayName)) {
+      if (profileAlreadyMatches(profile, currentPages, currentPrepared, options.input.displayName)) {
         return publishedProfileRecord({
           profile,
           publications: currentPrepared,
@@ -1012,7 +1037,7 @@ export async function publishPublicBookingProfile(options: {
   const committedProfile: ProfileRow = profile
     ? {
       ...profile,
-      display_name: first.displayName,
+      display_name: options.input.displayName,
       status: "published",
       publication_generation: targetGeneration,
       published_at: profile.published_at ?? now,
@@ -1020,9 +1045,9 @@ export async function publishPublicBookingProfile(options: {
     }
     : {
       id: profileId,
-      source_profile_id: first.sourceProfileId,
-      current_slug: first.profileSlug,
-      display_name: first.displayName,
+      source_profile_id: options.input.sourceProfileId,
+      current_slug: options.input.profileSlug,
+      display_name: options.input.displayName,
       status: "published",
       publication_generation: targetGeneration,
       published_at: now,

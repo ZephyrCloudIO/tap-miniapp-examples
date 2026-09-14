@@ -54,6 +54,10 @@ export interface PublicBookingPublicationInput {
 
 export interface PublicBookingProfilePublicationInput {
   readonly schemaVersion: typeof PUBLIC_BOOKING_PROFILE_PUBLICATION_SCHEMA_VERSION;
+  readonly sourceProfileId: string;
+  readonly profileSlug: string;
+  readonly displayName: string;
+  readonly ownerType: "individual";
   readonly expectedGeneration: number;
   readonly publications: readonly PublicBookingPublicationInput[];
 }
@@ -180,16 +184,16 @@ export function buildPublicBookingProfilePublication(
   if (!profile.published) {
     return { ok: false, message: "Only a profile marked for publication can be published." };
   }
+  if (profile.ownerType !== "individual") {
+    return {
+      ok: false,
+      message: "Public booking v1 supports individual Booking Profiles only.",
+    };
+  }
   const activeEventTypes = profile.eventTypes
     .filter(eventType => eventType.active)
     .sort((left, right) =>
       left.slug.localeCompare(right.slug) || left.id.localeCompare(right.id));
-  if (activeEventTypes.length === 0) {
-    return {
-      ok: false,
-      message: "Create and activate at least one Event Type before publishing this Booking Profile.",
-    };
-  }
   const publications: PublicBookingPublicationInput[] = [];
   for (const eventType of activeEventTypes) {
     const result = buildPublicBookingPublication(state, profile, eventType);
@@ -200,6 +204,10 @@ export function buildPublicBookingProfilePublication(
     ok: true,
     publication: {
       schemaVersion: PUBLIC_BOOKING_PROFILE_PUBLICATION_SCHEMA_VERSION,
+      sourceProfileId: profile.id,
+      profileSlug: profile.slug,
+      displayName: profile.displayName,
+      ownerType: "individual",
       expectedGeneration,
       publications,
     },
@@ -217,7 +225,13 @@ export function publicBookingProfilePublicationFingerprint(
   }
   const result = buildPublicBookingProfilePublication(state, profile, 0);
   return result.ok
-    ? JSON.stringify(result.publication.publications)
+    ? JSON.stringify({
+      sourceProfileId: result.publication.sourceProfileId,
+      profileSlug: result.publication.profileSlug,
+      displayName: result.publication.displayName,
+      ownerType: result.publication.ownerType,
+      publications: result.publication.publications,
+    })
     : JSON.stringify({
       sourceProfileId: profile.id,
       published: true,

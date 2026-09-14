@@ -5,6 +5,7 @@ import type {
   PublicBookingManagementCancelRequest,
   PublicBookingManagementRescheduleRequest,
   PublicBookingPage,
+  PublicBookingProfile,
   PublicBookingRequest,
   PublicBookingResult,
 } from "./contracts";
@@ -13,6 +14,7 @@ import {
   isPublicBookingAvailability,
   isPublicBookingManagement,
   isPublicBookingPage,
+  isPublicBookingProfile,
   isPublicBookingResult,
   publicManagementTokenFromHash,
 } from "./contracts";
@@ -73,6 +75,27 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function publicPagePath(profileSlug: string, eventTypeSlug: string): string {
   return `/api/public/pages/${encodeURIComponent(profileSlug)}/${encodeURIComponent(eventTypeSlug)}`;
+}
+
+export function publicProfilePath(profileSlug: string): string {
+  return `/api/public/profiles/${encodeURIComponent(profileSlug)}`;
+}
+
+export function loadPublicBookingProfile(
+  profileSlug: string,
+  signal?: AbortSignal,
+): Promise<PublicBookingProfile> {
+  return requestJson<unknown>(
+    publicProfilePath(profileSlug),
+    signal ? { signal } : undefined,
+  ).then(value => {
+    if (isPublicBookingProfile(value, profileSlug)) return value;
+    throw new PublicCalendarApiError("TAP Calendar returned an invalid booking profile.", {
+      code: "public_response_invalid",
+      status: 502,
+      retryable: true,
+    });
+  });
 }
 
 export function loadPublicBookingPage(

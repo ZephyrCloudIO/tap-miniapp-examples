@@ -311,6 +311,118 @@ describe("anonymous public booking reads", () => {
     return { calendarId: calendarId!, revisionId: receipt.publication.pages[0]!.revisionId };
   };
 
+  it("returns the exact guest-safe Booking Profile root without organizer authentication", async () => {
+    const { calendarId } = await connectAndPublish();
+    const response = await worker.fetch(publicRequest(
+      "/api/public/profiles/public-owner",
+      { headers: {
+        "X-TAP-Workspace-Id": "spoofed-workspace",
+        "X-TAP-Principal-Id": "spoofed-principal",
+      } },
+    ), workerEnv());
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(publicOrigin);
+    const profile = await response.json();
+    expect(profile).toEqual({
+      schemaVersion: "tap.calendar.public-profile.v1",
+      canonicalUrl: "https://cal.with-tap.ai/public-owner",
+      profile: { displayName: "Public Owner", initials: "PO" },
+      eventTypes: [{
+        eventTypeSlug: "30min",
+        canonicalUrl: "https://cal.with-tap.ai/public-owner/30min",
+        title: "30 minute meeting",
+        description: "Pick a time that works.",
+        durationMinutes: 30,
+        location: "google-meet",
+        locationLabel: "Google Meet",
+        approvalRequired: false,
+      }],
+    });
+    expect(JSON.stringify(profile)).not.toContain(calendarId);
+    expect(JSON.stringify(profile)).not.toContain(workspace);
+    expect(JSON.stringify(profile)).not.toContain(principal);
+  });
+
+  it("serves a claimed Booking Profile before it has any Event Types", async () => {
+    const claimed = await worker.fetch(organizerRequest("/v1/publications/profiles", {
+      method: "POST",
+      json: {
+        schemaVersion: "tap.calendar.profile-publication.v1",
+        sourceProfileId: "profile-empty-public-read",
+        profileSlug: "empty-owner",
+        displayName: "Empty Owner",
+        ownerType: "individual",
+        expectedGeneration: 0,
+        publications: [],
+      },
+    }), workerEnv());
+    expect(claimed.status).toBe(200);
+
+    const response = await worker.fetch(
+      publicRequest("/api/public/profiles/empty-owner"),
+      workerEnv(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      schemaVersion: "tap.calendar.public-profile.v1",
+      canonicalUrl: "https://cal.with-tap.ai/empty-owner",
+      profile: { displayName: "Empty Owner", initials: "EO" },
+      eventTypes: [],
+    });
+  });
+
+  it("keeps empty published profiles reachable and filters inactive Event Type pages", async () => {
+    await connectAndPublish();
+    await env.CALENDAR_DB.prepare(
+      "UPDATE public_booking_page_slugs SET active = 0 WHERE profile_id = (SELECT id FROM public_booking_profiles WHERE current_slug = 'public-owner')",
+    ).run();
+    const response = await worker.fetch(
+      publicRequest("/api/public/profiles/public-owner"),
+      workerEnv(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      schemaVersion: "tap.calendar.public-profile.v1",
+      canonicalUrl: "https://cal.with-tap.ai/public-owner",
+      profile: { displayName: "Public Owner", initials: "PO" },
+      eventTypes: [],
+    });
+  });
+
+  it("returns one generic profile 404 and fails closed on malformed public snapshots", async () => {
+    const unavailable = {
+      error: "public_profile_unavailable",
+      message: "This booking profile is unavailable.",
+    };
+    for (const path of [
+      "/api/public/profiles/missing-profile",
+      "/api/public/profiles/Public-Owner",
+      "/api/public/profiles/%70ublic-owner",
+    ]) {
+      const response = await worker.fetch(publicRequest(path), workerEnv());
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual(unavailable);
+    }
+
+    const { revisionId } = await connectAndPublish();
+    await env.CALENDAR_DB.prepare(
+      `UPDATE public_booking_page_revisions
+          SET public_snapshot_json = '{"schemaVersion":"invalid"}'
+        WHERE id = ?`,
+    ).bind(revisionId).run();
+    const malformed = await worker.fetch(
+      publicRequest("/api/public/profiles/public-owner"),
+      workerEnv(),
+    );
+    expect(malformed.status).toBe(503);
+    expect(await malformed.json()).toEqual({
+      error: "published_page_invalid",
+      message: "This booking page is temporarily unavailable.",
+      retryable: true,
+    });
+  });
+
   it("resolves an anonymous guest-safe page and ignores spoofed TAP identity headers", async () => {
     const { calendarId, revisionId } = await connectAndPublish();
     const response = await worker.fetch(publicRequest(
@@ -653,6 +765,14 @@ describe("anonymous public booking reads", () => {
     expect(await missing.json()).toEqual({
       error: "public_page_unavailable",
       message: "This booking page is unavailable.",
+    });
+    const missingProfile = await worker.fetch(publicRequest(
+      "/api/public/profiles/public-owner",
+    ), workerEnv());
+    expect(missingProfile.status).toBe(404);
+    expect(await missingProfile.json()).toEqual({
+      error: "public_profile_unavailable",
+      message: "This booking profile is unavailable.",
     });
 
     const malformed = await worker.fetch(publicRequest(

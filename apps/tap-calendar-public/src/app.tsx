@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Video,
 } from "lucide-react";
+import * as React from "react";
 import {
   useEffect,
   useCallback,
@@ -36,6 +37,7 @@ import {
   createPublicBooking,
   loadPublicAvailability,
   loadPublicBookingPage,
+  loadPublicBookingProfile,
   PublicCalendarApiError,
 } from "./api";
 import {
@@ -45,6 +47,7 @@ import {
 import type {
   PublicBookingAvailability,
   PublicBookingPage,
+  PublicBookingProfile,
   PublicBookingResult,
   PublicBookingSlot,
 } from "./contracts";
@@ -62,23 +65,33 @@ import {
 import { TurnstileVerification } from "./turnstile";
 import { PublicBookingManagementApp } from "./management";
 
-interface PublicPageRoute {
+export interface PublicPageRoute {
   readonly profileSlug: string;
   readonly eventTypeSlug: string;
 }
 
-function currentRoute(): PublicPageRoute | null {
-  const parts = globalThis.location.pathname.split("/").filter(Boolean);
-  if (parts.length !== 2) return null;
-  const [profileSlug, eventTypeSlug] = parts;
-  if (!profileSlug || !eventTypeSlug) return null;
+export type PublicAppRoute =
+  | { readonly kind: "management" }
+  | { readonly kind: "profile"; readonly profileSlug: string }
+  | ({ readonly kind: "booking" } & PublicPageRoute)
+  | { readonly kind: "not-found" };
+
+export function parsePublicRoute(pathname: string): PublicAppRoute {
+  if (pathname === "/manage") return { kind: "management" };
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts.length !== 1 && parts.length !== 2) return { kind: "not-found" };
   try {
-    return {
-      profileSlug: decodeURIComponent(profileSlug),
-      eventTypeSlug: decodeURIComponent(eventTypeSlug),
-    };
+    const profileSlug = decodeURIComponent(parts[0] ?? "");
+    if (!profileSlug || (parts.length === 1 && profileSlug === "manage")) {
+      return { kind: "not-found" };
+    }
+    if (parts.length === 1) return { kind: "profile", profileSlug };
+    const eventTypeSlug = decodeURIComponent(parts[1] ?? "");
+    return eventTypeSlug
+      ? { kind: "booking", profileSlug, eventTypeSlug }
+      : { kind: "not-found" };
   } catch {
-    return null;
+    return { kind: "not-found" };
   }
 }
 
@@ -103,15 +116,24 @@ function setCanonicalUrl(url: string): () => void {
 }
 
 export function PublicBookingApp() {
-  const route = useMemo(currentRoute, []);
-  const managementRoute = useMemo(() => globalThis.location.pathname === "/manage", []);
-  const managementToken = useMemo(
-    () => managementRoute ? publicManagementTokenFromHash(globalThis.location.hash) : null,
-    [managementRoute],
-  );
+  const route = useMemo(() => parsePublicRoute(globalThis.location.pathname), []);
+
+  if (route.kind === "management") {
+    return <PublicBookingManagementApp token={publicManagementTokenFromHash(globalThis.location.hash)} />;
+  }
+  if (route.kind === "profile") {
+    return <PublicProfileRoute profileSlug={route.profileSlug} />;
+  }
+  if (route.kind === "not-found") {
+    return <PublicPageState title="Booking page not found" message="Check the booking link and try again." />;
+  }
+  return <PublicBookingRoute route={route} />;
+}
+
+function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState<PublicBookingPage | null>(null);
-  const [loading, setLoading] = useState(route !== null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const reloadPublishedPage = useCallback(() => {
     setLoading(true);
@@ -121,7 +143,6 @@ export function PublicBookingApp() {
   }, []);
 
   useEffect(() => {
-    if (!route) return;
     const abort = new AbortController();
     setLoading(true);
     setError(null);
@@ -143,13 +164,6 @@ export function PublicBookingApp() {
 
   useEffect(() => page ? setCanonicalUrl(page.canonicalUrl) : undefined, [page]);
 
-  if (managementRoute) {
-    return <PublicBookingManagementApp token={managementToken} />;
-  }
-
-  if (!route) {
-    return <PublicPageState title="Booking page not found" message="Check the booking link and try again." />;
-  }
   if (loading) {
     return <PublicPageState loading title="Loading booking page" message="Checking this TAP booking link…" />;
   }
@@ -166,6 +180,107 @@ export function PublicBookingApp() {
       page={page}
       onPublishedPageChanged={reloadPublishedPage}
     />
+  );
+}
+
+function PublicProfileRoute({ profileSlug }: { readonly profileSlug: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const [profile, setProfile] = useState<PublicBookingProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    setLoading(true);
+    setError(null);
+    void loadPublicBookingProfile(profileSlug, abort.signal)
+      .then(next => {
+        setProfile(next);
+        globalThis.document.title = `${next.profile.displayName} · TAP Calendar`;
+      })
+      .catch(reason => {
+        if (abort.signal.aborted) return;
+        setProfile(null);
+        setError(errorMessage(reason));
+      })
+      .finally(() => {
+        if (!abort.signal.aborted) setLoading(false);
+      });
+    return () => abort.abort();
+  }, [attempt, profileSlug]);
+
+  useEffect(() => profile ? setCanonicalUrl(profile.canonicalUrl) : undefined, [profile]);
+
+  if (loading) {
+    return <PublicPageState loading title="Loading booking profile" message="Checking this TAP booking link…" />;
+  }
+  if (!profile || error) {
+    return <PublicPageState
+      title="Booking profile unavailable"
+      message={error ?? "This booking profile is unavailable."}
+      action={<Button type="button" variant="outline" onClick={() => setAttempt(value => value + 1)}><RefreshCw data-icon="inline-start" /> Try again</Button>}
+    />;
+  }
+  return <PublicProfileScreen profile={profile} />;
+}
+
+export function PublicProfileScreen({ profile }: { readonly profile: PublicBookingProfile }) {
+  const hasEventTypes = profile.eventTypes.length > 0;
+  return (
+    <main className="public-booking-page public-profile-page">
+      <div className="public-booking-shell public-profile-shell">
+        <section className="public-profile-card" aria-labelledby="public-profile-title">
+          <header className="public-profile-header">
+            <span className="public-profile-avatar" aria-hidden="true">{profile.profile.initials}</span>
+            <span className="eyebrow">TAP Calendar</span>
+            <h1 id="public-profile-title">{profile.profile.displayName}</h1>
+            <p>{hasEventTypes
+              ? "Choose a booking option to find a time that works for you."
+              : "This is their official TAP Calendar booking page."}</p>
+          </header>
+
+          {hasEventTypes ? (
+            <section className="public-profile-options" aria-labelledby="public-profile-options-title">
+              <div className="public-profile-options-heading">
+                <h2 id="public-profile-options-title">Book a meeting</h2>
+                <span>{profile.eventTypes.length} {profile.eventTypes.length === 1 ? "option" : "options"}</span>
+              </div>
+              <ul className="public-profile-list">
+                {profile.eventTypes.map(eventType => (
+                  <li key={eventType.eventTypeSlug}>
+                    <article className="public-profile-option">
+                      <div className="public-profile-option-copy">
+                        <h3>{eventType.title}</h3>
+                        {eventType.description ? <p>{eventType.description}</p> : null}
+                        <ul className="public-profile-option-meta" aria-label={`${eventType.title} details`}>
+                          <li><Clock3 aria-hidden="true" /> {eventType.durationMinutes} minutes</li>
+                          <li><Globe2 aria-hidden="true" /> {eventType.locationLabel}</li>
+                          {eventType.approvalRequired ? <li><ShieldCheck aria-hidden="true" /> Approval required</li> : null}
+                        </ul>
+                      </div>
+                      <Button asChild variant="outline">
+                        <a href={eventType.canonicalUrl} aria-label={`View available times for ${eventType.title}`}>
+                          View times <ArrowRight data-icon="inline-end" aria-hidden="true" />
+                        </a>
+                      </Button>
+                    </article>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : (
+            <section className="public-profile-empty" aria-labelledby="public-profile-empty-title">
+              <span aria-hidden="true"><CalendarClock /></span>
+              <div>
+                <h2 id="public-profile-empty-title">No booking options yet</h2>
+                <p>{profile.profile.displayName} hasn’t added any public meeting types. Check back later.</p>
+              </div>
+            </section>
+          )}
+        </section>
+        <PublicFooter />
+      </div>
+    </main>
   );
 }
 

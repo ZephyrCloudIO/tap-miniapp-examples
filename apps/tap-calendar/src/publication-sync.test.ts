@@ -24,6 +24,63 @@ const deferred = <T>(): Deferred<T> => {
 };
 
 describe("public Booking Profile sync orchestration", () => {
+  it("claims a published profile namespace before it has Event Types", async () => {
+    const profileId = "profile-alex";
+    const initial = createInitialCalendarState();
+    let state: CalendarState = markPublicBookingProfilePublicationPending({
+      ...initial,
+      bookingProfiles: initial.bookingProfiles.map(profile => profile.id === profileId
+        ? { ...profile, published: true, eventTypes: [] }
+        : profile),
+    }, profileId, "2026-08-16T20:00:00.000Z");
+    const gateway: PublicBookingProfileSyncAdapter["gateway"] = {
+      async publishPublicBookingProfile(input) {
+        expect(input).toMatchObject({
+          sourceProfileId: profileId,
+          profileSlug: "alex-morgan",
+          displayName: "Alex Morgan",
+          ownerType: "individual",
+          expectedGeneration: 0,
+          publications: [],
+        });
+        return {
+          profileId: "public-profile-alex",
+          sourceProfileId: input.sourceProfileId,
+          profileSlug: input.profileSlug,
+          generation: 1,
+          publishedAt: "2026-08-16T20:00:01.000Z",
+          idempotentReplay: false,
+          pages: [],
+        };
+      },
+      async unpublishPublicBookingProfile() {
+        throw new Error("Unexpected unpublish.");
+      },
+    };
+    const saved = await reconcilePublicBookingProfilePublication(profileId, {
+      gateway,
+      readState: () => state,
+      persist: async mutation => {
+        state = mutation(state);
+        return true;
+      },
+      now: () => "2026-08-16T20:00:00.000Z",
+    });
+
+    expect(saved).toBe(true);
+    expect(state.bookingProfiles.find(profile => profile.id === profileId)).toMatchObject({
+      published: true,
+      publication: {
+        generation: 1,
+        status: "published",
+        reservedSlug: "alex-morgan",
+      },
+      eventTypes: [],
+    });
+    expect(state.bookingProfiles.find(profile => profile.id === profileId)?.pendingPublication)
+      .toBeUndefined();
+  });
+
   it("queues and rebases an unpublish after a remotely committed ambiguous publish", async () => {
     const profileId = "profile-alex";
     let state: CalendarState = markPublicBookingProfilePublicationPending(
