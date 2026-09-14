@@ -122,6 +122,7 @@ import {
   type AttachmentExportPhase,
 } from './attachment-export';
 import { launchGoogleAuthorization } from './google-authorization';
+import { GoogleConnectButton } from './google-connect-button';
 import {
   EMAIL_NETWORK_ACTION,
   EMAIL_OPEN_EXTERNAL_ACTION,
@@ -1603,7 +1604,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         coordinatorRef.current = client;
         const authorizationUrl = await client.beginGoogleConnection();
         setGoogleAuthorizationUrl(authorizationUrl);
-        flash('Google sign-in is ready · continue to Google');
+        flash('Google sign-in is ready · select Add account to continue');
       } catch (error) {
         flash(`Google connection failed: ${String(error)}`);
       } finally {
@@ -1663,17 +1664,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       }
     })();
   }, [connectionBusy, flash, googleAuthorizationUrl, preview]);
-
-  const connectGoogle = googleAuthorizationUrl
-    ? continueGoogleConnection
-    : prepareGoogleConnection;
-  const connectGoogleLabel = connectionBusy
-    ? googleAuthorizationUrl
-      ? 'Waiting for Google…'
-      : 'Preparing…'
-    : googleAuthorizationUrl
-      ? 'Continue to Google'
-      : 'Add Google';
 
   useEffect(() => {
     if (
@@ -2645,16 +2635,15 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         </div>
         <div className="app-actions">
           {!preview ? (
-            <button
-              aria-label={connectGoogleLabel}
-              disabled={connectionBusy}
-              onClick={connectGoogle}
-              title={connectGoogleLabel}
-              type="button"
+            <GoogleConnectButton
+              busy={connectionBusy}
+              onLaunch={continueGoogleConnection}
+              onPrepare={prepareGoogleConnection}
+              prepared={googleAuthorizationUrl !== null}
             >
               <Plus aria-hidden="true" className="app-action-icon" />
-              <span className="app-action-label">{connectGoogleLabel}</span>
-            </button>
+              <span className="app-action-label">Add account</span>
+            </GoogleConnectButton>
           ) : null}
           {!preview && state.accounts.length > 0 ? (
             <MailSyncButton
@@ -2798,7 +2787,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               </div>
             ))}
             {state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' && rows.length === 0 ? (
-              <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{state.accounts.length === 0 ? 'Bring Google into TAP' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'Newest mail is arriving' : activeMailView.emptyTitle}</h2><p>{state.accounts.length === 0 ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.' : `There are no items in ${activeMailView.label} for the selected account view.`}</p>{state.accounts.length === 0 && !preview ? <button className="primary-button" type="button" onClick={connectGoogle} disabled={connectionBusy}>{connectGoogleLabel}</button> : null}</div>
+              <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{state.accounts.length === 0 ? 'Bring Google into TAP' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'Newest mail is arriving' : activeMailView.emptyTitle}</h2><p>{state.accounts.length === 0 ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.' : `There are no items in ${activeMailView.label} for the selected account view.`}</p>{state.accounts.length === 0 && !preview ? <GoogleConnectButton busy={connectionBusy} className="primary-button" onLaunch={continueGoogleConnection} onPrepare={prepareGoogleConnection} prepared={googleAuthorizationUrl !== null} /> : null}</div>
             ) : null}
           </div>
         </section>
