@@ -46,6 +46,22 @@ test('mounts TAP Email and opens the cloud mailbox through governed HTTP', async
     surface.getByRole('button', { name: 'Connect Google', exact: true }).first(),
   ).toBeVisible();
 
+  const accountSwitcher = surface.locator('.account-switcher');
+  const allAccountsButton = accountSwitcher.getByRole('button', {
+    name: 'All accounts',
+    exact: true,
+  });
+  const allAccountsShortcut = allAccountsButton.locator('.account-shortcut');
+  await expect(allAccountsShortcut).toHaveCSS('opacity', '0');
+  await expect(allAccountsShortcut).toHaveCSS('visibility', 'hidden');
+  const idleAccountButtonBox = await allAccountsButton.boundingBox();
+  await allAccountsButton.hover();
+  await expect(allAccountsShortcut).toHaveCSS('opacity', '1');
+  await expect(allAccountsShortcut).toHaveCSS('visibility', 'visible');
+  expect(await allAccountsButton.boundingBox()).toEqual(idleAccountButtonBox);
+  await surface.getByRole('heading', { level: 1, name: 'Inbox', exact: true }).hover();
+  await expect(allAccountsShortcut).toHaveCSS('opacity', '0');
+
   const mailboxCategoryNav = surface.getByRole('navigation', { name: 'Mailbox categories' });
   await expect(mailboxCategoryNav.locator('.nav-label')).toHaveText([
     'Inbox',

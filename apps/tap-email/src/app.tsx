@@ -123,6 +123,7 @@ import {
 } from './attachment-export';
 import { launchGoogleAuthorization } from './google-authorization';
 import { GoogleConnectButton } from './google-connect-button';
+import { AccountSwitcher } from './account-switcher';
 import {
   EMAIL_NETWORK_ACTION,
   EMAIL_OPEN_EXTERNAL_ACTION,
@@ -2625,14 +2626,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       <a className="skip-link" href="#tap-email-main">Skip to Mailbox</a>
       <header className="app-bar">
         <div className="brand"><span className="brand-mark">T</span><span>TAP Email</span></div>
-        <div className="account-switcher" aria-label="Account view">
-          <button className={state.selectedAccountId === 'all' ? 'is-active' : ''} onClick={() => setState(current => selectAccount(current, 'all'))} type="button">All accounts <kbd>G A</kbd></button>
-          {state.accounts.map((account, index) => (
-            <button key={account.accountId} className={state.selectedAccountId === account.accountId ? 'is-active' : ''} onClick={() => setState(current => selectAccount(current, account.accountId))} type="button">
-              <span className="account-dot" style={{ backgroundColor: account.accent }} aria-hidden="true" />{account.displayName}{index < 9 ? <kbd>⌃ {index + 1}</kbd> : null}
-            </button>
-          ))}
-        </div>
+        <AccountSwitcher
+          accounts={state.accounts}
+          onSelect={accountId => setState(current => selectAccount(current, accountId))}
+          selectedAccountId={state.selectedAccountId}
+        />
         <div className="app-actions">
           {!preview ? (
             <GoogleConnectButton

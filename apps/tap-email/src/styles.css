@@ -162,6 +162,28 @@ kbd {
   cursor: pointer;
   font-size: 12px;
 }
+.account-switcher button { position: relative; }
+.account-shortcut {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: -5px;
+  inset-inline-end: -3px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 0s linear 120ms;
+}
+.account-switcher.is-command-held .account-shortcut,
+.account-switcher button:is(:hover, :focus-visible) .account-shortcut {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
 .account-switcher button:hover,
 .account-switcher button.is-active,
 .app-actions button:hover { background: var(--mail-panel-raised); color: var(--mail-text); }
@@ -672,7 +694,6 @@ kbd {
   .app-actions > button:not(.compose-button) .app-action-label,
   .app-actions > button:not(.compose-button) .sync-label,
   .app-actions > button:not(.compose-button) kbd { display: none; }
-  .account-switcher kbd { display: none; }
 }
 
 @media (max-width: 860px) {
