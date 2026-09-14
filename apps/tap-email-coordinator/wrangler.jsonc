@@ -73,7 +73,7 @@
       ],
       "vars": {
         "ALLOW_DEV_IDENTITY": "false",
-        "TAP_INTROSPECTION_URL": "https://api.theaiplatform.app/v1/sessions/introspect",
+        "TAP_INTROSPECTION_URL": "https://session.theaiplatform.app/v1/sessions/introspect",
         "ALLOWED_ORIGINS": "https://app.theaiplatform.app",
         "GOOGLE_REDIRECT_URI": "https://tap-email-coordinator.theaiplatform.app/v1/oauth/google/callback"
       },
