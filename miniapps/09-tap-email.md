@@ -7,7 +7,8 @@
 **Audience:** Consumer
 
 **Data approach:** Package-owned cloud Gmail coordinator with encrypted tokens
-and message bodies; package-scoped private profile SQLite cache through SDK 0.9.0
+and message bodies; package-scoped private profile SQLite and vector storage
+through SDK 0.15.0
 
 ## Product promise
 
@@ -68,8 +69,9 @@ Gmail
      - derived facts for Home, summaries, tools, and workflows
   -> package-scoped private local profile
      - SQLite mailbox read model (implemented)
-     - attachments and search index (deferred)
-     - device-local cache controls (deferred)
+     - on-demand attachment cache and export (implemented)
+     - deterministic and local semantic search indexes (implemented)
+     - device-local cache controls (implemented)
   -> TAP Email panel
 ```
 
@@ -97,9 +99,31 @@ Every core operation must be possible without a mouse. A focused text editor
 owns ordinary character input, and global shortcuts must not steal keystrokes
 from compose, reply, search, or dialogs.
 
+## Workflow portfolio
+
+The post-v0 workflow portfolio includes three separate capabilities:
+
+- A **Mailbox Rollup** powers Morning Brief, EOD Wrap, daily rollup, weekly
+  review, and missed-mail audit views. It names the included accounts,
+  resources, time range, and coverage rather than implying a complete mailbox.
+- An **Email Activity Summary** reports content-free counts of committed,
+  user-authored actions. It excludes subjects, bodies, correspondents,
+  recipients, and sync/import/background work, and can be shared with Chloe
+  without misusing the trusted-device active-time ledger.
+- A **Mail Merge Run** creates a finite set of personalized, recipient-bound
+  provider drafts from a user-selected audience and template. Each recipient
+  is previewed and validated; every eventual send remains an individual,
+  review-gated, idempotent command with its own receipt. Direct bulk send is
+  never the default.
+
+Saved workflows may launch and observe these recipes when the required read or
+write capabilities are available. Recurring delivery requires coordinator or
+platform scheduling; an accepted workflow invocation or a notification is not
+evidence that a rollup was delivered or a message was sent.
+
 ## Current SDK boundaries
 
-SDK 0.9.0 provides package-scoped private profile files, SQLite, and vector
+SDK 0.15.0 provides package-scoped private profile files, SQLite, and vector
 storage in addition to revisioned non-secret JSON storage, channels,
 host-mediated HTTP, notifications, and bounded Home attention types. TAP Email
 requests the minimum 1 GiB private profile quota and stores its cached mailbox
@@ -109,10 +133,11 @@ so package code never receives a filesystem path.
 The SDK still does **not** expose a host keybinding registry or conflict
 resolver. V0 therefore keeps keyboard handlers inside the focused surface and
 never intercepts ordinary keys in compose, reply, search, or dialogs. The
-browser preview uses an explicitly labeled disposable fixture store. Remote
-provider HTML also remains disabled until an isolated rich-message renderer is
-available; the settings preserve the user's future image and tracking choices
-without claiming that plain-text v0 loads remote content.
+browser preview uses an explicitly labeled disposable fixture store. Provider
+HTML is sanitized into a sandboxed, network-denied iframe. Remote images are
+fetched only through the coordinator under the user's privacy setting and
+hydrated as bounded data URLs, so the message frame cannot contact
+sender-controlled hosts directly.
 
 ## Implemented live slice
 
@@ -144,12 +169,13 @@ without claiming that plain-text v0 loads remote content.
 - Public liveness and non-secret readiness probes distinguish a running Worker
   from one missing valid configuration, queue bindings, or D1 connectivity.
 
-The remaining launch work is operational: register the Google OAuth client,
-complete any Google restricted-scope verification, provision Cloudflare D1 and
-Queues, install the three required secrets, deploy the coordinator, and set the
-miniapp coordinator origin. Cache encryption controls, offline attachment/search
-indexes, safe rich HTML, and a host-level keybinding conflict registry remain
-follow-ups, not claims of this v0.
+The remaining launch work is operational: register the production Google OAuth
+client, complete any Google restricted-scope verification, configure the
+GitHub production environment and its six deployment/runtime secrets, run the
+deployment workflow to provision Cloudflare D1, R2, and Queues, and verify the
+custom-domain health and readiness probes. A host-level keybinding conflict
+registry and automatic host-governed activity-source contribution remain
+follow-ups, not claims of this release.
 
 ## V0 release gates
 

@@ -89,6 +89,13 @@ if (target === 'desktop') {
 }
 
 export default defineConfig({
+  source: {
+    define: {
+      __TAP_EMAIL_COORDINATOR_ORIGIN__: JSON.stringify(
+        process.env.TAP_EMAIL_COORDINATOR_ORIGIN ?? '',
+      ),
+    },
+  },
   plugins: target === 'desktop' ? [pluginReact()] : [],
   lib: [library],
 });

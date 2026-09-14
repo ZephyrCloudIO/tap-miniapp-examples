@@ -62,11 +62,21 @@ export async function coordinatorReadiness(env: Env): Promise<CoordinatorReadine
   if (!(await encryptionSecretIsValid(env.GOOGLE_TOKEN_ENCRYPTION_KEY))) {
     issueCodes.push('invalid_encryption_key');
   }
+  if (!(await encryptionSecretIsValid(env.ATTACHMENT_STAGING_ENCRYPTION_KEY))) {
+    issueCodes.push('invalid_attachment_staging_encryption_key');
+  }
   if (
     typeof env.COMMAND_QUEUE?.send !== 'function' ||
     typeof env.SYNC_QUEUE?.send !== 'function'
   ) {
     issueCodes.push('missing_queue_binding');
+  }
+  if (
+    typeof env.ATTACHMENT_STAGING?.get !== 'function' ||
+    typeof env.ATTACHMENT_STAGING?.put !== 'function' ||
+    typeof env.ATTACHMENT_STAGING?.delete !== 'function'
+  ) {
+    issueCodes.push('missing_attachment_staging_binding');
   }
   const configuration = issueCodes.length === 0;
   let database = false;

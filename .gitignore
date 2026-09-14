@@ -12,6 +12,8 @@ node_modules/
 .turbo/
 .wrangler/
 dist/
+/apps/tap-email/dist-*/
+/tmp/
 .tap-build/
 .tap-package/
 .tap-receipts/

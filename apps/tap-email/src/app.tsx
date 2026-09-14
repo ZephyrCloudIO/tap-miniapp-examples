@@ -1,5 +1,14 @@
-import { sdk } from '@theaiplatform/miniapp-sdk/sdk';
+import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
+import type {
+  MailCommand,
+  MailCommandReceipt,
+  MailDraftAttachment,
+  MailDraftPayload,
+  ScheduledSendSummary,
+} from '@tap-examples/tap-email-protocol';
 import type { TapFederatedSurfaceMountContext } from '@theaiplatform/miniapp-sdk/surface';
+import type { MiniAppTheme } from '@theaiplatform/miniapp-sdk/web';
+import * as React from 'react';
 import {
   Button,
   Checkbox,
@@ -8,9 +17,7 @@ import {
   DialogDescription,
   DialogTitle,
   Input,
-  NativeSelect,
-  NativeSelectOption,
-  Textarea,
+  TooltipProvider,
 } from '@theaiplatform/miniapp-sdk/ui';
 import {
   useCallback,
@@ -18,48 +25,184 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
-  type KeyboardEvent,
   type Ref,
 } from 'react';
-import type { ReminderCondition } from '@tap-examples/tap-email-protocol';
-import { Check, Clock3, MailOpen, Search, Star } from 'lucide-react';
+import {
+  Check,
+  Clock3,
+  Keyboard,
+  MailOpen,
+  Plus,
+  Rows3,
+  Search,
+  Settings,
+} from 'lucide-react';
 import {
   defaultPreferences,
   emptyMailState,
   emailThreadKey,
   composeMessage,
+  cancelScheduledMessage,
+  correctThreadAttention,
   mailboxSummary,
+  mailSplitThreadCount,
   markDone,
+  markThreadRead,
   mergeMailboxSnapshot,
   mergeThreadMessages,
   moveSelection,
+  normalizeMailPreferences,
   notificationsEnabledForAccount,
   previewMailState,
+  recoverableImmediateSends,
   remindThread,
   resolveReminderInput,
+  retryRecoverableImmediateSend,
+  saveMessageDraft,
+  scheduleMessageDraft,
   selectAccount,
   selectSplit,
   selectedThread,
+  settleMailCommand,
+  toggleThreadRead,
   toggleStar,
+  threadMatchesSplit,
+  trashThread,
   undoLastAction,
   visibleThreads,
   type EmailAccount,
+  type EmailAttachment,
   type EmailThread,
   type MailPreferences,
+  type RecoverableImmediateSend,
   type MailSplit,
   type MailState,
 } from './domain';
 import {
+  FIXED_MAILBOX_CATEGORIES,
+  TAP_MAIL_VIEWS,
+  mailViewDefinition,
+  type MailViewDefinition,
+} from './mail-navigation';
+import {
+  filterMailThreads,
+  parseMailSearchQuery,
+  threadMatchesMailSearchConstraints,
+} from './mail-search';
+import { fuseMailSearchRanks } from './hybrid-mail-search';
+import {
+  createMailSearchCoverageReceipt,
+  mailSearchCoverageLabel,
+} from './mail-search-coverage';
+import {
+  accountIndexForCommand,
+  COMPOSE_SHORTCUTS,
   isTextEntryTarget,
+  listenForScopedDocumentKeyDown,
+  REPLY_SHORTCUTS,
   resolveShortcut,
+  shouldEnterOpenReply,
+  shouldEnterPromptReply,
   SHORTCUTS,
   type EmailKeyCommand,
 } from './keybindings';
-import { createCoordinatorClient } from './coordinator-client';
-import { createLocalMailStore } from './local-store';
+import {
+  stageChloeEmailPrompt,
+  type ChloeEmailIntent,
+} from './chloe-email';
+import {
+  createCoordinatorClient,
+  type AttachmentMessageContext,
+  type RemoteImageMessageContext,
+} from './coordinator-client';
+import {
+  AttachmentExportError,
+  exportAttachment,
+  type AttachmentExportPhase,
+} from './attachment-export';
+import { launchGoogleAuthorization } from './google-authorization';
+import {
+  EMAIL_NETWORK_ACTION,
+  EMAIL_OPEN_EXTERNAL_ACTION,
+  hasEmailAuthority,
+  waitForHostAuthority,
+} from './authority';
+import {
+  createLocalEmailActivityLedger,
+} from './activity-ledger';
+import { commitActivityBeforeSettlement } from './activity-commit';
+import { CommandPersistenceBarrier } from './command-persistence-barrier';
+import {
+  incompleteEmailActivityProjection,
+  unavailableEmailActivityProjection,
+  type EmailActivityProjection,
+} from './activity';
+import {
+  createLocalMailStore,
+  type AttachmentCacheIdentity,
+  type LocalDataWipeReceipt,
+  type LocalMailStore,
+} from './local-store';
+import { mailStateWithoutAccount } from './local-replica';
+import { StoragePrivacyPanel } from './storage-privacy-panel';
+import { persistProviderVisibleMailMergeDrafts } from './email-workflows';
+import { WorkflowCenter } from './workflow-center';
+import {
+  EMAIL_TASK_WRITE_ACTION,
+  EmailTaskConfigurationError,
+  EmailTaskReceiptPersistenceError,
+  createEmailTask,
+} from './email-task';
+import {
+  subscribeToArtifactEmailLaunches,
+  type ArtifactEmailDraft,
+} from './artifact-email-draft';
+import { ReminderDialog } from './reminder-dialog';
+import { ComposeDialog, type ComposeDraftMessage } from './compose-dialog';
+import { ReaderActions } from './reader-actions';
+import {
+  ThreadAttentionPanel,
+  type ThreadAttentionCorrectionInput,
+} from './thread-attention-panel';
+import {
+  ReplyComposer,
+  type ReplyPlacement,
+} from './reply-composer';
+import {
+  groupThreadsByDay,
+  threadListTimestamp,
+} from './thread-list-dates';
+import { THREAD_LIST_PANE_ID, ThreadListToggle } from './thread-list-toggle';
+import {
+  INITIAL_MAILBOX_APPROVAL_MESSAGE,
+  watchForDelayedPendingRequest,
+  type DelayedPendingRequest,
+} from './pending-request';
+import {
+  parseConversationHandoffDeepLink,
+  type ConversationHandoffPhase,
+} from './conversation-handoff';
+import { ConversationHandoffDialog } from './conversation-handoff-dialog';
+import {
+  openEmailSemanticIndex,
+  type EmailSemanticIndex,
+} from './semantic-email-index';
+import {
+  ThreadMessageList,
+  type ContextualAttachmentSaver,
+  type ContextualRemoteImageLoader,
+  type MessageExpansionRequest,
+} from './thread-messages';
+import { MailSyncButton } from './sync-button';
+import { ScheduledSendList } from './scheduled-send-list';
+import { OutboxList } from './outbox-list';
+import {
+  selectAndStageAttachments,
+  type SelectAndStageAttachmentsResult,
+} from './outbound-attachment';
 import {
   loadPreferences,
+  publishEmailActivityProjection,
   publishOperationalProjection,
   savePreferences,
 } from './storage';
@@ -72,35 +215,111 @@ import {
 } from './view-location';
 
 interface TapEmailAppProps {
+  readonly appTheme?: MiniAppTheme;
   readonly preview?: boolean;
   readonly surfaceContext?: TapFederatedSurfaceMountContext;
 }
 
-type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'shortcuts' | 'settings';
+type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'shortcuts' | 'settings' | 'handoff' | 'workflows';
 
-const splitItems: readonly { id: MailSplit; label: string; key: string }[] = [
-  { id: 'inbox', label: 'Inbox', key: 'G I' },
-  { id: 'critical', label: 'Critical', key: 'G C' },
-  { id: 'needs-response', label: 'Needs response', key: 'G N' },
-  { id: 'waiting', label: 'Waiting', key: 'G W' },
-  { id: 'reminders', label: 'Reminders', key: 'G R' },
-];
+interface ReplyDraft {
+  readonly accountId: string;
+  readonly attachmentBusy: boolean;
+  readonly attachmentError: string;
+  readonly attachments: readonly MailDraftAttachment[];
+  readonly bcc: string;
+  readonly bodyText: string;
+  readonly cc: string;
+  readonly draftKey: string;
+  readonly draftRevision: number;
+  readonly focusRequestId: number;
+  readonly inReplyToMessageId: string | null;
+  readonly placement: ReplyPlacement;
+  readonly recipientLabel: string;
+  readonly subject: string;
+  readonly threadId: string;
+  readonly threadKey: string;
+  readonly to: string;
+}
+
+type ConversationHandoffUiState = Readonly<{
+  threadKey: string;
+  status: ConversationHandoffPhase | 'created' | 'partial' | 'error';
+  message: string;
+}>;
+
+type EmailTaskUiState = Readonly<{
+  threadKey: string;
+  status: 'creating' | 'completed' | 'duplicate-suppressed' | 'pending' | 'failed' | 'partial' | 'error';
+  message: string;
+}>;
+
+type ComposeSeed = Pick<ArtifactEmailDraft, 'requestId' | 'subject' | 'bodyText'>;
+
+type SemanticSearchState = Readonly<{
+  query: string;
+  threadKeys: readonly string[];
+}>;
+
+interface RemoteImageMemoryEntry {
+  readonly dataUrl: string;
+  readonly sizeBytes: number;
+}
+
+interface RemoteImageMemoryCache {
+  readonly entries: Map<string, RemoteImageMemoryEntry>;
+  sizeBytes: number;
+}
+
+const maximumRemoteImageMemoryCacheBytes = 24 * 1_024 * 1_024;
+const memoryRemoteImageDataUrl = /^data:image\/(?:avif|gif|jpe?g|png|webp);base64,([a-z0-9+/]+={0,2})$/iu;
+
+function remoteImageDataUrlSize(dataUrl: string): number | null {
+  const encoded = memoryRemoteImageDataUrl.exec(dataUrl)?.[1];
+  if (!encoded) return null;
+  const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+  const size = Math.floor(encoded.length * 3 / 4) - padding;
+  return size > 0 ? size : null;
+}
+
+function rememberRemoteImage(
+  cache: RemoteImageMemoryCache,
+  url: string,
+  dataUrl: string,
+): void {
+  const sizeBytes = remoteImageDataUrlSize(dataUrl);
+  if (sizeBytes === null || sizeBytes > maximumRemoteImageMemoryCacheBytes) return;
+  const previous = cache.entries.get(url);
+  if (previous) cache.sizeBytes -= previous.sizeBytes;
+  cache.entries.delete(url);
+  cache.entries.set(url, { dataUrl, sizeBytes });
+  cache.sizeBytes += sizeBytes;
+  while (cache.sizeBytes > maximumRemoteImageMemoryCacheBytes) {
+    const oldestUrl = cache.entries.keys().next().value as string | undefined;
+    if (!oldestUrl) break;
+    const evicted = cache.entries.get(oldestUrl);
+    cache.entries.delete(oldestUrl);
+    cache.sizeBytes -= evicted?.sizeBytes ?? 0;
+  }
+}
+
+function recallRemoteImage(
+  cache: RemoteImageMemoryCache,
+  url: string,
+): string | null {
+  const entry = cache.entries.get(url);
+  if (!entry) return null;
+  cache.entries.delete(url);
+  cache.entries.set(url, entry);
+  return entry.dataUrl;
+}
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
   hour: 'numeric',
   minute: '2-digit',
 });
-const listTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  hour: 'numeric',
-  minute: '2-digit',
-});
-const reminderPresetFormatter = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short',
-  hour: 'numeric',
-  minute: '2-digit',
-});
-
+const mailSearchTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 function wait(milliseconds: number): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, milliseconds));
 }
@@ -118,18 +337,69 @@ function accountFor(
   return accounts.find(account => account.accountId === accountId) ?? null;
 }
 
-function unreadCount(state: MailState, split: MailSplit): number {
-  return state.threads.filter(thread => {
-    if (state.selectedAccountId !== 'all' && thread.accountId !== state.selectedAccountId) {
-      return false;
-    }
-    if (split === 'reminders') return thread.status === 'reminded';
-    if (thread.status !== 'inbox') return false;
-    if (split === 'critical') return thread.critical;
-    if (split === 'needs-response') return thread.needsResponse;
-    if (split === 'waiting') return thread.waitingOnOthers;
-    return true;
-  }).length;
+function MailViewButtons({
+  views,
+  state,
+  showCounts,
+  onSelect,
+}: {
+  readonly views: readonly MailViewDefinition[];
+  readonly state: MailState;
+  readonly showCounts: boolean;
+  readonly onSelect: (split: MailSplit) => void;
+}) {
+  return views.map(view => {
+    const count = showCounts || view.id === 'outbox'
+      ? mailSplitThreadCount(state, view.id)
+      : null;
+    const selected = state.selectedSplit === view.id;
+    return (
+      <button
+        key={view.id}
+        aria-current={selected ? 'page' : undefined}
+        aria-label={count === null ? view.label : `${view.label}, ${count} threads`}
+        className={selected ? 'is-active' : ''}
+        type="button"
+        onClick={() => onSelect(view.id)}
+      >
+        <span className="nav-label">{view.label}</span>
+        {count === null ? null : <span className="nav-count">{count}</span>}
+        {view.shortcut ? (
+          <kbd aria-hidden="true" className="nav-shortcut">{view.shortcut}</kbd>
+        ) : null}
+      </button>
+    );
+  });
+}
+
+function CompactMailViewSelect({
+  selected,
+  onSelect,
+}: {
+  readonly selected: MailSplit;
+  readonly onSelect: (split: MailSplit) => void;
+}) {
+  return (
+    <label className="compact-mail-view-select">
+      <span className="sr-only">Email view</span>
+      <select
+        aria-label="Email view"
+        value={selected}
+        onChange={event => onSelect(event.target.value as MailSplit)}
+      >
+        <optgroup label="Mailboxes">
+          {FIXED_MAILBOX_CATEGORIES.map(view => (
+            <option key={view.id} value={view.id}>{view.label}</option>
+          ))}
+        </optgroup>
+        <optgroup label="TAP Views">
+          {TAP_MAIL_VIEWS.map(view => (
+            <option key={view.id} value={view.id}>{view.label}</option>
+          ))}
+        </optgroup>
+      </select>
+    </label>
+  );
 }
 
 function applyMailViewLocation(state: MailState, location: MailViewLocation): MailState {
@@ -150,6 +420,25 @@ function applyMailViewLocation(state: MailState, location: MailViewLocation): Ma
   return next;
 }
 
+function accountScopedThreads(state: MailState): readonly EmailThread[] {
+  return state.threads.filter(thread =>
+    state.selectedAccountId === 'all' || thread.accountId === state.selectedAccountId);
+}
+
+function preferredMailboxSplit(thread: EmailThread): MailSplit {
+  const preference: readonly MailSplit[] = [
+    'inbox',
+    'drafts',
+    'sent',
+    'done',
+    'reminders',
+    'spam',
+    'trash',
+    'starred',
+  ];
+  return preference.find(split => threadMatchesSplit(thread, split)) ?? 'inbox';
+}
+
 function moveWithinThreads(
   state: MailState,
   threads: readonly EmailThread[],
@@ -168,12 +457,14 @@ function moveWithinThreads(
 function ThreadListRow({
   thread,
   account,
+  displayTimestamp,
   selected,
   selectedRef,
   onSelect,
 }: {
   readonly thread: EmailThread;
   readonly account: EmailAccount | null;
+  readonly displayTimestamp: string;
   readonly selected: boolean;
   readonly selectedRef?: Ref<HTMLButtonElement>;
   readonly onSelect: () => void;
@@ -198,7 +489,7 @@ function ThreadListRow({
         <span className="mail-row-topline">
           <span className="mail-sender">{displayParticipant(thread)}</span>
           <time dateTime={thread.receivedAt}>
-            {listTimeFormatter.format(new Date(thread.receivedAt))}
+            {displayTimestamp}
           </time>
         </span>
         <span className="mail-subject">
@@ -214,158 +505,11 @@ function ThreadListRow({
   );
 }
 
-function ReminderDialog({
-  thread,
-  onClose,
-  onConfirm,
-}: {
-  readonly thread: EmailThread;
-  readonly onClose: () => void;
-  readonly onConfirm: (input: string, condition: ReminderCondition) => void;
-}) {
-  const [input, setInput] = useState('tomorrow');
-  const [condition, setCondition] = useState<ReminderCondition>('if_no_reply');
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    onConfirm(input, condition);
-  };
-  return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="reminder-dialog" hideCloseButton>
-        <form
-          onSubmit={submit}
-          onKeyDown={event => {
-            if (event.key === 'Tab' && !event.shiftKey) {
-              event.preventDefault();
-              setCondition(value =>
-                value === 'if_no_reply' ? 'regardless' : 'if_no_reply',
-              );
-            }
-          }}
-        >
-          <div className="dialog-title-row">
-            <span className="clock-glyph" aria-hidden="true"><Clock3 /></span>
-            <div>
-              <DialogTitle>Remind Me</DialogTitle>
-              <DialogDescription>{thread.subject}</DialogDescription>
-            </div>
-            <Button className="condition-toggle" variant="ghost" size="compact" type="button" onClick={() => setCondition(value => value === 'if_no_reply' ? 'regardless' : 'if_no_reply')}>
-              {condition === 'if_no_reply' ? 'if no reply' : 'regardless'} <kbd>Tab</kbd>
-            </Button>
-          </div>
-          <Input
-            autoFocus
-            autoComplete="off"
-            className="reminder-input"
-            name="reminder-time"
-            value={input}
-            onChange={event => setInput(event.target.value)}
-            aria-label="Reminder date and time"
-            placeholder="Try: 8 am, 3 days, Aug 7…"
-          />
-          <div className="reminder-presets">
-            {[
-              ['tomorrow', 'Tomorrow'],
-              ['next week', 'Next Week'],
-              ['next weekend', 'Next Weekend'],
-              ['3 days', 'In 3 Days'],
-            ].map(([value, label]) => (
-              <Button key={value} variant="ghost" type="button" onClick={() => onConfirm(value, condition)}>
-                <span>{label}</span>
-                <span>{reminderPresetFormatter.format(resolveReminderInput(value, new Date()) ?? new Date())}</span>
-              </Button>
-            ))}
-          </div>
-          <div className="dialog-footer">
-            <span><kbd>Enter</kbd> set reminder</span>
-            <Button className="primary-button" type="submit">Remind Me</Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ComposeDialog({
-  accounts,
-  initialAccountId,
-  initialTo,
-  initialSubject,
-  onClose,
-  onSend,
-}: {
-  readonly accounts: readonly EmailAccount[];
-  readonly initialAccountId: string;
-  readonly initialTo: string;
-  readonly initialSubject: string;
-  readonly onClose: () => void;
-  readonly onSend: (message: {
-    readonly accountId: string;
-    readonly to: string;
-    readonly subject: string;
-    readonly bodyText: string;
-  }) => void;
-}) {
-  const [from, setFrom] = useState(initialAccountId || accounts[0]?.accountId || '');
-  const [to, setTo] = useState(initialTo);
-  const [subject, setSubject] = useState(initialSubject);
-  const [bodyText, setBodyText] = useState('');
-  const canSend = Boolean(from && to.trim() && subject.trim() && bodyText.trim());
-  const send = () => {
-    if (!canSend) return;
-    onSend({ accountId: from, to: to.trim(), subject: subject.trim(), bodyText });
-  };
-  return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent
-        className="compose-dialog"
-        hideCloseButton
-        onKeyDown={event => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            send();
-          }
-        }}
-      >
-        <header>
-          <DialogTitle>New Message</DialogTitle>
-          <DialogDescription className="sr-only">Write and send an email through the selected Google account.</DialogDescription>
-          <Button variant="ghost" size="icon-sm" type="button" onClick={onClose} aria-label="Close compose">×</Button>
-        </header>
-        <label className="compose-line">
-          <span>From</span>
-          <NativeSelect name="from-account" value={from} onChange={event => setFrom(event.target.value)}>
-            {accounts.map(account => (
-              <NativeSelectOption key={account.accountId} value={account.accountId}>
-                {account.displayName} · {account.address}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </label>
-        <label className="compose-line">
-          <span>To</span>
-          <Input autoFocus autoComplete="off" name="recipients" spellCheck={false} type="email" value={to} onChange={event => setTo(event.target.value)} />
-        </label>
-        <label className="compose-line">
-          <span>Subject</span>
-          <Input autoComplete="off" name="subject" value={subject} onChange={event => setSubject(event.target.value)} />
-        </label>
-        <Textarea autoComplete="off" className="compose-body" name="message-body" aria-label="Message body" placeholder="Write your message…" value={bodyText} onChange={event => setBodyText(event.target.value)} />
-        <footer>
-          <span>Sent through the selected Google account.</span>
-          <Button className="primary-button" type="button" disabled={!canSend} onClick={send}>
-            Send <kbd>⌘ Enter</kbd>
-          </Button>
-        </footer>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function CommandPalette({ onClose, onRun }: { readonly onClose: () => void; readonly onRun: (command: EmailKeyCommand) => void }) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const matches = SHORTCUTS.filter(item =>
+    item.runnable !== false &&
     `${item.label} ${item.keys}`.toLowerCase().includes(query.toLowerCase()),
   );
   useEffect(() => setActiveIndex(0), [query]);
@@ -410,7 +554,7 @@ function ShortcutDialog({ onClose }: { readonly onClose: () => void }) {
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
       <DialogContent className="shortcut-dialog" hideCloseButton>
         <header><div><span className="eyebrow">Keyboard Map</span><DialogTitle>Move at Thought Speed</DialogTitle><DialogDescription className="sr-only">TAP Email keyboard shortcuts grouped by task.</DialogDescription></div><Button variant="ghost" size="icon-sm" type="button" onClick={onClose} aria-label="Close keyboard shortcuts">×</Button></header>
-        {(['Triage', 'Write', 'Navigate', 'TAP'] as const).map(group => (
+        {(['Triage', 'Read', 'Write', 'Navigate', 'TAP'] as const).map(group => (
           <div className="shortcut-group" key={group}>
             <h3>{group}</h3>
             {SHORTCUTS.filter(item => item.group === group).map(item => (
@@ -418,12 +562,31 @@ function ShortcutDialog({ onClose }: { readonly onClose: () => void }) {
             ))}
           </div>
         ))}
+        <div className="shortcut-group">
+          <h3>While composing</h3>
+          {COMPOSE_SHORTCUTS.map(item => (
+            <div key={item.label}><span>{item.label}</span><kbd>{item.keys}</kbd></div>
+          ))}
+        </div>
+        <div className="shortcut-group">
+          <h3>While replying</h3>
+          {REPLY_SHORTCUTS.map(item => (
+            <div key={item.label}><span>{item.label}</span><kbd>{item.keys}</kbd></div>
+          ))}
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function SettingsDialog({ accounts, preferences, onChange, onClose }: { readonly accounts: readonly EmailAccount[]; readonly preferences: MailPreferences; readonly onChange: (preferences: MailPreferences) => void; readonly onClose: () => void }) {
+function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWipe }: {
+  readonly accounts: readonly EmailAccount[];
+  readonly preferences: MailPreferences;
+  readonly store: LocalMailStore;
+  readonly onChange: (preferences: MailPreferences) => void;
+  readonly onClose: () => void;
+  readonly onWipe: (receipt: LocalDataWipeReceipt) => void;
+}) {
   const enabledNotificationAccounts = new Set(
     preferences.notificationsConfigured
       ? preferences.notificationAccountIds
@@ -446,12 +609,30 @@ function SettingsDialog({ accounts, preferences, onChange, onClose }: { readonly
       <DialogContent className="settings-dialog" hideCloseButton>
         <header><div><span className="eyebrow">Miniapp Settings</span><DialogTitle>Reading, Privacy & Alerts</DialogTitle><DialogDescription className="sr-only">Choose how TAP Email displays remote message content and which accounts may notify you.</DialogDescription></div><Button variant="ghost" size="icon-sm" type="button" onClick={onClose} aria-label="Close settings">×</Button></header>
         <label className="setting-row">
-          <span><strong>Remote images</strong><small>Show externally hosted images in messages.</small></span>
-          <Checkbox checked={preferences.imagesEnabled} onCheckedChange={checked => onChange({ ...preferences, imagesEnabled: checked === true })} />
+          <span><strong>Remote images</strong><small>Loaded through TAP Email so senders do not receive your IP address, cookies, or referrer.</small></span>
+          <Checkbox
+            checked={preferences.imagesEnabled}
+            onCheckedChange={checked => onChange({
+              ...preferences,
+              imagePolicyVersion: 1,
+              imagesEnabled: checked === true,
+              trackingPixelsEnabled: checked === true
+                ? preferences.trackingPixelsEnabled
+                : false,
+            })}
+          />
         </label>
         <label className="setting-row">
-          <span><strong>Tracking pixels</strong><small>Allow known open-tracking pixels. Enabled by default.</small></span>
-          <Checkbox checked={preferences.trackingPixelsEnabled} onCheckedChange={checked => onChange({ ...preferences, trackingPixelsEnabled: checked === true })} />
+          <span><strong>Tracking pixels</strong><small>Keep off to suppress hidden and tiny images commonly used to record opens.</small></span>
+          <Checkbox
+            checked={preferences.trackingPixelsEnabled}
+            disabled={!preferences.imagesEnabled}
+            onCheckedChange={checked => onChange({
+              ...preferences,
+              imagePolicyVersion: 1,
+              trackingPixelsEnabled: checked === true,
+            })}
+          />
         </label>
         <h3 className="settings-section-title">Notifications</h3>
         {accounts.map(account => (
@@ -464,42 +645,261 @@ function SettingsDialog({ accounts, preferences, onChange, onClose }: { readonly
           </label>
         ))}
         {accounts.length === 0 ? <div className="settings-empty">Connect Google to configure account notifications.</div> : null}
-        <div className="settings-note">TAP Email v0 renders provider plain text only. These preferences are saved now and will apply when the isolated rich-message renderer lands.</div>
+        <div className="settings-note">Rich HTML stays in an isolated frame. Images are validated through the coordinator, then cached privately on this device for repeat opens; links, scripts, forms, and direct sender requests remain blocked.</div>
+        <div className="settings-note">Meaning search embeds and indexes mail with an installed local model in private profile zvec storage. Email content is not sent to a remote embedding service.</div>
+        <StoragePrivacyPanel accounts={accounts} onWipe={onWipe} store={store} />
         <div className="settings-note">Shortcut remapping will move to the host keybinding registry when the SDK capability lands.</div>
       </DialogContent>
     </Dialog>
   );
 }
 
-export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProps) {
+export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext }: TapEmailAppProps) {
   const store = useMemo(() => createLocalMailStore(preview), [preview]);
+  const activityLedger = useMemo(
+    () => createLocalEmailActivityLedger(preview),
+    [preview],
+  );
+  const attachmentFiles = useMemo<MiniAppFilesApi | null>(() => {
+    if (preview) return null;
+    try {
+      return sdk.files ?? null;
+    } catch {
+      return null;
+    }
+  }, [preview]);
   const [state, setState] = useState<MailState>(() => preview ? previewMailState() : emptyMailState());
   const [hydrated, setHydrated] = useState(false);
   const [initialLoadSettled, setInitialLoadSettled] = useState(false);
+  const [coordinatorNetworkReady, setCoordinatorNetworkReady] = useState(false);
   const [locationReady, setLocationReady] = useState(false);
-  const [loadError, setLoadError] = useState('');
+  const [mailboxError, setMailboxError] = useState('');
+  const [cacheError, setCacheError] = useState('');
+  const [activityError, setActivityError] = useState('');
+  const [initialMailboxApprovalPending, setInitialMailboxApprovalPending] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>('none');
-  const [replyMode, setReplyMode] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState<Readonly<Record<string, ReplyDraft>>>({});
+  const [poppedReplyKey, setPoppedReplyKey] = useState<string | null>(null);
+  const [threadListCollapsed, setThreadListCollapsed] = useState(false);
+  const [messageExpansionRequest, setMessageExpansionRequest] =
+    useState<MessageExpansionRequest | null>(null);
   const [query, setQuery] = useState('');
+  const [semanticSearch, setSemanticSearch] = useState<SemanticSearchState | null>(null);
+  const [semanticSearchBusy, setSemanticSearchBusy] = useState(false);
   const [toast, setToast] = useState('');
+  const [conversationHandoff, setConversationHandoff] =
+    useState<ConversationHandoffUiState | null>(null);
+  const [emailTask, setEmailTask] = useState<EmailTaskUiState | null>(null);
+  const [composeSeed, setComposeSeed] = useState<ComposeSeed | null>(null);
+  const [composeDraftKey, setComposeDraftKey] = useState<string | null>(null);
+  const [scheduledSends, setScheduledSends] = useState<readonly ScheduledSendSummary[]>([]);
   const [connectionBusy, setConnectionBusy] = useState(false);
+  const [googleAuthorizationUrl, setGoogleAuthorizationUrl] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [dispatchTick, setDispatchTick] = useState(0);
+  const [hydrationRetryTick, setHydrationRetryTick] = useState(0);
   const [chord, setChord] = useState<'g' | null>(null);
+  const chordRef = useRef<'g' | null>(null);
   const chordTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<Overlay>('none');
+  const emailTasksInFlight = useRef(new Set<string>());
+  const threadListCollapsedBeforeSidecarRef = useRef(false);
+  const shortcutHandlerRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => undefined);
   const coordinatorRef = useRef<CoordinatorClient | null>(null);
   const stateRef = useRef(state);
+  const commandPersistenceBarrier = useRef(new CommandPersistenceBarrier());
   const submittedCommands = useRef(new Set<string>());
-  const loadedThreads = useRef(new Set<string>());
+  const commandDispatchQueues = useRef(new Map<string, Promise<void>>());
+  const loadedThreadRevisions = useRef(new Map<string, string>());
+  const threadHydrationInFlight = useRef(new Map<string, string>());
+  const threadHydrationFailures = useRef(new Map<
+    string,
+    { readonly attempts: number; readonly revision: string }
+  >());
+  const hydrationRetryTimer = useRef<number | null>(null);
+  const refreshMailboxInFlight = useRef<Promise<void> | null>(null);
+  const syncInFlight = useRef<Promise<void> | null>(null);
   const observedNotifications = useRef(new Set<string>());
   const notificationsPrimed = useRef(false);
+  const remoteImageCache = useRef<RemoteImageMemoryCache>({
+    entries: new Map(),
+    sizeBytes: 0,
+  });
+  const remoteImageLoadQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const activityCommitQueue = useRef<Promise<void>>(Promise.resolve());
+  const activitySettlementActive = useRef(true);
+  const activityReconciliationsPending = useRef(new Set<string>());
+  const queuedDraftRevisions = useRef(new Map<string, number>());
+  const semanticIndexRef = useRef<Promise<EmailSemanticIndex> | null>(null);
   const idFactory = useCallback(
     () => surfaceContext?.entropy.randomUUID() ?? crypto.randomUUID(),
     [surfaceContext],
   );
+
+  const enqueueActivityProjection = useCallback((
+    operation: () => Promise<EmailActivityProjection>,
+    propagateOperationFailure = false,
+  ): Promise<void> => {
+    const task = activityCommitQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        let projection: EmailActivityProjection;
+        let operationFailure: unknown;
+        try {
+          projection = await operation();
+        } catch (error) {
+          operationFailure = error;
+          projection = unavailableEmailActivityProjection(
+            new Date().toISOString(),
+            'One or more committed email actions are awaiting private activity reconciliation.',
+          );
+        }
+        await publishEmailActivityProjection(projection);
+        if (operationFailure && propagateOperationFailure) {
+          throw operationFailure;
+        }
+      });
+    activityCommitQueue.current = task.then(() => undefined, () => undefined);
+    return task;
+  }, []);
+
+  const recordCommittedEmailActivity = useCallback((
+    command: MailCommand,
+    receipt: MailCommandReceipt,
+  ): Promise<void> => {
+    const reconciliationKey = `${command.accountId}\u0000${command.commandId}`;
+    activityReconciliationsPending.current.add(reconciliationKey);
+    return enqueueActivityProjection(
+    async () => {
+      const projection = await activityLedger.record(command, receipt);
+      activityReconciliationsPending.current.delete(reconciliationKey);
+      return activityReconciliationsPending.current.size > 0
+        ? incompleteEmailActivityProjection(projection, new Date().toISOString())
+        : projection;
+    },
+    true,
+  ).then(
+    () => {
+      if (activityReconciliationsPending.current.size === 0) {
+        setActivityError('');
+      }
+    },
+    error => {
+      activityReconciliationsPending.current.add(reconciliationKey);
+      setActivityError(
+        'An email action is safe, but its activity receipt is still being reconciled. Activity coverage remains incomplete while TAP Email retries.',
+      );
+      throw error;
+    },
+    );
+  }, [activityLedger, enqueueActivityProjection]);
+
+  const loadRemoteImages = useCallback((
+    context: RemoteImageMessageContext,
+    urls: readonly string[],
+  ) => {
+    const task = remoteImageLoadQueue.current.then(async () => {
+      if (preview) return {};
+      const uniqueUrls = [...new Set(urls)];
+      const missingFromMemory = uniqueUrls.filter(url =>
+        recallRemoteImage(remoteImageCache.current, url) === null);
+      if (missingFromMemory.length > 0) {
+        const locallyCached = await store.loadRemoteImages(missingFromMemory)
+          .catch(() => ({}));
+        for (const [url, dataUrl] of Object.entries(locallyCached)) {
+          rememberRemoteImage(remoteImageCache.current, url, dataUrl);
+        }
+      }
+      const missing = uniqueUrls.filter(url =>
+        recallRemoteImage(remoteImageCache.current, url) === null);
+      if (missing.length > 0 && coordinatorNetworkReady) {
+        try {
+          const client = coordinatorRef.current ?? createCoordinatorClient();
+          coordinatorRef.current = client;
+          const loaded = await client.loadRemoteImages(context, missing);
+          for (const [url, dataUrl] of Object.entries(loaded)) {
+            rememberRemoteImage(remoteImageCache.current, url, dataUrl);
+          }
+          void store.saveRemoteImages(loaded).catch(() => undefined);
+        } catch {
+          // A coordinator or cache failure leaves the isolated message usable;
+          // text and any already-cached images still render.
+        }
+      }
+      return Object.fromEntries(
+        uniqueUrls.flatMap(url => {
+          const dataUrl = recallRemoteImage(remoteImageCache.current, url);
+          return dataUrl ? [[url, dataUrl] as const] : [];
+        }),
+      );
+    });
+    remoteImageLoadQueue.current = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
+  }, [coordinatorNetworkReady, preview, store]);
+
+  const saveMessageAttachment = useCallback<ContextualAttachmentSaver>(async (
+    context: AttachmentMessageContext,
+    attachment: EmailAttachment,
+    onPhase: (phase: AttachmentExportPhase) => void,
+  ) => exportAttachment({
+    attachment,
+    files: attachmentFiles,
+    idempotencyKey: `tap-email:attachment-export:${idFactory()}`,
+    onPhase,
+    loadAttachment: async () => {
+      const identity: AttachmentCacheIdentity = {
+        accountId: context.accountId,
+        threadId: context.threadId,
+        messageId: context.messageId,
+        resourceId: attachment.resourceId,
+        sizeBytes: attachment.sizeBytes,
+      };
+      const cached = await store.loadAttachment(identity).catch(() => null);
+      if (cached) return cached;
+      if (!coordinatorNetworkReady) {
+        throw new AttachmentExportError(
+          'offline',
+          'Attachment download is unavailable until the mailbox connection is ready.',
+        );
+      }
+
+      const client = coordinatorRef.current ?? createCoordinatorClient();
+      coordinatorRef.current = client;
+      const downloaded = await client.downloadAttachment(context, attachment);
+      await store.saveAttachment(identity, downloaded).catch(() => undefined);
+      return downloaded;
+    },
+  }), [attachmentFiles, coordinatorNetworkReady, idFactory, store]);
+
+  const stageDraftAttachments = useCallback(async (
+    accountId: string,
+    draftKey: string,
+    existingAttachments: readonly MailDraftAttachment[],
+  ): Promise<SelectAndStageAttachmentsResult> => {
+    if (preview || !coordinatorNetworkReady) {
+      return {
+        attachments: [],
+        cancelled: false,
+        failures: ['Attachments are unavailable until the mailbox connection is ready.'],
+      };
+    }
+    const client = coordinatorRef.current ?? createCoordinatorClient();
+    coordinatorRef.current = client;
+    return selectAndStageAttachments({
+      accountId,
+      draftKey,
+      existingAttachments,
+      files: attachmentFiles,
+      idFactory,
+      stageAttachment: input => client.stageAttachment(input),
+    });
+  }, [attachmentFiles, coordinatorNetworkReady, idFactory, preview]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -507,6 +907,12 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
 
   useEffect(() => {
     let active = true;
+    let pendingMailboxRequest: DelayedPendingRequest<{
+      readonly mailbox: Awaited<ReturnType<CoordinatorClient['getMailbox']>> | null;
+      readonly error: unknown;
+    }> | null = null;
+    setCoordinatorNetworkReady(false);
+    setInitialMailboxApprovalPending(false);
     void (async () => {
       try {
         if (preview) {
@@ -515,18 +921,28 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
             loadPreferences(true).catch(() => defaultPreferences),
           ]);
           if (!active) return;
+          commandPersistenceBarrier.current.seedFromCache(
+            mail ?? { commands: [] },
+            store.capability,
+          );
           setState(current => ({
             ...(mail ?? current),
-            preferences: mail?.preferences ?? preferences,
+            preferences: normalizeMailPreferences(mail?.preferences ?? preferences),
           }));
           setHydrated(true);
           requestAnimationFrame(() => rootRef.current?.focus());
         } else {
+          await waitForHostAuthority(surfaceContext);
           const client = createCoordinatorClient();
           coordinatorRef.current = client;
-          const mailboxRequest = client.getMailbox().then(
-            mailbox => ({ mailbox, error: null }),
-            error => ({ mailbox: null, error }),
+          pendingMailboxRequest = watchForDelayedPendingRequest(
+            client.getMailbox().then(
+              mailbox => ({ mailbox, error: null }),
+              error => ({ mailbox: null, error }),
+            ),
+            pending => {
+              if (active) setInitialMailboxApprovalPending(pending);
+            },
           );
           const cacheRequest = store.load().then(
             mail => ({ mail, error: null }),
@@ -537,28 +953,37 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
             loadPreferences(false).catch(() => defaultPreferences),
           ]);
           if (!active) return;
+          commandPersistenceBarrier.current.seedFromCache(
+            cached.mail ?? { commands: [] },
+            store.capability,
+          );
           setState(current => ({
             ...(cached.mail ?? current),
-            preferences: cached.mail?.preferences ?? preferences,
+            preferences: normalizeMailPreferences(
+              cached.mail?.preferences ?? preferences,
+            ),
           }));
           setHydrated(true);
           requestAnimationFrame(() => rootRef.current?.focus());
 
-          const remote = await mailboxRequest;
+          const remote = await pendingMailboxRequest.result;
           if (!active) return;
           if (remote.error || !remote.mailbox) {
-            setLoadError(
+            setMailboxError(
               cached.mail
                 ? `Using the device cache because cloud refresh failed: ${String(remote.error)}`
                 : `TAP Email could not open the cloud mailbox: ${String(remote.error)}`,
             );
             return;
           }
+          const mailbox = remote.mailbox;
+          setCoordinatorNetworkReady(true);
           setState(current => ({
-            ...mergeMailboxSnapshot(current, remote.mailbox),
+            ...mergeMailboxSnapshot(current, mailbox),
             preferences: current.preferences,
           }));
-          setLoadError(
+          setMailboxError('');
+          setCacheError(
             cached.error
               ? `Mail is live, but the device cache could not open: ${String(cached.error)}`
               : '',
@@ -566,7 +991,7 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
         }
       } catch (error) {
         if (!active) return;
-        setLoadError(`TAP Email could not open the cloud mailbox: ${String(error)}`);
+        setMailboxError(`TAP Email could not open the cloud mailbox: ${String(error)}`);
       } finally {
         if (active) {
           setHydrated(true);
@@ -577,8 +1002,9 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
     })();
     return () => {
       active = false;
+      pendingMailboxRequest?.cancel();
     };
-  }, [preview, store]);
+  }, [preview, store, surfaceContext]);
 
   useEffect(() => {
     if (
@@ -589,20 +1015,57 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
       return;
     }
     const timer = window.setTimeout(() => {
-      void store.save(state).catch(error => {
-        if (store.capability === 'private-profile-sqlite') {
-          setLoadError(`Mail is live, but the device cache could not save: ${String(error)}`);
-        }
-      });
+      void store.save(state).then(
+        () => {
+          const released = commandPersistenceBarrier.current
+            .releaseAfterSuccessfulSave(state, store.capability);
+          setCacheError('');
+          if (released) setDispatchTick(value => value + 1);
+        },
+        error => {
+          if (store.capability === 'private-profile-sqlite') {
+            setCacheError(
+              `Mail is live, but the device cache could not save. Email actions remain queued and have not been submitted: ${String(error)}`,
+            );
+          }
+        },
+      );
     }, 250);
     return () => window.clearTimeout(timer);
   }, [hydrated, state, store]);
 
+  useEffect(() => {
+    activitySettlementActive.current = true;
+    return () => {
+      activitySettlementActive.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || preview) return;
+    void enqueueActivityProjection(() => activityLedger.snapshot()).catch(
+      () => undefined,
+    );
+  }, [activityLedger, enqueueActivityProjection, hydrated, preview]);
+
   useEffect(
     () => () => {
+      if (hydrationRetryTimer.current !== null) {
+        window.clearTimeout(hydrationRetryTimer.current);
+      }
       void store.close().catch(() => undefined);
+      const pendingActivity = activityCommitQueue.current;
+      void pendingActivity
+        .catch(() => undefined)
+        .then(() => activityLedger.close())
+        .catch(() => undefined);
+      const semanticIndex = semanticIndexRef.current;
+      semanticIndexRef.current = null;
+      if (semanticIndex) {
+        void semanticIndex.then(index => index.close()).catch(() => undefined);
+      }
     },
-    [store],
+    [activityLedger, store],
   );
 
   useEffect(() => {
@@ -617,31 +1080,195 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
     return () => globalThis.removeEventListener('hashchange', applyLocation);
   }, [hydrated, initialLoadSettled]);
 
-  const thread = selectedThread(state);
+  useEffect(() => {
+    if (!hydrated || preview || !sdk.navigation.subscribeDeepLinks) return;
+    return sdk.navigation.subscribeDeepLinks(request => {
+      const link = parseConversationHandoffDeepLink(request.target);
+      if (!link) return;
+      setOverlay('none');
+      setState(current => {
+        const target = current.threads.find(item =>
+          item.accountId === link.accountId && item.threadId === link.threadId);
+        if (!target) return current;
+        const selected = selectSplit(
+          selectAccount(current, link.accountId),
+          preferredMailboxSplit(target),
+        );
+        return {
+          ...selected,
+          selectedThreadKey: emailThreadKey(target),
+        };
+      });
+    });
+  }, [hydrated, preview]);
+
+  const runSemanticSearch = useCallback(async () => {
+    const searchQuery = query.trim();
+    if (!searchQuery || semanticSearchBusy) return;
+    setSemanticSearchBusy(true);
+    try {
+      const searchContext = { now: new Date(), timeZone: mailSearchTimeZone };
+      const parsedSearch = parseMailSearchQuery(searchQuery, searchContext);
+      const current = stateRef.current;
+      const candidates = accountScopedThreads(current);
+      if (!parsedSearch.textQuery) {
+        const threadKeys = filterMailThreads(
+          candidates,
+          searchQuery,
+          searchContext,
+        ).map(emailThreadKey);
+        setSemanticSearch({ query: searchQuery, threadKeys });
+        setToast(threadKeys.length === 1
+          ? '1 exact local match.'
+          : `${threadKeys.length} exact local matches.`);
+        return;
+      }
+      const profileStorage = sdk.storage.profile;
+      const embeddings = sdk.embeddings;
+      if (!profileStorage || !embeddings) {
+        throw new Error('Local semantic search is unavailable on this TAP host.');
+      }
+      let pendingIndex = semanticIndexRef.current;
+      if (!pendingIndex) {
+        pendingIndex = openEmailSemanticIndex(profileStorage, embeddings);
+        semanticIndexRef.current = pendingIndex;
+      }
+      let index: EmailSemanticIndex;
+      try {
+        index = await pendingIndex;
+      } catch (error) {
+        if (semanticIndexRef.current === pendingIndex) semanticIndexRef.current = null;
+        throw error;
+      }
+      await index.indexThreads(current.threads);
+      const matches = await index.search(parsedSearch.textQuery || searchQuery, {
+        topK: 100,
+        ...(current.selectedAccountId === 'all'
+          ? {}
+          : { accountId: current.selectedAccountId }),
+      });
+      const candidatesByKey = new Map(
+        candidates.map(item => [emailThreadKey(item), item] as const),
+      );
+      const semanticThreadKeys = matches
+        .map(match => match.threadKey)
+        .filter(threadKey => {
+          const item = candidatesByKey.get(threadKey);
+          return item && threadMatchesMailSearchConstraints(
+            item,
+            parsedSearch,
+            searchContext.timeZone,
+          );
+        });
+      const deterministicThreadKeys = filterMailThreads(
+        candidates,
+        searchQuery,
+        searchContext,
+      ).map(emailThreadKey);
+      const threadKeys = fuseMailSearchRanks(
+        deterministicThreadKeys,
+        semanticThreadKeys,
+      );
+      setSemanticSearch({ query: searchQuery, threadKeys });
+      setToast(threadKeys.length === 1
+        ? '1 meaning match from the local index.'
+        : `${threadKeys.length} meaning matches from the local index.`);
+    } catch {
+      setSemanticSearch(null);
+      setToast('Meaning search needs an installed local embedding model and private vector storage.');
+    } finally {
+      setSemanticSearchBusy(false);
+    }
+  }, [query, semanticSearchBusy]);
   const rows = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    const candidates = visibleThreads(state);
-    return normalized
-      ? candidates.filter(item =>
-          `${item.subject} ${item.snippet} ${displayParticipant(item)}`
-            .toLowerCase()
-            .includes(normalized),
-        )
-      : candidates;
-  }, [query, state]);
+    const candidates = query.trim()
+      ? accountScopedThreads(state)
+      : visibleThreads(state);
+    const searchContext = { now: new Date(), timeZone: mailSearchTimeZone };
+    const parsedSearch = parseMailSearchQuery(query, searchContext);
+    if (semanticSearch && semanticSearch.query === query.trim()) {
+      const candidatesByKey = new Map(
+        candidates.map(item => [emailThreadKey(item), item] as const),
+      );
+      return semanticSearch.threadKeys.flatMap(threadKey => {
+        const item = candidatesByKey.get(threadKey);
+        return item && threadMatchesMailSearchConstraints(
+          item,
+          parsedSearch,
+          searchContext.timeZone,
+        ) ? [item] : [];
+      });
+    }
+    return filterMailThreads(candidates, query, searchContext);
+  }, [query, semanticSearch, state]);
 
   useEffect(() => {
     if (!query.trim() || rows.length === 0) return;
     setState(current =>
       rows.some(item => emailThreadKey(item) === current.selectedThreadKey)
         ? current
-        : { ...current, selectedThreadKey: emailThreadKey(rows[0]!) },
+        : {
+            ...current,
+            selectedThreadKey: emailThreadKey(rows[0]!),
+            selectedSplit: preferredMailboxSplit(rows[0]!),
+          },
     );
   }, [query, rows]);
+  const thread = query.trim()
+    ? rows.find(item => emailThreadKey(item) === state.selectedThreadKey) ?? rows[0] ?? null
+    : selectedThread(state);
+  const currentThreadKey = thread ? emailThreadKey(thread) : null;
+  const activeReplyDraft = currentThreadKey ? replyDrafts[currentThreadKey] ?? null : null;
+  const poppedReplyDraft = poppedReplyKey ? replyDrafts[poppedReplyKey] ?? null : null;
+  const selectedThreadAccountId = thread?.accountId ?? null;
+  const selectedThreadId = thread?.threadId ?? null;
+  const activeConversationHandoff = thread &&
+    conversationHandoff?.threadKey === emailThreadKey(thread)
+    ? conversationHandoff
+    : null;
+  const conversationHandoffBusy = activeConversationHandoff?.status === 'checking' ||
+    activeConversationHandoff?.status === 'creating' ||
+    activeConversationHandoff?.status === 'sending';
+  const conversationHandoffFinished = activeConversationHandoff?.status === 'created' ||
+    activeConversationHandoff?.status === 'partial';
+  const activeEmailTask = thread && emailTask?.threadKey === emailThreadKey(thread)
+    ? emailTask
+    : null;
+  const emailTaskBusy = activeEmailTask?.status === 'creating';
+  const emailTaskFinished = activeEmailTask?.status === 'completed' ||
+    activeEmailTask?.status === 'duplicate-suppressed';
   const summary = useMemo(
     () => mailboxSummary(state, new Date().toISOString()),
     [state],
   );
+  const outboxItems = useMemo(() => recoverableImmediateSends(state)
+    .filter(item => {
+      const accountId = item.attempts[0]?.command.accountId;
+      return accountId && (
+        state.selectedAccountId === 'all' || accountId === state.selectedAccountId
+      );
+    })
+    .slice()
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)), [
+      state,
+    ]);
+  const searchCoverage = useMemo(() => {
+    if (!query.trim()) return null;
+    const selectedCoverage = state.accounts
+      .filter(account =>
+        state.selectedAccountId === 'all' || account.accountId === state.selectedAccountId)
+      .map(account => account.coverage);
+    return createMailSearchCoverageReceipt(selectedCoverage, {
+      parsedQuery: parseMailSearchQuery(query, {
+        now: new Date(),
+        timeZone: mailSearchTimeZone,
+      }),
+      timeZone: mailSearchTimeZone,
+    });
+  }, [query, state.accounts, state.selectedAccountId]);
+  const activeMailView = mailViewDefinition(state.selectedSplit);
+  const listReferenceNow = new Date();
+  const rowGroups = groupThreadsByDay(rows, listReferenceNow);
 
   useEffect(() => {
     const row = selectedRowRef.current;
@@ -652,15 +1279,24 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
 
   useEffect(() => {
     if (!locationReady || !globalThis.location?.href) return;
+    const locationThread = selectedThreadAccountId && selectedThreadId
+      ? { accountId: selectedThreadAccountId, threadId: selectedThreadId }
+      : null;
     globalThis.history.replaceState(
       null,
       '',
       withMailViewHash(
         globalThis.location.href,
-        mailViewLocation(state.selectedAccountId, state.selectedSplit, thread),
+        mailViewLocation(state.selectedAccountId, state.selectedSplit, locationThread),
       ),
     );
-  }, [locationReady, state.selectedAccountId, state.selectedSplit, thread]);
+  }, [
+    locationReady,
+    selectedThreadAccountId,
+    selectedThreadId,
+    state.selectedAccountId,
+    state.selectedSplit,
+  ]);
 
   useEffect(() => {
     if (!hydrated || preview) return;
@@ -700,6 +1336,53 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
     setToast(message);
     window.setTimeout(() => setToast(current => current === message ? '' : current), 2400);
   }, []);
+
+  const correctSelectedThreadAttention = useCallback((
+    correction: ThreadAttentionCorrectionInput,
+  ) => {
+    if (!selectedThreadAccountId || !selectedThreadId) return;
+    setState(current => correctThreadAttention(
+      current,
+      selectedThreadAccountId,
+      selectedThreadId,
+      correction,
+      new Date().toISOString(),
+    ));
+    flash('Triage correction saved in TAP Email.');
+  }, [flash, selectedThreadAccountId, selectedThreadId]);
+
+  overlayRef.current = overlay;
+
+  useEffect(() => {
+    if (!surfaceContext || preview) return;
+    let artifacts;
+    try {
+      artifacts = sdk.artifacts;
+    } catch {
+      artifacts = undefined;
+    }
+    return subscribeToArtifactEmailLaunches({
+      context: surfaceContext,
+      artifacts,
+      onDraft: draft => {
+        if (overlayRef.current === 'compose') {
+          flash('Finish or close the current draft, then choose Email this again.');
+          return;
+        }
+        setComposeSeed({
+          requestId: draft.requestId,
+          subject: draft.subject,
+          bodyText: draft.bodyText,
+        });
+        setComposeDraftKey(`draft_${idFactory()}`);
+        setOverlay('compose');
+        flash('TAP context added to a reviewable email draft.');
+      },
+      onError: () => {
+        flash('TAP Email could not resolve that item. Open it and try Email this again.');
+      },
+    });
+  }, [flash, idFactory, preview, surfaceContext]);
 
   const notify = useCallback((message: string) => {
     if (preview || !sdk.notifications) return;
@@ -748,57 +1431,191 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
     }
   }, [hydrated, initialLoadSettled, notify, preview, state.preferences, state.threads]);
 
-  const refreshMailbox = useCallback(async () => {
-    const client = coordinatorRef.current;
-    if (!client || stateRef.current.commands.length > 0) return;
-    const mailbox = await client.getMailbox();
-    loadedThreads.current.clear();
-    setState(current =>
-      current.commands.length > 0 ? current : mergeMailboxSnapshot(current, mailbox),
-    );
-    setLoadError('');
-  }, []);
+  const refreshMailbox = useCallback((): Promise<void> => {
+    const existingRefresh = refreshMailboxInFlight.current;
+    if (existingRefresh) return existingRefresh;
 
-  const requestFreshMail = useCallback(async () => {
-    const client = coordinatorRef.current;
-    if (!client) return;
-    setSyncing(true);
-    try {
-      await Promise.all(
-        stateRef.current.accounts.map(account => client.requestSync(account.accountId)),
+    const refresh = (async () => {
+      if (stateRef.current.commands.length > 0) return;
+      await waitForHostAuthority(surfaceContext);
+      const client = coordinatorRef.current ?? createCoordinatorClient();
+      coordinatorRef.current = client;
+      const mailbox = await client.getMailbox();
+      setCoordinatorNetworkReady(true);
+
+      // Retain hydration for every thread still represented by the mailbox.
+      // A changed providerRevision naturally misses the revision-aware lookup
+      // below and revalidates only that selected conversation.
+      const mailboxThreadKeys = new Set(mailbox.threads.map(emailThreadKey));
+      for (const key of loadedThreadRevisions.current.keys()) {
+        if (!mailboxThreadKeys.has(key)) loadedThreadRevisions.current.delete(key);
+      }
+      for (const key of threadHydrationInFlight.current.keys()) {
+        if (!mailboxThreadKeys.has(key)) threadHydrationInFlight.current.delete(key);
+      }
+      for (const key of threadHydrationFailures.current.keys()) {
+        if (!mailboxThreadKeys.has(key)) threadHydrationFailures.current.delete(key);
+      }
+      setState(current =>
+        current.commands.length > 0 ? current : mergeMailboxSnapshot(current, mailbox),
       );
-      await wait(1_200);
-      await refreshMailbox();
-    } finally {
-      setSyncing(false);
-    }
+      setMailboxError('');
+    })();
+
+    refreshMailboxInFlight.current = refresh;
+    void refresh.then(
+      () => {
+        if (refreshMailboxInFlight.current === refresh) {
+          refreshMailboxInFlight.current = null;
+        }
+      },
+      () => {
+        if (refreshMailboxInFlight.current === refresh) {
+          refreshMailboxInFlight.current = null;
+        }
+      },
+    );
+    return refresh;
+  }, [surfaceContext]);
+
+  const requestFreshMail = useCallback((): Promise<void> => {
+    const existingSync = syncInFlight.current;
+    if (existingSync) return existingSync;
+
+    const sync = (async () => {
+      const client = coordinatorRef.current;
+      if (!client) return;
+      setSyncing(true);
+      try {
+        const queued = await Promise.all(
+          stateRef.current.accounts.map(account => client.requestSync(account.accountId)),
+        );
+        // A throttled request means there is no new queue work to wait for.
+        // The lightweight refresh remains useful and is now non-destructive.
+        if (queued.some(Boolean)) await wait(1_200);
+        await refreshMailbox();
+      } finally {
+        setSyncing(false);
+      }
+    })();
+
+    syncInFlight.current = sync;
+    void sync.then(
+      () => {
+        if (syncInFlight.current === sync) syncInFlight.current = null;
+      },
+      () => {
+        if (syncInFlight.current === sync) syncInFlight.current = null;
+      },
+    );
+    return sync;
   }, [refreshMailbox]);
 
-  const connectGoogle = useCallback(() => {
-    if (preview || connectionBusy) return;
-    const popup = window.open(
-      '',
-      'tap-email-google-connect',
-      'popup,width=520,height=720',
-    );
-    if (!popup) {
-      flash('Allow the Google connection window and try again');
+  const createMailMergeDrafts = useCallback(async (
+    commands: readonly MailCommand<MailDraftPayload>[],
+  ): Promise<readonly MailCommandReceipt[]> => {
+    if (preview || !coordinatorNetworkReady) {
+      throw new Error('Provider draft creation requires a live, connected mailbox.');
+    }
+    await waitForHostAuthority(surfaceContext);
+    const client = coordinatorRef.current ?? createCoordinatorClient();
+    coordinatorRef.current = client;
+    return persistProviderVisibleMailMergeDrafts({
+      client,
+      commands,
+      onReceipt: async (command, receipt) => {
+        await recordCommittedEmailActivity(command, receipt);
+      },
+    });
+  }, [
+    coordinatorNetworkReady,
+    preview,
+    recordCommittedEmailActivity,
+    surfaceContext,
+  ]);
+
+  const refreshScheduledSends = useCallback(async (): Promise<void> => {
+    if (preview || !coordinatorNetworkReady) {
+      setScheduledSends([]);
       return;
     }
-    popup.opener = null;
+    const client = coordinatorRef.current ?? createCoordinatorClient();
+    coordinatorRef.current = client;
+    setScheduledSends(await client.getScheduledSends());
+  }, [coordinatorNetworkReady, preview]);
+
+  useEffect(() => {
+    if (state.selectedSplit !== 'scheduled' || state.commands.length > 0) return;
+    void refreshScheduledSends().catch(() => {
+      flash('Scheduled messages could not be refreshed.');
+    });
+  }, [flash, refreshScheduledSends, state.commands.length, state.selectedSplit]);
+
+  const prepareGoogleConnection = useCallback(() => {
+    if (preview || connectionBusy || googleAuthorizationUrl) return;
     setConnectionBusy(true);
     void (async () => {
       try {
+        if (!(await hasEmailAuthority(surfaceContext, EMAIL_NETWORK_ACTION))) {
+          flash('TAP did not grant TAP Email network access yet.');
+          return;
+        }
+        if (
+          !(await hasEmailAuthority(surfaceContext, EMAIL_OPEN_EXTERNAL_ACTION))
+        ) {
+          flash('TAP did not grant external navigation for Google sign-in.');
+          return;
+        }
+        const client = coordinatorRef.current ?? createCoordinatorClient();
+        coordinatorRef.current = client;
+        const authorizationUrl = await client.beginGoogleConnection();
+        setGoogleAuthorizationUrl(authorizationUrl);
+        flash('Google sign-in is ready · continue to Google');
+      } catch (error) {
+        flash(`Google connection failed: ${String(error)}`);
+      } finally {
+        setConnectionBusy(false);
+      }
+    })();
+  }, [connectionBusy, flash, googleAuthorizationUrl, preview, surfaceContext]);
+
+  const continueGoogleConnection = useCallback(() => {
+    if (preview || connectionBusy || !googleAuthorizationUrl) return;
+
+    let launch;
+    try {
+      // The helper invokes TAP navigation before this trusted click handler yields.
+      launch = launchGoogleAuthorization(
+        googleAuthorizationUrl,
+        sdk.navigation.openExternal,
+        (url, target, features) => window.open(url, target, features),
+      );
+      if (!launch) {
+        flash('Allow the Google connection window and try again');
+        return;
+      }
+    } catch (error) {
+      flash(`Google connection failed: ${String(error)}`);
+      return;
+    }
+
+    setConnectionBusy(true);
+    void (async () => {
+      try {
+        await launch.completion;
+        flash(
+          launch.openedExternally
+            ? 'Finish connecting Google in the browser window'
+            : 'Finish connecting Google in the new window',
+        );
         const client = coordinatorRef.current ?? createCoordinatorClient();
         coordinatorRef.current = client;
         const existing = new Set(stateRef.current.accounts.map(account => account.accountId));
-        const authorizationUrl = await client.beginGoogleConnection();
-        popup.location.replace(authorizationUrl);
-        flash('Finish connecting Google in the new window');
         for (let attempt = 0; attempt < 45; attempt += 1) {
           await wait(2_000);
           const mailbox = await client.getMailbox();
           if (mailbox.accounts.some(account => !existing.has(account.accountId))) {
+            setGoogleAuthorizationUrl(null);
             setState(current => mergeMailboxSnapshot(current, mailbox));
             flash('Google connected · newest mail is arriving');
             return;
@@ -806,48 +1623,109 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
         }
         flash('Google is still connecting; refresh TAP Email in a moment');
       } catch (error) {
-        popup.close();
+        launch.popup?.close();
         flash(`Google connection failed: ${String(error)}`);
       } finally {
         setConnectionBusy(false);
       }
     })();
-  }, [connectionBusy, flash, preview]);
+  }, [connectionBusy, flash, googleAuthorizationUrl, preview]);
+
+  const connectGoogle = googleAuthorizationUrl
+    ? continueGoogleConnection
+    : prepareGoogleConnection;
+  const connectGoogleLabel = connectionBusy
+    ? googleAuthorizationUrl
+      ? 'Waiting for Google…'
+      : 'Preparing…'
+    : googleAuthorizationUrl
+      ? 'Continue to Google'
+      : 'Add Google';
 
   useEffect(() => {
-    if (!hydrated || preview || state.accounts.length === 0) return;
+    if (
+      !hydrated ||
+      !initialLoadSettled ||
+      !coordinatorNetworkReady ||
+      preview ||
+      state.accounts.length === 0
+    ) return;
     void requestFreshMail().catch(error =>
-      setLoadError(`Mailbox synchronization failed: ${String(error)}`),
+      setMailboxError(`Mailbox synchronization failed: ${String(error)}`),
     );
     const interval = window.setInterval(() => {
       if (stateRef.current.commands.length > 0) return;
       void requestFreshMail().catch(() => undefined);
     }, 30_000);
     return () => window.clearInterval(interval);
-  }, [hydrated, preview, requestFreshMail, state.accounts.length]);
+  }, [coordinatorNetworkReady, hydrated, initialLoadSettled, preview, requestFreshMail, state.accounts.length]);
 
   useEffect(() => {
-    if (preview || !thread) return;
-    const key = `${thread.accountId}:${thread.threadId}`;
-    if (loadedThreads.current.has(key)) return;
-    loadedThreads.current.add(key);
+    if (preview || !initialLoadSettled || !coordinatorNetworkReady || !thread) return;
+    const key = emailThreadKey(thread);
+    const requestedRevision = thread.providerRevision;
+    if (loadedThreadRevisions.current.get(key) === requestedRevision) return;
+    if (threadHydrationInFlight.current.get(key) === requestedRevision) return;
     const client = coordinatorRef.current;
     if (!client) return;
+    threadHydrationInFlight.current.set(key, requestedRevision);
     void client.getThread(thread.accountId, thread.threadId)
       .then(messages => {
-        setState(current =>
-          mergeThreadMessages(current, thread.accountId, thread.threadId, messages),
-        );
+        if (threadHydrationInFlight.current.get(key) !== requestedRevision) return;
+        threadHydrationInFlight.current.delete(key);
+        threadHydrationFailures.current.delete(key);
+        loadedThreadRevisions.current.set(key, requestedRevision);
+        setState(current => {
+          const currentThread = current.threads.find(item =>
+            item.accountId === thread.accountId && item.threadId === thread.threadId
+          );
+          // Ignore detail returned for a revision that was superseded while
+          // this request was in flight. The effect will fetch the new revision.
+          return currentThread?.providerRevision === requestedRevision
+            ? mergeThreadMessages(current, thread.accountId, thread.threadId, messages)
+            : current;
+        });
       })
-      .catch(() => loadedThreads.current.delete(key));
-  }, [preview, thread]);
+      .catch(() => {
+        if (threadHydrationInFlight.current.get(key) !== requestedRevision) return;
+        threadHydrationInFlight.current.delete(key);
+        if (loadedThreadRevisions.current.get(key) === requestedRevision) {
+          loadedThreadRevisions.current.delete(key);
+        }
+        const previousFailure = threadHydrationFailures.current.get(key);
+        const attempts = previousFailure?.revision === requestedRevision
+          ? previousFailure.attempts + 1
+          : 1;
+        threadHydrationFailures.current.set(key, {
+          attempts,
+          revision: requestedRevision,
+        });
+        if (attempts <= 2 && hydrationRetryTimer.current === null) {
+          hydrationRetryTimer.current = window.setTimeout(() => {
+            hydrationRetryTimer.current = null;
+            setHydrationRetryTick(value => value + 1);
+          }, attempts * 750);
+        }
+      });
+  }, [
+    coordinatorNetworkReady,
+    hydrationRetryTick,
+    initialLoadSettled,
+    preview,
+    thread,
+  ]);
 
   useEffect(() => {
-    if (preview || !hydrated) return;
+    if (preview || !hydrated || !initialLoadSettled || !coordinatorNetworkReady) return;
     const currentTime = Date.now();
     let wakeAt: number | null = null;
     for (const command of state.commands) {
       if (submittedCommands.current.has(command.commandId)) continue;
+      const persistence = commandPersistenceBarrier.current.readiness(
+        command,
+        store.capability,
+      );
+      if (!persistence.ready) continue;
       const undoExpiry = state.undo?.commandId === command.commandId
         ? Date.parse(state.undo.expiresAt)
         : null;
@@ -858,17 +1736,34 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
       const client = coordinatorRef.current;
       if (!client) continue;
       submittedCommands.current.add(command.commandId);
-      void (async () => {
+      const preceding = commandDispatchQueues.current.get(command.accountId) ?? Promise.resolve();
+      const queued = preceding.catch(() => undefined).then(async () => {
         try {
           await client.submitCommand(command);
           for (let attempt = 0; attempt < 120; attempt += 1) {
             const receipt = await client.getCommand(command.commandId);
             if (['applied', 'failed', 'uncertain', 'cancelled'].includes(receipt.state)) {
-              setState(current => ({
-                ...current,
-                commands: current.commands.filter(item => item.commandId !== command.commandId),
-                undo: current.undo?.commandId === command.commandId ? null : current.undo,
-              }));
+              const activitySettlement = await commitActivityBeforeSettlement({
+                commit: () => recordCommittedEmailActivity(command, receipt),
+                settle: () => setState(current => settleMailCommand(
+                  current,
+                  command,
+                  receipt,
+                  new Date().toISOString(),
+                )),
+                canSettle: () => activitySettlementActive.current &&
+                  stateRef.current.commands.some(item =>
+                    item.commandId === command.commandId
+                  ),
+                waitForRetry: async (_error, failedAttempts) => {
+                  if (failedAttempts === 1 || failedAttempts % 10 === 0) {
+                    flash('Activity history is catching up; the email action remains safely queued.');
+                  }
+                  await wait(Math.min(1_000 * 2 ** (failedAttempts - 1), 10_000));
+                  return activitySettlementActive.current;
+                },
+              });
+              if (activitySettlement === 'deferred') return;
               if (receipt.state !== 'applied') {
                 flash(`Email action needs attention: ${receipt.errorCode ?? receipt.state}`);
                 if (
@@ -878,9 +1773,11 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
                   notify('An email send needs attention. Review it before retrying.');
                 }
               }
-              await client.requestSync(command.accountId).catch(() => false);
-              await wait(1_200);
-              await refreshMailbox().catch(() => undefined);
+              if (command.kind !== 'save_draft') {
+                await client.requestSync(command.accountId).catch(() => false);
+                await wait(1_200);
+                await refreshMailbox().catch(() => undefined);
+              }
               return;
             }
             await wait(500);
@@ -892,7 +1789,13 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
           flash(`Email action failed: ${String(error)}`);
           window.setTimeout(() => setDispatchTick(value => value + 1), 2_000);
         }
-      })();
+      });
+      commandDispatchQueues.current.set(command.accountId, queued);
+      void queued.then(() => {
+        if (commandDispatchQueues.current.get(command.accountId) === queued) {
+          commandDispatchQueues.current.delete(command.accountId);
+        }
+      });
     }
     if (wakeAt !== null) {
       const timer = window.setTimeout(
@@ -901,19 +1804,224 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
       );
       return () => window.clearTimeout(timer);
     }
-  }, [dispatchTick, flash, hydrated, notify, preview, refreshMailbox, state.commands, state.undo]);
+  }, [coordinatorNetworkReady, dispatchTick, flash, hydrated, initialLoadSettled, notify, preview, recordCommittedEmailActivity, refreshMailbox, state.commands, state.undo, store.capability]);
+
+  const openThread = useCallback((target: EmailThread) => {
+    const commandId = `cmd_${idFactory()}`;
+    const now = new Date().toISOString();
+    setState(current => {
+      const selected = {
+        ...current,
+        selectedThreadKey: emailThreadKey(target),
+        ...(query.trim() ? { selectedSplit: preferredMailboxSplit(target) } : {}),
+      };
+      return markThreadRead(
+        selected,
+        target.accountId,
+        target.threadId,
+        commandId,
+        now,
+      );
+    });
+  }, [idFactory, query]);
+
+  const askChloe = useCallback((intent: ChloeEmailIntent) => {
+    if (!thread) return;
+    if (preview) {
+      flash('Chloe prompts open in the TAP chat panel outside preview.');
+      return;
+    }
+    try {
+      const stagedPrompt = stageChloeEmailPrompt(sdk.chat, thread, intent);
+      void Promise.resolve(stagedPrompt).then(
+        () => flash('Editable Chloe prompt ready in Chat.'),
+        () => flash('Chloe could not open. Check Chat composer access and try again.'),
+      );
+    } catch {
+      flash('Chloe could not open. Check Chat composer access and try again.');
+    }
+  }, [flash, preview, thread]);
+
+  const beginReply = useCallback((target: EmailThread) => {
+    const threadKey = emailThreadKey(target);
+    const draftKey = `draft_${idFactory()}`;
+    const recipient = target.participants[0];
+    const recipientLabel = recipient?.name || recipient?.address || 'recipient';
+    const to = recipient?.address ?? '';
+    const subject = /^re:/iu.test(target.subject.trim())
+      ? target.subject
+      : `Re: ${target.subject}`;
+    setReplyDrafts(current => {
+      const previousPopped = poppedReplyKey && poppedReplyKey !== threadKey
+        ? current[poppedReplyKey]
+        : null;
+      const withPreviousPoppedInline = previousPopped
+        ? {
+            ...current,
+            [poppedReplyKey!]: { ...previousPopped, placement: 'inline' as const },
+          }
+        : current;
+      const existing = withPreviousPoppedInline[threadKey];
+      return {
+        ...withPreviousPoppedInline,
+        [threadKey]: existing
+          ? { ...existing, focusRequestId: existing.focusRequestId + 1 }
+          : {
+              accountId: target.accountId,
+              attachmentBusy: false,
+              attachmentError: '',
+              attachments: [],
+              bcc: '',
+              bodyText: '',
+              cc: '',
+              draftKey,
+              draftRevision: 1,
+              focusRequestId: 1,
+              inReplyToMessageId: target.messages.at(-1)?.internetMessageId ?? null,
+              placement: 'inline',
+              recipientLabel,
+              subject,
+              threadId: target.threadId,
+              threadKey,
+              to,
+            },
+      };
+    });
+    if (poppedReplyKey && poppedReplyKey !== threadKey) {
+      setPoppedReplyKey(null);
+      setThreadListCollapsed(threadListCollapsedBeforeSidecarRef.current);
+    }
+    setOverlay('none');
+  }, [idFactory, poppedReplyKey]);
+
+  const createTaskFromEmail = useCallback(() => {
+    if (!thread) return;
+    const target = thread;
+    const threadKey = emailThreadKey(target);
+    const workspaceId = surfaceContext?.workspaceId;
+    if (preview || !workspaceId) {
+      const message = 'Creating a TAP Task requires a mounted workspace.';
+      setEmailTask({ threadKey, status: 'error', message });
+      flash(message);
+      return;
+    }
+    if (emailTasksInFlight.current.has(threadKey)) return;
+    emailTasksInFlight.current.add(threadKey);
+    setEmailTask({
+      threadKey,
+      status: 'creating',
+      message: 'Creating the canonical TAP Task…',
+    });
+    void (async () => {
+      if (!(await hasEmailAuthority(surfaceContext, EMAIL_TASK_WRITE_ACTION))) {
+        throw new Error('task-write-denied');
+      }
+      const outcome = await createEmailTask({
+        platform: sdk,
+        workspaceId,
+        destination: {
+          ...(surfaceContext?.channelId
+            ? { channelIds: [surfaceContext.channelId] }
+            : {}),
+          ...(surfaceContext?.userId
+            ? { assigneeUserIds: [surfaceContext.userId] }
+            : {}),
+        },
+        source: {
+          accountId: target.accountId,
+          threadId: target.threadId,
+          subject: target.subject,
+          sender: displayParticipant(target),
+          receivedAt: target.receivedAt,
+          backlink: mailViewDeepLink(
+            target.accountId,
+            preferredMailboxSplit(target),
+            target.threadId,
+          ),
+          critical: target.critical,
+          needsResponse: target.needsResponse,
+          reminderDueAt: target.reminder?.dueAt ?? null,
+        },
+      });
+      const message = outcome.status === 'completed'
+        ? 'Task created with the email source attached.'
+        : outcome.status === 'duplicate-suppressed'
+          ? 'This email already has its canonical TAP Task.'
+          : outcome.status === 'pending'
+            ? 'Task creation is pending in TAP. Its receipt was saved.'
+            : 'TAP rejected task creation. Its failed receipt was saved.';
+      setEmailTask({ threadKey, status: outcome.status, message });
+      flash(message);
+    })().catch(error => {
+      const partial = error instanceof EmailTaskConfigurationError;
+      const receiptCacheFailed = error instanceof EmailTaskReceiptPersistenceError;
+      const message = partial
+        ? 'Task created, but its due date or priority could not be applied. Retry to reconcile it.'
+        : receiptCacheFailed && error.task
+          ? 'Task created, but its local receipt state could not be saved. Replay remains protected by TAP.'
+          : receiptCacheFailed && error.receipt.status === 'pending'
+            ? 'Task creation is pending, but its local receipt state could not be saved.'
+        : error instanceof Error && error.message === 'task-write-denied'
+          ? 'TAP Email is not allowed to create Tasks in this workspace.'
+          : 'TAP Email could not create the Task. Try again.';
+      setEmailTask({
+        threadKey,
+        status: partial || receiptCacheFailed ? 'partial' : 'error',
+        message,
+      });
+      flash(message);
+    }).finally(() => {
+      emailTasksInFlight.current.delete(threadKey);
+    });
+  }, [flash, preview, surfaceContext, thread]);
 
   const runCommand = useCallback((command: EmailKeyCommand) => {
     const now = new Date().toISOString();
     if (command === 'next') {
-      setState(current => query.trim()
-        ? moveWithinThreads(current, rows, 1)
-        : moveSelection(current, 1));
+      const commandId = `cmd_${idFactory()}`;
+      setState(current => {
+        const moved = query.trim()
+          ? moveWithinThreads(current, rows, 1)
+          : moveSelection(current, 1);
+        const opened = query.trim()
+          ? rows.find(item => emailThreadKey(item) === moved.selectedThreadKey) ?? null
+          : selectedThread(moved);
+        const selected = opened && query.trim()
+          ? { ...moved, selectedSplit: preferredMailboxSplit(opened) }
+          : moved;
+        return opened
+          ? markThreadRead(
+              selected,
+              opened.accountId,
+              opened.threadId,
+              commandId,
+              now,
+            )
+          : moved;
+      });
     }
     if (command === 'previous') {
-      setState(current => query.trim()
-        ? moveWithinThreads(current, rows, -1)
-        : moveSelection(current, -1));
+      const commandId = `cmd_${idFactory()}`;
+      setState(current => {
+        const moved = query.trim()
+          ? moveWithinThreads(current, rows, -1)
+          : moveSelection(current, -1);
+        const opened = query.trim()
+          ? rows.find(item => emailThreadKey(item) === moved.selectedThreadKey) ?? null
+          : selectedThread(moved);
+        const selected = opened && query.trim()
+          ? { ...moved, selectedSplit: preferredMailboxSplit(opened) }
+          : moved;
+        return opened
+          ? markThreadRead(
+              selected,
+              opened.accountId,
+              opened.threadId,
+              commandId,
+              now,
+            )
+          : moved;
+      });
     }
     if (command === 'done') {
       setState(current => markDone(current, `cmd_${idFactory()}`, now));
@@ -924,23 +2032,56 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
       flash('Last action undone');
     }
     if (command === 'toggle-star') setState(current => toggleStar(current, `cmd_${idFactory()}`, now));
+    if (command === 'toggle-read' && thread) {
+      setState(current => toggleThreadRead(current, `cmd_${idFactory()}`, now));
+      flash(thread?.unread ? 'Marked read' : 'Marked unread');
+    }
+    if (command === 'trash' && thread) {
+      setState(current => trashThread(current, `cmd_${idFactory()}`, now));
+      flash('Moved to trash · Z to undo');
+    }
+    if (
+      (command === 'toggle-message-expansion' || command === 'expand-all-messages') &&
+      thread
+    ) {
+      setMessageExpansionRequest({
+        accountId: thread.accountId,
+        threadId: thread.threadId,
+        action: command === 'expand-all-messages' ? 'expand-all' : 'toggle-active',
+        requestId: idFactory(),
+      });
+    }
     if (command === 'remind' && thread) setOverlay('remind');
     if (command === 'compose') {
-      setReplyMode(false);
+      setComposeSeed(null);
+      setComposeDraftKey(`draft_${idFactory()}`);
       setOverlay('compose');
     }
-    if (command === 'reply' && thread) {
-      setReplyMode(true);
-      setOverlay('compose');
+    if (command === 'reply' && thread) beginReply(thread);
+    if (command === 'prompt-reply' && thread) askChloe('draft-reply');
+    if (command === 'search') {
+      setThreadListCollapsed(false);
+      window.setTimeout(() => searchRef.current?.focus(), 0);
     }
-    if (command === 'search') searchRef.current?.focus();
     if (command === 'palette') setOverlay('palette');
     if (command === 'show-shortcuts') setOverlay('shortcuts');
     if (command === 'unified-account') setState(current => selectAccount(current, 'all'));
-    if (command === 'account-1') setState(current => selectAccount(current, current.accounts[0]?.accountId ?? 'all'));
-    if (command === 'account-2') setState(current => selectAccount(current, current.accounts[1]?.accountId ?? 'all'));
+    const accountIndex = accountIndexForCommand(command);
+    if (accountIndex !== null) {
+      setState(current => {
+        const account = current.accounts[accountIndex];
+        return account ? selectAccount(current, account.accountId) : current;
+      });
+    }
     const splitCommands: Partial<Record<EmailKeyCommand, MailSplit>> = {
       'inbox-split': 'inbox',
+      'starred-split': 'starred',
+      'drafts-split': 'drafts',
+      'sent-split': 'sent',
+      'done-split': 'done',
+      'snippets-split': 'snippets',
+      'spam-split': 'spam',
+      'trash-split': 'trash',
       'critical-split': 'critical',
       'needs-response-split': 'needs-response',
       'waiting-split': 'waiting',
@@ -950,95 +2091,502 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
     if (split) setState(current => selectSplit(current, split));
     if (command === 'bring-to-conversation') {
       if (!thread) return;
+      const threadKey = emailThreadKey(thread);
       if (preview || !surfaceContext?.workspaceId) {
-        flash('Conversation handoff needs a mounted TAP workspace');
+        setConversationHandoff({
+          threadKey,
+          status: 'error',
+          message: 'Conversation handoff needs a mounted TAP workspace.',
+        });
         return;
       }
-      void (async () => {
-        const channel = await sdk.channels.create({
-          workspaceId: surfaceContext.workspaceId,
-          name: `Email: ${thread.subject}`,
-          description: 'Private TAP conversation created from an email.',
-          visibility: 'private',
-        });
-        await sdk.channels.sendMessage({
-          workspaceId: surfaceContext.workspaceId,
-          channelId: channel.roomId,
-          name: 'Email context',
-          content: thread.messages.at(-1)?.bodyText ?? thread.snippet,
-          body: `Email from ${displayParticipant(thread)}\n\n${thread.subject}\n\n${thread.messages.at(-1)?.bodyText ?? thread.snippet}`,
-          messageContent: {
-            tapEmail: {
-              accountId: thread.accountId,
-              threadId: thread.threadId,
-              provider: 'google',
-            },
-          },
-        });
-        flash('Private conversation created');
-      })().catch(error => flash(`Conversation handoff failed: ${String(error)}`));
+      setConversationHandoff(null);
+      setOverlay('handoff');
+      return;
     }
-    setOverlay(current => command === 'palette' || command === 'show-shortcuts' || command === 'remind' || command === 'compose' || command === 'reply' ? current : 'none');
-  }, [flash, idFactory, preview, query, rows, surfaceContext, thread]);
+    setOverlay(current => command === 'palette' || command === 'show-shortcuts' || command === 'remind' || command === 'compose' ? current : 'none');
+  }, [askChloe, beginReply, flash, idFactory, preview, query, rows, surfaceContext, thread]);
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (overlay !== 'none' || isTextEntryTarget(event.target)) return;
-    const result = resolveShortcut(event, chord);
+  const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      event.repeat ||
+      overlay !== 'none' ||
+      isTextEntryTarget(event.target)
+    ) return;
+    if (
+      event.key === 'Enter' &&
+      !shouldEnterOpenReply(event, event.target, Boolean(thread)) &&
+      !shouldEnterPromptReply(event, event.target, Boolean(thread))
+    ) return;
+    const result = resolveShortcut(event, chordRef.current);
     if (result.preventDefault) event.preventDefault();
     if (chordTimer.current) clearTimeout(chordTimer.current);
+    chordRef.current = result.nextChord;
     setChord(result.nextChord);
     if (result.nextChord) {
-      chordTimer.current = setTimeout(() => setChord(null), 900);
+      chordTimer.current = setTimeout(() => {
+        chordRef.current = null;
+        setChord(null);
+      }, 1_500);
     }
     if (result.command) runCommand(result.command);
   };
+  shortcutHandlerRef.current = handleKeyDown;
 
-  const confirmReminder = (input: string, condition: ReminderCondition) => {
+  useEffect(() => {
+    if (overlay === 'none') return;
+    chordRef.current = null;
+    setChord(null);
+    if (chordTimer.current) {
+      clearTimeout(chordTimer.current);
+      chordTimer.current = null;
+    }
+  }, [overlay]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const stopListening = listenForScopedDocumentKeyDown(
+      document,
+      root,
+      event => shortcutHandlerRef.current(event),
+    );
+    return () => {
+      stopListening();
+      if (chordTimer.current) clearTimeout(chordTimer.current);
+    };
+  }, [hydrated]);
+
+  const confirmReminder = (input: string) => {
     const now = new Date();
     const due = resolveReminderInput(input, now);
     if (!due) {
       flash('Choose a future reminder time');
       return;
     }
-    setState(current => remindThread(current, `cmd_${idFactory()}`, `reminder_${idFactory()}`, due.toISOString(), condition, now.toISOString()));
+    setState(current => remindThread(current, `cmd_${idFactory()}`, `reminder_${idFactory()}`, due.toISOString(), 'if_no_reply', now.toISOString()));
     setOverlay('none');
-    flash(`Reminder set ${condition === 'if_no_reply' ? 'if no reply' : 'regardless'} · Z to undo`);
+    flash('Reminder set · Z to undo');
   };
 
   const updatePreferences = (preferences: MailPreferences) => {
-    setState(current => ({ ...current, preferences }));
-    if (!preview) void savePreferences(preferences).catch(error => flash(`Settings were not saved: ${String(error)}`));
+    const normalized = normalizeMailPreferences(preferences);
+    setState(current => ({ ...current, preferences: normalized }));
+    if (!preview) void savePreferences(normalized).catch(error => flash(`Settings were not saved: ${String(error)}`));
   };
 
-  const queueMessage = (message: {
-    readonly accountId: string;
-    readonly to: string;
-    readonly subject: string;
-    readonly bodyText: string;
-  }) => {
+  const queueComposeDraftAutosave = useCallback((message: ComposeDraftMessage) => {
+    if ((queuedDraftRevisions.current.get(message.draftKey) ?? 0) >= message.draftRevision) return;
+    queuedDraftRevisions.current.set(message.draftKey, message.draftRevision);
+    setState(current => saveMessageDraft(
+      current,
+      `cmd_${idFactory()}`,
+      message.accountId,
+      null,
+      {
+        draftKey: message.draftKey,
+        draftRevision: message.draftRevision,
+        to: message.to,
+        ...(message.cc ? { cc: message.cc } : {}),
+        ...(message.bcc ? { bcc: message.bcc } : {}),
+        subject: message.subject,
+        bodyText: message.bodyText,
+        ...(message.attachments.length ? { attachments: message.attachments } : {}),
+      },
+      new Date().toISOString(),
+    ));
+  }, [idFactory]);
+
+  const queueMessage = (message: ComposeDraftMessage) => {
     const now = new Date().toISOString();
-    const replyThread = replyMode ? thread : null;
+    const sendAfter = new Date(Date.parse(now) + 5_000).toISOString();
     setState(current => composeMessage(
       current,
       `cmd_${idFactory()}`,
       message.accountId,
-      replyThread?.threadId ?? null,
+      null,
       message.to,
       message.subject,
       message.bodyText,
-      replyThread?.messages.at(-1)?.internetMessageId ?? null,
+      null,
+      now,
+      {
+        draftKey: message.draftKey,
+        draftRevision: message.draftRevision,
+        ...(message.cc ? { cc: message.cc } : {}),
+        ...(message.bcc ? { bcc: message.bcc } : {}),
+        ...(message.attachments.length ? { attachments: message.attachments } : {}),
+        sendAfter,
+      },
+    ));
+    setComposeDraftKey(null);
+    setOverlay('none');
+    flash('Message queued · Undo is available for 5 seconds');
+  };
+
+  const scheduleComposeMessage = (
+    message: ComposeDraftMessage,
+    scheduledFor: string,
+    cancelIfReply: boolean,
+  ) => {
+    const now = new Date().toISOString();
+    setState(current => scheduleMessageDraft(
+      current,
+      `cmd_${idFactory()}`,
+      message.accountId,
+      null,
+      {
+        draftKey: message.draftKey,
+        draftRevision: message.draftRevision,
+        to: message.to,
+        ...(message.cc ? { cc: message.cc } : {}),
+        ...(message.bcc ? { bcc: message.bcc } : {}),
+        subject: message.subject,
+        bodyText: message.bodyText,
+        ...(message.attachments.length ? { attachments: message.attachments } : {}),
+        scheduledFor,
+        cancelIfReply,
+      },
       now,
     ));
+    setComposeDraftKey(null);
     setOverlay('none');
-    flash('Message queued for secure delivery');
+    flash('Message scheduled');
   };
+
+  const cancelScheduledSend = (item: ScheduledSendSummary) => {
+    setState(current => cancelScheduledMessage(
+      current,
+      `cmd_${idFactory()}`,
+      item.accountId,
+      item.threadId,
+      item.scheduleCommandId,
+      new Date().toISOString(),
+    ));
+    setScheduledSends(current => current.filter(
+      candidate => candidate.scheduleCommandId !== item.scheduleCommandId,
+    ));
+    flash('Scheduled send cancelled; the provider draft was preserved.');
+  };
+
+  const retryOutboxSend = (item: RecoverableImmediateSend) => {
+    const originalCommandId = item.attempts[0]?.command.commandId;
+    if (!originalCommandId) return;
+    setState(current => retryRecoverableImmediateSend(
+      current,
+      originalCommandId,
+      `cmd_${idFactory()}`,
+      new Date().toISOString(),
+    ));
+    flash('Retry queued with the original draft and Message-ID.');
+  };
+
+  const reconcileOutboxSend = async (item: RecoverableImmediateSend) => {
+    const current = item.attempts[item.attempts.length - 1];
+    const client = coordinatorRef.current;
+    if (!current || !client) {
+      flash('The original send cannot be rechecked while mail is offline.');
+      return;
+    }
+    try {
+      const receipt = await client.reconcileCommand(current.command.commandId);
+      // The Outbox entry remains durable until the refined provider outcome is
+      // reflected in both the private activity ledger and its bounded shared
+      // projection. Repeating this managed reconciliation is safe: the
+      // coordinator returns the immutable command's stored terminal receipt,
+      // and activity recording is idempotent.
+      await recordCommittedEmailActivity(current.command, receipt);
+      setState(state => settleMailCommand(
+        state,
+        current.command,
+        receipt,
+        new Date().toISOString(),
+      ));
+      if (receipt.state === 'applied') {
+        flash('The provider confirms this message was sent.');
+      } else if (receipt.state === 'failed') {
+        flash('The provider confirms this send failed; it is now safe to retry.');
+      } else {
+        flash('Delivery is still unknown. Do not resend yet.');
+      }
+    } catch (error) {
+      flash(`Could not recheck the original send: ${String(error)}`);
+    }
+  };
+
+  const updateReplyDraft = (
+    threadKey: string,
+    updates: Partial<Pick<
+      ReplyDraft,
+      | 'attachmentBusy'
+      | 'attachmentError'
+      | 'attachments'
+      | 'bcc'
+      | 'bodyText'
+      | 'cc'
+      | 'focusRequestId'
+      | 'placement'
+      | 'to'
+    >>,
+  ) => {
+    setReplyDrafts(current => {
+      const draft = current[threadKey];
+      if (!draft) return current;
+      const contentChanged = (
+        (updates.bodyText !== undefined && updates.bodyText !== draft.bodyText) ||
+        (updates.to !== undefined && updates.to !== draft.to) ||
+        (updates.cc !== undefined && updates.cc !== draft.cc) ||
+        (updates.bcc !== undefined && updates.bcc !== draft.bcc) ||
+        (updates.attachments !== undefined && updates.attachments !== draft.attachments)
+      );
+      return {
+        ...current,
+        [threadKey]: {
+          ...draft,
+          ...updates,
+          draftRevision: contentChanged ? draft.draftRevision + 1 : draft.draftRevision,
+        },
+      };
+    });
+  };
+
+  const queueReplyDraftAutosave = useCallback((draft: ReplyDraft) => {
+    if (preview || !hydrated || !initialLoadSettled || !coordinatorNetworkReady ||
+      draft.draftRevision <= 1 ||
+      (queuedDraftRevisions.current.get(draft.draftKey) ?? 0) >= draft.draftRevision) {
+      return;
+    }
+    queuedDraftRevisions.current.set(draft.draftKey, draft.draftRevision);
+    setState(current => saveMessageDraft(
+      current,
+      `cmd_${idFactory()}`,
+      draft.accountId,
+      draft.threadId,
+      {
+        draftKey: draft.draftKey,
+        draftRevision: draft.draftRevision,
+        to: draft.to,
+        ...(draft.cc ? { cc: draft.cc } : {}),
+        ...(draft.bcc ? { bcc: draft.bcc } : {}),
+        subject: draft.subject,
+        bodyText: draft.bodyText,
+        ...(draft.inReplyToMessageId
+          ? { replyToMessageId: draft.inReplyToMessageId }
+          : {}),
+        ...(draft.attachments.length ? { attachments: draft.attachments } : {}),
+      },
+      new Date().toISOString(),
+    ));
+  }, [coordinatorNetworkReady, hydrated, idFactory, initialLoadSettled, preview]);
+
+  useEffect(() => {
+    if (preview || !hydrated || !initialLoadSettled || !coordinatorNetworkReady) return;
+    const draftsToSave = Object.values(replyDrafts).filter(draft =>
+      draft.draftRevision > 1 &&
+      (queuedDraftRevisions.current.get(draft.draftKey) ?? 0) < draft.draftRevision
+    );
+    if (draftsToSave.length === 0) return;
+    const timer = window.setTimeout(() => {
+      for (const draft of draftsToSave) queueReplyDraftAutosave(draft);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [
+    queueReplyDraftAutosave,
+    replyDrafts,
+  ]);
+
+  const removeReplyDraft = (threadKey: string) => {
+    setReplyDrafts(current => Object.fromEntries(
+      Object.entries(current).filter(([key]) => key !== threadKey),
+    ));
+    if (poppedReplyKey === threadKey) {
+      setPoppedReplyKey(null);
+      setThreadListCollapsed(threadListCollapsedBeforeSidecarRef.current);
+    }
+  };
+
+  const closeReplyDraft = (draft: ReplyDraft) => {
+    queueReplyDraftAutosave(draft);
+    removeReplyDraft(draft.threadKey);
+  };
+
+  const sendReplyDraft = (draft: ReplyDraft) => {
+    const now = new Date().toISOString();
+    const sendAfter = new Date(Date.parse(now) + 5_000).toISOString();
+    setState(current => composeMessage(
+      current,
+      `cmd_${idFactory()}`,
+      draft.accountId,
+      draft.threadId,
+      draft.to,
+      draft.subject,
+      draft.bodyText,
+      draft.inReplyToMessageId,
+      now,
+      {
+        draftKey: draft.draftKey,
+        draftRevision: draft.draftRevision,
+        ...(draft.cc ? { cc: draft.cc } : {}),
+        ...(draft.bcc ? { bcc: draft.bcc } : {}),
+        ...(draft.attachments.length ? { attachments: draft.attachments } : {}),
+        sendAfter,
+      },
+    ));
+    removeReplyDraft(draft.threadKey);
+    flash('Reply queued · Undo is available for 5 seconds');
+  };
+
+  const scheduleReplyDraft = (
+    draft: ReplyDraft,
+    scheduledFor: string,
+    cancelIfReply: boolean,
+  ) => {
+    const now = new Date().toISOString();
+    setState(current => scheduleMessageDraft(
+      current,
+      `cmd_${idFactory()}`,
+      draft.accountId,
+      draft.threadId,
+      {
+        draftKey: draft.draftKey,
+        draftRevision: draft.draftRevision,
+        to: draft.to,
+        ...(draft.cc ? { cc: draft.cc } : {}),
+        ...(draft.bcc ? { bcc: draft.bcc } : {}),
+        subject: draft.subject,
+        bodyText: draft.bodyText,
+        ...(draft.inReplyToMessageId ? { replyToMessageId: draft.inReplyToMessageId } : {}),
+        ...(draft.attachments.length ? { attachments: draft.attachments } : {}),
+        scheduledFor,
+        cancelIfReply,
+      },
+      now,
+    ));
+    removeReplyDraft(draft.threadKey);
+    flash('Reply scheduled');
+  };
+
+  const attachToReplyDraft = async (draft: ReplyDraft) => {
+    if (draft.attachmentBusy) return;
+    updateReplyDraft(draft.threadKey, { attachmentBusy: true, attachmentError: '' });
+    const result = await stageDraftAttachments(
+      draft.accountId,
+      draft.draftKey,
+      draft.attachments,
+    );
+    setReplyDrafts(current => {
+      const latest = current[draft.threadKey];
+      if (!latest || latest.draftKey !== draft.draftKey) return current;
+      const nextAttachments = result.attachments.length
+        ? [...latest.attachments, ...result.attachments]
+        : latest.attachments;
+      return {
+        ...current,
+        [draft.threadKey]: {
+          ...latest,
+          attachmentBusy: false,
+          attachmentError: result.failures.join(' '),
+          attachments: nextAttachments,
+          draftRevision: result.attachments.length
+            ? latest.draftRevision + 1
+            : latest.draftRevision,
+        },
+      };
+    });
+  };
+
+  const toggleReplyPlacement = (draft: ReplyDraft) => {
+    if (draft.placement === 'inline') {
+      const previousPoppedKey = poppedReplyKey;
+      if (!previousPoppedKey) {
+        threadListCollapsedBeforeSidecarRef.current = threadListCollapsed;
+      }
+      setReplyDrafts(current => {
+        const previousPopped = previousPoppedKey && previousPoppedKey !== draft.threadKey
+          ? current[previousPoppedKey]
+          : null;
+        const next = previousPopped
+          ? {
+              ...current,
+              [previousPoppedKey!]: { ...previousPopped, placement: 'inline' as const },
+            }
+          : current;
+        const currentDraft = next[draft.threadKey];
+        return currentDraft
+          ? {
+              ...next,
+              [draft.threadKey]: {
+                ...currentDraft,
+                focusRequestId: currentDraft.focusRequestId + 1,
+                placement: 'sidecar',
+              },
+            }
+          : next;
+      });
+      setPoppedReplyKey(draft.threadKey);
+      setThreadListCollapsed(true);
+      return;
+    }
+    updateReplyDraft(draft.threadKey, {
+      focusRequestId: draft.focusRequestId + 1,
+      placement: 'inline',
+    });
+    setPoppedReplyKey(null);
+    setThreadListCollapsed(threadListCollapsedBeforeSidecarRef.current);
+  };
+
+  const toggleThreadList = useCallback(() => {
+    setThreadListCollapsed(collapsed => !collapsed);
+  }, []);
 
   if (!hydrated) {
     return <div className="tap-email-loading">Opening TAP Email…</div>;
   }
 
+  const loadError = mailboxError || cacheError || activityError;
+  const showCapabilityBanner =
+    preview ||
+    Boolean(loadError) ||
+    initialMailboxApprovalPending ||
+    store.capability === 'unavailable';
+  const capabilityBannerTitle = mailboxError
+    ? state.accounts.length > 0
+      ? 'Cached mailbox'
+      : 'Mailbox unavailable'
+    : cacheError
+      ? 'Device cache unavailable'
+      : activityError
+        ? 'Activity history catching up'
+      : initialMailboxApprovalPending
+        ? 'Waiting for approval'
+        : preview
+          ? 'Fixture mailbox'
+          : state.accounts.length > 0
+            ? 'Cloud mailbox active'
+            : 'Google account required';
+  const capabilityBannerMessage = loadError || (
+    initialMailboxApprovalPending
+      ? INITIAL_MAILBOX_APPROVAL_MESSAGE
+      : preview
+        ? 'Disposable sample data; no Gmail account is connected.'
+        : state.accounts.length > 0
+          ? 'Mail is live, but this host does not expose private profile storage. Actions can still run, but failed or uncertain sends cannot be recovered after this app closes.'
+          : 'Connect Google to start a private, account-scoped mailbox.'
+  );
+  const capabilityBannerClass = preview
+    ? 'is-preview'
+    : initialMailboxApprovalPending
+      ? 'is-pending'
+      : loadError
+        ? ''
+        : 'is-cloud';
+
   return (
-    <div className="tap-email" ref={rootRef} tabIndex={-1} onKeyDown={handleKeyDown}>
+    <TooltipProvider delayDuration={250} skipDelayDuration={75}>
+    <div className="tap-email" ref={rootRef} tabIndex={-1}>
       <a className="skip-link" href="#tap-email-main">Skip to Mailbox</a>
       <header className="app-bar">
         <div className="brand"><span className="brand-mark">T</span><span>TAP Email</span></div>
@@ -1046,105 +2594,420 @@ export function TapEmailApp({ preview = false, surfaceContext }: TapEmailAppProp
           <button className={state.selectedAccountId === 'all' ? 'is-active' : ''} onClick={() => setState(current => selectAccount(current, 'all'))} type="button">All accounts <kbd>G A</kbd></button>
           {state.accounts.map((account, index) => (
             <button key={account.accountId} className={state.selectedAccountId === account.accountId ? 'is-active' : ''} onClick={() => setState(current => selectAccount(current, account.accountId))} type="button">
-              <span className="account-dot" style={{ backgroundColor: account.accent }} aria-hidden="true" />{account.displayName}<kbd>G {index + 1}</kbd>
+              <span className="account-dot" style={{ backgroundColor: account.accent }} aria-hidden="true" />{account.displayName}{index < 9 ? <kbd>⌃ {index + 1}</kbd> : null}
             </button>
           ))}
         </div>
         <div className="app-actions">
-          {!preview ? <button type="button" onClick={connectGoogle} disabled={connectionBusy}>{connectionBusy ? 'Connecting…' : 'Add Google'}</button> : null}
-          {!preview && state.accounts.length > 0 ? <button type="button" onClick={() => void requestFreshMail()} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync'}</button> : null}
-          <button type="button" onClick={() => setOverlay('settings')} aria-label="TAP Email settings">Settings</button>
-          <button type="button" onClick={() => setOverlay('shortcuts')}>Shortcuts <kbd>?</kbd></button>
+          {!preview ? (
+            <button
+              aria-label={connectGoogleLabel}
+              disabled={connectionBusy}
+              onClick={connectGoogle}
+              title={connectGoogleLabel}
+              type="button"
+            >
+              <Plus aria-hidden="true" className="app-action-icon" />
+              <span className="app-action-label">{connectGoogleLabel}</span>
+            </button>
+          ) : null}
+          {!preview && state.accounts.length > 0 ? (
+            <MailSyncButton
+              onSync={() => {
+                void requestFreshMail().catch(error => {
+                  const message = `Mailbox synchronization failed: ${String(error)}`;
+                  setMailboxError(message);
+                  flash(message);
+                });
+              }}
+              syncing={syncing}
+            />
+          ) : null}
+          <button
+            aria-label="Open Email Workflows"
+            disabled={state.accounts.length === 0}
+            onClick={() => setOverlay('workflows')}
+            title="Email Workflows"
+            type="button"
+          >
+            <Rows3 aria-hidden="true" className="app-action-icon" />
+            <span className="app-action-label">Workflows</span>
+          </button>
+          <button aria-label="TAP Email settings" onClick={() => setOverlay('settings')} title="Settings" type="button">
+            <Settings aria-hidden="true" className="app-action-icon" />
+            <span className="app-action-label">Settings</span>
+          </button>
+          <button aria-label="Keyboard shortcuts" onClick={() => setOverlay('shortcuts')} title="Keyboard shortcuts" type="button">
+            <Keyboard aria-hidden="true" className="app-action-icon" />
+            <span className="app-action-label">Shortcuts</span>
+            <kbd>?</kbd>
+          </button>
           <button className="compose-button" type="button" onClick={() => runCommand('compose')} disabled={state.accounts.length === 0}>Compose <kbd>C</kbd></button>
         </div>
       </header>
 
-      {preview || loadError || store.capability === 'unavailable' ? (
-        <div className={`capability-banner ${preview ? 'is-preview' : loadError ? '' : 'is-cloud'}`} role={loadError ? 'alert' : 'status'} aria-live="polite">
-          <strong>{loadError ? state.accounts.length > 0 ? 'Cached mailbox' : 'Mailbox unavailable' : preview ? 'Fixture mailbox' : state.accounts.length > 0 ? 'Cloud mailbox active' : 'Google account required'}</strong>
-          <span>{loadError || (preview ? 'Disposable sample data; no Gmail account is connected.' : state.accounts.length > 0 ? 'Mail is live, but this host does not expose the private profile SQLite cache.' : 'Connect Google to start a private, account-scoped mailbox.')}</span>
-          {loadError && !preview ? <button type="button" onClick={() => void refreshMailbox()}>Retry</button> : null}
+      {showCapabilityBanner ? (
+        <div className={`capability-banner ${capabilityBannerClass}`} role={loadError ? 'alert' : 'status'} aria-live="polite">
+          <strong>{capabilityBannerTitle}</strong>
+          <span>{capabilityBannerMessage}</span>
+          {mailboxError && !preview ? <button type="button" onClick={() => void refreshMailbox().catch(error => setMailboxError(`TAP Email could not open the cloud mailbox: ${String(error)}`))}>Retry</button> : null}
         </div>
       ) : null}
 
-      <main className="mail-shell" id="tap-email-main" tabIndex={-1}>
+      <main className={`mail-shell${threadListCollapsed ? ' is-thread-list-collapsed' : ''}`} id="tap-email-main" tabIndex={-1}>
         <aside className="split-sidebar" aria-label="Email views">
           <div className="zero-card">
-            <div className="zero-orbit"><span>{summary.critical}</span></div>
-            <div><strong>{summary.operationalZero ? 'Operational Zero' : `${summary.needsResponse} decisions`}</strong><small>{summary.coverageComplete ? 'Coverage current' : 'Coverage incomplete'}</small></div>
+            <div className="zero-orbit" title="Critical conversations"><span>{summary.critical}</span></div>
+            <div>
+              <strong>{summary.operationalZero ? 'Inbox clear' : `${summary.critical} critical`}</strong>
+              <small>{summary.needsResponse} need a reply · {summary.coverageComplete ? 'all selected accounts synced' : 'mail history still loading'}</small>
+            </div>
           </div>
-          <nav>
-            {splitItems.map(item => (
-              <button key={item.id} className={state.selectedSplit === item.id ? 'is-active' : ''} type="button" onClick={() => setState(current => selectSplit(current, item.id))}>
-                <span>{item.label}</span><span className="nav-count">{unreadCount(state, item.id)}</span><kbd>{item.key}</kbd>
-              </button>
-            ))}
-          </nav>
-          <div className="coverage-card">
-            <span className="eyebrow">Account coverage</span>
-            {state.accounts.map(account => (
-              <div key={account.accountId}><span className={`coverage-dot is-${account.coverage.state}`} /> <span>{account.displayName}</span><small>{account.coverage.state}</small></div>
-            ))}
-            {state.accounts.length === 0 ? <button type="button" onClick={connectGoogle}>Connect Google</button> : null}
+          <div className="split-nav-scroll">
+            <nav aria-label="Mailbox categories">
+              <MailViewButtons
+                views={FIXED_MAILBOX_CATEGORIES}
+                state={state}
+                showCounts={false}
+                onSelect={split => setState(current => selectSplit(current, split))}
+              />
+            </nav>
+            <div className="nav-section-label" aria-hidden="true">TAP Views</div>
+            <nav aria-label="TAP email views">
+              <MailViewButtons
+                views={TAP_MAIL_VIEWS}
+                state={state}
+                showCounts
+                onSelect={split => setState(current => selectSplit(current, split))}
+              />
+            </nav>
           </div>
-          <div className="flow-card"><span>Focus session</span><strong>{summary.needsResponse} decisions</strong><small>Keep the loop moving</small></div>
+          <div className="flow-card"><span>Needs reply</span><strong>{summary.needsResponse} conversations</strong><small>{summary.waiting} waiting on others</small></div>
         </aside>
 
-        <section className="thread-column" aria-label="Thread list">
+        <section
+          aria-label="Thread list"
+          className="thread-column"
+          hidden={threadListCollapsed}
+          id={THREAD_LIST_PANE_ID}
+        >
           <div className="thread-toolbar">
-            <div><span className="eyebrow">{state.selectedAccountId === 'all' ? 'Unified' : accountFor(state.accounts, state.selectedAccountId)?.displayName}</span><h1>{splitItems.find(item => item.id === state.selectedSplit)?.label}</h1></div>
-            <label className="mail-search"><Search aria-hidden="true" /><input ref={searchRef} autoComplete="off" name="mail-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search…" aria-label="Search visible mail" /><kbd>/</kbd></label>
+            <div className="thread-view-heading">
+              <CompactMailViewSelect
+                selected={state.selectedSplit}
+                onSelect={split => setState(current => selectSplit(current, split))}
+              />
+              <span className="eyebrow">{state.selectedAccountId === 'all' ? 'Unified' : accountFor(state.accounts, state.selectedAccountId)?.displayName}</span>
+              <h1>{activeMailView.label}</h1>
+            </div>
+            <div className="mail-search-stack">
+              <div className="mail-search"><Search aria-hidden="true" /><input ref={searchRef} autoComplete="off" name="mail-search" type="search" value={query} onChange={event => { setQuery(event.target.value); setSemanticSearch(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void runSemanticSearch(); } }} placeholder="Search…" aria-label="Search mail" /><button className={semanticSearch?.query === query.trim() ? 'is-active' : ''} type="button" disabled={!query.trim() || semanticSearchBusy} onClick={() => { void runSemanticSearch(); }} aria-label="Search by meaning using the local semantic index">{semanticSearchBusy ? 'Indexing…' : 'Meaning'}</button><kbd>/</kbd></div>
+              {searchCoverage ? (
+                <span
+                  className={`mail-search-coverage${searchCoverage.complete ? '' : ' is-partial'}`}
+                  role="status"
+                  title={searchCoverage.warnings.join(' ') || 'All selected account coverage receipts are current.'}
+                >
+                  {mailSearchCoverageLabel(searchCoverage)}
+                </span>
+              ) : null}
+            </div>
           </div>
-          <div className="thread-list" role="listbox" aria-label="Email threads">
-            {rows.map(item => (
-              <ThreadListRow key={emailThreadKey(item)} thread={item} account={accountFor(state.accounts, item.accountId)} selected={emailThreadKey(item) === state.selectedThreadKey} selectedRef={selectedRowRef} onSelect={() => setState(current => ({ ...current, selectedThreadKey: emailThreadKey(item) }))} />
+          <div className="thread-list" role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outbox items needing attention' : 'Email threads'}>
+            {state.selectedSplit === 'scheduled' ? (
+              <ScheduledSendList
+                accounts={state.accounts}
+                items={scheduledSends.filter(item =>
+                  state.selectedAccountId === 'all' || item.accountId === state.selectedAccountId)}
+                onCancel={cancelScheduledSend}
+              />
+            ) : state.selectedSplit === 'outbox' ? (
+              <OutboxList
+                accounts={state.accounts}
+                items={outboxItems}
+                onReconcile={reconcileOutboxSend}
+                onRetry={retryOutboxSend}
+              />
+            ) : rowGroups.map((group, groupIndex) => (
+              <div
+                aria-label={group.label}
+                className="thread-day-group"
+                key={`${group.dateKey}:${groupIndex}`}
+                role="group"
+              >
+                <div aria-hidden="true" className="thread-day-separator">
+                  <span>{group.label}</span>
+                </div>
+                {group.items.map(item => (
+                  <ThreadListRow
+                    key={emailThreadKey(item)}
+                    thread={item}
+                    account={accountFor(state.accounts, item.accountId)}
+                    displayTimestamp={threadListTimestamp(item.receivedAt, listReferenceNow)}
+                    selected={emailThreadKey(item) === state.selectedThreadKey}
+                    selectedRef={selectedRowRef}
+                    onSelect={() => openThread(item)}
+                  />
+                ))}
+              </div>
             ))}
-            {rows.length === 0 ? (
-              <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{state.accounts.length === 0 ? 'Bring Google into TAP' : summary.coverageComplete ? 'This queue is clear' : 'Newest mail is arriving'}</h2><p>{state.accounts.length === 0 ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.' : summary.coverageComplete ? 'A small win. Take the momentum with you.' : 'TAP Email will not claim zero until every selected account is current.'}</p>{state.accounts.length === 0 && !preview ? <button className="primary-button" type="button" onClick={connectGoogle}>Connect Google</button> : null}</div>
+            {state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' && rows.length === 0 ? (
+              <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{state.accounts.length === 0 ? 'Bring Google into TAP' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'Newest mail is arriving' : activeMailView.emptyTitle}</h2><p>{state.accounts.length === 0 ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.' : `There are no items in ${activeMailView.label} for the selected account view.`}</p>{state.accounts.length === 0 && !preview ? <button className="primary-button" type="button" onClick={connectGoogle} disabled={connectionBusy}>{connectGoogleLabel}</button> : null}</div>
             ) : null}
           </div>
         </section>
 
-        <article className="message-pane" aria-label="Selected email">
-          {thread ? (
+        <article
+          className={`message-pane${poppedReplyDraft?.placement === 'sidecar' ? ' has-reply-sidecar' : ''}`}
+          aria-label="Selected email"
+        >
+          {state.selectedSplit === 'scheduled' ? (
+            <div className="empty-reader scheduled-reader">
+              <ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} />
+              <Clock3 aria-hidden="true" />
+              <h2>Scheduled delivery</h2>
+              <p>Choose Cancel send in the list to preserve its provider draft without delivery.</p>
+            </div>
+          ) : state.selectedSplit === 'outbox' ? (
+            <div className="empty-reader outbox-reader">
+              <ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} />
+              <MailOpen aria-hidden="true" />
+              <h2>Recover sends safely</h2>
+              <p>Retry only definite failures. Recheck delivery-unknown sends without creating another send identity.</p>
+            </div>
+          ) : thread ? (
             <>
               <header className="message-header">
-                <div className="message-account"><span className="account-dot" style={{ backgroundColor: accountFor(state.accounts, thread.accountId)?.accent }} aria-hidden="true" />{accountFor(state.accounts, thread.accountId)?.address}</div>
-                <h2>{thread.subject}</h2>
-                <div className="message-meta"><strong>{displayParticipant(thread)}</strong><span>{thread.participants[0]?.address}</span><time dateTime={thread.receivedAt}>{dateTimeFormatter.format(new Date(thread.receivedAt))}</time></div>
-                <div className="message-actions">
-                  <button type="button" onClick={() => runCommand('done')}>Done <kbd>E</kbd></button>
-                  <button type="button" onClick={() => runCommand('remind')}>Remind <kbd>H</kbd></button>
-                  <button type="button" onClick={() => runCommand('reply')}>Reply <kbd>R</kbd></button>
-                  <button type="button" onClick={() => runCommand('bring-to-conversation')}>Conversation <kbd>B</kbd></button>
-                  <button className={thread.starred ? 'is-starred' : ''} type="button" onClick={() => runCommand('toggle-star')} aria-label={thread.starred ? 'Unstar thread' : 'Star thread'}><Star aria-hidden="true" fill={thread.starred ? 'currentColor' : 'none'} /></button>
+                <div className="message-title-row">
+                  <ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} />
+                  <h2>{thread.subject}</h2>
+                  <ReaderActions
+                    conversationBusy={conversationHandoffBusy}
+                    conversationFinished={conversationHandoffFinished}
+                    conversationStatusId={activeConversationHandoff ? 'conversation-handoff-status' : undefined}
+                    onAskChloe={askChloe}
+                    onAction={runCommand}
+                    onCreateTask={createTaskFromEmail}
+                    starred={thread.starred}
+                    taskBusy={emailTaskBusy}
+                    taskFinished={emailTaskFinished}
+                    taskStatusId={activeEmailTask ? 'email-task-status' : undefined}
+                  />
                 </div>
+                {activeConversationHandoff ? (
+                  <div
+                    className={`conversation-handoff-status is-${activeConversationHandoff.status}`}
+                    id="conversation-handoff-status"
+                    role={activeConversationHandoff.status === 'error' || activeConversationHandoff.status === 'partial' ? 'alert' : 'status'}
+                    aria-live="polite"
+                  >
+                    {activeConversationHandoff.message}
+                  </div>
+                ) : null}
+                {activeEmailTask ? (
+                  <div
+                    aria-live="polite"
+                    className={`conversation-handoff-status is-${activeEmailTask.status}`}
+                    id="email-task-status"
+                    role={activeEmailTask.status === 'failed' || activeEmailTask.status === 'partial' || activeEmailTask.status === 'error' ? 'alert' : 'status'}
+                  >
+                    {activeEmailTask.message}
+                  </div>
+                ) : null}
+                <ThreadAttentionPanel
+                  account={accountFor(state.accounts, thread.accountId)}
+                  now={listReferenceNow}
+                  onCorrect={correctSelectedThreadAttention}
+                  thread={thread}
+                  timeZone={mailSearchTimeZone}
+                />
               </header>
-              <div className="message-body">
-                {thread.messages.map(item => (
-                  <section className="message-card" key={item.messageId}>
-                    <div className="avatar" aria-hidden="true">{item.from.name.slice(0, 1)}</div>
-                    <div><div className="message-from"><strong>{item.from.name}</strong><span>to {item.to.map(recipient => recipient.name).join(', ')}</span></div><p>{item.bodyText}</p></div>
-                  </section>
-                ))}
+              <div className="reader-workspace">
+                <div className="message-body">
+                  <ThreadMessageList
+                    accountId={thread.accountId}
+                    appTheme={appTheme}
+                    attachmentExportSupported={attachmentFiles !== null}
+                    expansionRequest={messageExpansionRequest}
+                    imagesEnabled={state.preferences.imagesEnabled}
+                    key={emailThreadKey(thread)}
+                    loadRemoteImages={loadRemoteImages}
+                    messages={thread.messages}
+                    onKeyDown={handleKeyDown}
+                    saveAttachment={saveMessageAttachment}
+                    threadId={thread.threadId}
+                    trackingPixelsEnabled={state.preferences.trackingPixelsEnabled}
+                  />
+                  {activeReplyDraft?.placement === 'inline' ? (
+                    <ReplyComposer
+                      attachmentBusy={activeReplyDraft.attachmentBusy}
+                      attachmentError={activeReplyDraft.attachmentError}
+                      attachments={activeReplyDraft.attachments}
+                      bcc={activeReplyDraft.bcc}
+                      bodyText={activeReplyDraft.bodyText}
+                      cc={activeReplyDraft.cc}
+                      focusRequestId={activeReplyDraft.focusRequestId}
+                      onAddressChange={(field, value) => updateReplyDraft(activeReplyDraft.threadKey, { [field]: value })}
+                      onAttach={() => attachToReplyDraft(activeReplyDraft)}
+                      onBodyTextChange={bodyText => updateReplyDraft(activeReplyDraft.threadKey, { bodyText })}
+                      onClose={() => closeReplyDraft(activeReplyDraft)}
+                      onRemoveAttachment={stageId => updateReplyDraft(activeReplyDraft.threadKey, {
+                        attachments: activeReplyDraft.attachments.filter(attachment => attachment.stageId !== stageId),
+                      })}
+                      onPromptReply={() => askChloe('draft-reply')}
+                      onSchedule={(scheduledFor, cancelIfReply) => scheduleReplyDraft(activeReplyDraft, scheduledFor, cancelIfReply)}
+                      onSend={() => sendReplyDraft(activeReplyDraft)}
+                      onTogglePlacement={() => toggleReplyPlacement(activeReplyDraft)}
+                      placement="inline"
+                      recipientLabel={activeReplyDraft.recipientLabel}
+                      to={activeReplyDraft.to}
+                    />
+                  ) : activeReplyDraft?.placement === 'sidecar' ? (
+                    <button
+                      className="reply-inline-anchor"
+                      onClick={() => toggleReplyPlacement(activeReplyDraft)}
+                      type="button"
+                    >
+                      <span><strong>Draft</strong> to {activeReplyDraft.recipientLabel}</span>
+                      <small>Open inline</small>
+                    </button>
+                  ) : null}
+                </div>
+                {poppedReplyDraft?.placement === 'sidecar' ? (
+                  <aside className="reply-sidecar" aria-label={`Popped out reply to ${poppedReplyDraft.recipientLabel}`}>
+                    <ReplyComposer
+                      attachmentBusy={poppedReplyDraft.attachmentBusy}
+                      attachmentError={poppedReplyDraft.attachmentError}
+                      attachments={poppedReplyDraft.attachments}
+                      bcc={poppedReplyDraft.bcc}
+                      bodyText={poppedReplyDraft.bodyText}
+                      cc={poppedReplyDraft.cc}
+                      focusRequestId={poppedReplyDraft.focusRequestId}
+                      onAddressChange={(field, value) => updateReplyDraft(poppedReplyDraft.threadKey, { [field]: value })}
+                      onAttach={() => attachToReplyDraft(poppedReplyDraft)}
+                      onBodyTextChange={bodyText => updateReplyDraft(poppedReplyDraft.threadKey, { bodyText })}
+                      onClose={() => closeReplyDraft(poppedReplyDraft)}
+                      onRemoveAttachment={stageId => updateReplyDraft(poppedReplyDraft.threadKey, {
+                        attachments: poppedReplyDraft.attachments.filter(attachment => attachment.stageId !== stageId),
+                      })}
+                      onPromptReply={() => askChloe('draft-reply')}
+                      onSchedule={(scheduledFor, cancelIfReply) => scheduleReplyDraft(poppedReplyDraft, scheduledFor, cancelIfReply)}
+                      onSend={() => sendReplyDraft(poppedReplyDraft)}
+                      onTogglePlacement={() => toggleReplyPlacement(poppedReplyDraft)}
+                      placement="sidecar"
+                      recipientLabel={poppedReplyDraft.recipientLabel}
+                      to={poppedReplyDraft.to}
+                    />
+                  </aside>
+                ) : null}
               </div>
-              <footer className="triage-bar">
-                <span><kbd>J</kbd> next</span><span><kbd>K</kbd> previous</span><span><kbd>H</kbd> remind</span><span><kbd>E</kbd> done</span><span><kbd>Z</kbd> undo</span>
-              </footer>
             </>
           ) : (
-            <div className="empty-reader"><MailOpen aria-hidden="true" /><h2>{state.accounts.length === 0 ? 'Your focused inbox starts here' : 'Select a thread'}</h2><p>{state.accounts.length === 0 ? 'Connect Google, then use J, K, H, and E to drive toward Operational Zero.' : 'Use J and K to move through the queue.'}</p></div>
+            <div className="empty-reader"><ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} /><MailOpen aria-hidden="true" /><h2>{state.accounts.length === 0 ? 'Your focused inbox starts here' : 'Select a thread'}</h2><p>{state.accounts.length === 0 ? 'Connect Google, then use J, K, H, and E to drive toward Operational Zero.' : 'Use J and K to move through the queue.'}</p></div>
           )}
         </article>
       </main>
 
       {chord ? <div className="chord-hint"><kbd>G</kbd> then a view key…</div> : null}
-      {toast ? <div className="toast" role="status" aria-live="polite">{toast}</div> : null}
+      {toast || (state.undo && Date.parse(state.undo.expiresAt) > Date.now()) ? (
+        <div className="toast" role="status" aria-live="polite">
+          <span>{toast || state.undo?.label}</span>
+          {state.undo && Date.parse(state.undo.expiresAt) > Date.now() ? (
+            <button
+              onClick={() => {
+                setState(current => undoLastAction(current, new Date().toISOString()));
+                flash(state.undo?.kind === 'send' ? 'Send cancelled; draft preserved' : 'Last action undone');
+              }}
+              type="button"
+            >
+              Undo
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {overlay === 'remind' && thread ? <ReminderDialog thread={thread} onClose={() => setOverlay('none')} onConfirm={confirmReminder} /> : null}
-      {overlay === 'compose' ? <ComposeDialog accounts={state.accounts} initialAccountId={thread?.accountId ?? state.accounts[0]?.accountId ?? ''} initialTo={replyMode ? thread?.participants[0]?.address ?? '' : ''} initialSubject={replyMode ? `Re: ${thread?.subject ?? ''}` : ''} onClose={() => setOverlay('none')} onSend={queueMessage} /> : null}
+      {overlay === 'compose' && composeDraftKey ? (
+        <ComposeDialog
+          accounts={state.accounts}
+          draftKey={composeDraftKey}
+          initialAccountId={thread?.accountId ?? state.accounts[0]?.accountId ?? ''}
+          initialTo=""
+          initialSubject={composeSeed?.subject ?? ''}
+          initialBodyText={composeSeed?.bodyText ?? ''}
+          key={composeSeed?.requestId ?? composeDraftKey}
+          onAttach={stageDraftAttachments}
+          onAutosave={queueComposeDraftAutosave}
+          onClose={() => {
+            setComposeDraftKey(null);
+            setComposeSeed(null);
+            setOverlay('none');
+          }}
+          onSchedule={(message, scheduledFor, cancelIfReply) => {
+            setComposeSeed(null);
+            scheduleComposeMessage(message, scheduledFor, cancelIfReply);
+          }}
+          onSend={message => {
+            setComposeSeed(null);
+            queueMessage(message);
+          }}
+        />
+      ) : null}
       {overlay === 'palette' ? <CommandPalette onClose={() => setOverlay('none')} onRun={command => { setOverlay('none'); runCommand(command); }} /> : null}
       {overlay === 'shortcuts' ? <ShortcutDialog onClose={() => setOverlay('none')} /> : null}
-      {overlay === 'settings' ? <SettingsDialog accounts={state.accounts} preferences={state.preferences} onChange={updatePreferences} onClose={() => setOverlay('none')} /> : null}
+      {overlay === 'workflows' ? (
+        <WorkflowCenter
+          idFactory={idFactory}
+          loadActivityProjection={() => activityLedger.snapshot()}
+          mailState={state}
+          onClose={() => setOverlay('none')}
+          persistMailMergeDrafts={createMailMergeDrafts}
+          workspaceId={preview ? null : surfaceContext?.workspaceId ?? null}
+        />
+      ) : null}
+      {overlay === 'settings' ? (
+        <SettingsDialog
+          accounts={state.accounts}
+          preferences={state.preferences}
+          store={store}
+          onChange={updatePreferences}
+          onClose={() => setOverlay('none')}
+          onWipe={receipt => {
+            remoteImageCache.current = { entries: new Map(), sizeBytes: 0 };
+            setState(current => receipt.scope === 'device'
+              ? emptyMailState()
+              : receipt.accountId
+                ? mailStateWithoutAccount(current, receipt.accountId)
+                : current);
+          }}
+        />
+      ) : null}
+      {overlay === 'handoff' && thread && surfaceContext?.workspaceId ? (
+        <ConversationHandoffDialog
+          idFactory={idFactory}
+          onClose={() => setOverlay('none')}
+          onCompleted={result => setConversationHandoff({
+            threadKey: emailThreadKey(thread),
+            status: 'created',
+            message: result.status === 'staged'
+              ? 'Editable handoff staged in TAP Chat. Review it there before sending.'
+              : 'Reviewed email context shared in TAP.',
+          })}
+          onPhase={phase => setConversationHandoff({
+            threadKey: emailThreadKey(thread),
+            status: phase,
+            message: phase === 'checking'
+              ? 'Checking destination access…'
+              : phase === 'creating'
+                ? 'Creating the reviewed private conversation…'
+                : phase === 'staging'
+                  ? 'Staging the editable TAP Chat handoff…'
+                  : 'Sharing the reviewed email context…',
+          })}
+          thread={thread}
+          workspaceId={surfaceContext.workspaceId}
+        />
+      ) : null}
     </div>
+    </TooltipProvider>
   );
 }

@@ -9,7 +9,7 @@
     "check:startup": "wrangler check startup",
     "check:startup:production": "wrangler check startup --env production",
     "deploy:production": "wrangler deploy --env production",
-    "dev": "wrangler dev",
+    "dev": "pnpm migrate:local && wrangler dev",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:production": "wrangler d1 migrations apply DB --remote --env production",
     "release:check": "pnpm test && pnpm typecheck && pnpm types:check && pnpm build:production && pnpm check:startup:production",
@@ -19,7 +19,10 @@
     "types:check": "wrangler types --strict-vars=false --check"
   },
   "dependencies": {
-    "@tap-examples/tap-email-protocol": "workspace:*"
+    "@modelcontextprotocol/server": "2.0.0",
+    "@tap-examples/tap-email-protocol": "workspace:*",
+    "agents": "0.20.1",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.6",

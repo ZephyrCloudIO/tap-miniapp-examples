@@ -9,7 +9,7 @@ const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const output = path.join(packageRoot, '.tap-package');
 
 await assembleTapPackage({
-  manifest: path.join(packageRoot, 'manifest.tap.json'),
+  buildManifest: path.join(packageRoot, 'manifest.tap.json'),
   output,
   targets: {
     desktop: path.join(packageRoot, '.tap-build/desktop'),

@@ -1,0 +1,206 @@
+name: Deploy TAP Email Coordinator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-tap-email-coordinator.yml"
+      - "apps/tap-email-coordinator/**"
+      - "apps/tap-email-protocol/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+concurrency:
+  group: tap-email-coordinator-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  TAP_EMAIL_COORDINATOR_PRODUCTION_URL: https://tap-email-coordinator.theaiplatform.app
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: tap-email-coordinator-production
+      url: https://tap-email-coordinator.theaiplatform.app
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Validate production configuration
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_TOKEN_ENCRYPTION_KEY }}
+          ATTACHMENT_STAGING_ENCRYPTION_KEY: ${{ secrets.ATTACHMENT_STAGING_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            GOOGLE_CLIENT_ID \
+            GOOGLE_CLIENT_SECRET \
+            GOOGLE_TOKEN_ENCRYPTION_KEY \
+            ATTACHMENT_STAGING_ENCRYPTION_KEY
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required tap-email-coordinator-production value: ${name}"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          const fail = (message) => {
+            console.error(`::error::${message}`);
+            process.exitCode = 1;
+          };
+
+          if (!/^[a-f0-9]{32}$/i.test(process.env.CLOUDFLARE_ACCOUNT_ID ?? '')) {
+            fail('CLOUDFLARE_ACCOUNT_ID must be a 32-character hexadecimal account ID.');
+          }
+
+          for (const name of [
+            'GOOGLE_TOKEN_ENCRYPTION_KEY',
+            'ATTACHMENT_STAGING_ENCRYPTION_KEY',
+          ]) {
+            const value = process.env[name] ?? '';
+            if (!/^[A-Za-z0-9_-]{43}$/.test(value)) {
+              fail(`${name} must be 32 random bytes encoded as unpadded base64url.`);
+              continue;
+            }
+            const bytes = Buffer.from(value.replaceAll('-', '+').replaceAll('_', '/'), 'base64');
+            if (bytes.length !== 32) {
+              fail(`${name} must decode to exactly 32 bytes.`);
+            }
+          }
+
+          try {
+            const url = new URL(process.env.TAP_EMAIL_COORDINATOR_PRODUCTION_URL);
+            if (
+              url.protocol !== 'https:' ||
+              url.username ||
+              url.password ||
+              url.search ||
+              url.hash ||
+              (url.pathname !== '/' && url.pathname !== '')
+            ) {
+              fail('TAP_EMAIL_COORDINATOR_PRODUCTION_URL must be an HTTPS origin without credentials, a path, a query, or a fragment.');
+            }
+          } catch {
+            fail('TAP_EMAIL_COORDINATOR_PRODUCTION_URL must be a valid HTTPS origin.');
+          }
+          NODE
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify production Worker
+        run: |
+          pnpm --filter @tap-examples/tap-email-coordinator types:check
+          pnpm --filter @tap-examples/tap-email-coordinator typecheck
+          pnpm --filter @tap-examples/tap-email-coordinator test
+          pnpm --filter @tap-examples/tap-email-coordinator build:production
+          pnpm --filter @tap-examples/tap-email-coordinator check:startup:production
+
+      - name: Ensure production D1 database exists
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_NAME: tap-email-coordinator-production
+        run: |
+          set -euo pipefail
+
+          database_exists="$({
+            pnpm --dir apps/tap-email-coordinator exec wrangler d1 list --json
+          } | node --input-type=module -e '
+            let body = "";
+            for await (const chunk of process.stdin) body += chunk;
+            const databases = JSON.parse(body);
+            if (!Array.isArray(databases)) throw new Error("Wrangler returned an invalid D1 inventory.");
+            process.stdout.write(String(databases.some(database => database.name === process.env.D1_DATABASE_NAME)));
+          ')"
+
+          if [[ "$database_exists" == "true" ]]; then
+            echo "Production D1 database already exists."
+          else
+            pnpm --dir apps/tap-email-coordinator exec wrangler d1 create "$D1_DATABASE_NAME"
+          fi
+
+      - name: Apply migrations, upload secrets, and deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/tap-email-coordinator
+          packageManager: pnpm
+          environment: production
+          wranglerVersion: "4.123.0"
+          secrets: |
+            GOOGLE_CLIENT_ID
+            GOOGLE_CLIENT_SECRET
+            GOOGLE_TOKEN_ENCRYPTION_KEY
+            ATTACHMENT_STAGING_ENCRYPTION_KEY
+          preCommands: wrangler d1 migrations apply DB --remote --env production
+          command: deploy --env production
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_TOKEN_ENCRYPTION_KEY }}
+          ATTACHMENT_STAGING_ENCRYPTION_KEY: ${{ secrets.ATTACHMENT_STAGING_ENCRYPTION_KEY }}
+
+      - name: Verify production health and readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="${TAP_EMAIL_COORDINATOR_PRODUCTION_URL%/}"
+
+          for endpoint in health ready; do
+            curl \
+              --fail \
+              --show-error \
+              --silent \
+              --retry 12 \
+              --retry-delay 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              "${base_url}/${endpoint}" | ENDPOINT="$endpoint" node --input-type=module -e '
+                let body = "";
+                for await (const chunk of process.stdin) body += chunk;
+                const payload = JSON.parse(body);
+                if (payload.ok !== true || payload.service !== "tap-email-coordinator") {
+                  console.error(`::error::/${process.env.ENDPOINT} returned an unexpected response.`);
+                  process.exit(1);
+                }
+              '
+          done

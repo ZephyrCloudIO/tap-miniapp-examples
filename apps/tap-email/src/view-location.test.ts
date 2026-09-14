@@ -4,6 +4,7 @@ import {
   parseMailViewHash,
   withMailViewHash,
 } from './view-location';
+import { FIXED_MAILBOX_CATEGORIES } from './mail-navigation';
 
 describe('TAP Email view location', () => {
   it('round-trips account-scoped thread locations', () => {
@@ -36,5 +37,11 @@ describe('TAP Email view location', () => {
     expect(mailViewDeepLink('google_personal', 'critical', 'thread_7')).toBe(
       '#account=google_personal&split=critical&threadAccount=google_personal&thread=thread_7',
     );
+  });
+
+  it('round-trips every fixed mailbox category without provider-specific routing', () => {
+    for (const category of FIXED_MAILBOX_CATEGORIES) {
+      expect(parseMailViewHash(`#account=all&split=${category.id}`)?.split).toBe(category.id);
+    }
   });
 });

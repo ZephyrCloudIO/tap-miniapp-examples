@@ -2,11 +2,19 @@ import {
   isSafeMailIdentifier,
   type MailCommand,
 } from '@tap-examples/tap-email-protocol';
-import { decodeBase64Url, openSecret, sealSecret } from './crypto';
+import {
+  decodeBase64Url,
+  encodeBase64Url,
+  openSecret,
+  sealSecret,
+  sha256Base64Url,
+} from './crypto';
 import {
   GoogleApiError,
   accessTokenFor,
+  googleAttachmentBytes,
   googleJson,
+  maximumGoogleAttachmentBytes,
 } from './google';
 import type { ProviderExecutionResult, ProviderScope } from './provider';
 import {
@@ -29,9 +37,96 @@ interface AccountRow {
   readonly backfill_page_token: string | null;
 }
 
+export interface MailboxPageOptions {
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export type MailboxPageResult = Readonly<Record<string, unknown>> & {
+  readonly mailbox: Readonly<Record<string, unknown>>;
+  readonly pageInfo: {
+    readonly nextCursor: string | null;
+  };
+};
+
+interface MailboxCursor {
+  readonly v: 1;
+  readonly receivedAt: string;
+  readonly accountId: string;
+  readonly threadId: string;
+}
+
+export class MailboxPageError extends Error {
+  readonly status = 400;
+
+  constructor(
+    readonly code: 'invalid_mailbox_cursor' | 'invalid_mailbox_limit',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export class AttachmentContentError extends Error {
+  constructor(
+    readonly status: 404 | 413 | 502,
+    readonly code:
+      | 'attachment_not_found'
+      | 'attachment_too_large'
+      | 'attachment_content_invalid',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const defaultMailboxPageSize = 100;
+const maximumMailboxPageSize = 100;
+const maximumMailboxCursorBytes = 1_024;
+const maximumMailboxCursorLength = 1_400;
+const gmailThreadPageSize = 25;
+
+type ProviderMailboxResource =
+  | 'inbox'
+  | 'starred'
+  | 'drafts'
+  | 'sent'
+  | 'spam'
+  | 'trash';
+const gmailMailboxResourceLabels = [
+  ['INBOX', 'inbox'],
+  ['STARRED', 'starred'],
+  ['DRAFT', 'drafts'],
+  ['SENT', 'sent'],
+  ['SPAM', 'spam'],
+  ['TRASH', 'trash'],
+] as const satisfies readonly (readonly [string, ProviderMailboxResource])[];
+
+// Gmail charges 40 quota units per threads.get and currently allows 6,000
+// units per user per minute. Four 25-thread backfill pages per minute consume
+// about 4,040 units, leaving headroom for foreground reads and commands.
+const backfillContinuationDelaySeconds = 15;
+// A history page can identify up to 50 distinct threads in our bounded path,
+// so incremental continuation pages need more spacing than bootstrap pages.
+const historyContinuationDelaySeconds = 30;
+
 interface Participant {
   readonly name: string;
   readonly address: string;
+}
+
+export interface EmailAttachmentMetadata {
+  readonly resourceId: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly disposition: 'attachment' | 'inline';
+  readonly contentId: string | null;
+}
+
+interface ParsedAttachment extends EmailAttachmentMetadata {
+  readonly gmailPartPath: string;
+  readonly gmailAttachmentId: string | null;
 }
 
 interface ParsedMessage {
@@ -41,6 +136,8 @@ interface ParsedMessage {
   readonly to: readonly Participant[];
   readonly sentAt: string;
   readonly bodyText: string;
+  readonly bodyHtml: string | null;
+  readonly attachments: readonly ParsedAttachment[];
   readonly labelIds: readonly string[];
   readonly snippet: string;
   readonly automated: boolean;
@@ -63,6 +160,61 @@ interface ParsedThread {
   readonly messages: readonly ParsedMessage[];
 }
 
+const maximumMessageBodyBytes = 500_000;
+const maximumAttachmentsPerMessage = 100;
+const maximumAttachmentsPerThread = 100;
+// D1 currently limits a single bound TEXT/BLOB value to 2 MB and a statement
+// to 100 bound parameters. Keep JSON payloads below that ceiling and reserve
+// the first four parameters for the attachment/message tuple plus updated_at.
+const maximumD1JsonParameterBytes = 1_750_000;
+const maximumD1JsonChunkParameters = 96;
+const utf8Encoder = new TextEncoder();
+
+function bulkJsonChunks(
+  rows: readonly Readonly<Record<string, unknown>>[],
+): readonly string[] {
+  if (rows.length === 0) return [];
+  const chunks: string[] = [];
+  let serializedRows: string[] = [];
+  let chunkBytes = 2; // Opening and closing array brackets.
+
+  const flush = (): void => {
+    if (serializedRows.length === 0) return;
+    chunks.push(`[${serializedRows.join(',')}]`);
+    serializedRows = [];
+    chunkBytes = 2;
+  };
+
+  for (const row of rows) {
+    const serialized = JSON.stringify(row);
+    const serializedBytes = utf8Encoder.encode(serialized).byteLength;
+    if (serializedBytes + 2 > maximumD1JsonParameterBytes) {
+      throw new Error('mailbox persistence row exceeds the D1 parameter limit');
+    }
+    const separatorBytes = serializedRows.length === 0 ? 0 : 1;
+    if (
+      serializedRows.length > 0 &&
+      chunkBytes + separatorBytes + serializedBytes > maximumD1JsonParameterBytes
+    ) {
+      flush();
+    }
+    serializedRows.push(serialized);
+    chunkBytes += (serializedRows.length === 1 ? 0 : 1) + serializedBytes;
+  }
+  flush();
+
+  if (chunks.length > maximumD1JsonChunkParameters) {
+    throw new Error('mailbox persistence requires too many D1 parameters');
+  }
+  return chunks;
+}
+
+function jsonEachRows(chunks: readonly string[]): string {
+  return chunks
+    .map((_, index) => `SELECT value FROM json_each(?${index + 5})`)
+    .join('\n         UNION ALL\n         ');
+}
+
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Readonly<Record<string, unknown>>
@@ -73,6 +225,16 @@ function stringArray(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+/** Gmail-specific adapter into the provider-neutral mailbox resource model. */
+function gmailProviderResources(
+  labelIds: readonly string[],
+): readonly ProviderMailboxResource[] {
+  const labels = new Set(labelIds);
+  return gmailMailboxResourceLabels
+    .filter(([labelId]) => labels.has(labelId))
+    .map(([, resource]) => resource);
 }
 
 function headerValue(
@@ -105,15 +267,206 @@ function participants(value: string): readonly Participant[] {
   return result.slice(0, 50);
 }
 
+function normalizedContentId(value: string): string | null {
+  const trimmed = value.trim().replace(/^<|>$/gu, '').trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 2_000) : null;
+}
+
+function dispositionValue(payload: Readonly<Record<string, unknown>>): string {
+  return headerValue(payload, 'Content-Disposition').trim();
+}
+
+function decodedDispositionFileName(value: string): string {
+  const encoded = /(?:^|;)\s*filename\*\s*=\s*UTF-8''([^;]+)/iu.exec(value)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.trim().replace(/^"|"$/gu, ''));
+    } catch {
+      // Fall through to the ordinary filename parameter.
+    }
+  }
+  const ordinary = /(?:^|;)\s*filename\s*=\s*(?:"([^"]*)"|([^;]*))/iu.exec(value);
+  return (ordinary?.[1] ?? ordinary?.[2] ?? '').trim();
+}
+
+function safeAttachmentFileName(value: string): string {
+  const encoder = new TextEncoder();
+  let normalized = '';
+  let encodedBytes = 0;
+  for (const sourceCharacter of value.normalize('NFC')) {
+    const codePoint = sourceCharacter.codePointAt(0)!;
+    if (
+      codePoint === 0x061c ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      (codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069)
+    ) {
+      continue;
+    }
+    const character = codePoint >= 0xd800 && codePoint <= 0xdfff
+      ? '\ufffd'
+      : /[\u0000-\u001F\u007F-\u009F/\\]/u.test(sourceCharacter)
+        ? '_'
+        : sourceCharacter;
+    const characterBytes = encoder.encode(character).byteLength;
+    if (encodedBytes + characterBytes > 512) break;
+    normalized += character;
+    encodedBytes += characterBytes;
+  }
+  return normalized.trim() || 'attachment';
+}
+
+function safeAttachmentMimeType(value: unknown): string {
+  if (typeof value !== 'string') return 'application/octet-stream';
+  const normalized = value.trim().toLowerCase();
+  return normalized.length <= 255 &&
+      /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u.test(normalized)
+    ? normalized
+    : 'application/octet-stream';
+}
+
+function inlineDataSize(value: string): number | null {
+  if (!/^[A-Za-z0-9_-]*={0,2}$/u.test(value)) return null;
+  const unpadded = value.replace(/=+$/u, '');
+  if (unpadded.length % 4 === 1) return null;
+  return Math.floor(unpadded.length * 3 / 4);
+}
+
+function attachmentSize(body: Readonly<Record<string, unknown>> | null): number {
+  if (
+    typeof body?.size === 'number' &&
+    Number.isSafeInteger(body.size) &&
+    body.size >= 0
+  ) {
+    return body.size;
+  }
+  return typeof body?.data === 'string'
+    ? inlineDataSize(body.data) ?? 0
+    : 0;
+}
+
+function isAttachmentMimePart(payload: Readonly<Record<string, unknown>>): boolean {
+  const body = asRecord(payload.body);
+  const disposition = dispositionValue(payload).split(';', 1)[0]?.trim().toLowerCase();
+  const mimeType = typeof payload.mimeType === 'string'
+    ? payload.mimeType.trim().toLowerCase()
+    : '';
+  // Multipart nodes are containers, not downloadable byte resources. Gmail
+  // puts the retrievable locator on a leaf; stopping at a decorated wrapper
+  // would hide both the real message body and its child attachments.
+  if (mimeType.startsWith('multipart/')) return false;
+  const isMessageBodyAlternative = mimeType === 'text/plain' || mimeType === 'text/html';
+  const hasFileName = typeof payload.filename === 'string' && payload.filename.trim().length > 0;
+  if (hasFileName || disposition === 'attachment') return true;
+  // A related HTML root may itself have a Content-ID or inline disposition.
+  // Preserve unnamed text/plain and text/html parts as message bodies; other
+  // addressable MIME entities are resources even when Gmail omits a filename.
+  return (
+    !isMessageBodyAlternative && (
+      (typeof body?.attachmentId === 'string' && body.attachmentId.length > 0) ||
+      disposition === 'inline' ||
+      normalizedContentId(headerValue(payload, 'Content-ID')) !== null
+    )
+  );
+}
+
+interface AttachmentPart {
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly disposition: 'attachment' | 'inline';
+  readonly contentId: string | null;
+  readonly gmailPartPath: string;
+  readonly gmailAttachmentId: string | null;
+}
+
+function attachmentParts(
+  payload: Readonly<Record<string, unknown>> | null,
+  partPath = 'root',
+  collected: AttachmentPart[] = [],
+  maximum = maximumAttachmentsPerMessage,
+): readonly AttachmentPart[] {
+  if (!payload || collected.length >= maximum) return collected;
+  if (isAttachmentMimePart(payload)) {
+    const body = asRecord(payload.body);
+    const contentId = normalizedContentId(headerValue(payload, 'Content-ID'));
+    const disposition = dispositionValue(payload);
+    const declaredFileName = typeof payload.filename === 'string' ? payload.filename : '';
+    const gmailAttachmentId =
+      typeof body?.attachmentId === 'string' && body.attachmentId.length <= 16_384
+        ? body.attachmentId
+        : null;
+    const gmailPartId =
+      typeof payload.partId === 'string' &&
+        payload.partId.length > 0 &&
+        payload.partId.length <= 512 &&
+        !/[\u0000-\u001F\u007F]/u.test(payload.partId)
+        ? payload.partId
+        : null;
+    collected.push({
+      fileName: safeAttachmentFileName(
+        declaredFileName || decodedDispositionFileName(disposition) || contentId || 'attachment',
+      ),
+      mimeType: safeAttachmentMimeType(payload.mimeType),
+      sizeBytes: attachmentSize(body),
+      disposition: disposition.split(';', 1)[0]?.trim().toLowerCase() === 'inline' || contentId !== null
+        ? 'inline'
+        : 'attachment',
+      contentId,
+      gmailPartPath: gmailPartId ? `id:${gmailPartId}` : `path:${partPath}`,
+      gmailAttachmentId,
+    });
+    return collected;
+  }
+  const parts = Array.isArray(payload.parts) ? payload.parts : [];
+  for (let index = 0; index < parts.length; index += 1) {
+    attachmentParts(
+      asRecord(parts[index]),
+      partPath === 'root' ? String(index) : `${partPath}.${index}`,
+      collected,
+      maximum,
+    );
+    if (collected.length >= maximum) break;
+  }
+  return collected;
+}
+
+async function messageAttachments(
+  messageId: string,
+  payload: Readonly<Record<string, unknown>> | null,
+  maximum: number,
+): Promise<readonly ParsedAttachment[]> {
+  const parts = attachmentParts(
+    payload,
+    'root',
+    [],
+    Math.max(0, Math.min(maximumAttachmentsPerMessage, maximum)),
+  );
+  return Promise.all(parts.map(async part => ({
+    resourceId: `att_${await sha256Base64Url(
+      JSON.stringify(['tap-email-attachment', 1, messageId, part.gmailPartPath]),
+    )}`,
+    ...part,
+  })));
+}
+
 function bodyPart(
   payload: Readonly<Record<string, unknown>> | null,
   preferredMime: string,
 ): string | null {
   if (!payload) return null;
+  if (isAttachmentMimePart(payload)) return null;
   const mimeType = typeof payload.mimeType === 'string' ? payload.mimeType.toLowerCase() : '';
   const body = asRecord(payload.body);
   if (mimeType === preferredMime && typeof body?.data === 'string') {
-    return decodeBase64Url(body.data, 100_000);
+    try {
+      return decodeBase64Url(body.data, maximumMessageBodyBytes);
+    } catch {
+      // Never return a syntactically corrupted partial MIME body. A bounded
+      // client can fall back to the other alternative or metadata instead.
+      return null;
+    }
   }
   const parts = Array.isArray(payload.parts) ? payload.parts : [];
   for (const part of parts) {
@@ -123,11 +476,7 @@ function bodyPart(
   return null;
 }
 
-function plainText(payload: Readonly<Record<string, unknown>> | null): string {
-  const text = bodyPart(payload, 'text/plain');
-  if (text !== null) return text.replaceAll('\r\n', '\n').trim();
-  const html = bodyPart(payload, 'text/html');
-  if (html === null) return '';
+function textFromHtml(html: string): string {
   return html
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/giu, ' ')
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, ' ')
@@ -143,7 +492,25 @@ function plainText(payload: Readonly<Record<string, unknown>> | null): string {
     .slice(0, 100_000);
 }
 
-function parseMessage(value: unknown, ordinal: number): ParsedMessage | null {
+function messageBody(
+  payload: Readonly<Record<string, unknown>> | null,
+): { readonly bodyText: string; readonly bodyHtml: string | null } {
+  const text = bodyPart(payload, 'text/plain');
+  const html = bodyPart(payload, 'text/html');
+  return {
+    bodyText: text !== null
+      ? text.replaceAll('\r\n', '\n').trim()
+      : html === null
+        ? ''
+        : textFromHtml(html),
+    bodyHtml: html !== null && html.trim().length > 0 ? html : null,
+  };
+}
+
+async function parseMessage(
+  value: unknown,
+  maximumAttachments: number,
+): Promise<ParsedMessage | null> {
   const message = asRecord(value);
   if (!message || typeof message.id !== 'string') return null;
   const payload = asRecord(message.payload);
@@ -161,13 +528,17 @@ function parseMessage(value: unknown, ordinal: number): ParsedMessage | null {
       ? new Date(dateHeader).toISOString()
       : new Date(0).toISOString();
   const listUnsubscribe = headerValue(payload, 'List-Unsubscribe');
+  const body = messageBody(payload);
+  const attachments = await messageAttachments(message.id, payload, maximumAttachments);
   return {
     messageId: message.id,
     internetMessageId: headerValue(payload, 'Message-ID') || null,
     from,
     to: participants(headerValue(payload, 'To')),
     sentAt,
-    bodyText: plainText(payload),
+    bodyText: body.bodyText,
+    bodyHtml: body.bodyHtml,
+    attachments,
     labelIds: stringArray(message.labelIds),
     snippet: typeof message.snippet === 'string' ? message.snippet.slice(0, 2_000) : '',
     automated:
@@ -176,18 +547,37 @@ function parseMessage(value: unknown, ordinal: number): ParsedMessage | null {
   };
 }
 
-function parseThread(value: unknown, accountAddress: string): ParsedThread | null {
+async function parseThread(value: unknown, accountAddress: string): Promise<ParsedThread | null> {
   const thread = asRecord(value);
   if (!thread || typeof thread.id !== 'string') return null;
   const rawMessages = Array.isArray(thread.messages) ? thread.messages : [];
-  const parsedMessages = rawMessages
-    .map(parseMessage)
-    .filter((item): item is ParsedMessage => item !== null)
+  const retainedRawMessages = rawMessages
+    .map((message, index) => {
+      const internalDate = Number(asRecord(message)?.internalDate);
+      return {
+        message,
+        index,
+        sortTime: Number.isFinite(internalDate) ? internalDate : Number.NEGATIVE_INFINITY,
+      };
+    })
+    .toSorted((left, right) => left.sortTime - right.sortTime || left.index - right.index)
+    .slice(-20);
+  let remainingAttachments = maximumAttachmentsPerThread;
+  const parsedNewestFirst: ParsedMessage[] = [];
+  for (const raw of retainedRawMessages.toReversed()) {
+    const parsed = await parseMessage(raw.message, remainingAttachments);
+    if (!parsed) continue;
+    remainingAttachments -= parsed.attachments.length;
+    parsedNewestFirst.push(parsed);
+  }
+  const parsedMessages = parsedNewestFirst
+    .toReversed()
     .toSorted((left, right) => left.sentAt.localeCompare(right.sentAt));
   const latest = parsedMessages.at(-1);
   if (!latest) return null;
   const firstPayload = asRecord(asRecord(rawMessages[0])?.payload);
-  const allLabels = new Set(parsedMessages.flatMap(message => message.labelIds));
+  const allLabels = new Set(rawMessages.flatMap(message =>
+    stringArray(asRecord(message)?.labelIds)));
   const ownAddress = accountAddress.toLowerCase();
   const latestFromSelf = latest.from.address === ownAddress;
   const externalParticipants = parsedMessages
@@ -209,7 +599,7 @@ function parseThread(value: unknown, accountAddress: string): ParsedThread | nul
     needsResponse: allLabels.has('INBOX') && !latestFromSelf && !latest.automated,
     waitingOnOthers: allLabels.has('INBOX') && latestFromSelf,
     labelIds: [...allLabels].toSorted(),
-    messages: parsedMessages.slice(-20),
+    messages: parsedMessages,
   };
 }
 
@@ -226,6 +616,87 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
+const fallbackMessageLimit = 20;
+const fallbackMetadataHeaders = [
+  'From',
+  'To',
+  'Date',
+  'Subject',
+  'Message-ID',
+  'List-Unsubscribe',
+] as const;
+
+function isOversizedGoogleResponse(error: unknown): error is GoogleApiError {
+  return error instanceof GoogleApiError && error.code === 'google_response_too_large';
+}
+
+function metadataThreadPath(threadId: string): string {
+  const parameters = new URLSearchParams({
+    format: 'metadata',
+    fields: 'id,historyId,messages(id,threadId,labelIds,internalDate,snippet,payload/headers)',
+  });
+  for (const header of fallbackMetadataHeaders) {
+    parameters.append('metadataHeaders', header);
+  }
+  return `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?${parameters.toString()}`;
+}
+
+function fullMessagePath(messageId: string): string {
+  const parameters = new URLSearchParams({
+    format: 'full',
+    fields: 'id,threadId,labelIds,internalDate,snippet,historyId,payload',
+  });
+  return `/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?${parameters.toString()}`;
+}
+
+function logOversizedResponse(
+  scope: ProviderScope,
+  threadId: string,
+  messageId?: string,
+): void {
+  console.warn(JSON.stringify({
+    message: messageId
+      ? 'gmail message body exceeded the sync limit; retaining metadata only'
+      : 'gmail thread exceeded the sync limit; retrying its newest messages individually',
+    profileId: scope.profileId,
+    accountId: scope.accountId,
+    threadId,
+    ...(messageId ? { messageId } : {}),
+    code: 'google_response_too_large',
+  }));
+}
+
+async function recoverOversizedThread(
+  scope: ProviderScope,
+  accessToken: string,
+  threadId: string,
+): Promise<Readonly<Record<string, unknown>>> {
+  logOversizedResponse(scope, threadId);
+  const metadata = await googleJson(accessToken, metadataThreadPath(threadId));
+  const messages = Array.isArray(metadata.messages)
+    ? metadata.messages.slice(-fallbackMessageLimit)
+    : [];
+  const hydrated = await mapConcurrent(messages, 5, async value => {
+    const message = asRecord(value);
+    const messageId = typeof message?.id === 'string' ? message.id : null;
+    if (!messageId) return value;
+    try {
+      return await googleJson(accessToken, fullMessagePath(messageId));
+    } catch (error) {
+      if (isOversizedGoogleResponse(error)) {
+        logOversizedResponse(scope, threadId, messageId);
+        return value;
+      }
+      if (error instanceof GoogleApiError && error.status === 404) return null;
+      throw error;
+    }
+  });
+  return {
+    ...metadata,
+    messages: hydrated.filter(message => message !== null),
+  };
+}
+
 async function persistThread(
   env: Env,
   scope: ProviderScope,
@@ -238,6 +709,48 @@ async function persistThread(
       sealSecret(message.bodyText, env.GOOGLE_TOKEN_ENCRYPTION_KEY),
     ),
   );
+  // An encrypted empty string is the post-sync sentinel for a message that has
+  // no HTML alternative. A database NULL is reserved for pre-migration rows so
+  // the selected-thread endpoint can lazily hydrate them from Gmail.
+  const sealedHtmlBodies = await Promise.all(
+    thread.messages.map(message =>
+      sealSecret(message.bodyHtml ?? '', env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+    ),
+  );
+  const attachments = (await Promise.all(thread.messages.flatMap(message =>
+    message.attachments.map(async attachment => ({
+      messageId: message.messageId,
+      attachment,
+      gmailAttachmentIdCiphertext: attachment.gmailAttachmentId
+        ? await sealSecret(attachment.gmailAttachmentId, env.GOOGLE_TOKEN_ENCRYPTION_KEY)
+        : null,
+    })),
+  )));
+  const messageChunks = bulkJsonChunks(thread.messages.map((message, ordinal) => ({
+    messageId: message.messageId,
+    internetMessageId: message.internetMessageId,
+    senderJson: JSON.stringify(message.from),
+    recipientsJson: JSON.stringify(message.to),
+    sentAt: message.sentAt,
+    bodyTextCiphertext: sealedBodies[ordinal]!,
+    bodyHtmlCiphertext: sealedHtmlBodies[ordinal]!,
+    ordinal,
+  })));
+  const attachmentChunks = bulkJsonChunks(attachments.map(({
+    messageId,
+    attachment,
+    gmailAttachmentIdCiphertext,
+  }) => ({
+    messageId,
+    resourceId: attachment.resourceId,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+    disposition: attachment.disposition,
+    contentId: attachment.contentId,
+    gmailPartPath: attachment.gmailPartPath,
+    gmailAttachmentIdCiphertext,
+  })));
   const statements = [
     env.DB.prepare(
       `INSERT INTO mail_threads
@@ -275,26 +788,63 @@ async function persistThread(
       `DELETE FROM mail_messages
         WHERE profile_id = ? AND account_id = ? AND thread_id = ?`,
     ).bind(scope.profileId, scope.accountId, thread.threadId),
-    ...thread.messages.map((message, ordinal) =>
+    ...(messageChunks.length === 0 ? [] : [
       env.DB.prepare(
-        `INSERT INTO mail_messages
+        `WITH input(value) AS (
+           ${jsonEachRows(messageChunks)}
+         )
+         INSERT INTO mail_messages
            (profile_id, account_id, thread_id, message_id, internet_message_id,
-            sender_json, recipients_json, sent_at, body_text_ciphertext, ordinal, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sender_json, recipients_json, sent_at, body_text_ciphertext,
+            body_html_ciphertext, ordinal, updated_at)
+         SELECT ?1, ?2, ?3,
+                json_extract(value, '$.messageId'),
+                json_extract(value, '$.internetMessageId'),
+                json_extract(value, '$.senderJson'),
+                json_extract(value, '$.recipientsJson'),
+                json_extract(value, '$.sentAt'),
+                json_extract(value, '$.bodyTextCiphertext'),
+                json_extract(value, '$.bodyHtmlCiphertext'),
+                CAST(json_extract(value, '$.ordinal') AS INTEGER),
+                ?4
+           FROM input`,
       ).bind(
         scope.profileId,
         scope.accountId,
         thread.threadId,
-        message.messageId,
-        message.internetMessageId,
-        JSON.stringify(message.from),
-        JSON.stringify(message.to),
-        message.sentAt,
-        sealedBodies[ordinal]!,
-        ordinal,
         now,
+        ...messageChunks,
       ),
-    ),
+    ]),
+    ...(attachmentChunks.length === 0 ? [] : [
+      env.DB.prepare(
+        `WITH input(value) AS (
+           ${jsonEachRows(attachmentChunks)}
+         )
+         INSERT INTO mail_attachments
+           (profile_id, account_id, thread_id, message_id, resource_id,
+            file_name, mime_type, size_bytes, disposition, content_id,
+            gmail_part_path, gmail_attachment_id_ciphertext, updated_at)
+         SELECT ?1, ?2, ?3,
+                json_extract(value, '$.messageId'),
+                json_extract(value, '$.resourceId'),
+                json_extract(value, '$.fileName'),
+                json_extract(value, '$.mimeType'),
+                CAST(json_extract(value, '$.sizeBytes') AS INTEGER),
+                json_extract(value, '$.disposition'),
+                json_extract(value, '$.contentId'),
+                json_extract(value, '$.gmailPartPath'),
+                json_extract(value, '$.gmailAttachmentIdCiphertext'),
+                ?4
+           FROM input`,
+      ).bind(
+        scope.profileId,
+        scope.accountId,
+        thread.threadId,
+        now,
+        ...attachmentChunks,
+      ),
+    ]),
   ];
   await env.DB.batch(statements);
   const latest = thread.messages.at(-1);
@@ -327,6 +877,10 @@ async function fetchAndPersistThreads(
       );
       return parseThread(raw, accountAddress);
     } catch (error) {
+      if (isOversizedGoogleResponse(error)) {
+        const recovered = await recoverOversizedThread(scope, accessToken, threadId);
+        return parseThread(recovered, accountAddress);
+      }
       if (error instanceof GoogleApiError && error.status === 404) {
         await env.DB.prepare(
           `UPDATE mail_threads SET in_inbox = 0, updated_at = ?
@@ -371,7 +925,10 @@ async function newestPage(
   reset: boolean,
   now: Date,
 ): Promise<void> {
-  const parameters = new URLSearchParams({ labelIds: 'INBOX', maxResults: '25' });
+  const parameters = new URLSearchParams({
+    includeSpamTrash: 'true',
+    maxResults: String(gmailThreadPageSize),
+  });
   if (pageToken) parameters.set('pageToken', pageToken);
   const [listed, profile] = await Promise.all([
     googleJson(accessToken, `/gmail/v1/users/me/threads?${parameters.toString()}`),
@@ -389,7 +946,7 @@ async function newestPage(
     now.toISOString(),
   );
   const nextPageToken = typeof listed.nextPageToken === 'string' ? listed.nextPageToken : null;
-  // The first newest-first page is only an exhaustive Inbox view when Gmail
+  // The first newest-first page is only an exhaustive mailbox view when Gmail
   // does not return a continuation token. Preserve older cached rows during a
   // paginated backfill so a fast refresh never makes known mail disappear.
   if (reset && !nextPageToken) {
@@ -435,7 +992,7 @@ async function newestPage(
       accountId: scope.accountId,
       mode: 'continue',
       pageToken: nextPageToken,
-    }, now, 1);
+    }, now, backfillContinuationDelaySeconds);
   }
 }
 
@@ -472,7 +1029,7 @@ async function partialPage(
   now: Date,
 ): Promise<void> {
   const parameters = new URLSearchParams({
-    maxResults: '25',
+    maxResults: String(gmailThreadPageSize),
     startHistoryId,
   });
   if (pageToken) parameters.set('pageToken', pageToken);
@@ -510,7 +1067,7 @@ async function partialPage(
       mode: 'partial',
       startHistoryId,
       pageToken: nextPageToken,
-    }, now, 1);
+    }, now, historyContinuationDelaySeconds);
     return;
   }
   await env.DB.prepare(
@@ -553,28 +1110,85 @@ export async function syncGoogleMailbox(
   await partialPage(env, scope, row, accessToken, startHistoryId, message.pageToken, now);
 }
 
+/**
+ * Provider-fresh barrier used immediately before a conditional scheduled send.
+ * It reads the exact Gmail thread rather than trusting the asynchronously
+ * synchronized mailbox projection, and persists the observation as a side
+ * effect so subsequent UI reads see the same state.
+ */
+export async function freshGoogleThreadHasExternalReplyAfter(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  threadId: string,
+  after: string,
+  now: Date,
+): Promise<boolean> {
+  const scope = { profileId, accountId };
+  const row = await accountRow(env, scope);
+  const accountAddress = row.email_address!.toLowerCase();
+  const accessToken = await accessTokenFor(env, scope, now);
+  const threads = await fetchAndPersistThreads(
+    env,
+    scope,
+    accessToken,
+    accountAddress,
+    [threadId],
+    now.toISOString(),
+  );
+  const threshold = Date.parse(after);
+  return threads.some(thread => thread.messages.some(message =>
+    message.from.address !== accountAddress && Date.parse(message.sentAt) > threshold,
+  ));
+}
+
 export async function requestAccountSync(
   env: Env,
   profileId: string,
   accountId: string,
   now: Date,
 ): Promise<boolean> {
-  const threshold = new Date(now.getTime() - 30_000).toISOString();
-  const updated = await env.DB.prepare(
-    `UPDATE google_accounts
-        SET last_sync_requested_at = ?
-      WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
-        AND coverage_state != 'backfilling'
-        AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
+  const account = await env.DB.prepare(
+    `SELECT backfill_page_token
+       FROM google_accounts
+      WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'`,
   )
-    .bind(now.toISOString(), profileId, accountId, threshold)
-    .run();
+    .bind(profileId, accountId)
+    .first<{ backfill_page_token: string | null }>();
+  if (!account) return false;
+
+  const threshold = new Date(now.getTime() - 30_000).toISOString();
+  const timestamp = now.toISOString();
+  const pageToken = account.backfill_page_token;
+  const updated = pageToken === null
+    ? await env.DB.prepare(
+      `UPDATE google_accounts
+          SET last_sync_requested_at = ?
+        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
+          AND coverage_state != 'backfilling'
+          AND backfill_page_token IS NULL
+          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
+    )
+      .bind(timestamp, profileId, accountId, threshold)
+      .run()
+    : await env.DB.prepare(
+      `UPDATE google_accounts
+          SET last_sync_requested_at = ?, coverage_state = 'backfilling', updated_at = ?
+        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
+          AND coverage_state != 'backfilling'
+          AND backfill_page_token = ?
+          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
+    )
+      .bind(timestamp, timestamp, profileId, accountId, pageToken, threshold)
+      .run();
   if (Number(updated.meta.changes ?? 0) !== 1) return false;
-  await enqueueSyncEvent(env, {
-    profileId,
-    accountId,
-    mode: 'partial',
-  }, now);
+  await enqueueSyncEvent(
+    env,
+    pageToken === null
+      ? { profileId, accountId, mode: 'partial' }
+      : { profileId, accountId, mode: 'continue', pageToken },
+    now,
+  );
   return true;
 }
 
@@ -586,7 +1200,219 @@ function safeJson<T>(value: string, fallback: T): T {
   }
 }
 
-export async function mailboxSnapshot(env: Env, profileId: string): Promise<Readonly<Record<string, unknown>>> {
+interface StoredMessageRow {
+  readonly message_id: string;
+  readonly internet_message_id: string | null;
+  readonly sender_json: string;
+  readonly recipients_json: string;
+  readonly sent_at: string;
+  readonly body_text_ciphertext: string;
+  readonly body_html_ciphertext: string | null;
+}
+
+interface StoredAttachmentRow {
+  readonly account_id: string;
+  readonly thread_id: string;
+  readonly message_id: string;
+  readonly resource_id: string;
+  readonly file_name: string;
+  readonly mime_type: string;
+  readonly size_bytes: number;
+  readonly disposition: 'attachment' | 'inline';
+  readonly content_id: string | null;
+  readonly gmail_part_path: string;
+  readonly gmail_attachment_id_ciphertext: string | null;
+}
+
+function attachmentMetadata(row: StoredAttachmentRow): EmailAttachmentMetadata {
+  return {
+    resourceId: row.resource_id,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    sizeBytes: row.size_bytes,
+    disposition: row.disposition,
+    contentId: row.content_id,
+  };
+}
+
+async function storedThreadMessages(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  threadId: string,
+): Promise<readonly StoredMessageRow[]> {
+  const messages = await env.DB.prepare(
+    `SELECT message_id, internet_message_id, sender_json, recipients_json,
+            sent_at, body_text_ciphertext, body_html_ciphertext
+       FROM mail_messages
+      WHERE profile_id = ? AND account_id = ? AND thread_id = ?
+      ORDER BY ordinal
+      LIMIT 20`,
+  )
+    .bind(profileId, accountId, threadId)
+    .all<StoredMessageRow>();
+  return messages.results;
+}
+
+async function storedThreadAttachments(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  threadId: string,
+): Promise<readonly StoredAttachmentRow[]> {
+  const attachments = await env.DB.prepare(
+    `SELECT account_id, thread_id, message_id, resource_id, file_name,
+            mime_type, size_bytes, disposition, content_id, gmail_part_path,
+            gmail_attachment_id_ciphertext
+       FROM mail_attachments
+      WHERE profile_id = ? AND account_id = ? AND thread_id = ?
+      ORDER BY message_id, gmail_part_path`,
+  )
+    .bind(profileId, accountId, threadId)
+    .all<StoredAttachmentRow>();
+  return attachments.results;
+}
+
+async function hydrateLegacyThreadHtml(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  threadId: string,
+  now: Date,
+): Promise<void> {
+  const scope = { profileId, accountId };
+  try {
+    const row = await accountRow(env, scope);
+    const accessToken = await accessTokenFor(env, scope, now);
+    await fetchAndPersistThreads(
+      env,
+      scope,
+      accessToken,
+      row.email_address!,
+      [threadId],
+      now.toISOString(),
+    );
+  } catch (error) {
+    if (!(error instanceof GoogleApiError)) throw error;
+    console.warn(JSON.stringify({
+      message: 'gmail rich body hydration failed; returning cached plain text',
+      profileId,
+      accountId,
+      threadId,
+      code: error.code,
+      ...(error.providerReason ? { providerReason: error.providerReason } : {}),
+    }));
+  }
+}
+
+function mailboxPageSize(value: number | undefined): number {
+  if (value === undefined) return defaultMailboxPageSize;
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximumMailboxPageSize) {
+    throw new MailboxPageError(
+      'invalid_mailbox_limit',
+      `Mailbox page size must be between 1 and ${maximumMailboxPageSize}.`,
+    );
+  }
+  return value;
+}
+
+function mailboxCursor(value: string | undefined): MailboxCursor | null {
+  if (value === undefined) return null;
+  if (
+    value.length === 0 ||
+    value.length > maximumMailboxCursorLength ||
+    !/^[a-zA-Z0-9_-]+$/u.test(value)
+  ) {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The mailbox cursor is malformed.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeBase64Url(value, maximumMailboxCursorBytes));
+  } catch {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The mailbox cursor is malformed.');
+  }
+  const cursor = asRecord(parsed);
+  const parsedReceivedAt = typeof cursor?.receivedAt === 'string'
+    ? Date.parse(cursor.receivedAt)
+    : Number.NaN;
+  if (
+    cursor?.v !== 1 ||
+    typeof cursor.receivedAt !== 'string' ||
+    !Number.isFinite(parsedReceivedAt) ||
+    new Date(parsedReceivedAt).toISOString() !== cursor.receivedAt ||
+    !isSafeMailIdentifier(cursor.accountId) ||
+    !isSafeMailIdentifier(cursor.threadId)
+  ) {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The mailbox cursor is malformed.');
+  }
+  return {
+    v: 1,
+    receivedAt: cursor.receivedAt,
+    accountId: cursor.accountId,
+    threadId: cursor.threadId,
+  };
+}
+
+function encodedMailboxCursor(cursor: MailboxCursor): string {
+  return encodeBase64Url(JSON.stringify(cursor));
+}
+
+function mailboxPageClause(cursor: MailboxCursor | null): string {
+  return cursor
+    ? `AND (
+          t.received_at < ? OR (
+            t.received_at = ? AND (
+              t.account_id > ? OR (t.account_id = ? AND t.thread_id > ?)
+            )
+          )
+        )`
+    : '';
+}
+
+function mailboxPageBindings(
+  profileId: string,
+  cursor: MailboxCursor | null,
+  limit: number,
+): readonly (string | number)[] {
+  return cursor
+    ? [
+        profileId,
+        cursor.receivedAt,
+        cursor.receivedAt,
+        cursor.accountId,
+        cursor.accountId,
+        cursor.threadId,
+        limit,
+      ]
+    : [profileId, limit];
+}
+
+interface MailboxThreadRow {
+  readonly profile_id: string;
+  readonly account_id: string;
+  readonly thread_id: string;
+  readonly history_id: string;
+  readonly subject: string;
+  readonly snippet: string;
+  readonly participants_json: string;
+  readonly received_at: string;
+  readonly unread: number;
+  readonly starred: number;
+  readonly important: number;
+  readonly in_inbox: number;
+  readonly needs_response: number;
+  readonly waiting_on_others: number;
+  readonly label_ids_json: string;
+}
+
+export async function mailboxPage(
+  env: Env,
+  profileId: string,
+  options: MailboxPageOptions = {},
+): Promise<MailboxPageResult> {
+  const pageSize = mailboxPageSize(options.limit);
+  const cursor = mailboxCursor(options.cursor);
+  const pageClause = mailboxPageClause(cursor);
   const accounts = await env.DB.prepare(
     `SELECT profile_id, account_id, email_address, display_name, accent,
             coverage_state, newest_history_id, backfill_complete_through,
@@ -597,63 +1423,54 @@ export async function mailboxSnapshot(env: Env, profileId: string): Promise<Read
   )
     .bind(profileId)
     .all<AccountRow>();
-  const threads = await env.DB.prepare(
+  const threadResults = await env.DB.prepare(
     `SELECT t.profile_id, t.account_id, t.thread_id, t.history_id, t.subject,
             t.snippet, t.participants_json, t.received_at, t.unread, t.starred,
             t.important, t.in_inbox, t.needs_response, t.waiting_on_others,
             t.label_ids_json
        FROM mail_threads t
       WHERE t.profile_id = ?
-        AND (t.in_inbox = 1 OR EXISTS (
-          SELECT 1 FROM tap_reminders r
-           WHERE r.profile_id = t.profile_id AND r.account_id = t.account_id
-             AND r.thread_id = t.thread_id AND r.state IN ('pending', 'due')
-        ))
-      ORDER BY t.received_at DESC
-      LIMIT 100`,
+        ${pageClause}
+      ORDER BY t.received_at DESC, t.account_id, t.thread_id
+      LIMIT ?`,
   )
-    .bind(profileId)
-    .all<{
-      profile_id: string;
-      account_id: string;
-      thread_id: string;
-      history_id: string;
-      subject: string;
-      snippet: string;
-      participants_json: string;
-      received_at: string;
-      unread: number;
-      starred: number;
-      important: number;
-      in_inbox: number;
-      needs_response: number;
-      waiting_on_others: number;
-      label_ids_json: string;
-    }>();
-  const [messages, reminders] = await Promise.all([
+    .bind(...mailboxPageBindings(profileId, cursor, pageSize + 1))
+    .all<MailboxThreadRow>();
+  const threads = threadResults.results.slice(0, pageSize);
+  const lastThread = threads.at(-1);
+  const nextCursor = threadResults.results.length > pageSize && lastThread
+    ? encodedMailboxCursor({
+        v: 1,
+        receivedAt: lastThread.received_at,
+        accountId: lastThread.account_id,
+        threadId: lastThread.thread_id,
+      })
+    : null;
+  const [messages, attachments, reminders] = await Promise.all([
     env.DB.prepare(
-      `SELECT m.account_id, m.thread_id, m.message_id, m.internet_message_id,
+      `WITH selected_threads AS (
+         SELECT t.profile_id, t.account_id, t.thread_id
+           FROM mail_threads t
+          WHERE t.profile_id = ?
+            ${pageClause}
+          ORDER BY t.received_at DESC, t.account_id, t.thread_id
+          LIMIT ?
+       )
+       SELECT m.account_id, m.thread_id, m.message_id, m.internet_message_id,
               m.sender_json, m.recipients_json, m.sent_at,
               m.body_text_ciphertext, m.ordinal
          FROM mail_messages m
-         JOIN mail_threads t
+         JOIN selected_threads t
            ON t.profile_id = m.profile_id AND t.account_id = m.account_id
           AND t.thread_id = m.thread_id
-        WHERE m.profile_id = ?
-          AND (t.in_inbox = 1 OR EXISTS (
-            SELECT 1 FROM tap_reminders r
-             WHERE r.profile_id = t.profile_id AND r.account_id = t.account_id
-               AND r.thread_id = t.thread_id AND r.state IN ('pending', 'due')
-          ))
-          AND m.ordinal = (
+        WHERE m.ordinal = (
             SELECT MAX(last_message.ordinal) FROM mail_messages last_message
              WHERE last_message.profile_id = m.profile_id
                AND last_message.account_id = m.account_id
                AND last_message.thread_id = m.thread_id
           )
-        ORDER BY m.thread_id, m.ordinal
-        LIMIT 200`,
-    ).bind(profileId).all<{
+        ORDER BY m.account_id, m.thread_id, m.ordinal`,
+    ).bind(...mailboxPageBindings(profileId, cursor, pageSize)).all<{
       account_id: string;
       thread_id: string;
       message_id: string;
@@ -664,6 +1481,36 @@ export async function mailboxSnapshot(env: Env, profileId: string): Promise<Read
       body_text_ciphertext: string;
       ordinal: number;
     }>(),
+    env.DB.prepare(
+      `WITH selected_threads AS (
+         SELECT t.profile_id, t.account_id, t.thread_id
+           FROM mail_threads t
+          WHERE t.profile_id = ?
+            ${pageClause}
+          ORDER BY t.received_at DESC, t.account_id, t.thread_id
+          LIMIT ?
+       ), latest_messages AS (
+         SELECT m.profile_id, m.account_id, m.thread_id, m.message_id
+           FROM mail_messages m
+           JOIN selected_threads t
+             ON t.profile_id = m.profile_id AND t.account_id = m.account_id
+            AND t.thread_id = m.thread_id
+          WHERE m.ordinal = (
+            SELECT MAX(last_message.ordinal) FROM mail_messages last_message
+             WHERE last_message.profile_id = m.profile_id
+               AND last_message.account_id = m.account_id
+               AND last_message.thread_id = m.thread_id
+          )
+       )
+       SELECT a.account_id, a.thread_id, a.message_id, a.resource_id,
+              a.file_name, a.mime_type, a.size_bytes, a.disposition,
+              a.content_id, a.gmail_part_path, NULL AS gmail_attachment_id_ciphertext
+         FROM mail_attachments a
+         JOIN latest_messages m
+           ON m.profile_id = a.profile_id AND m.account_id = a.account_id
+          AND m.thread_id = a.thread_id AND m.message_id = a.message_id
+        ORDER BY a.account_id, a.thread_id, a.message_id, a.gmail_part_path`,
+    ).bind(...mailboxPageBindings(profileId, cursor, pageSize)).all<StoredAttachmentRow>(),
     env.DB.prepare(
       `SELECT account_id, reminder_id, thread_id, due_at, condition, created_at
          FROM tap_reminders
@@ -686,6 +1533,13 @@ export async function mailboxSnapshot(env: Env, profileId: string): Promise<Read
       )).slice(0, 8_000),
     })),
   );
+  const attachmentsByMessage = new Map<string, EmailAttachmentMetadata[]>();
+  for (const attachment of attachments.results) {
+    const key = `${attachment.account_id}:${attachment.thread_id}:${attachment.message_id}`;
+    const group = attachmentsByMessage.get(key) ?? [];
+    group.push(attachmentMetadata(attachment));
+    attachmentsByMessage.set(key, group);
+  }
   const messagesByThread = new Map<string, unknown[]>();
   for (const { message, bodyText } of messagePreviews) {
     const key = `${message.account_id}:${message.thread_id}`;
@@ -697,6 +1551,9 @@ export async function mailboxSnapshot(env: Env, profileId: string): Promise<Read
       to: safeJson<readonly Participant[]>(message.recipients_json, []),
       sentAt: message.sent_at,
       bodyText,
+      attachments: attachmentsByMessage.get(
+        `${message.account_id}:${message.thread_id}:${message.message_id}`,
+      ) ?? [],
     });
     messagesByThread.set(key, group);
   }
@@ -714,45 +1571,64 @@ export async function mailboxSnapshot(env: Env, profileId: string): Promise<Read
     ]),
   );
   return {
-    schemaVersion: 1,
-    accounts: accounts.results.map(account => ({
-      accountId: account.account_id,
-      provider: 'google',
-      address: account.email_address ?? '',
-      displayName: account.email_address ?? account.display_name ?? 'Google',
-      accent: account.accent ?? '#74a7a1',
-      coverage: {
+    mailbox: {
+      schemaVersion: 1,
+      accounts: accounts.results.map(account => ({
         accountId: account.account_id,
-        state: account.coverage_state,
-        newestHistoryId: account.newest_history_id,
-        observedAt: account.updated_at,
-        backfillCompleteThrough: account.backfill_complete_through,
-        unresolvedFailures: account.unresolved_failures,
-      },
-    })),
-    threads: threads.results.map(thread => {
-      const key = `${thread.account_id}:${thread.thread_id}`;
-      const reminder = reminderByThread.get(key) ?? null;
-      return {
-        threadId: thread.thread_id,
-        accountId: thread.account_id,
-        providerRevision: thread.history_id,
-        subject: thread.subject,
-        participants: safeJson<readonly Participant[]>(thread.participants_json, []),
-        snippet: thread.snippet,
-        receivedAt: thread.received_at,
-        unread: thread.unread === 1,
-        starred: thread.starred === 1,
-        critical: thread.important === 1,
-        needsResponse: thread.needs_response === 1,
-        waitingOnOthers: thread.waiting_on_others === 1,
-        status: reminder ? 'reminded' : thread.in_inbox === 1 ? 'inbox' : 'done',
-        labels: safeJson<readonly string[]>(thread.label_ids_json, []),
-        messages: messagesByThread.get(key) ?? [],
-        reminder,
-      };
-    }),
+        provider: 'google',
+        address: account.email_address ?? '',
+        displayName: account.email_address ?? account.display_name ?? 'Google',
+        accent: account.accent ?? '#74a7a1',
+        coverage: {
+          accountId: account.account_id,
+          state: account.coverage_state,
+          newestHistoryId: account.newest_history_id,
+          observedAt: account.updated_at,
+          backfillCompleteThrough: account.backfill_complete_through,
+          unresolvedFailures: account.unresolved_failures,
+        },
+      })),
+      threads: threads.map(thread => {
+        const key = `${thread.account_id}:${thread.thread_id}`;
+        const reminder = reminderByThread.get(key) ?? null;
+        const labels = stringArray(safeJson<unknown>(thread.label_ids_json, []));
+        const providerResources = gmailProviderResources(labels);
+        return {
+          threadId: thread.thread_id,
+          accountId: thread.account_id,
+          providerRevision: thread.history_id,
+          subject: thread.subject,
+          participants: safeJson<readonly Participant[]>(thread.participants_json, []),
+          snippet: thread.snippet,
+          receivedAt: thread.received_at,
+          unread: thread.unread === 1,
+          starred: thread.starred === 1,
+          critical: thread.important === 1,
+          needsResponse: thread.needs_response === 1,
+          waitingOnOthers: thread.waiting_on_others === 1,
+          providerResources,
+          status: reminder
+            ? 'reminded'
+            : providerResources.includes('trash')
+              ? 'trashed'
+              : thread.in_inbox === 1
+                ? 'inbox'
+                : 'done',
+          labels,
+          messages: messagesByThread.get(key) ?? [],
+          reminder,
+        };
+      }),
+    },
+    pageInfo: { nextCursor },
   };
+}
+
+export async function mailboxSnapshot(
+  env: Env,
+  profileId: string,
+): Promise<Readonly<Record<string, unknown>>> {
+  return (await mailboxPage(env, profileId)).mailbox;
 }
 
 export async function threadSnapshot(
@@ -760,6 +1636,7 @@ export async function threadSnapshot(
   profileId: string,
   accountId: string,
   threadId: string,
+  now = new Date(),
 ): Promise<Readonly<Record<string, unknown>> | null> {
   const thread = await env.DB.prepare(
     `SELECT thread_id FROM mail_threads
@@ -768,39 +1645,167 @@ export async function threadSnapshot(
     .bind(profileId, accountId, threadId)
     .first<{ thread_id: string }>();
   if (!thread) return null;
-  const messages = await env.DB.prepare(
-    `SELECT message_id, internet_message_id, sender_json, recipients_json,
-            sent_at, body_text_ciphertext
-       FROM mail_messages
-      WHERE profile_id = ? AND account_id = ? AND thread_id = ?
-      ORDER BY ordinal
-      LIMIT 20`,
-  )
-    .bind(profileId, accountId, threadId)
-    .all<{
-      message_id: string;
-      internet_message_id: string | null;
-      sender_json: string;
-      recipients_json: string;
-      sent_at: string;
-      body_text_ciphertext: string;
-    }>();
-  const decryptedMessages = await Promise.all(messages.results.map(async message => ({
-    messageId: message.message_id,
-    internetMessageId: message.internet_message_id,
-    from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
-    to: safeJson<readonly Participant[]>(message.recipients_json, []),
-    sentAt: message.sent_at,
-    bodyText: await openSecret(
-      message.body_text_ciphertext,
-      env.GOOGLE_TOKEN_ENCRYPTION_KEY,
-    ),
-  })));
+  let messages = await storedThreadMessages(env, profileId, accountId, threadId);
+  if (messages.some(message => message.body_html_ciphertext === null)) {
+    await hydrateLegacyThreadHtml(env, profileId, accountId, threadId, now);
+    messages = await storedThreadMessages(env, profileId, accountId, threadId);
+  }
+  const attachments = await storedThreadAttachments(env, profileId, accountId, threadId);
+  const attachmentsByMessage = new Map<string, EmailAttachmentMetadata[]>();
+  for (const attachment of attachments) {
+    const group = attachmentsByMessage.get(attachment.message_id) ?? [];
+    group.push(attachmentMetadata(attachment));
+    attachmentsByMessage.set(attachment.message_id, group);
+  }
+  const decryptedMessages = await Promise.all(messages.map(async message => {
+    const bodyHtml = message.body_html_ciphertext === null
+      ? null
+      : await openSecret(
+        message.body_html_ciphertext,
+        env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+      );
+    return {
+      messageId: message.message_id,
+      internetMessageId: message.internet_message_id,
+      from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
+      to: safeJson<readonly Participant[]>(message.recipients_json, []),
+      sentAt: message.sent_at,
+      bodyText: await openSecret(
+        message.body_text_ciphertext,
+        env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+      ),
+      bodyHtml: bodyHtml || null,
+      attachments: attachmentsByMessage.get(message.message_id) ?? [],
+    };
+  }));
   return {
     accountId,
     threadId,
     messages: decryptedMessages,
   };
+}
+
+/**
+ * Returns the rich body for one message only when it belongs to the authenticated
+ * profile/account/thread tuple. Remote-image hydration uses this to bind every
+ * upstream fetch to mail the caller can already read instead of accepting an
+ * arbitrary public URL.
+ */
+export async function storedMessageRichBody(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  threadId: string,
+  messageId: string,
+): Promise<string | null | undefined> {
+  const message = await env.DB.prepare(
+    `SELECT body_html_ciphertext
+       FROM mail_messages
+      WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ?`,
+  )
+    .bind(profileId, accountId, threadId, messageId)
+    .first<{ readonly body_html_ciphertext: string | null }>();
+  if (!message) return undefined;
+  if (message.body_html_ciphertext === null) return null;
+  return openSecret(
+    message.body_html_ciphertext,
+    env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+  );
+}
+
+export interface AttachmentContent extends EmailAttachmentMetadata {
+  readonly bytes: Uint8Array;
+}
+
+/**
+ * Resolves one attachment only after a profile/account/thread/message/resource
+ * tuple matches a stored row. Gmail attachment IDs and MIME part paths remain
+ * coordinator-private and cannot be selected directly by callers.
+ */
+export async function attachmentContent(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  threadId: string,
+  messageId: string,
+  resourceId: string,
+  now = new Date(),
+): Promise<AttachmentContent> {
+  const attachment = await env.DB.prepare(
+    `SELECT account_id, thread_id, message_id, resource_id, file_name,
+            mime_type, size_bytes, disposition, content_id, gmail_part_path,
+            gmail_attachment_id_ciphertext
+       FROM mail_attachments
+      WHERE profile_id = ? AND account_id = ? AND thread_id = ?
+        AND message_id = ? AND resource_id = ?`,
+  )
+    .bind(profileId, accountId, threadId, messageId, resourceId)
+    .first<StoredAttachmentRow>();
+  if (!attachment) {
+    throw new AttachmentContentError(
+      404,
+      'attachment_not_found',
+      'The attachment was not found.',
+    );
+  }
+  if (attachment.size_bytes > maximumGoogleAttachmentBytes) {
+    throw new AttachmentContentError(
+      413,
+      'attachment_too_large',
+      'The attachment exceeds the 8 MiB download limit.',
+    );
+  }
+  let gmailAttachmentId: string | null = null;
+  if (attachment.gmail_attachment_id_ciphertext) {
+    try {
+      gmailAttachmentId = await openSecret(
+        attachment.gmail_attachment_id_ciphertext,
+        env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+      );
+    } catch {
+      throw new AttachmentContentError(
+        502,
+        'attachment_content_invalid',
+        'The stored attachment locator is invalid.',
+      );
+    }
+  }
+  const accessToken = await accessTokenFor(env, { profileId, accountId }, now);
+  let bytes: Uint8Array | null;
+  try {
+    bytes = await googleAttachmentBytes(accessToken, messageId, {
+      attachmentId: gmailAttachmentId,
+      partPath: attachment.gmail_part_path,
+    });
+  } catch (error) {
+    if (error instanceof GoogleApiError && error.status === 404) {
+      throw new AttachmentContentError(
+        404,
+        'attachment_not_found',
+        'The attachment no longer exists in Gmail.',
+      );
+    }
+    throw error;
+  }
+  if (!bytes) {
+    throw new AttachmentContentError(
+      404,
+      'attachment_not_found',
+      'The attachment no longer exists in Gmail.',
+    );
+  }
+  if (bytes.byteLength !== attachment.size_bytes) {
+    throw new AttachmentContentError(
+      bytes.byteLength > maximumGoogleAttachmentBytes ? 413 : 502,
+      bytes.byteLength > maximumGoogleAttachmentBytes
+        ? 'attachment_too_large'
+        : 'attachment_content_invalid',
+      bytes.byteLength > maximumGoogleAttachmentBytes
+        ? 'The attachment exceeds the 8 MiB download limit.'
+        : 'The attachment bytes do not match their stored metadata.',
+    );
+  }
+  return { ...attachmentMetadata(attachment), bytes };
 }
 
 export async function executeTapOwnedCommand(

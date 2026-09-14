@@ -2,9 +2,15 @@ export interface ProfileIdentity {
   readonly profileId: string;
 }
 
+export type TapEmailAction = 'tap-email.view' | 'tap-email.manage';
+
+/** Stable platform-session audience for this package and its coordinator. */
+export const tapEmailSessionAudience = 'tap_pkg_examples_tap_email_0001';
+
 export type AccessVerifier = (
   request: Request,
   env: Env,
+  requiredAction: TapEmailAction,
 ) => Promise<ProfileIdentity>;
 
 export class AccessError extends Error {
@@ -46,7 +52,11 @@ async function readBoundedText(
   return text + decoder.decode();
 }
 
-export const verifyPlatformSession: AccessVerifier = async (request, env) => {
+export const verifyPlatformSession: AccessVerifier = async (
+  request,
+  env,
+  requiredAction,
+) => {
   if (env.ALLOW_DEV_IDENTITY === 'true' && !env.TAP_INTROSPECTION_URL) {
     const profileId = request.headers.get('X-TAP-Dev-Profile')?.trim() ?? '';
     if (!safeProfileId.test(profileId)) {
@@ -89,7 +99,10 @@ export const verifyPlatformSession: AccessVerifier = async (request, env) => {
         Authorization: authorization,
         'Content-Type': 'application/json',
       },
-      body: '{}',
+      body: JSON.stringify({
+        audience: tapEmailSessionAudience,
+        requiredAction,
+      }),
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -116,9 +129,17 @@ export const verifyPlatformSession: AccessVerifier = async (request, env) => {
   if (
     result.active !== true ||
     typeof result.profileId !== 'string' ||
-    !safeProfileId.test(result.profileId)
+    !safeProfileId.test(result.profileId) ||
+    result.audience !== tapEmailSessionAudience ||
+    !Array.isArray(result.grantedActions) ||
+    !result.grantedActions.every(action => typeof action === 'string') ||
+    !result.grantedActions.includes(requiredAction)
   ) {
-    throw new AccessError(403, 'session_denied', 'The TAP session is not active.');
+    throw new AccessError(
+      403,
+      'session_denied',
+      'The TAP session is not authorized for this email action.',
+    );
   }
   return { profileId: result.profileId };
 };

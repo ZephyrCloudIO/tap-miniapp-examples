@@ -21,6 +21,7 @@ describe('coordinator readiness', () => {
       ALLOW_DEV_IDENTITY: 'false',
       TAP_INTROSPECTION_URL: 'http://platform.invalid/introspect',
       GOOGLE_TOKEN_ENCRYPTION_KEY: 'not-a-key',
+      ATTACHMENT_STAGING_ENCRYPTION_KEY: 'not-a-key',
     }));
 
     expect(readiness.ready).toBe(false);
@@ -31,6 +32,7 @@ describe('coordinator readiness', () => {
       'invalid_allowed_origins',
       'invalid_google_redirect_uri',
       'invalid_encryption_key',
+      'invalid_attachment_staging_encryption_key',
     ]);
   });
 });

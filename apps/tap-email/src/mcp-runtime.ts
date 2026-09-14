@@ -12,9 +12,16 @@ import {
   isMailboxSummary,
 } from '@tap-examples/tap-email-protocol';
 import {
+  activityAddress,
   operationalAddress,
   type OperationalProjection,
 } from './storage';
+import {
+  isEmailActivityProjection,
+  parseEmailActivitySummaryRequest,
+  summarizeEmailActivity,
+  type EmailActivityProjection,
+} from './activity';
 
 export interface TapEmailMcpRuntime {
   getExecutionContext(): MiniAppMaybePromise<MiniAppMcpExecutionContext>;
@@ -52,16 +59,29 @@ function parseProjection(value: MiniAppJsonValue | null): OperationalProjection 
   };
 }
 
+function parseActivityProjection(
+  value: MiniAppJsonValue | null,
+): EmailActivityProjection {
+  if (!isEmailActivityProjection(value)) {
+    throw new Error('TAP Email activity projection is unavailable or malformed.');
+  }
+  return value;
+}
+
 export function createTapEmailMcpServer(
   runtime: TapEmailMcpRuntime = defaultRuntime,
 ) {
-  const read = async () => {
+  const readStorage = async (address: MiniAppStorageAddress) => {
     const context = await runtime.getExecutionContext();
     if (!context.userId) {
       throw new Error('TAP Email MCP requires a trusted user scope.');
     }
-    return parseProjection((await runtime.readStorage(operationalAddress)).value);
+    return (await runtime.readStorage(address)).value;
   };
+  const readOperational = async () =>
+    parseProjection(await readStorage(operationalAddress));
+  const readActivity = async () =>
+    parseActivityProjection(await readStorage(activityAddress));
   return defineMcpServer({
     tools: {
       get_mailbox_summary: {
@@ -73,7 +93,7 @@ export function createTapEmailMcpServer(
           additionalProperties: false,
         },
         execute: async () =>
-          (await read()).summary as unknown as MiniAppJsonValue,
+          (await readOperational()).summary as unknown as MiniAppJsonValue,
       },
       get_active_email_context: {
         description:
@@ -84,7 +104,37 @@ export function createTapEmailMcpServer(
           additionalProperties: false,
         },
         execute: async () =>
-          (await read()).activeContext as unknown as MiniAppJsonValue,
+          (await readOperational()).activeContext as unknown as MiniAppJsonValue,
+      },
+      get_email_activity_summary: {
+        description:
+          'Aggregate committed user-authored TAP Email actions for one exact half-open RFC3339 range. Returns counts, failures, and coverage only—never subjects, bodies, correspondents, recipients, account IDs, thread IDs, or event timelines.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            start_at: {
+              type: 'string',
+              description: 'Inclusive RFC3339 timestamp with an explicit offset.',
+            },
+            end_at_exclusive: {
+              type: 'string',
+              description: 'Exclusive RFC3339 timestamp with an explicit offset.',
+            },
+            timezone: {
+              type: 'string',
+              description: 'IANA timezone used to describe the requested range.',
+              minLength: 1,
+              maxLength: 64,
+            },
+          },
+          required: ['start_at', 'end_at_exclusive', 'timezone'],
+          additionalProperties: false,
+        },
+        execute: async input =>
+          summarizeEmailActivity(
+            await readActivity(),
+            parseEmailActivitySummaryRequest(input),
+          ) as unknown as MiniAppJsonValue,
       },
     },
   });

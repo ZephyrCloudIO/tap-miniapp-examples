@@ -4,7 +4,7 @@ import type {
   MiniAppStorageAddress,
 } from '@theaiplatform/miniapp-sdk/sdk';
 import { createTapEmailMcpServer, type TapEmailMcpRuntime } from './mcp-runtime';
-import { operationalAddress } from './storage';
+import { activityAddress, operationalAddress } from './storage';
 
 function runtime(value: MiniAppJsonValue | null): {
   runtime: TapEmailMcpRuntime;
@@ -50,6 +50,7 @@ describe('TAP Email MCP', () => {
     const server = createTapEmailMcpServer(fixture.runtime);
     expect(Object.keys(server.tools).toSorted()).toEqual([
       'get_active_email_context',
+      'get_email_activity_summary',
       'get_mailbox_summary',
     ]);
     await expect(server.tools.get_mailbox_summary.execute()).resolves.toEqual(
@@ -57,6 +58,53 @@ describe('TAP Email MCP', () => {
     );
     expect(fixture.reads).toEqual([operationalAddress]);
     expect(JSON.stringify(projection)).not.toContain('bodyText');
+  });
+
+  it('returns a bounded aggregate rather than an action timeline', async () => {
+    const projection = {
+      schemaVersion: 1,
+      generatedAt: '2026-09-14T00:00:00.000Z',
+      entries: [
+        {
+          action: 'reply_sent',
+          outcome: 'applied',
+          occurredAt: '2026-09-13T14:00:00.000Z',
+          timeSource: 'provider_acknowledged_at',
+        },
+        {
+          action: 'thread_archived',
+          outcome: 'failed',
+          occurredAt: '2026-09-13T15:00:00.000Z',
+          timeSource: 'coordinator_accepted_at',
+        },
+      ],
+      coverage: {
+        scope: 'installation',
+        source: 'private-profile-sqlite',
+        trackingStartedAt: '2026-09-01T00:00:00.000Z',
+        retainedAfter: '2026-09-01T00:00:00.000Z',
+        availableFrom: '2026-09-01T00:00:00.000Z',
+        truncated: false,
+        warnings: [],
+      },
+    };
+    const fixture = runtime(projection);
+    const server = createTapEmailMcpServer(fixture.runtime);
+
+    const result = await server.tools.get_email_activity_summary.execute({
+      start_at: '2026-09-13T00:00:00.000Z',
+      end_at_exclusive: '2026-09-14T00:00:00.000Z',
+      timezone: 'UTC',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'email-activity-summary',
+      counts: expect.objectContaining({ total: 2, applied: 1 }),
+      failures: { total: 1, failed: 1, uncertain: 0, cancelled: 0 },
+      coverage: expect.objectContaining({ complete: true, scope: 'installation' }),
+    }));
+    expect(fixture.reads).toEqual([activityAddress]);
+    expect(JSON.stringify(result)).not.toContain('occurredAt');
   });
 
   it('fails closed without a trusted user scope', async () => {

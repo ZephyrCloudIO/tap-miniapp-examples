@@ -1,13 +1,6 @@
 import { isSafeMailIdentifier } from '@tap-examples/tap-email-protocol';
 import type { AccountSelection, EmailThread, MailSplit } from './domain';
-
-const mailSplits = new Set<MailSplit>([
-  'inbox',
-  'critical',
-  'needs-response',
-  'waiting',
-  'reminders',
-]);
+import { MAIL_VIEW_IDS } from './mail-navigation';
 
 export interface MailViewLocation {
   readonly accountId: AccountSelection;
@@ -27,7 +20,7 @@ export function parseMailViewHash(hash: string): MailViewLocation | null {
   const thread = parameters.get('thread');
   return {
     accountId: account === 'all' || isSafeMailIdentifier(account) ? account : 'all',
-    split: mailSplits.has(split as MailSplit) ? split as MailSplit : 'inbox',
+    split: MAIL_VIEW_IDS.has(split as MailSplit) ? split as MailSplit : 'inbox',
     threadAccountId: isSafeMailIdentifier(threadAccount) ? threadAccount : null,
     threadId: isSafeMailIdentifier(thread) ? thread : null,
   };

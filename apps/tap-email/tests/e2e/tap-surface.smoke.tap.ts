@@ -46,6 +46,41 @@ test('mounts TAP Email and opens the cloud mailbox through governed HTTP', async
     surface.getByRole('button', { name: 'Connect Google', exact: true }).first(),
   ).toBeVisible();
 
+  const mailboxCategoryNav = surface.getByRole('navigation', { name: 'Mailbox categories' });
+  await expect(mailboxCategoryNav.locator('.nav-label')).toHaveText([
+    'Inbox',
+    'Starred',
+    'Drafts',
+    'Sent',
+    'Done',
+    'Auto Archived',
+    'Scheduled',
+    'Reminders',
+    'Snippets',
+    'Spam',
+    'Trash',
+  ]);
+  const inboxView = mailboxCategoryNav.getByRole('button', { name: 'Inbox', exact: true });
+  const inboxShortcut = inboxView.locator('.nav-shortcut');
+  const inboxLabel = inboxView.locator('.nav-label');
+  await expect(inboxView).toHaveAttribute('aria-current', 'page');
+  await expect(inboxShortcut).toHaveCSS('opacity', '0');
+  await expect(inboxShortcut).toHaveCSS('visibility', 'hidden');
+  const idleButtonBox = await inboxView.boundingBox();
+  const idleLabelBox = await inboxLabel.boundingBox();
+  await inboxView.hover();
+  await expect(inboxShortcut).toHaveCSS('opacity', '1');
+  await expect(inboxShortcut).toHaveCSS('visibility', 'visible');
+  expect(await inboxView.boundingBox()).toEqual(idleButtonBox);
+  expect(await inboxLabel.boundingBox()).toEqual(idleLabelBox);
+  await surface.locator('.zero-card').hover();
+  await expect(inboxShortcut).toHaveCSS('opacity', '0');
+  await surface.locator('body').press('Tab');
+  await inboxView.focus();
+  await expect(inboxShortcut).toHaveCSS('opacity', '1');
+  await expect(inboxShortcut).toHaveAttribute('aria-hidden', 'true');
+  await expect(surface.locator('.triage-bar')).toHaveCount(0);
+
   await expect
     .poll(async () => {
       const snapshot = await tap.fixture.snapshot();

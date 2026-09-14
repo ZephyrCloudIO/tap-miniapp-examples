@@ -3,7 +3,10 @@ import type {
   TapFederatedSurfaceMount,
   TapFederatedSurfaceMountContext,
 } from '@theaiplatform/miniapp-sdk/surface';
-import { installMiniAppAppearanceSync } from '@theaiplatform/miniapp-sdk/web';
+import {
+  applyMiniAppTheme,
+  installMiniAppAppearanceSync,
+} from '@theaiplatform/miniapp-sdk/web';
 import { createRoot } from 'react-dom/client';
 import { TapEmailApp } from './app';
 import './styles.css';
@@ -14,13 +17,17 @@ export function mount(
   container: HTMLElement,
   context: TapFederatedSurfaceMountContext,
 ): TapFederatedSurfaceMount {
-  const stopAppearanceSync = installMiniAppAppearanceSync();
   const root = createRoot(container);
-  root.render(<TapEmailApp surfaceContext={context} />);
+  let mounted = true;
+  const stopAppearanceSync = installMiniAppAppearanceSync({
+    applyTheme(theme) {
+      applyMiniAppTheme(theme);
+      if (mounted) root.render(<TapEmailApp appTheme={theme} surfaceContext={context} />);
+    },
+  });
   void context.events.publish('tap-email.surface.mounted', {
     instanceId: context.instanceId,
   });
-  let mounted = true;
   return {
     unmount() {
       if (!mounted) return;
