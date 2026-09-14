@@ -105,6 +105,7 @@ interface CommandRow {
   readonly payload_json: string;
   readonly payload_ciphertext: string | null;
   readonly state: MailCommandState;
+  readonly dispatch_pending: number;
   readonly attempts: number;
   readonly client_created_at: string;
   readonly created_at: string;
@@ -424,7 +425,7 @@ async function commandRow(
   return env.DB.prepare(
     `SELECT profile_id, account_id, command_id, idempotency_key, kind,
             thread_id, expected_provider_revision, payload_json, payload_ciphertext, state,
-            attempts, client_created_at, created_at,
+            dispatch_pending, attempts, client_created_at, created_at,
             provider_acknowledged_at, error_code
        FROM mail_commands
       WHERE profile_id = ? AND command_id = ?`,
@@ -441,7 +442,7 @@ async function commandRowByIdempotencyKey(
   return env.DB.prepare(
     `SELECT profile_id, account_id, command_id, idempotency_key, kind,
             thread_id, expected_provider_revision, payload_json, payload_ciphertext, state,
-            attempts, client_created_at, created_at,
+            dispatch_pending, attempts, client_created_at, created_at,
             provider_acknowledged_at, error_code
        FROM mail_commands
       WHERE profile_id = ? AND idempotency_key = ?`,
@@ -630,6 +631,8 @@ async function submitCommand(
       'accepted',
       now,
     );
+  }
+  if (inserted || (stored.state === 'accepted' && stored.dispatch_pending === 1)) {
     try {
       await env.COMMAND_QUEUE.send({
         kind: 'command',
@@ -779,7 +782,7 @@ async function listScheduledSends(
   }));
 }
 
-function acknowledgedReadStateProjection(
+function acknowledgedThreadStateProjection(
   env: Env,
   row: CommandRow,
   providerRevision: string | null,
@@ -789,6 +792,37 @@ function acknowledgedReadStateProjection(
   // Gmail applies thread label mutations synchronously. Mirror the acknowledged
   // state now; the scheduled history sync remains the eventual reconciliation.
   if (!row.thread_id) return null;
+  if (row.kind === 'archive') {
+    return env.DB.prepare(
+      `UPDATE mail_threads
+          SET in_inbox = 0,
+              needs_response = 0,
+              waiting_on_others = 0,
+              label_ids_json = (
+                SELECT json_group_array(label.value)
+                  FROM json_each(mail_threads.label_ids_json) AS label
+                 WHERE label.value != 'INBOX'
+              ),
+              history_id = COALESCE(?, history_id), updated_at = ?
+        WHERE profile_id = ? AND account_id = ? AND thread_id = ?
+          AND EXISTS (
+            SELECT 1 FROM mail_commands result_command
+             WHERE result_command.profile_id = ?
+               AND result_command.command_id = ?
+               AND result_command.state = 'applied'
+               AND result_command.lease_token = ?
+          )`,
+    ).bind(
+      providerRevision,
+      now,
+      row.profile_id,
+      row.account_id,
+      row.thread_id,
+      row.profile_id,
+      row.command_id,
+      leaseToken,
+    );
+  }
   if (row.kind === 'mark_read') {
     return env.DB.prepare(
       `UPDATE mail_threads
@@ -960,7 +994,7 @@ async function applyProviderResult(
         leaseToken,
       ));
     }
-    const projection = acknowledgedReadStateProjection(
+    const projection = acknowledgedThreadStateProjection(
       env,
       row,
       result.providerRevision,

@@ -57,6 +57,7 @@ import {
   recoverableImmediateSends,
   remindThread,
   resolveReminderInput,
+  rollbackUnpersistedMailCommand,
   retryRecoverableImmediateSend,
   saveMessageDraft,
   scheduleMessageDraft,
@@ -1024,8 +1025,24 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         },
         error => {
           if (store.capability === 'private-profile-sqlite') {
+            const rejectedArchiveIds = state.commands
+              .filter(command =>
+                command.kind === 'archive' &&
+                !commandPersistenceBarrier.current.readiness(
+                  command,
+                  store.capability,
+                ).ready
+              )
+              .map(command => command.commandId);
+            if (rejectedArchiveIds.length > 0) {
+              setState(current => rejectedArchiveIds.reduce(
+                (next, commandId) => rollbackUnpersistedMailCommand(next, commandId),
+                current,
+              ));
+              flash('Done was not applied because the device command could not be saved.');
+            }
             setCacheError(
-              `Mail is live, but the device cache could not save. Email actions remain queued and have not been submitted: ${String(error)}`,
+              `Mail is live, but the device cache could not save. Unsaved Done actions were restored; other email actions remain queued and have not been submitted: ${String(error)}`,
             );
           }
         },
@@ -1510,6 +1527,22 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     );
     return sync;
   }, [refreshMailbox]);
+
+  const retryDeviceCache = useCallback(async (): Promise<void> => {
+    try {
+      await store.load();
+      await store.save(stateRef.current);
+      const released = commandPersistenceBarrier.current.releaseAfterSuccessfulSave(
+        stateRef.current,
+        store.capability,
+      );
+      setCacheError('');
+      if (released) setDispatchTick(value => value + 1);
+      flash('Device cache is ready.');
+    } catch (error) {
+      setCacheError(`Mail is live, but the device cache is still unavailable: ${String(error)}`);
+    }
+  }, [flash, store]);
 
   const createMailMergeDrafts = useCallback(async (
     commands: readonly MailCommand<MailDraftPayload>[],
@@ -2024,6 +2057,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       });
     }
     if (command === 'done') {
+      if (
+        !preview &&
+        store.capability === 'private-profile-sqlite' &&
+        cacheError
+      ) {
+        flash('Done was not applied. Restore device-cache permission, then retry.');
+        return;
+      }
+      if (!thread || !threadMatchesSplit(thread, 'inbox')) {
+        flash('This conversation is already outside Inbox.');
+        return;
+      }
       setState(current => markDone(current, `cmd_${idFactory()}`, now));
       flash('Marked done · Z to undo');
     }
@@ -2105,7 +2150,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       return;
     }
     setOverlay(current => command === 'palette' || command === 'show-shortcuts' || command === 'remind' || command === 'compose' ? current : 'none');
-  }, [askChloe, beginReply, flash, idFactory, preview, query, rows, surfaceContext, thread]);
+  }, [askChloe, beginReply, cacheError, flash, idFactory, preview, query, rows, store.capability, surfaceContext, thread]);
 
   const handleKeyDown = (event: globalThis.KeyboardEvent) => {
     if (
@@ -2651,6 +2696,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           <strong>{capabilityBannerTitle}</strong>
           <span>{capabilityBannerMessage}</span>
           {mailboxError && !preview ? <button type="button" onClick={() => void refreshMailbox().catch(error => setMailboxError(`TAP Email could not open the cloud mailbox: ${String(error)}`))}>Retry</button> : null}
+          {cacheError && !preview ? <button type="button" onClick={() => void retryDeviceCache()}>Retry device cache</button> : null}
         </div>
       ) : null}
 

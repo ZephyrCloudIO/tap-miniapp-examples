@@ -16,11 +16,13 @@ import {
   previewMailState,
   remindThread,
   resolveReminderInput,
+  rollbackUnpersistedMailCommand,
   saveMessageDraft,
   scheduleMessageDraft,
   selectAccount,
   selectSplit,
   selectedThread,
+  settleMailCommand,
   toggleThreadRead,
   toggleStar,
   trashThread,
@@ -165,6 +167,68 @@ describe('TAP Email domain', () => {
       kind: 'archive',
     });
     expect(selectedThread(next)?.threadId).not.toBe(current?.threadId);
+  });
+
+  it('restores an optimistic Done transition when the provider does not apply it', () => {
+    const initial = previewMailState();
+    const original = selectedThread(initial)!;
+    const states = ['failed', 'cancelled', 'uncertain'] as const;
+
+    for (const receiptState of states) {
+      const pending = markDone(initial, `cmd_done_${receiptState}`, now);
+      const archive = pending.commands.at(-1)!;
+      const settled = settleMailCommand(pending, archive, {
+        commandId: archive.commandId,
+        idempotencyKey: archive.idempotencyKey,
+        accountId: archive.accountId,
+        state: receiptState,
+        acceptedAt: now,
+        providerAcknowledgedAt: null,
+        errorCode: receiptState === 'uncertain' ? 'outcome_unknown' : 'provider_rejected',
+      }, now);
+
+      expect(selectedThread(settled)).toEqual(original);
+      expect(settled.commands).toHaveLength(0);
+      expect(settled.undo).toBeNull();
+    }
+  });
+
+  it('keeps Done only after the provider applies the archive', () => {
+    const pending = markDone(previewMailState(), 'cmd_done_applied', now);
+    const archive = pending.commands.at(-1)!;
+    const settled = settleMailCommand(pending, archive, {
+      commandId: archive.commandId,
+      idempotencyKey: archive.idempotencyKey,
+      accountId: archive.accountId,
+      state: 'applied',
+      acceptedAt: now,
+      providerAcknowledgedAt: now,
+      errorCode: null,
+    }, now);
+
+    expect(settled.threads.find(thread => thread.threadId === archive.threadId)?.status)
+      .toBe('done');
+  });
+
+  it('rolls back a Done command that could not cross the device persistence barrier', () => {
+    const initial = previewMailState();
+    const original = selectedThread(initial)!;
+    const pending = markDone(initial, 'cmd_done_not_saved', now);
+    const restored = rollbackUnpersistedMailCommand(pending, 'cmd_done_not_saved');
+
+    expect(selectedThread(restored)).toEqual(original);
+    expect(restored.commands).toHaveLength(0);
+    expect(restored.undo).toBeNull();
+  });
+
+  it('does not queue Done for a conversation that is already outside Inbox', () => {
+    const initial = previewMailState();
+    const pending = markDone(initial, 'cmd_done_once', now);
+    const done = selectSplit(pending, 'done');
+    const repeated = markDone(done, 'cmd_done_twice', now);
+
+    expect(repeated).toBe(done);
+    expect(repeated.commands.map(command => command.commandId)).toEqual(['cmd_done_once']);
   });
 
   it('marks an opened unread thread read and queues the account-scoped provider command', () => {

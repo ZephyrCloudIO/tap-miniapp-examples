@@ -161,6 +161,33 @@ describe('TAP Email coordinator command outbox', () => {
     });
   });
 
+  it('re-dispatches an identical accepted command when its first queue send was deferred', async () => {
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity,
+      now: () => new Date(now),
+    });
+    expect((await worker.fetch(submit(command()), env)).status).toBe(202);
+    await env.DB.prepare(
+      `UPDATE mail_commands SET dispatch_pending = 1
+        WHERE profile_id = ? AND command_id = ?`,
+    ).bind('profile_1', 'cmd_1').run();
+
+    const duplicate = await worker.fetch(submit(command()), env);
+
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({
+      accepted: true,
+      duplicate: true,
+    });
+    expect(await env.DB.prepare(
+      `SELECT state, dispatch_pending FROM mail_commands
+        WHERE profile_id = ? AND command_id = ?`,
+    ).bind('profile_1', 'cmd_1').first()).toEqual({
+      state: 'accepted',
+      dispatch_pending: 0,
+    });
+  });
+
   it('accepts a maximum-length multibyte draft beyond the former transport limit', async () => {
     const worker = createTapEmailCoordinator({
       verifyAccess: identity,
@@ -517,6 +544,43 @@ describe('TAP Email coordinator command outbox', () => {
       history_id: 'history_11',
       unread: 0,
       label_ids_json: '["INBOX"]',
+      updated_at: now,
+    });
+  });
+
+  it('projects an acknowledged archive into Done before the next history sync', async () => {
+    await seedThread();
+    const provider: GoogleProviderPort = {
+      async execute() {
+        return { outcome: 'acknowledged', providerRevision: 'history_11' };
+      },
+    };
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity,
+      provider,
+      now: () => new Date(now),
+    });
+    const archive = command();
+    expect((await worker.fetch(submit(archive), env)).status).toBe(202);
+    const queued = fakeMessage({
+      profileId: 'profile_1',
+      accountId: 'google_personal',
+      commandId: archive.commandId,
+    });
+    await worker.queue(batch(queued.message), env);
+
+    expect(queued.result().disposition).toBe('ack');
+    expect(await env.DB.prepare(
+      `SELECT history_id, in_inbox, needs_response, waiting_on_others,
+              label_ids_json, updated_at
+         FROM mail_threads
+        WHERE profile_id = ? AND account_id = ? AND thread_id = ?`,
+    ).bind('profile_1', 'google_personal', 'gmail_thread_1').first()).toEqual({
+      history_id: 'history_11',
+      in_inbox: 0,
+      needs_response: 0,
+      waiting_on_others: 0,
+      label_ids_json: '["UNREAD"]',
       updated_at: now,
     });
   });

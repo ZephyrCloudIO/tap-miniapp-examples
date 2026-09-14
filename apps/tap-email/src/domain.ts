@@ -902,11 +902,68 @@ export function settleMailCommand(
       }
     }
   }
-  return {
+  const settled = {
     ...state,
     commands: state.commands.filter(item => item.commandId !== command.commandId),
     outbox,
     undo: state.undo?.commandId === command.commandId ? null : state.undo,
+  };
+  return command.kind === 'archive' && receipt.state !== 'applied'
+    ? restoreOptimisticArchive(settled, command, state.undo)
+    : settled;
+}
+
+function restoreOptimisticArchive(
+  state: MailState,
+  command: MailCommand,
+  undo: UndoEntry | null = state.undo,
+): MailState {
+  if (command.kind !== 'archive' || !command.threadId) return state;
+  const matchingUndo = undo?.kind !== 'send' && undo?.commandId === command.commandId
+    ? undo
+    : null;
+  const optimistic = state.threads.find(thread =>
+    thread.accountId === command.accountId && thread.threadId === command.threadId
+  );
+  const restored = matchingUndo?.thread ?? (optimistic
+    ? {
+        ...optimistic,
+        status: 'inbox' as const,
+        ...(optimistic.providerResources
+          ? {
+              providerResources: [
+                ...new Set([...optimistic.providerResources, 'inbox' as const]),
+              ],
+            }
+          : {}),
+      }
+    : null);
+  if (!restored) return state;
+  return {
+    ...state,
+    threads: state.threads.map(thread =>
+      emailThreadKey(thread) === emailThreadKey(restored) ? restored : thread
+    ),
+    selectedThreadKey: emailThreadKey(restored),
+  };
+}
+
+/**
+ * Rejects a Done transition that never crossed the local durability barrier.
+ * This keeps provider truth visible when private profile storage is revoked
+ * after the mailbox has opened.
+ */
+export function rollbackUnpersistedMailCommand(
+  state: MailState,
+  commandId: string,
+): MailState {
+  const command = state.commands.find(item => item.commandId === commandId);
+  if (!command || command.kind !== 'archive') return state;
+  const rolledBack = restoreOptimisticArchive(state, command);
+  return {
+    ...rolledBack,
+    commands: rolledBack.commands.filter(item => item.commandId !== commandId),
+    undo: rolledBack.undo?.commandId === commandId ? null : rolledBack.undo,
   };
 }
 
@@ -1071,6 +1128,8 @@ export function markDone(
   commandId: string,
   now: string,
 ): MailState {
+  const thread = selectedThread(state);
+  if (!thread || !threadMatchesSplit(thread, 'inbox')) return state;
   return withThreadAction(
     state,
     commandId,
