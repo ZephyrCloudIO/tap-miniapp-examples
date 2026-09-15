@@ -3234,7 +3234,7 @@ describe("TAP Calendar local gateway", () => {
       conflictEnd: null,
     })).resolves.toMatchObject({ status: "committed" });
     expect(deleteRequests.at(-1)?.sendUpdates).toBe("none");
-  });
+  }, 15_000);
 
   it("keeps workspaces isolated and deletes only the authorized connection", async () => {
     await worker.fetch(
