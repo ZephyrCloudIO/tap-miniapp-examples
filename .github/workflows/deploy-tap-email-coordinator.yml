@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: tap-email-coordinator-production
-  cancel-in-progress: false
+  queue: max
 
 permissions:
   actions: read
@@ -290,6 +290,169 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_TOKEN_ENCRYPTION_KEY }}
           ATTACHMENT_STAGING_ENCRYPTION_KEY: ${{ secrets.ATTACHMENT_STAGING_ENCRYPTION_KEY }}
+
+      - name: Initialize sync delivery and verify production queues
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TAP_EMAIL_COORDINATOR_WORKER: tap-email-coordinator-production
+          TAP_EMAIL_COMMAND_QUEUE: tap-email-commands-production
+          TAP_EMAIL_COMMAND_DLQ: tap-email-commands-dead-letter-production
+          TAP_EMAIL_SYNC_QUEUE: tap-email-sync-production
+          TAP_EMAIL_SYNC_DLQ: tap-email-sync-dead-letter-production
+        run: |
+          set -euo pipefail
+
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+          const worker = process.env.TAP_EMAIL_COORDINATOR_WORKER;
+          const expectedQueues = [
+            {
+              name: process.env.TAP_EMAIL_COMMAND_QUEUE,
+              deadLetterQueue: process.env.TAP_EMAIL_COMMAND_DLQ,
+              initializeMissingDelivery: false,
+            },
+            {
+              name: process.env.TAP_EMAIL_SYNC_QUEUE,
+              deadLetterQueue: process.env.TAP_EMAIL_SYNC_DLQ,
+              initializeMissingDelivery: true,
+            },
+          ];
+
+          const cloudflare = async (url) => {
+            const response = await fetch(url, {
+              headers: { Authorization: `Bearer ${apiToken}` },
+              signal: AbortSignal.timeout(30_000),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload?.success !== true) {
+              throw new Error(`Cloudflare API request failed with status ${response.status}.`);
+            }
+            return payload;
+          };
+
+          const queueFor = async (name) => {
+            const matches = [];
+            let page = 1;
+            let totalPages = 1;
+            do {
+              const inventoryUrl = new URL(
+                `/client/v4/accounts/${encodeURIComponent(accountId)}/queues`,
+                'https://api.cloudflare.com',
+              );
+              inventoryUrl.searchParams.set('page', String(page));
+              const payload = await cloudflare(inventoryUrl);
+              if (!Array.isArray(payload.result)) {
+                throw new Error('Cloudflare returned an invalid queue inventory.');
+              }
+              matches.push(...payload.result.filter(queue => queue?.queue_name === name));
+              const reportedPages = Number(payload.result_info?.total_pages);
+              if (!Number.isInteger(reportedPages) || reportedPages < 0 || reportedPages > 10_000) {
+                throw new Error('Cloudflare returned invalid queue pagination metadata.');
+              }
+              totalPages = Math.max(1, reportedPages);
+              page += 1;
+            } while (page <= totalPages);
+            if (matches.length !== 1) {
+              throw new Error(`Expected exactly one ${name} queue.`);
+            }
+            return matches[0];
+          };
+
+          const metricsFor = async (queue, name) => {
+            const metricsUrl = new URL(
+              `/client/v4/accounts/${encodeURIComponent(accountId)}/queues/${encodeURIComponent(queue.queue_id)}/metrics`,
+              'https://api.cloudflare.com',
+            );
+            const metrics = (await cloudflare(metricsUrl)).result;
+            if (
+              !Number.isFinite(metrics?.backlog_count) ||
+              !Number.isFinite(metrics?.backlog_bytes) ||
+              !Number.isFinite(metrics?.oldest_message_timestamp_ms)
+            ) {
+              throw new Error(`${name} returned invalid backlog metrics.`);
+            }
+            return metrics;
+          };
+
+          for (const expected of expectedQueues) {
+            let queue = await queueFor(expected.name);
+            let metrics = await metricsFor(queue, expected.name);
+            const deadLetterQueue = await queueFor(expected.deadLetterQueue);
+            const deadLetterMetrics = await metricsFor(deadLetterQueue, expected.deadLetterQueue);
+            const deliveryState = queue.settings?.delivery_paused === false
+              ? 'active'
+              : queue.settings?.delivery_paused === true
+                ? 'paused'
+                : 'missing';
+            console.log(
+              `${expected.name}: delivery=${deliveryState}; backlog=${metrics.backlog_count} messages (${metrics.backlog_bytes} bytes).`,
+            );
+            if (queue.settings?.delivery_paused === true) {
+              throw new Error(
+                `${expected.name} is intentionally paused; refusing to resume it during deployment.`,
+              );
+            }
+            if (queue.settings?.delivery_paused !== false) {
+              if (!expected.initializeMissingDelivery) {
+                throw new Error(
+                  `${expected.name} delivery state is missing; inspect pending outbound commands and the queue backlog, then obtain explicit operator authorization before resuming it.`,
+                );
+              }
+              console.log(`${expected.name}: initializing missing delivery state.`);
+              const resumed = spawnSync(
+                'pnpm',
+                [
+                  '--dir',
+                  'apps/tap-email-coordinator',
+                  'exec',
+                  'wrangler',
+                  'queues',
+                  'resume-delivery',
+                  expected.name,
+                ],
+                { env: process.env, stdio: 'inherit' },
+              );
+              if (resumed.error || resumed.status !== 0) {
+                throw new Error(`Could not initialize ${expected.name} delivery.`);
+              }
+              for (let attempt = 0; attempt < 6; attempt += 1) {
+                queue = await queueFor(expected.name);
+                if (queue.settings?.delivery_paused === false) break;
+                if (attempt < 5) {
+                  await new Promise(resolve => setTimeout(resolve, 2_000));
+                }
+              }
+              metrics = await metricsFor(queue, expected.name);
+            }
+            if (queue.settings?.delivery_paused !== false) {
+              throw new Error(`${expected.name} delivery is still paused.`);
+            }
+            if (!queue.producers?.some(candidate =>
+              candidate?.type === 'worker' && candidate.script === worker
+            )) {
+              throw new Error(`${expected.name} is missing the ${worker} producer.`);
+            }
+            if (!queue.consumers?.some(candidate =>
+              candidate?.type === 'worker' &&
+              (candidate.script_name ?? candidate.script ?? candidate.service) === worker &&
+              candidate.dead_letter_queue === expected.deadLetterQueue
+            )) {
+              throw new Error(`${expected.name} is missing its production consumer or dead-letter queue.`);
+            }
+
+            console.log(
+              `${expected.name}: delivery active; backlog=${metrics.backlog_count} messages (${metrics.backlog_bytes} bytes).`,
+            );
+            console.log(
+              `${expected.deadLetterQueue}: backlog=${deadLetterMetrics.backlog_count} messages (${deadLetterMetrics.backlog_bytes} bytes).`,
+            );
+          }
+          NODE
 
       - name: Verify production health and readiness
         shell: bash

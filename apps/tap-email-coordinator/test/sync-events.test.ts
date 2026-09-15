@@ -124,6 +124,108 @@ describe('durable mailbox sync events', () => {
     });
   });
 
+  it('acknowledges duplicate deliveries without overtaking an active sync', async () => {
+    const queued = await enqueueSyncEvent(env, {
+      profileId: 'profile_sync',
+      accountId: 'google_sync',
+      mode: 'partial',
+      startHistoryId: 'history_10',
+    }, now);
+    let current = now;
+    let signalFirstStarted!: () => void;
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>(resolve => {
+      signalFirstStarted = resolve;
+    });
+    const firstMayFinish = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    let syncCalls = 0;
+    const worker = createTapEmailCoordinator({
+      now: () => current,
+      async syncMailbox() {
+        syncCalls += 1;
+        if (syncCalls === 1) {
+          signalFirstStarted();
+          await firstMayFinish;
+        }
+      },
+    });
+
+    const first = fakeMessage(queued);
+    const processing = worker.queue(batch(first.message), env);
+    await firstStarted;
+    expect(await env.DB.prepare(
+      `SELECT state, attempts, lease_expires_at
+         FROM provider_events WHERE event_id = ?`,
+    ).bind(queued.eventId).first()).toEqual({
+      state: 'processing',
+      attempts: 1,
+      lease_expires_at: new Date(now.getTime() + 16 * 60_000).toISOString(),
+    });
+
+    current = new Date(now.getTime() + 30_000);
+    const earlyDuplicate = fakeMessage(queued);
+    await worker.queue(batch(earlyDuplicate.message), env);
+    expect(earlyDuplicate.result()).toEqual({ disposition: 'ack', delaySeconds: 0 });
+
+    // This delivery would have stolen the old 60-second lease while the first
+    // invocation was still running.
+    current = new Date(now.getTime() + 2 * 60_000);
+    const lateDuplicate = fakeMessage(queued);
+    await worker.queue(batch(lateDuplicate.message), env);
+    expect(lateDuplicate.result()).toEqual({ disposition: 'ack', delaySeconds: 0 });
+    expect(syncCalls).toBe(1);
+
+    releaseFirst();
+    await processing;
+    expect(first.result()).toEqual({ disposition: 'ack', delaySeconds: 0 });
+    expect(await env.DB.prepare(
+      `SELECT state, attempts FROM provider_events WHERE event_id = ?`,
+    ).bind(queued.eventId).first()).toEqual({
+      state: 'applied',
+      attempts: 1,
+    });
+  });
+
+  it('redispatches an accepted sync event when no consumer ever leases it', async () => {
+    const queued = await enqueueSyncEvent(env, {
+      profileId: 'profile_sync',
+      accountId: 'google_sync',
+      mode: 'partial',
+      startHistoryId: 'history_10',
+    }, now);
+    const event = async () => env.DB.prepare(
+      `SELECT state, dispatch_pending, attempts, updated_at
+         FROM provider_events WHERE event_id = ?`,
+    ).bind(queued.eventId).first();
+
+    expect(await event()).toEqual({
+      state: 'received',
+      dispatch_pending: 0,
+      attempts: 0,
+      updated_at: now.toISOString(),
+    });
+
+    const stillWithinNormalDelivery = new Date(now.getTime() + 60_000);
+    await redispatchSyncEvents(env, stillWithinNormalDelivery);
+    expect(await event()).toEqual({
+      state: 'received',
+      dispatch_pending: 0,
+      attempts: 0,
+      updated_at: now.toISOString(),
+    });
+
+    const recoveryTime = new Date(now.getTime() + 2 * 60_000);
+    await redispatchSyncEvents(env, recoveryTime);
+    expect(await event()).toEqual({
+      state: 'received',
+      dispatch_pending: 0,
+      attempts: 0,
+      updated_at: recoveryTime.toISOString(),
+    });
+  });
+
   it('retries transient failures and dead-letters an exhausted event', async () => {
     const queued = await enqueueSyncEvent(env, {
       profileId: 'profile_sync',

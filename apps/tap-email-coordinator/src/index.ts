@@ -141,6 +141,11 @@ interface ProviderEventRow {
   readonly attempts: number;
 }
 
+// A Queue consumer invocation can run for at most 15 minutes. Keep the durable
+// event lease beyond that ceiling so an at-least-once duplicate cannot take
+// over while the original invocation can still mutate the mailbox.
+const syncEventLeaseMilliseconds = 16 * 60_000;
+
 class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -1898,7 +1903,7 @@ async function processSyncMessage(
   }
   const timestamp = now.toISOString();
   const leaseToken = crypto.randomUUID();
-  const leaseExpiresAt = new Date(now.getTime() + 60_000).toISOString();
+  const leaseExpiresAt = new Date(now.getTime() + syncEventLeaseMilliseconds).toISOString();
   const claimed = await env.DB.prepare(
     `UPDATE provider_events
         SET state = 'processing', lease_token = ?, lease_expires_at = ?,
@@ -1922,7 +1927,10 @@ async function processSyncMessage(
     )
     .run();
   if (Number(claimed.meta.changes ?? 0) !== 1) {
-    message.retry({ delaySeconds: 5 });
+    // The durable event is either owned by another invocation or is not due
+    // yet. Acknowledge this Queue copy instead of letting it outlive the active
+    // lease and take over concurrently; the cron redispatcher owns recovery.
+    message.ack();
     return;
   }
   const leased = await providerEventRow(env, message.body);

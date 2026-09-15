@@ -101,6 +101,58 @@ curl --fail https://tap-email-coordinator.theaiplatform.app/health
 curl --fail https://tap-email-coordinator.theaiplatform.app/ready
 ```
 
+Manual queue-delivery recovery is intentionally separate from the manual deploy
+commands above. Never resume a queue that an incident owner intentionally paused.
+
+For a mailbox-sync queue whose API response has no delivery state, first inspect
+its live state and backlog in the Cloudflare dashboard. If it was not
+intentionally paused, initialize only mailbox-sync delivery:
+
+```bash
+pnpm exec wrangler queues resume-delivery tap-email-sync-production
+```
+
+The command queue can archive, label, draft, or send mail. Before considering a
+command-queue resume, inspect its Cloudflare delivery state and backlog, confirm
+its consumer configuration, and count pending command kinds without reading
+message content:
+
+```bash
+pnpm exec wrangler queues info tap-email-commands-production
+pnpm exec wrangler queues consumer list tap-email-commands-production --json
+pnpm exec wrangler d1 execute DB --remote --env production --command \
+  "SELECT kind, state, COUNT(*) AS command_count FROM mail_commands WHERE state IN ('accepted', 'leased', 'retryable') GROUP BY kind, state ORDER BY kind, state;"
+```
+
+Queued command delivery can execute accumulated outbound actions. Resume it only
+after the incident owner explicitly authorizes those actions to proceed. Keep
+this command out of deployment and inspection copy/paste blocks:
+
+```bash
+pnpm exec wrangler queues resume-delivery tap-email-commands-production
+```
+
+The automated workflow preserves every explicit pause, automatically
+initializes only a missing mailbox-sync delivery state, and fails closed when
+the command queue's delivery state is not explicitly active.
+
+After a manual deploy, also confirm both queues still name
+`tap-email-coordinator-production` as their Worker consumer and retain their
+configured dead-letter queues with `wrangler queues consumer list <queue>`.
+The automated production workflow performs this check and reports each live
+queue backlog.
+
+`Monitor TAP Email Coordinator` runs every five minutes and can also be started
+manually after a release. It performs read-only Cloudflare Queue and aggregate
+D1 checks, opens one deduplicated GitHub issue when delivery, topology,
+dead-letter, backlog-age, or durable-progress checks fail, and closes that issue
+after recovery. Monitor output contains operational counts and timestamps only;
+it never queries or prints mailbox identifiers, subjects, bodies, or recipients.
+The monitor never resumes either queue. Configure the production Environment
+secret `CLOUDFLARE_MONITOR_API_TOKEN` with only account-scoped `Queues Read` and
+`D1 Read`; the workflow temporarily falls back to the deployment token so
+monitoring remains active while that least-privilege credential is provisioned.
+
 Rotate `GOOGLE_TOKEN_ENCRYPTION_KEY` only with an explicit data-migration plan;
 existing encrypted credentials and bodies depend on it. Verify the production
 redirect URI, TAP introspection URL, allowed origin, and miniapp coordinator
@@ -109,8 +161,11 @@ origin before connecting a real mailbox.
 Every mailbox sync is persisted as a provider event before queue dispatch. The
 consumer claims it with a lease, retries transient reads with bounded backoff,
 dead-letters exhausted or permanent failures, and lets the scheduled handler
-redispatch interrupted work. Queue payloads are validated again at the Worker
-boundary before any account-scoped operation runs.
+redispatch interrupted or accepted-but-never-leased work. Duplicate deliveries
+that lose the durable claim are acknowledged, and the claim lease exceeds the
+maximum Queue consumer invocation, so they cannot overtake active work. Queue
+payloads are validated again at the Worker boundary before any account-scoped
+operation runs.
 
 ## Mailbox pagination
 

@@ -22,6 +22,12 @@ interface ProviderEventDispatchRow {
   readonly payload_json: string;
 }
 
+// A successful Queue write is not proof that a consumer has leased the
+// message. Re-offer old, unleased events after enough time for every normal
+// continuation delay and batch timeout to pass. The provider-event lease makes
+// duplicate deliveries safe: only one consumer can claim the event.
+const unleasedSyncRedispatchDelayMilliseconds = 2 * 60_000;
+
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Readonly<Record<string, unknown>>
@@ -139,19 +145,22 @@ export async function enqueueSyncEvent(
 
 export async function redispatchSyncEvents(env: Env, now: Date): Promise<void> {
   const timestamp = now.toISOString();
+  const unleasedBefore = new Date(
+    now.getTime() - unleasedSyncRedispatchDelayMilliseconds,
+  ).toISOString();
   const due = await env.DB.prepare(
     `SELECT profile_id, account_id, event_id, payload_json
        FROM provider_events
       WHERE (
-          dispatch_pending = 1
-          AND state IN ('received', 'retryable')
+          state IN ('received', 'retryable')
           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          AND (dispatch_pending = 1 OR updated_at <= ?)
         )
         OR (state = 'processing' AND lease_expires_at <= ?)
       ORDER BY updated_at
       LIMIT 50`,
   )
-    .bind(timestamp, timestamp)
+    .bind(timestamp, unleasedBefore, timestamp)
     .all<ProviderEventDispatchRow>();
   const messages: SyncQueueMessage[] = [];
   const invalid: ProviderEventDispatchRow[] = [];

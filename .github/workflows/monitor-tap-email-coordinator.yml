@@ -1,0 +1,102 @@
+name: Monitor TAP Email Coordinator
+
+on:
+  schedule:
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: tap-email-coordinator-production
+  queue: max
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  TAP_EMAIL_COORDINATOR_PRODUCTION_URL: https://tap-email-coordinator.theaiplatform.app
+  TAP_EMAIL_COORDINATOR_WORKER: tap-email-coordinator-production
+  TAP_EMAIL_D1_DATABASE_ID: f865fc5a-5ae2-4e7e-a1b7-5b834a454ec4
+  TAP_EMAIL_MONITOR_ISSUE_TITLE: "[production] TAP Email mailbox sync unhealthy"
+
+jobs:
+  monitor:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: tap-email-coordinator-production
+      url: https://tap-email-coordinator.theaiplatform.app
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check production sync health
+        id: sync_health
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_MONITOR_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TAP_EMAIL_MONITOR_USING_DEPLOY_TOKEN: ${{ secrets.CLOUDFLARE_MONITOR_API_TOKEN == '' }}
+          TAP_EMAIL_MONITOR_REPORT_PATH: ${{ runner.temp }}/tap-email-sync-health.md
+        run: |
+          if [[ "$TAP_EMAIL_MONITOR_USING_DEPLOY_TOKEN" == "true" ]]; then
+            echo "::warning::CLOUDFLARE_MONITOR_API_TOKEN is not configured; using the deployment credential temporarily."
+          fi
+          node scripts/tap-email-production-monitor.mjs
+
+      - name: Open or refresh the production alert
+        if: steps.sync_health.outcome == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_PATH: ${{ runner.temp }}/tap-email-sync-health.md
+        run: |
+          set -euo pipefail
+          if [[ ! -s "$REPORT_PATH" ]]; then
+            printf '# TAP Email production sync monitor\n\nStatus: **unhealthy**\n\nThe monitor exited before it could write a detailed report. Run: %s/%s/actions/runs/%s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$REPORT_PATH"
+          fi
+          printf '\nAlert owner: @%s\n' "$GITHUB_ACTOR" >> "$REPORT_PATH"
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --limit 100 \
+            --json number,title \
+            --jq '[.[] | select(.title == "[production] TAP Email mailbox sync unhealthy")][0].number // empty')"
+          if [[ -n "$issue_number" ]]; then
+            gh issue edit \
+              "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body-file "$REPORT_PATH"
+          else
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAP_EMAIL_MONITOR_ISSUE_TITLE" \
+              --body-file "$REPORT_PATH"
+          fi
+
+      - name: Close a recovered production alert
+        if: steps.sync_health.outcome == 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --limit 100 \
+            --json number,title \
+            --jq '[.[] | select(.title == "[production] TAP Email mailbox sync unhealthy")][0].number // empty')"
+          if [[ -n "$issue_number" ]]; then
+            gh issue close \
+              "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --comment "Production sync recovered in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          fi
+
+      - name: Fail when production sync is unhealthy
+        if: steps.sync_health.outcome == 'failure'
+        run: exit 1
