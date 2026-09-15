@@ -33,15 +33,22 @@ Create the GitHub environment `tap-email-coordinator-production` and add these
 environment secrets:
 
 - `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_MONITOR_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_TOKEN_ENCRYPTION_KEY`
 - `ATTACHMENT_STAGING_ENCRYPTION_KEY`
 
-The Cloudflare token must be scoped to the target account and be able to deploy
-Workers, manage D1, R2, and Queues, and bind the production custom domain. The
-two encryption keys must be distinct 32-byte values encoded as unpadded
+The deployment Cloudflare token must be scoped to the target account and be
+able to deploy Workers, manage D1, R2, and Queues, and bind the production
+custom domain. The monitor token needs only account-scoped `Queues Read` and
+`D1 Read`. Until it is provisioned, the workflow temporarily falls back to the
+deployment token so monitoring stays active. Restrict the Environment's
+deployment branches to `main`. The workflow emits a warning on every fallback
+run so the migration stays visible.
+
+The two encryption keys must be distinct 32-byte values encoded as unpadded
 base64url. Never print them or store them in repository variables.
 
 ## 2. Release gates
@@ -68,17 +75,41 @@ manual run is also available on `main`, but fails closed unless the selected
 commit already has a successful `CI` push run. The workflow:
 
 1. proves that the exact deployment commit passed repository CI;
-2. validates the six environment secrets without printing their values and
+2. validates the six production secrets without printing their values and
    rejects reused encryption keys;
 3. repeats the Worker release gates;
 4. creates the named production D1 database on the first run;
 5. applies D1 migrations before routing new code;
 6. uploads the four Worker runtime secrets and deploys the production Worker;
-7. waits for semantic success from `/health` and `/ready`.
+7. initializes only an absent mailbox-sync queue delivery state, preserves and
+   fails closed on every intentional pause, refuses to initialize an absent
+   command-queue delivery state, then verifies each queue has active delivery,
+   the expected Worker producer and consumer, the expected dead-letter queue,
+   and readable backlog metrics;
+8. waits for semantic success from `/health` and `/ready`.
 
 Wrangler provisions the named R2 bucket and Queues from the checked-in
-production environment. Treat a failed readiness probe as a failed deployment,
+production environment. A nonzero backlog is reported for diagnosis but is not
+itself a deployment failure. An explicit pause is never overridden by a deploy;
+the workflow leaves it in place and fails, as it also does for a missing
+producer, consumer, or dead-letter queue. Because the command queue can execute
+mail-modifying and mail-sending actions, a missing command delivery state also
+fails closed: inspect its pending command kinds and Cloudflare backlog, then
+obtain explicit incident-owner authorization before resuming it manually. Treat
+either queue verification or a readiness probe failure as a failed deployment,
 even when the upload step succeeded.
+
+`Monitor TAP Email Coordinator` runs read-only checks every five minutes,
+serialized with production deployment. It verifies delivery state, producer and
+consumer topology, dead-letter queues, backlog age, `/health`, `/ready`, and
+aggregate-only D1 sync progress. A failure opens or refreshes one GitHub issue;
+the first healthy run closes it. The monitor never prints mailbox data and never
+resumes queue delivery.
+
+GitHub disables scheduled workflows in public repositories after 60 days with
+no repository activity. Keep an independent canary that alerts when this
+workflow has no recent run; the scheduler is operational defense, while durable
+redispatch and deployment verification remain the sync recovery controls.
 
 ## 4. Production smoke test
 
