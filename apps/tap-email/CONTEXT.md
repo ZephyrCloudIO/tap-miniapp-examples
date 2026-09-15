@@ -22,6 +22,7 @@ _Avoid_: Complete mailbox, source of truth
 
 **Local Replica**:
 An installation-observed, private-profile copy of covered mail data used for offline reading and local search. It may lag or cover fewer Mail Resources than the Coordinator Replica and never replaces Provider Authority.
+Its coverage is described by Coverage Receipts and must not be silently reduced by an application-defined total-thread ceiling.
 _Avoid_: Mailbox source of truth, complete local mailbox
 
 **Storage Class**:

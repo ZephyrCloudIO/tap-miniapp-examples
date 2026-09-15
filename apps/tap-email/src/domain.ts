@@ -648,7 +648,6 @@ export function isMailboxSnapshot(value: unknown): value is MailboxSnapshot {
     value.accounts.length <= 100 &&
     value.accounts.every(isEmailAccount) &&
     Array.isArray(value.threads) &&
-    value.threads.length <= 10_000 &&
     value.threads.every(isEmailThread)
   );
 }

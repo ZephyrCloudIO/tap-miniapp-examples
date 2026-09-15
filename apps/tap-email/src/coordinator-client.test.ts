@@ -8,27 +8,33 @@ import {
   type CoordinatorTransport,
 } from './coordinator-client';
 
+function mailboxThread(
+  threadId: string,
+  receivedAt = '2026-09-13T14:00:00.000Z',
+) {
+  return {
+    threadId,
+    accountId: 'acct_1',
+    providerRevision: `history_${threadId}`,
+    subject: `Subject ${threadId}`,
+    participants: [],
+    snippet: `Preview ${threadId}`,
+    receivedAt,
+    unread: false,
+    starred: false,
+    critical: false,
+    needsResponse: false,
+    waitingOnOthers: false,
+    status: 'inbox',
+    labels: ['INBOX'],
+    messages: [],
+    reminder: null,
+  };
+}
+
 describe('TAP Email coordinator client', () => {
   it('loads every cursor-paginated mailbox page before replacing the local snapshot', async () => {
     const urls: string[] = [];
-    const thread = (threadId: string, receivedAt: string) => ({
-      threadId,
-      accountId: 'acct_1',
-      providerRevision: `history_${threadId}`,
-      subject: `Subject ${threadId}`,
-      participants: [],
-      snippet: `Preview ${threadId}`,
-      receivedAt,
-      unread: false,
-      starred: false,
-      critical: false,
-      needsResponse: false,
-      waitingOnOthers: false,
-      status: 'inbox',
-      labels: ['INBOX'],
-      messages: [],
-      reminder: null,
-    });
     const transport: CoordinatorTransport = {
       request(input) {
         urls.push(input.url);
@@ -38,7 +44,7 @@ describe('TAP Email coordinator client', () => {
               mailbox: {
                 schemaVersion: 1,
                 accounts: [],
-                threads: [thread('thread_newer', '2026-09-13T14:00:00.000Z')],
+                threads: [mailboxThread('thread_newer', '2026-09-13T14:00:00.000Z')],
               },
               pageInfo: { nextCursor: 'page 2' },
             }
@@ -47,8 +53,8 @@ describe('TAP Email coordinator client', () => {
                 schemaVersion: 1,
                 accounts: [],
                 threads: [
-                  thread('thread_newer', '2026-09-13T14:00:00.000Z'),
-                  thread('thread_older', '2026-09-07T14:00:00.000Z'),
+                  mailboxThread('thread_newer', '2026-09-13T14:00:00.000Z'),
+                  mailboxThread('thread_older', '2026-09-07T14:00:00.000Z'),
                 ],
               },
               pageInfo: { nextCursor: null },
@@ -79,6 +85,159 @@ describe('TAP Email coordinator client', () => {
       `${coordinatorOrigin}/v1/mailbox`,
       `${coordinatorOrigin}/v1/mailbox?cursor=page%202`,
     ]);
+  });
+
+  it('loads mailbox history beyond 100 pages and 10,000 threads', async () => {
+    const pageSize = 100;
+    const pageCount = 101;
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request(input) {
+        requests += 1;
+        const cursor = new URL(input.url).searchParams.get('cursor');
+        const pageIndex = cursor === null ? 0 : Number(cursor.slice('page_'.length));
+        const firstThreadIndex = pageIndex * pageSize;
+        const body = {
+          mailbox: {
+            schemaVersion: 1,
+            accounts: [],
+            threads: Array.from(
+              { length: pageSize },
+              (_, offset) => mailboxThread(`thread_${firstThreadIndex + offset}`),
+            ),
+          },
+          pageInfo: {
+            nextCursor: pageIndex + 1 < pageCount ? `page_${pageIndex + 1}` : null,
+          },
+        };
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify(body),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 40_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    const mailbox = await createCoordinatorClient(transport).getMailbox();
+
+    expect(requests).toBe(pageCount);
+    expect(mailbox.threads).toHaveLength(pageSize * pageCount);
+    expect(mailbox.threads[0]?.threadId).toBe('thread_0');
+    expect(mailbox.threads.at(-1)?.threadId).toBe('thread_10099');
+  });
+
+  it('keeps each coordinator mailbox page bounded', async () => {
+    const transport: CoordinatorTransport = {
+      request: input => ({
+        finalUrl: input.url,
+        status: 200,
+        statusText: 'OK',
+        headers: [],
+        bodyText: JSON.stringify({
+          mailbox: {
+            schemaVersion: 1,
+            accounts: [],
+            threads: Array.from(
+              { length: 101 },
+              (_, index) => mailboxThread(`thread_${index}`),
+            ),
+          },
+          pageInfo: { nextCursor: null },
+        }),
+        bodyBase64: null,
+        bodyKind: 'text',
+        bodyTruncated: false,
+        sizeBytes: 40_000,
+        elapsedMs: 5,
+        contentType: 'application/json',
+      }),
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox()).rejects.toMatchObject({
+      status: 502,
+      code: 'invalid_response',
+    });
+  });
+
+  it('rejects mailbox pagination that cycles without a terminal cursor', async () => {
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request: input => {
+        const page = requests;
+        requests += 1;
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify({
+            mailbox: {
+              schemaVersion: 1,
+              accounts: [],
+              threads: [mailboxThread(`thread_${page}`)],
+            },
+            pageInfo: { nextCursor: 'cursor_a' },
+          }),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 1_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox()).rejects.toMatchObject({
+      status: 502,
+      code: 'invalid_response',
+      message: 'Mailbox pagination did not advance.',
+    });
+    expect(requests).toBe(2);
+  });
+
+  it('rejects a novel cursor when its page adds no mailbox threads', async () => {
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request: input => {
+        requests += 1;
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify({
+            mailbox: {
+              schemaVersion: 1,
+              accounts: [],
+              threads: [mailboxThread('thread_repeated')],
+            },
+            pageInfo: { nextCursor: `cursor_${requests}` },
+          }),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 1_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox()).rejects.toMatchObject({
+      status: 502,
+      code: 'invalid_response',
+      message: 'Mailbox pagination did not advance.',
+    });
+    expect(requests).toBe(2);
   });
 
   it('submits a stable account-scoped command with the platform session', async () => {

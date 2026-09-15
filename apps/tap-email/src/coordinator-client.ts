@@ -35,8 +35,7 @@ const maximumRemoteImageBatchSize = 32;
 const maximumRemoteImageBytes = 2 * 1_024 * 1_024;
 const maximumRemoteImageResponseBytes = 9_000_000;
 export const maximumAttachmentDownloadBytes = 8 * 1_024 * 1_024;
-const maximumMailboxPages = 100;
-const maximumMailboxThreads = 10_000;
+const maximumMailboxPageThreads = 100;
 const maximumMailboxCursorLength = 4_096;
 const maximumOutboundAttachmentChunkBytes = 256 * 1_024;
 const safeRemoteImageData = /^data:image\/(?:avif|gif|jpe?g|png|webp);base64,([a-z0-9+/]+={0,2})$/iu;
@@ -249,7 +248,10 @@ interface MailboxPage {
 function mailboxPage(value: unknown): MailboxPage {
   const body = asRecord(value);
   const mailbox = asRecord(body.mailbox);
-  if (!isMailboxSnapshot(mailbox)) {
+  if (
+    !isMailboxSnapshot(mailbox) ||
+    mailbox.threads.length > maximumMailboxPageThreads
+  ) {
     throw new CoordinatorError(502, 'invalid_response', 'Mailbox response is malformed.');
   }
   if (body.pageInfo === undefined) return { mailbox, nextCursor: null };
@@ -383,7 +385,7 @@ export function createCoordinatorClient(
       let accounts: MailboxSnapshot['accounts'] = [];
       let cursor: string | null = null;
 
-      for (let pageIndex = 0; pageIndex < maximumMailboxPages; pageIndex += 1) {
+      while (true) {
         const page = mailboxPage(
           await call(
             resolved,
@@ -397,19 +399,14 @@ export function createCoordinatorClient(
             origin,
           ),
         );
-        if (pageIndex === 0) accounts = page.mailbox.accounts;
+        if (cursor === null) accounts = page.mailbox.accounts;
+        let addedThreads = 0;
         for (const thread of page.mailbox.threads) {
           const key = `${thread.accountId}\u0000${thread.threadId}`;
           if (seenThreadKeys.has(key)) continue;
           seenThreadKeys.add(key);
           threads.push(thread);
-          if (threads.length > maximumMailboxThreads) {
-            throw new CoordinatorError(
-              502,
-              'invalid_response',
-              'Mailbox history exceeds the supported local index size.',
-            );
-          }
+          addedThreads += 1;
         }
 
         if (page.nextCursor === null) {
@@ -417,6 +414,7 @@ export function createCoordinatorClient(
         }
         if (
           page.mailbox.threads.length === 0 ||
+          addedThreads === 0 ||
           seenCursors.has(page.nextCursor)
         ) {
           throw new CoordinatorError(
@@ -428,12 +426,6 @@ export function createCoordinatorClient(
         seenCursors.add(page.nextCursor);
         cursor = page.nextCursor;
       }
-
-      throw new CoordinatorError(
-        502,
-        'invalid_response',
-        'Mailbox history exceeded the supported page count.',
-      );
     },
     async getThread(accountId: string, threadId: string): Promise<readonly EmailMessage[]> {
       const body = asRecord(
