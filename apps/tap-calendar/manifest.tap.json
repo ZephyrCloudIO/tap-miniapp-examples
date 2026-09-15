@@ -123,7 +123,8 @@
             "kind": "external-navigation",
             "resources": [
               "https://accounts.google.com",
-              "https://login.microsoftonline.com"
+              "https://login.microsoftonline.com",
+              "https://zoom.us"
             ]
           },
           { "kind": "credentials", "resources": ["http"] },

@@ -518,8 +518,9 @@ function identifier(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function publicLocation(location: string): { location: "google-meet" | "phone" | "in-person" | "custom"; label: string } {
+function publicLocation(location: string): { location: "google-meet" | "zoom" | "phone" | "in-person" | "custom"; label: string } {
   if (location === "google-meet") return { location: "google-meet", label: "Google Meet" };
+  if (location === "zoom") return { location: "zoom", label: "Zoom" };
   if (location === "phone") return { location: "phone", label: "Phone call" };
   if (location === "physical") return { location: "in-person", label: "In person" };
   return { location: "custom", label: "Meeting details provided after booking" };
