@@ -198,7 +198,7 @@ const toRecord = (row: CredentialRow): PublicBookingManagementRecord => {
     row.guest_email.trim().toLowerCase() !== row.guest_email || !row.guest_email.includes("@") ||
     row.organizer_name.length < 1 || row.organizer_name.length > 160 ||
     row.event_title.length < 1 || row.event_title.length > 160 ||
-    !["google-meet", "phone", "in-person", "custom"].includes(row.location_kind) ||
+    !["google-meet", "zoom", "phone", "in-person", "custom"].includes(row.location_kind) ||
     row.location_label.length < 1 || row.location_label.length > 160 ||
     !validTimeZone(row.time_zone) ||
     (row.status === "cancelled") !== (row.cancelled_at !== null) ||
@@ -259,7 +259,7 @@ const parseDto = (value: string | null): PublicBookingManagementDto | null => {
     !isRecord(parsed.event) || typeof parsed.event.title !== "string" ||
     typeof parsed.event.startsAt !== "string" || typeof parsed.event.endsAt !== "string" ||
     typeof parsed.event.durationMinutes !== "number" ||
-    !["google-meet", "phone", "in-person", "custom"].includes(String(parsed.event.location)) ||
+    !["google-meet", "zoom", "phone", "in-person", "custom"].includes(String(parsed.event.location)) ||
     typeof parsed.event.locationLabel !== "string" ||
     !(parsed.event.approvalExpiresAt === null || typeof parsed.event.approvalExpiresAt === "string") ||
     !isRecord(parsed.actions) || typeof parsed.actions.canCancel !== "boolean" ||

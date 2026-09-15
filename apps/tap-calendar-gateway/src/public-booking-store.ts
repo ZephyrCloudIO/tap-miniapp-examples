@@ -764,7 +764,7 @@ export class D1PublicBookingManagementTokenIssuer implements PublicBookingManage
     requiredText(guestEmail, "guestEmail", 3, 320);
     requiredText(input.organizerName, "organizerName", 1, 160);
     requiredText(input.eventTitle, "eventTitle", 1, 160);
-    if (!["google-meet", "phone", "in-person", "custom"].includes(input.location)) {
+    if (!["google-meet", "zoom", "phone", "in-person", "custom"].includes(input.location)) {
       throw new PublicBookingStoreError("invalid_store_input", "location is invalid.");
     }
     requiredText(input.locationLabel, "locationLabel", 1, 160);

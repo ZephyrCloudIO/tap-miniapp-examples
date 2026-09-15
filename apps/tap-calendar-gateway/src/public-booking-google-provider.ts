@@ -29,7 +29,7 @@ export interface ScopeFirstGoogleBookingCommitInput {
   readonly location: string | null;
   readonly bookingKind: "meeting" | "approval-hold";
   readonly attendeeEmails: readonly string[];
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
   readonly expiresAt: string | null;
 }
 

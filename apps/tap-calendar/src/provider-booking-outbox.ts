@@ -372,6 +372,7 @@ const bookingKinds = new Set<CalendarGatewayBookingKind>([
 const conferenceProviders = new Set<CalendarGatewayConferenceProvider>([
   "none",
   "google-meet",
+  "zoom",
 ]);
 
 const normalizeStringList = (
@@ -645,6 +646,14 @@ const assertPreparationMatches = (
     }
     return;
   }
+  if (reconciliation.location === "zoom" && request.bookingKind === "meeting") {
+    if (conferenceProvider !== "zoom" || request.location !== undefined) {
+      throw new ProviderBookingOutboxInvariantError(
+        "A Zoom reconciliation requires a Zoom provider conference.",
+      );
+    }
+    return;
+  }
   if (
     conferenceProvider !== "none" ||
     request.location !== providerMeetingLocationNames[reconciliation.location]
@@ -802,14 +811,18 @@ const assertCommitMatchesRequest = (
     ? booking.conferenceStatus === "ready"
       ? "google-meet"
       : null
+    : request.conferenceProvider === "zoom"
+      ? "zoom"
     : request.location === undefined
       ? null
       : "physical";
-  const googleMeetConferenceValid = request.conferenceProvider === "google-meet"
+  const conferenceValid = request.conferenceProvider === "google-meet"
     ? (
         (booking.conferenceStatus === "ready" && booking.providerJoinUrl !== null) ||
         (booking.conferenceStatus === "pending" && booking.providerJoinUrl === null)
       )
+    : request.conferenceProvider === "zoom"
+      ? booking.conferenceStatus === "ready" && booking.providerJoinUrl !== null
     : booking.conferenceStatus === "none" && booking.providerJoinUrl === null;
   const eventLinksAgree =
     (booking.event.providerHtmlLink === undefined ||
@@ -820,7 +833,7 @@ const assertCommitMatchesRequest = (
     JSON.stringify(committedAttendeeEmails) !==
       JSON.stringify(expectedProviderAttendeeEmails) ||
     booking.event.location !== expectedProviderLocation ||
-    !googleMeetConferenceValid ||
+    !conferenceValid ||
     !eventLinksAgree
   ) {
     throw new ProviderBookingOutboxInvariantError(
@@ -1017,9 +1030,11 @@ const normalizeApprovalResolutionPreparation = (
     ].sort();
     const expectedConference = expected.location === "google-meet"
       ? "google-meet"
-      : "none";
+      : expected.location === "zoom"
+        ? "zoom"
+        : "none";
     const expectedLocation = expected.location === null ||
-        expected.location === "google-meet"
+        expected.location === "google-meet" || expected.location === "zoom"
       ? undefined
       : providerMeetingLocationNames[expected.location];
     if (

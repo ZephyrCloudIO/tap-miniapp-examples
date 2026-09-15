@@ -225,7 +225,7 @@ export interface PublicBookingProvider {
     readonly location: string;
     readonly guest: PublicBookingGuestInput;
     readonly bookingKind: "meeting" | "approval-hold";
-    readonly conferenceProvider: "none" | "google-meet";
+    readonly conferenceProvider: "none" | "google-meet" | "zoom";
     /** Required and stable for approval holds; null for ordinary meetings. */
     readonly expiresAt: string | null;
   }): Promise<PublicProviderBookingCommit>;
@@ -249,7 +249,7 @@ export interface PublicBookingManagementTokenIssuer {
     /** Immutable guest-safe details used when the publication is later removed. */
     readonly organizerName: string;
     readonly eventTitle: string;
-    readonly location: "google-meet" | "phone" | "in-person" | "custom";
+    readonly location: "google-meet" | "zoom" | "phone" | "in-person" | "custom";
     readonly locationLabel: string;
     readonly timeZone: string;
   }): Promise<{ readonly token: string }>;
@@ -965,7 +965,9 @@ export async function createPublicBooking(
         bookingKind: current.publicSnapshot.approvalRequired ? "approval-hold" : "meeting",
         conferenceProvider: current.publicSnapshot.location === "google-meet"
           ? "google-meet"
-          : "none",
+          : current.publicSnapshot.location === "zoom"
+            ? "zoom"
+            : "none",
         expiresAt: attempt.approvalExpiresAt,
       });
     } catch {

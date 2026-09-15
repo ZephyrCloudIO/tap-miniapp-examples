@@ -356,6 +356,129 @@ describe("Calendar gateway client", () => {
     );
   });
 
+  it("starts, lists, and disconnects an owner-scoped Zoom connection", async () => {
+    const requests: Parameters<CalendarGatewayTransport>[] = [];
+    const responses = [
+      {
+        status: 201,
+        bodyText: JSON.stringify({
+          connectionId: "zoom-1",
+          authorizationUrl: "https://zoom.us/oauth/authorize?response_type=code&state=one",
+          expiresAt: "2026-08-14T19:10:00.000Z",
+        }),
+      },
+      {
+        status: 200,
+        bodyText: JSON.stringify({
+          providers: [{ id: "zoom", authorization: "oauth", configured: true }],
+          connections: [{
+            id: "zoom-1",
+            workspaceId: "workspace-1",
+            ownerPrincipalId: "user-1",
+            provider: "zoom",
+            mode: "oauth",
+            label: "alex@example.com",
+            status: "connected",
+            providerEmail: "alex@example.com",
+            createdAt: "2026-08-14T19:00:00.000Z",
+            updatedAt: "2026-08-14T19:05:00.000Z",
+            lastVerifiedAt: "2026-08-14T19:05:00.000Z",
+          }],
+        }),
+      },
+      {
+        status: 200,
+        bodyText: JSON.stringify({
+          connection: {
+            id: "zoom-1",
+            workspaceId: "workspace-1",
+            ownerPrincipalId: "user-1",
+            provider: "zoom",
+            mode: "oauth",
+            label: "alex@example.com",
+            status: "connected",
+            providerEmail: "alex@example.com",
+            createdAt: "2026-08-14T19:00:00.000Z",
+            updatedAt: "2026-08-14T19:06:00.000Z",
+            lastVerifiedAt: "2026-08-14T19:06:00.000Z",
+          },
+        }),
+      },
+      { status: 204, bodyText: null },
+    ];
+    const client = createCalendarGatewayClient({
+      baseUrl: "https://calendar-api.theaiplatform.app",
+      workspaceId: "workspace-1",
+      principalId: "user-1",
+      transport: async (...input) => {
+        requests.push(input);
+        const response = responses.shift();
+        if (!response) throw new Error("Unexpected gateway request.");
+        return response;
+      },
+    });
+
+    await expect(client.startOAuth({
+      id: "zoom-1",
+      provider: "zoom",
+      label: "Zoom",
+    })).resolves.toMatchObject({
+      connectionId: "zoom-1",
+      authorizationUrl: expect.stringMatching(/^https:\/\/zoom\.us\/oauth\/authorize\?/u),
+    });
+    await expect(client.listMeetingProviderConnections()).resolves.toEqual([
+      expect.objectContaining({
+        id: "zoom-1",
+        ownerPrincipalId: "user-1",
+        provider: "zoom",
+        status: "connected",
+      }),
+    ]);
+    await expect(client.verifyMeetingProviderConnection("zoom-1")).resolves.toMatchObject({
+      id: "zoom-1",
+      status: "connected",
+      lastVerifiedAt: "2026-08-14T19:06:00.000Z",
+    });
+    await expect(client.deleteMeetingProviderConnection("zoom-1")).resolves.toBeUndefined();
+
+    expect(requests.map(request => [request[1].method, request[0]])).toEqual([
+      ["POST", "https://calendar-api.theaiplatform.app/v1/oauth/zoom/start"],
+      ["GET", "https://calendar-api.theaiplatform.app/v1/meeting-providers/connections"],
+      ["POST", "https://calendar-api.theaiplatform.app/v1/meeting-providers/connections/zoom-1/verify"],
+      ["DELETE", "https://calendar-api.theaiplatform.app/v1/meeting-providers/connections/zoom-1"],
+    ]);
+    expect(requests[0]?.[1].body).toBe(JSON.stringify({ id: "zoom-1", label: "Zoom" }));
+  });
+
+  it("rejects a meeting-provider connection outside the mounted owner boundary", async () => {
+    const client = createCalendarGatewayClient({
+      baseUrl: "https://calendar-api.theaiplatform.app",
+      workspaceId: "workspace-1",
+      principalId: "user-1",
+      transport: async () => ({
+        status: 200,
+        bodyText: JSON.stringify({
+          connections: [{
+            id: "zoom-other",
+            workspaceId: "workspace-1",
+            ownerPrincipalId: "user-2",
+            provider: "zoom",
+            mode: "oauth",
+            label: "Other user",
+            status: "connected",
+            createdAt: "2026-08-14T19:00:00.000Z",
+            updatedAt: "2026-08-14T19:05:00.000Z",
+          }],
+        }),
+      }),
+    });
+
+    await expect(client.listMeetingProviderConnections()).rejects.toMatchObject({
+      status: 502,
+      code: "gateway_owner_mismatch",
+    });
+  });
+
   it("publishes and unpublishes authoritative profile snapshots through the exact routes", async () => {
     const requests: Parameters<CalendarGatewayTransport>[] = [];
     const responses = [
@@ -932,7 +1055,7 @@ describe("Calendar gateway client", () => {
     expect(requests[2]?.[1]).toMatchObject({ method: "GET", body: null });
   });
 
-  it("accepts only exact Google Calendar and Meet HTTPS booking links", () => {
+  it("accepts only exact Google Calendar, Meet, and Zoom HTTPS booking links", () => {
     const event = {
       id: "calendar-1:provider-event-1",
       calendarId: "calendar-1",
@@ -964,6 +1087,15 @@ describe("Calendar gateway client", () => {
       concurrencyBoundary: "tap-conflict-calendar-set-serialized",
     };
     expect(isCalendarGatewayBookingCommit(commit)).toBe(true);
+    const zoomJoinUrl = "https://us02web.zoom.us/j/81234567890?pwd=safe";
+    expect(isCalendarGatewayBookingCommit({
+      ...commit,
+      booking: {
+        ...commit.booking,
+        providerJoinUrl: zoomJoinUrl,
+        event: { ...event, location: "zoom", providerJoinUrl: zoomJoinUrl },
+      },
+    })).toBe(true);
     expect(isCalendarGatewayBookingCommit({
       ...commit,
       booking: { ...commit.booking, providerHtmlLink: "javascript:alert(1)" },
@@ -980,6 +1112,9 @@ describe("Calendar gateway client", () => {
       "http://meet.google.com/abc-defg-hij",
       "https://attacker.example/abc-defg-hij",
       "https://meet.google.com.attacker.example/abc-defg-hij",
+      "http://zoom.us/j/81234567890",
+      "https://zoom.us/",
+      "https://zoom.us.attacker.example/j/81234567890",
       "javascript:alert(1)",
     ]) {
       expect(isCalendarGatewayBookingCommit({

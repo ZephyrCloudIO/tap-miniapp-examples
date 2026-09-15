@@ -86,6 +86,9 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(testNow);
   await env.CALENDAR_DB.batch([
+    env.CALENDAR_DB.prepare("DELETE FROM zoom_meeting_operations"),
+    env.CALENDAR_DB.prepare("DELETE FROM meeting_provider_oauth_states"),
+    env.CALENDAR_DB.prepare("DELETE FROM meeting_provider_connections"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_email_outbox"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_management_mutations"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_management_credentials"),
@@ -249,6 +252,90 @@ describe("TAP Calendar local gateway", () => {
       authorization: "oauth",
       configured: false,
     });
+  });
+
+  it("rotates Zoom OAuth state while reusing a pending or attention connection", async () => {
+    const zoomEnv = {
+      ...env,
+      TOKEN_ENCRYPTION_KEY: testEncryptionKey(),
+      ZOOM_CLIENT_ID: "zoom-client-id",
+      ZOOM_CLIENT_SECRET: "zoom-client-secret",
+      PUBLIC_BASE_URL: "https://calendar-api.example.test",
+    };
+    const first = await worker.fetch(
+      request("/v1/oauth/zoom/start", {
+        method: "POST",
+        json: { id: "account-zoom-reconnect", label: "Original Zoom" },
+      }),
+      zoomEnv,
+    );
+    expect(first.status).toBe(201);
+    const firstBody = await first.json<{
+      readonly connectionId: string;
+      readonly authorizationUrl: string;
+    }>();
+    const firstState = new URL(firstBody.authorizationUrl).searchParams.get("state");
+    expect(firstBody.connectionId).toBe("account-zoom-reconnect");
+    expect(firstState).toBeTruthy();
+    const firstStateHash = await env.CALENDAR_DB.prepare(
+      `SELECT state_hash FROM meeting_provider_oauth_states
+        WHERE workspace_id = ? AND principal_id = ? AND connection_id = ?`,
+    )
+      .bind(workspace, principal, firstBody.connectionId)
+      .first<string>("state_hash");
+    expect(firstStateHash).toBeTruthy();
+
+    await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections SET status = 'attention'
+        WHERE workspace_id = ? AND principal_id = ? AND id = ?`,
+    )
+      .bind(workspace, principal, firstBody.connectionId)
+      .run();
+    const second = await worker.fetch(
+      request("/v1/oauth/zoom/start", {
+        method: "POST",
+        json: { id: "ignored-new-zoom-id", label: "Reconnected Zoom" },
+      }),
+      zoomEnv,
+    );
+    expect(second.status).toBe(201);
+    const secondBody = await second.json<{
+      readonly connectionId: string;
+      readonly authorizationUrl: string;
+    }>();
+    const secondState = new URL(secondBody.authorizationUrl).searchParams.get("state");
+    expect(secondBody.connectionId).toBe(firstBody.connectionId);
+    expect(secondState).toBeTruthy();
+    expect(secondState).not.toBe(firstState);
+
+    const connections = await env.CALENDAR_DB.prepare(
+      `SELECT id, label, status FROM meeting_provider_connections
+        WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom'`,
+    )
+      .bind(workspace, principal)
+      .all<{ readonly id: string; readonly label: string; readonly status: string }>();
+    expect(connections.results).toEqual([{
+      id: firstBody.connectionId,
+      label: "Reconnected Zoom",
+      status: "pending",
+    }]);
+    const oauthStates = await env.CALENDAR_DB.prepare(
+      `SELECT state_hash FROM meeting_provider_oauth_states
+        WHERE workspace_id = ? AND principal_id = ? AND connection_id = ?`,
+    )
+      .bind(workspace, principal, firstBody.connectionId)
+      .all<{ readonly state_hash: string }>();
+    expect(oauthStates.results).toHaveLength(1);
+    expect(oauthStates.results[0]?.state_hash).not.toBe(firstStateHash);
+
+    const staleCallback = await worker.fetch(
+      request(
+        `/v1/oauth/zoom/callback?state=${encodeURIComponent(firstState!)}&code=stale-code`,
+      ),
+      zoomEnv,
+    );
+    expect(staleCallback.status).toBe(400);
+    expect(await staleCallback.json()).toMatchObject({ error: "oauth_state_invalid" });
   });
 
   it("requires the host-managed organizer session outside local development", async () => {
@@ -1658,6 +1745,15 @@ describe("TAP Calendar local gateway", () => {
     const patchedBodies: Record<string, unknown>[] = [];
     const patchRequests: { readonly sendUpdates: string | null; readonly ifMatch: string | null }[] = [];
     const deleteRequests: { readonly sendUpdates: string | null; readonly ifMatch: string | null }[] = [];
+    const zoomCreatedBodies: Record<string, unknown>[] = [];
+    const zoomUpdatedBodies: Record<string, unknown>[] = [];
+    const zoomDeletedMeetingIds: string[] = [];
+    const zoomMeetingSchedules = new Map<
+      string,
+      { readonly startTime: string; readonly durationMinutes: number }
+    >();
+    const googlePatchTransientFailures = new Set<string>();
+    const googleDeletePreconditionFailures = new Set<string>();
     const goneProviderEvents = new Set<string>();
     let insertCalls = 0;
     let patchCalls = 0;
@@ -1682,6 +1778,85 @@ describe("TAP Calendar local gateway", () => {
           expires_in: 3600,
           token_type: "Bearer",
         });
+      }
+      if (url.origin === "https://zoom.us" && url.pathname === "/oauth/token") {
+        expect(headers.get("Authorization")).toBe(
+          `Basic ${btoa("zoom-client-id:zoom-client-secret")}`,
+        );
+        return Response.json({
+          access_token: "zoom-booking-access-token",
+          refresh_token: "zoom-booking-refresh-token",
+          expires_in: 3600,
+          token_type: "Bearer",
+          scope: [
+            "user:read:user",
+            "meeting:write:meeting",
+            "meeting:update:meeting",
+            "meeting:delete:meeting",
+          ].join(" "),
+        });
+      }
+      if (url.origin === "https://api.zoom.us" && url.pathname === "/v2/users/me") {
+        expect(headers.get("Authorization")).toBe("Bearer zoom-booking-access-token");
+        return Response.json({
+          id: "zoom-user-booking",
+          account_id: "zoom-account-booking",
+          email: "organizer@example.com",
+          display_name: "Booking Organizer",
+          status: "active",
+          type: 2,
+          timezone: "America/New_York",
+        });
+      }
+      if (
+        url.origin === "https://api.zoom.us" &&
+        url.pathname === "/v2/users/me/meetings" &&
+        init?.method === "POST"
+      ) {
+        expect(headers.get("Authorization")).toBe("Bearer zoom-booking-access-token");
+        const body = JSON.parse(
+          typeof init.body === "string" ? init.body : "{}",
+        ) as Record<string, unknown>;
+        zoomCreatedBodies.push(body);
+        const meetingId = String(98_765_432_100 + zoomCreatedBodies.length);
+        zoomMeetingSchedules.set(meetingId, {
+          startTime: String(body.start_time),
+          durationMinutes: Number(body.duration),
+        });
+        return Response.json({
+          id: Number(meetingId),
+          uuid: `zoom-booking-uuid-${meetingId}`,
+          join_url: `https://us02web.zoom.us/j/${meetingId}?pwd=tap`,
+          start_url: `https://us02web.zoom.us/s/${meetingId}?zak=sensitive`,
+        }, { status: 201 });
+      }
+      const zoomMeetingMatch = url.origin === "https://api.zoom.us"
+        ? url.pathname.match(/^\/v2\/meetings\/(\d{9,11})$/u)
+        : null;
+      if (zoomMeetingMatch?.[1] && init?.method === "PATCH") {
+        expect(headers.get("Authorization")).toBe("Bearer zoom-booking-access-token");
+        const body = JSON.parse(
+          typeof init.body === "string" ? init.body : "{}",
+        ) as Record<string, unknown>;
+        zoomUpdatedBodies.push(body);
+        const currentSchedule = zoomMeetingSchedules.get(zoomMeetingMatch[1]);
+        if (currentSchedule) {
+          zoomMeetingSchedules.set(zoomMeetingMatch[1], {
+            startTime: typeof body.start_time === "string"
+              ? body.start_time
+              : currentSchedule.startTime,
+            durationMinutes: typeof body.duration === "number"
+              ? body.duration
+              : currentSchedule.durationMinutes,
+          });
+        }
+        return new Response(null, { status: 204 });
+      }
+      if (zoomMeetingMatch?.[1] && init?.method === "DELETE") {
+        expect(headers.get("Authorization")).toBe("Bearer zoom-booking-access-token");
+        zoomDeletedMeetingIds.push(zoomMeetingMatch[1]);
+        zoomMeetingSchedules.delete(zoomMeetingMatch[1]);
+        return new Response(null, { status: 204 });
       }
       if (url.pathname === "/calendar/v3/users/me/calendarList") {
         return Response.json({
@@ -1730,6 +1905,11 @@ describe("TAP Calendar local gateway", () => {
           if (!existing) return Response.json({ error: { message: "Not found" } }, { status: 404 });
           const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as Record<string, unknown>;
           patchedBodies.push(body);
+          if (googlePatchTransientFailures.has(eventId)) {
+            return Response.json({ error: { message: "Temporary provider failure" } }, {
+              status: 503,
+            });
+          }
           const withConference = isRecordForTest(body.conferenceData) && !deferMeetConference
             ? {
               hangoutLink: `https://meet.google.com/${eventId.slice(-10)}`,
@@ -1760,6 +1940,9 @@ describe("TAP Calendar local gateway", () => {
             sendUpdates: url.searchParams.get("sendUpdates"),
             ifMatch: headers.get("If-Match"),
           });
+          if (googleDeletePreconditionFailures.has(eventId)) {
+            return Response.json({ error: { message: "Event changed" } }, { status: 412 });
+          }
           providerEvents.delete(eventId);
           providerEventCalendars.delete(eventId);
           goneProviderEvents.add(eventId);
@@ -1840,6 +2023,8 @@ describe("TAP Calendar local gateway", () => {
       TOKEN_ENCRYPTION_KEY: testEncryptionKey(),
       GOOGLE_CLIENT_ID: "google-client-id",
       GOOGLE_CLIENT_SECRET: "google-client-secret",
+      ZOOM_CLIENT_ID: "zoom-client-id",
+      ZOOM_CLIENT_SECRET: "zoom-client-secret",
       PUBLIC_BASE_URL: "",
     };
     const oauthWorker = createCalendarGatewayWorker(providerFetch);
@@ -2073,20 +2258,25 @@ describe("TAP Calendar local gateway", () => {
       },
     });
     expect(insertCalls).toBe(1);
-    const unsupportedConference = await oauthWorker.fetch(
+    const disconnectedZoomConference = await oauthWorker.fetch(
       request("/v1/bookings/commit", {
         method: "POST",
         json: {
           ...bufferedMeetingPayload,
-          idempotencyKey: "booking-unsupported-conference",
+          idempotencyKey: "booking-zoom-not-connected",
+          title: "Zoom is not connected",
+          start: "2026-08-25T18:00:00Z",
+          end: "2026-08-25T18:30:00Z",
+          conflictTimeMin: "2026-08-25T17:45:00Z",
+          conflictTimeMax: "2026-08-25T18:40:00Z",
           conferenceProvider: "zoom",
         },
       }),
       oauthEnv,
     );
-    expect(unsupportedConference.status).toBe(400);
-    expect(await unsupportedConference.json()).toMatchObject({
-      error: "unsupported_conference_provider",
+    expect(disconnectedZoomConference.status).toBe(409);
+    expect(await disconnectedZoomConference.json()).toMatchObject({
+      error: "zoom_not_connected",
     });
     const reused = await oauthWorker.fetch(
       request("/v1/bookings/commit", {
@@ -3190,6 +3380,429 @@ describe("TAP Calendar local gateway", () => {
       status: "committed",
       receipt: { status: "cancelled" },
     });
+
+    const zoomStarted = await oauthWorker.fetch(
+      request("/v1/oauth/zoom/start", {
+        method: "POST",
+        json: { id: "account-zoom-booking", label: "Booking Zoom" },
+      }),
+      oauthEnv,
+    );
+    expect(zoomStarted.status).toBe(201);
+    const zoomAuthorization = await zoomStarted.json<{
+      readonly connectionId: string;
+      readonly authorizationUrl: string;
+    }>();
+    const zoomAuthorizationUrl = new URL(zoomAuthorization.authorizationUrl);
+    expect(zoomAuthorizationUrl.origin).toBe("https://zoom.us");
+    expect(zoomAuthorizationUrl.pathname).toBe("/oauth/authorize");
+    const zoomState = zoomAuthorizationUrl.searchParams.get("state");
+    const zoomCompleted = await oauthWorker.fetch(
+      request(
+        `/v1/oauth/zoom/callback?state=${encodeURIComponent(zoomState!)}&code=zoom-booking-code`,
+      ),
+      oauthEnv,
+    );
+    expect(zoomCompleted.status).toBe(200);
+    const zoomVerified = await oauthWorker.fetch(
+      request(
+        `/v1/meeting-providers/connections/${encodeURIComponent(zoomAuthorization.connectionId)}/verify`,
+        { method: "POST", json: {} },
+      ),
+      oauthEnv,
+    );
+    expect(zoomVerified.status).toBe(200);
+    expect(await zoomVerified.json()).toMatchObject({
+      connection: {
+        id: zoomAuthorization.connectionId,
+        ownerPrincipalId: principal,
+        provider: "zoom",
+        status: "connected",
+        providerEmail: "organizer@example.com",
+      },
+    });
+
+    const zoomPublicOperationId = await publicBookingProviderOperationId(
+      { workspace, principal },
+      calendarId!,
+      "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    );
+    const zoomPublicCommitProof = await sha256Base64Url("public Zoom booking commit proof");
+    await expect(publicProvider.commit({
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      operationId: zoomPublicOperationId,
+      commitProof: zoomPublicCommitProof,
+      startsAt: "2026-09-01T18:00:00.000Z",
+      endsAt: "2026-09-01T18:30:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-01T17:45:00.000Z",
+      conflictEnd: "2026-09-01T18:40:00.000Z",
+      title: "Public Zoom call",
+      description: "Created with a real Zoom meeting.",
+      location: "zoom",
+      guest: { name: "Zoom Guest", email: "zoom-guest@example.com" },
+      bookingKind: "meeting",
+      conferenceProvider: "zoom",
+      expiresAt: null,
+    })).resolves.toEqual({
+      status: "committed",
+      receipt: {
+        operationId: zoomPublicOperationId,
+        commitProof: zoomPublicCommitProof,
+        providerBookingId: zoomPublicOperationId,
+        startsAt: "2026-09-01T18:00:00.000Z",
+        endsAt: "2026-09-01T18:30:00.000Z",
+        status: "confirmed",
+      },
+    });
+    expect(zoomCreatedBodies).toEqual([{
+      topic: "Public Zoom call",
+      type: 2,
+      start_time: "2026-09-01T18:00:00.000Z",
+      duration: 30,
+      timezone: "UTC",
+      default_password: true,
+      agenda: "Created with a real Zoom meeting.",
+      settings: { push_change_to_calendar: false },
+    }]);
+    expect(insertedBodies.at(-1)).toMatchObject({
+      id: zoomPublicOperationId,
+      location: "https://us02web.zoom.us/j/98765432101?pwd=tap",
+      extendedProperties: {
+        private: {
+          tapCommitHash: zoomPublicCommitProof,
+          tapBookingKind: "meeting",
+          tapConferenceProvider: "zoom",
+          tapZoomMeetingId: "98765432101",
+        },
+      },
+    });
+    expect(JSON.stringify(insertedBodies.at(-1))).not.toContain("start_url");
+    await expect(publicProvider.recover({
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      operationId: zoomPublicOperationId,
+      commitProof: zoomPublicCommitProof,
+      startsAt: "2026-09-01T18:00:00.000Z",
+      endsAt: "2026-09-01T18:30:00.000Z",
+    })).resolves.toMatchObject({ status: "committed" });
+    expect(zoomCreatedBodies).toHaveLength(1);
+
+    const zoomRescheduleProof = await sha256Base64Url("public Zoom reschedule proof");
+    const zoomRescheduleCommand = {
+      kind: "reschedule" as const,
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      providerBookingId: zoomPublicOperationId,
+      providerOperationId: zoomPublicOperationId,
+      operationId: "tapmop_public_zoom_reschedule",
+      providerCommitProof: zoomPublicCommitProof,
+      mutationProof: zoomRescheduleProof,
+      bookingStatus: "confirmed" as const,
+      startsAt: "2026-09-01T18:00:00.000Z",
+      endsAt: "2026-09-01T18:30:00.000Z",
+      newStartsAt: "2026-09-02T19:00:00.000Z",
+      newEndsAt: "2026-09-02T19:45:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-02T18:45:00.000Z",
+      conflictEnd: "2026-09-02T19:55:00.000Z",
+    };
+    await expect(managementProvider.reschedule(zoomRescheduleCommand)).resolves.toMatchObject({
+      status: "committed",
+      receipt: {
+        startsAt: "2026-09-02T19:00:00.000Z",
+        endsAt: "2026-09-02T19:45:00.000Z",
+      },
+    });
+    expect(zoomUpdatedBodies).toEqual([{
+      start_time: "2026-09-02T19:00:00.000Z",
+      timezone: "UTC",
+      duration: 45,
+      settings: { push_change_to_calendar: false },
+    }]);
+
+    const zoomCancelProof = await sha256Base64Url("public Zoom cancellation proof");
+    const zoomCancelCommand = {
+      kind: "cancel" as const,
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      providerBookingId: zoomPublicOperationId,
+      providerOperationId: zoomPublicOperationId,
+      operationId: "tapmop_public_zoom_cancel",
+      providerCommitProof: zoomPublicCommitProof,
+      mutationProof: zoomCancelProof,
+      bookingStatus: "confirmed" as const,
+      startsAt: "2026-09-02T19:00:00.000Z",
+      endsAt: "2026-09-02T19:45:00.000Z",
+      newStartsAt: null,
+      newEndsAt: null,
+      conflictCalendarIds: [],
+      conflictStart: null,
+      conflictEnd: null,
+    };
+    await expect(managementProvider.cancel(zoomCancelCommand)).resolves.toMatchObject({
+      status: "committed",
+      receipt: { status: "cancelled" },
+    });
+    expect(zoomDeletedMeetingIds).toEqual(["98765432101"]);
+    await expect(managementProvider.recover(zoomCancelCommand)).resolves.toMatchObject({
+      status: "committed",
+      receipt: { status: "cancelled" },
+    });
+    expect(zoomDeletedMeetingIds).toEqual(["98765432101"]);
+
+    const recoveredCancelOperationId = await publicBookingProviderOperationId(
+      { workspace, principal },
+      calendarId!,
+      "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    );
+    const recoveredCancelCommitProof = await sha256Base64Url(
+      "public Zoom recovery cancellation commit proof",
+    );
+    await expect(publicProvider.commit({
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      operationId: recoveredCancelOperationId,
+      commitProof: recoveredCancelCommitProof,
+      startsAt: "2026-09-03T18:00:00.000Z",
+      endsAt: "2026-09-03T18:30:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-03T18:00:00.000Z",
+      conflictEnd: "2026-09-03T18:30:00.000Z",
+      title: "Zoom cancellation recovery",
+      description: "Reconcile a removed Google event with Zoom.",
+      location: "zoom",
+      guest: { name: "Recovery Guest", email: "recovery-guest@example.com" },
+      bookingKind: "meeting",
+      conferenceProvider: "zoom",
+      expiresAt: null,
+    })).resolves.toMatchObject({ status: "committed" });
+    providerEvents.delete(recoveredCancelOperationId);
+    providerEventCalendars.delete(recoveredCancelOperationId);
+    goneProviderEvents.add(recoveredCancelOperationId);
+    const recoveredCancelCommand = {
+      kind: "cancel" as const,
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      providerBookingId: recoveredCancelOperationId,
+      providerOperationId: recoveredCancelOperationId,
+      operationId: "tapmop_public_zoom_cancel_recovery",
+      providerCommitProof: recoveredCancelCommitProof,
+      mutationProof: await sha256Base64Url("public Zoom cancellation recovery proof"),
+      bookingStatus: "confirmed" as const,
+      startsAt: "2026-09-03T18:00:00.000Z",
+      endsAt: "2026-09-03T18:30:00.000Z",
+      newStartsAt: null,
+      newEndsAt: null,
+      conflictCalendarIds: [],
+      conflictStart: null,
+      conflictEnd: null,
+    };
+    await expect(managementProvider.recover(recoveredCancelCommand)).resolves.toMatchObject({
+      status: "committed",
+      receipt: { status: "cancelled" },
+    });
+    expect(zoomDeletedMeetingIds).toEqual(["98765432101", "98765432102"]);
+
+    const recoveredRescheduleOperationId = await publicBookingProviderOperationId(
+      { workspace, principal },
+      calendarId!,
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    );
+    const recoveredRescheduleCommitProof = await sha256Base64Url(
+      "public Zoom recovery reschedule commit proof",
+    );
+    await expect(publicProvider.commit({
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      operationId: recoveredRescheduleOperationId,
+      commitProof: recoveredRescheduleCommitProof,
+      startsAt: "2026-09-04T18:00:00.000Z",
+      endsAt: "2026-09-04T18:30:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-04T18:00:00.000Z",
+      conflictEnd: "2026-09-04T18:30:00.000Z",
+      title: "Zoom reschedule recovery",
+      description: "Reconcile an updated Google event with Zoom.",
+      location: "zoom",
+      guest: { name: "Recovery Guest", email: "recovery-guest@example.com" },
+      bookingKind: "meeting",
+      conferenceProvider: "zoom",
+      expiresAt: null,
+    })).resolves.toMatchObject({ status: "committed" });
+    const recoveredRescheduleProof = await sha256Base64Url(
+      "public Zoom reschedule recovery proof",
+    );
+    const currentRecoveryEvent = providerEvents.get(recoveredRescheduleOperationId)!;
+    const currentRecoveryExtended = isRecordForTest(currentRecoveryEvent.extendedProperties)
+      ? currentRecoveryEvent.extendedProperties
+      : {};
+    const currentRecoveryPrivate = isRecordForTest(currentRecoveryExtended.private)
+      ? currentRecoveryExtended.private
+      : {};
+    providerEvents.set(recoveredRescheduleOperationId, {
+      ...currentRecoveryEvent,
+      etag: `"${recoveredRescheduleOperationId}-recovered"`,
+      start: { dateTime: "2026-09-05T20:00:00.000Z" },
+      end: { dateTime: "2026-09-05T21:00:00.000Z" },
+      extendedProperties: {
+        ...currentRecoveryExtended,
+        private: {
+          ...currentRecoveryPrivate,
+          tapRescheduleHash: recoveredRescheduleProof,
+        },
+      },
+    });
+    const zoomUpdatesBeforeRecovery = zoomUpdatedBodies.length;
+    await expect(managementProvider.recover({
+      kind: "reschedule",
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      providerBookingId: recoveredRescheduleOperationId,
+      providerOperationId: recoveredRescheduleOperationId,
+      operationId: "tapmop_public_zoom_reschedule_recovery",
+      providerCommitProof: recoveredRescheduleCommitProof,
+      mutationProof: recoveredRescheduleProof,
+      bookingStatus: "confirmed",
+      startsAt: "2026-09-04T18:00:00.000Z",
+      endsAt: "2026-09-04T18:30:00.000Z",
+      newStartsAt: "2026-09-05T20:00:00.000Z",
+      newEndsAt: "2026-09-05T21:00:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-05T20:00:00.000Z",
+      conflictEnd: "2026-09-05T21:00:00.000Z",
+    })).resolves.toMatchObject({ status: "committed" });
+    expect(zoomUpdatedBodies).toHaveLength(zoomUpdatesBeforeRecovery + 1);
+    expect(zoomUpdatedBodies.at(-1)).toMatchObject({
+      start_time: "2026-09-05T20:00:00.000Z",
+      duration: 60,
+    });
+
+    const ambiguousRescheduleOperationId = await publicBookingProviderOperationId(
+      { workspace, principal },
+      calendarId!,
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    );
+    const ambiguousRescheduleCommitProof = await sha256Base64Url(
+      "public Zoom ambiguous reschedule commit proof",
+    );
+    await expect(publicProvider.commit({
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      operationId: ambiguousRescheduleOperationId,
+      commitProof: ambiguousRescheduleCommitProof,
+      startsAt: "2026-09-06T18:00:00.000Z",
+      endsAt: "2026-09-06T18:30:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-06T18:00:00.000Z",
+      conflictEnd: "2026-09-06T18:30:00.000Z",
+      title: "Ambiguous Zoom reschedule",
+      description: "Keep both providers aligned after an uncertain Google write.",
+      location: "zoom",
+      guest: { name: "Recovery Guest", email: "recovery-guest@example.com" },
+      bookingKind: "meeting",
+      conferenceProvider: "zoom",
+      expiresAt: null,
+    })).resolves.toMatchObject({ status: "committed" });
+    const ambiguousRescheduleProof = await sha256Base64Url(
+      "public Zoom ambiguous reschedule proof",
+    );
+    const ambiguousRescheduleCommand = {
+      kind: "reschedule" as const,
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      providerBookingId: ambiguousRescheduleOperationId,
+      providerOperationId: ambiguousRescheduleOperationId,
+      operationId: "tapmop_public_zoom_reschedule_ambiguous",
+      providerCommitProof: ambiguousRescheduleCommitProof,
+      mutationProof: ambiguousRescheduleProof,
+      bookingStatus: "confirmed" as const,
+      startsAt: "2026-09-06T18:00:00.000Z",
+      endsAt: "2026-09-06T18:30:00.000Z",
+      newStartsAt: "2026-09-07T20:00:00.000Z",
+      newEndsAt: "2026-09-07T21:00:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-07T20:00:00.000Z",
+      conflictEnd: "2026-09-07T21:00:00.000Z",
+    };
+    googlePatchTransientFailures.add(ambiguousRescheduleOperationId);
+    await expect(managementProvider.reschedule(ambiguousRescheduleCommand)).resolves.toEqual({
+      status: "uncertain",
+    });
+    expect(zoomMeetingSchedules.get("98765432104")).toEqual({
+      startTime: "2026-09-07T20:00:00.000Z",
+      durationMinutes: 60,
+    });
+    googlePatchTransientFailures.delete(ambiguousRescheduleOperationId);
+    await expect(managementProvider.recover(ambiguousRescheduleCommand)).resolves.toEqual({
+      status: "absent",
+    });
+    expect(zoomMeetingSchedules.get("98765432104")).toEqual({
+      startTime: "2026-09-06T18:00:00.000Z",
+      durationMinutes: 30,
+    });
+
+    const changedCancelOperationId = await publicBookingProviderOperationId(
+      { workspace, principal },
+      calendarId!,
+      "11111111-1111-4111-8111-111111111111",
+    );
+    const changedCancelCommitProof = await sha256Base64Url(
+      "public Zoom changed cancellation commit proof",
+    );
+    await expect(publicProvider.commit({
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      operationId: changedCancelOperationId,
+      commitProof: changedCancelCommitProof,
+      startsAt: "2026-09-08T18:00:00.000Z",
+      endsAt: "2026-09-08T18:30:00.000Z",
+      conflictCalendarIds: [calendarId!],
+      conflictStart: "2026-09-08T18:00:00.000Z",
+      conflictEnd: "2026-09-08T18:30:00.000Z",
+      title: "Changed Zoom cancellation",
+      description: "Do not remove Zoom when Google's event version changed.",
+      location: "zoom",
+      guest: { name: "Concurrent Guest", email: "concurrent-guest@example.com" },
+      bookingKind: "meeting",
+      conferenceProvider: "zoom",
+      expiresAt: null,
+    })).resolves.toMatchObject({ status: "committed" });
+    const changedCancelCommand = {
+      kind: "cancel" as const,
+      scope: { workspace, principal },
+      destinationCalendarId: calendarId!,
+      providerBookingId: changedCancelOperationId,
+      providerOperationId: changedCancelOperationId,
+      operationId: "tapmop_public_zoom_cancel_changed",
+      providerCommitProof: changedCancelCommitProof,
+      mutationProof: await sha256Base64Url("public Zoom changed cancellation proof"),
+      bookingStatus: "confirmed" as const,
+      startsAt: "2026-09-08T18:00:00.000Z",
+      endsAt: "2026-09-08T18:30:00.000Z",
+      newStartsAt: null,
+      newEndsAt: null,
+      conflictCalendarIds: [],
+      conflictStart: null,
+      conflictEnd: null,
+    };
+    googleDeletePreconditionFailures.add(changedCancelOperationId);
+    await expect(managementProvider.cancel(changedCancelCommand)).resolves.toEqual({
+      status: "conflict",
+      reason: "provider-mismatch",
+    });
+    expect(zoomMeetingSchedules.get("98765432105")).toEqual({
+      startTime: "2026-09-08T18:00:00.000Z",
+      durationMinutes: 30,
+    });
+    expect(zoomDeletedMeetingIds).not.toContain("98765432105");
+    googleDeletePreconditionFailures.delete(changedCancelOperationId);
+    await expect(managementProvider.cancel(changedCancelCommand)).resolves.toMatchObject({
+      status: "committed",
+      receipt: { status: "cancelled" },
+    });
+    expect(zoomDeletedMeetingIds).toContain("98765432105");
 
     const holdOperationId = await publicBookingProviderOperationId(
       { workspace, principal },
