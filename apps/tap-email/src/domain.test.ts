@@ -47,6 +47,20 @@ describe('TAP Email domain', () => {
     })).toBe(true);
   });
 
+  it('accepts a mailbox snapshot with more than 10,000 valid threads', () => {
+    const state = previewMailState();
+    const template = state.threads[0]!;
+    expect(isMailboxSnapshot({
+      schemaVersion: 1,
+      accounts: state.accounts,
+      threads: Array.from({ length: 10_001 }, (_, index) => ({
+        ...template,
+        threadId: `thread_${index}`,
+        providerRevision: `history_${index}`,
+      })),
+    })).toBe(true);
+  });
+
   it('defaults to a unified inbox and supports an immediate account filter', () => {
     const state = previewMailState();
     expect(state.selectedAccountId).toBe('all');
