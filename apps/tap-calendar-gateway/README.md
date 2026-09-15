@@ -1,6 +1,6 @@
 # TAP Calendar Gateway
 
-This package is the locally runnable Cloudflare Worker boundary for TAP Calendar. It persists provider connections, discovered calendars, revisioned event-cache generations, Google sync cursors, and webhook channels in D1. It also exposes a no-secret local connector for end-to-end miniapp development and OAuth authorization-code + PKCE adapters for Google Calendar and Microsoft 365.
+This package is the locally runnable Cloudflare Worker boundary for TAP Calendar. It persists provider connections, discovered calendars, revisioned event-cache generations, Google sync cursors, and webhook channels in D1. It also exposes a no-secret local connector for end-to-end miniapp development, OAuth authorization-code + PKCE adapters for Google Calendar and Microsoft 365, and a separate user-managed Zoom OAuth connection for real Zoom conferencing.
 
 ## Start it locally
 
@@ -37,16 +37,49 @@ curl \
   http://127.0.0.1:8787/v1/connections
 ```
 
-The local connector works with no secrets. It deliberately identifies its connection mode as `local`; it does not pretend that Google, Microsoft, or Apple granted access.
+The local connector works with no secrets. It deliberately identifies its connection mode as `local`; it does not pretend that Google, Microsoft, Apple, or Zoom granted access.
 
-## Enable real Google or Microsoft authorization
+## Enable real Google, Microsoft, or Zoom authorization
 
 Copy `.dev.vars.example` to `.dev.vars`, then set a random 32-byte base64 `TOKEN_ENCRYPTION_KEY` plus the chosen provider client ID and secret. `.dev.vars` files are ignored by Git. Register these exact local callback URLs with the providers:
 
 - `http://127.0.0.1:8787/v1/oauth/google/callback`
 - `http://127.0.0.1:8787/v1/oauth/microsoft/callback`
+- `http://127.0.0.1:8787/v1/oauth/zoom/callback`
+
+Zoom must be configured as a **user-managed OAuth app**, because each TAP user authorizes their own Zoom account. In the Zoom app's OAuth Information and allow-list settings, enable strict URL matching and register the callback for the credentials being used:
+
+- Development: `http://127.0.0.1:8787/v1/oauth/zoom/callback`
+- Production: `https://calendar-api.theaiplatform.app/v1/oauth/zoom/callback`
+
+Grant exactly these Zoom granular scopes:
+
+- `user:read:user` — verify and label the connected Zoom user.
+- `meeting:write:meeting` — create scheduled meetings for that user.
+- `meeting:update:meeting` — keep Zoom in sync when a TAP booking is rescheduled.
+- `meeting:delete:meeting` — remove Zoom meetings when TAP bookings are cancelled.
+
+Zoom issues separate development and production credentials. Use the corresponding `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET`; a Zoom app in local-test/beta state is limited to users in the developer's Zoom account, so authorizing external customer accounts also requires completing Zoom's production distribution flow. Zoom derives the requested permissions from the scopes configured on the app and the gateway rejects a completed authorization if any required scope is missing.
+
+For the production Worker, `PUBLIC_BASE_URL` must remain `https://calendar-api.theaiplatform.app`, because the gateway derives the callback from that origin. Store the two Zoom credentials as Worker secrets without replacing the existing `TOKEN_ENCRYPTION_KEY`:
+
+```bash
+pnpm --filter @tap-examples/tap-calendar-gateway exec wrangler secret put ZOOM_CLIENT_ID --env production
+pnpm --filter @tap-examples/tap-calendar-gateway exec wrangler secret put ZOOM_CLIENT_SECRET --env production
+```
+
+Apply the additive Zoom schema before deploying code that reads it, then deploy the Worker:
+
+```bash
+pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
+pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
+```
+
+Migration `0016_zoom_meeting_provider.sql` stores per-principal Zoom connections, single-use OAuth state, rotating-token refresh leases, and meeting-operation recovery state. Do not rotate `TOKEN_ENCRYPTION_KEY` in place: existing calendar and Zoom credentials depend on it.
 
 Tokens and PKCE verifiers are AES-256-GCM encrypted before they enter D1. OAuth state is hashed, expires after ten minutes, and is consumed once. Google discovery reads `users/me/calendarList`; Microsoft discovery reads `/me` and `/me/calendars` and includes calendars shared with the signed-in user.
+
+Zoom is a meeting provider, not a calendar source. A Google Destination Calendar is still required to own the event and availability workflow. When Zoom is selected, TAP creates a scheduled meeting under the connected Zoom user, attaches only the validated attendee `join_url` to the Google event, and keeps the Zoom meeting aligned with TAP reschedules and cancellations. It never exposes Zoom's host-only `start_url`. Approval holds do not create a Zoom meeting until approval. Disconnect is blocked while the connection still owns future Zoom bookings.
 
 Set `PUBLIC_BASE_URL` to the gateway's exact public HTTPS origin to enable Google push-channel registration, for example `https://calendar-gateway.example.com`. Leave it empty for localhost. Google does not send notifications to HTTP endpoints. Each webhook channel uses a random token whose hash—not plaintext—is stored in D1; notifications must match the channel ID, token, resource ID, and expiration before they may schedule an incremental sync. Channels are renewed before expiration.
 
@@ -227,13 +260,13 @@ An available slot returns `200` with `availabilityConfirmed: true`, `available: 
 
 `conflictTimeMin` and `conflictTimeMax` are an optional pair for buffer-aware validation. If omitted, both default to `start` and `end`. If supplied, both must be RFC 3339 instants, the range must contain the complete booking (`conflictTimeMin <= start < end <= conflictTimeMax`), and it is subject to the same bounded 93-day query limit. TAP overlap checks and the final provider-live conflict read use this expanded range, while the Google event is always written with the original `start` and `end`. The expanded range is part of the idempotency request and remains attached to an approval hold for its final live recheck.
 
-`bookingKind` is `meeting`, `approval-hold`, or `work-block`. `conferenceProvider` is optional and may be `none` (the default) or `google-meet`; every other value is rejected rather than implied to be provisioned. Google Meet is available only for meetings. The gateway supplies a deterministic conference request ID and `conferenceDataVersion=1`. It reports `providerJoinUrl` only after Google returns an actual video entry point; while Google is still creating the conference it returns `conferenceStatus: "pending"` and does not label the event as Google Meet. `location` remains human-readable physical/custom location text and is not treated as a conference URL. Calendar HTML links are accepted only from the exact Google Calendar HTTPS origins and paths, and join links only from the exact `https://meet.google.com` origin. HTTP, script URLs, deceptive subdomains, and unrelated HTTPS origins are discarded. `providerJoinUrl` and `providerHtmlLink` remain stable in the durable idempotency response; treat both as capability-bearing private booking data and do not publish or log them.
+`bookingKind` is `meeting`, `approval-hold`, or `work-block`. `conferenceProvider` is optional and may be `none` (the default), `google-meet`, or `zoom`; every other value is rejected rather than implied to be provisioned. Google Meet and Zoom are available only for meetings. Google Meet uses a deterministic conference request ID and `conferenceDataVersion=1`. The gateway reports `providerJoinUrl` only after Google returns an actual Meet video entry point; while Google is still creating the conference it returns `conferenceStatus: "pending"` and does not label the event as Google Meet. For Zoom, a connected per-user Zoom account is required. The gateway creates the Zoom meeting first, saves its validated `join_url` as the Google event location, and stores the Zoom meeting ID in private Google event properties so subsequent lifecycle operations can prove what they own. Calendar HTML links are accepted only from the exact Google Calendar HTTPS origins and paths. Join links are accepted only from the exact `https://meet.google.com` origin or an HTTPS `zoom.us`/`*.zoom.us` host with a canonical `/j/{meetingId}` path. HTTP, script URLs, credentials, fragments, deceptive subdomains, unexpected query parameters, and unrelated HTTPS origins are discarded. `providerJoinUrl` and `providerHtmlLink` remain stable in the durable idempotency response; treat both as capability-bearing private booking data and do not log them.
 
 For a new key, the gateway acquires short D1 leases for every calendar in the caller's conflict set in deterministic order, rejects overlap with earlier TAP commits, reads every conflict provider live, and only then inserts the destination Google event. The Google event uses a deterministic provider ID plus private TAP request proof, so a same-key retry can recover a successful insert even when the original HTTP response was lost. A successful write is staged into a new revisioned D1 cache generation and that calendar is marked immediately due for incremental reconciliation. The response is `201` with the committed provider event projection; an identical replay is `200` with `idempotentReplay: true`. Reusing the key for different input, an active TAP lease, and a stale slot are distinct `409` responses. Provider/read uncertainty fails closed.
 
 This boundary serializes cooperating TAP requests whose complete conflict-calendar sets overlap. It cannot make Google's separate free/busy read and event insert atomic against a person, another application, or any out-of-band provider writer; Google exposes no transaction spanning those operations. The destination event itself is the immediate provider reservation, so the remaining race is stated rather than hidden.
 
-Recover an uncertain commit or delayed Google Meet URL with the workspace-authenticated `GET /v1/bookings/{idempotencyKey}/status`. The lookup is scoped by both workspace and idempotency key, loads the durable request, fetches the current Google event, and verifies its private TAP commit proof. Its response wraps the original/enriched `CalendarGatewayBookingCommit` under `commit` (always with `idempotentReplay: true`), an explicit `lifecycle` (`active`, `approved`, `declined`, or `expired` with resolution time and removal state), and `currentEvent`. A verified conference that has become ready enriches the immutable commit projection's `providerJoinUrl` and `conferenceStatus`, including on an approval hold that gained Google Meet during approval; the final confirmed meeting is exposed separately as `currentEvent`. Declined and expired holds use their already-verified durable terminal transition and return `currentEvent: null`, rather than treating the intentional provider deletion as a proof failure. The status read never changes booking, resolution, idempotency, or event-cache state; an unexpected missing active/approved event or mismatched proof fails closed. The private canonical `request_json` stored with new commits exists only to reconstruct a verified response after an ambiguous write and must not be logged or exposed independently.
+Recover an uncertain commit or delayed Google Meet URL with the workspace-authenticated `GET /v1/bookings/{idempotencyKey}/status`. The lookup is scoped by both workspace and idempotency key, loads the durable request, fetches the current Google event, and verifies its private TAP commit proof. Its response wraps the original/enriched `CalendarGatewayBookingCommit` under `commit` (always with `idempotentReplay: true`), an explicit `lifecycle` (`active`, `approved`, `declined`, or `expired` with resolution time and removal state), and `currentEvent`. A verified conference that has become ready enriches the immutable commit projection's `providerJoinUrl` and `conferenceStatus`, including on an approval hold that gained Google Meet or Zoom during approval; the final confirmed meeting is exposed separately as `currentEvent`. Declined and expired holds use their already-verified durable terminal transition and return `currentEvent: null`, rather than treating the intentional provider deletion as a proof failure. The status read never changes booking, resolution, idempotency, or event-cache state; an unexpected missing active/approved event or mismatched proof fails closed. The private canonical `request_json` stored with new commits exists only to reconstruct a verified response after an ambiguous write and must not be logged or exposed independently.
 
 An `approval-hold` requires `expiresAt` (a future RFC 3339 instant no more than 30 days away) and creates a private, opaque, tentative Google event. It may accept `attendeeEmails`, but those addresses are stored only in the authorization-protected D1 commit projection as `pendingAttendeeEmails`; they are not sent to Google or invited until approval. Commit responses are immutable: replaying the hold's commit key always returns its original pending projection, while resolution state and replay live on the resolution endpoint. Resolve with `POST /v1/bookings/{bookingIdempotencyKey}/resolve`:
 
@@ -248,7 +281,7 @@ An `approval-hold` requires `expiresAt` (a future RFC 3339 instant no more than 
 }
 ```
 
-The commit stores the canonical, sorted conflict-calendar set with the hold. `approve` forms the sorted union of that snapshot and the caller's required current `conflictCalendarIds`, validates every connected calendar, acquires every union lock, rechecks the union live, excludes only the original destination hold from that check, and fails closed if any slice is missing or inconclusive. It then patches the same reserved provider event to confirmed, uses the durable pending invitees when `attendeeEmails` is omitted (or the explicitly supplied audited set when present), optionally creates Google Meet, preserves TAP proof, and sends Google attendee updates. `decline` needs only the destination lock and does not require legacy conflict metadata; it deletes the tentative provider event and tombstones it in the cache.
+The commit stores the canonical, sorted conflict-calendar set with the hold. `approve` forms the sorted union of that snapshot and the caller's required current `conflictCalendarIds`, validates every connected calendar, acquires every union lock, rechecks the union live, excludes only the original destination hold from that check, and fails closed if any slice is missing or inconclusive. It then patches the same reserved provider event to confirmed, uses the durable pending invitees when `attendeeEmails` is omitted (or the explicitly supplied audited set when present), optionally creates Google Meet or Zoom, preserves TAP proof, and sends Google attendee updates. `decline` needs only the destination lock and does not require legacy conflict metadata; it deletes the tentative provider event and tombstones it in the cache.
 
 Each resolution is single-decision and idempotent: an identical replay does no provider work, a conflicting decision/key is rejected, and an ambiguous provider mutation is recovered from private resolution proof. Definite failures before any PATCH/DELETE—lock contention, a new conflict, missing calendar, or partial provider read—do not persist a pending resolution, so the hold can still be declined or approved later. A missing, malformed, disconnected, noncanonical, or destination-free stored conflict set cannot be approved. Both decisions update separate durable resolution state and the revisioned event cache without mutating the original commit response. The same honest Google out-of-band concurrency boundary applies.
 

@@ -131,7 +131,19 @@ export type CalendarGatewayBookingKind =
   | "approval-hold"
   | "work-block";
 
-export type CalendarGatewayConferenceProvider = "none" | "google-meet";
+export type CalendarGatewayConferenceProvider = "none" | "google-meet" | "zoom";
+
+export interface CalendarGatewayMeetingProviderConnection {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly ownerPrincipalId: string;
+  readonly provider: "zoom";
+  readonly mode: "oauth";
+  readonly label: string;
+  readonly status: "pending" | "connected" | "attention";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
 
 export interface CalendarGatewayCommittedBooking {
   readonly state: "committed";
@@ -558,6 +570,22 @@ const isGoogleMeetJoinUrl = (value: unknown): value is string =>
     url => url.hostname === "meet.google.com" && url.pathname !== "/",
   );
 
+const isZoomJoinUrl = (value: unknown): value is string =>
+  isTrustedGoogleHttpsUrl(
+    value,
+    url => {
+      if (
+        !(url.hostname === "zoom.us" || url.hostname.endsWith(".zoom.us")) ||
+        url.hash ||
+        !/^\/j\/\d{9,11}\/?$/u.test(url.pathname)
+      ) return false;
+      return [...url.searchParams.keys()].every(key => key === "pwd" || key === "omn");
+    },
+  );
+
+const isConferenceJoinUrl = (value: unknown): value is string =>
+  isGoogleMeetJoinUrl(value) || isZoomJoinUrl(value);
+
 const isGatewayEventError = (value: unknown): value is CalendarGatewayEventError =>
   isRecord(value) &&
   typeof value.calendarId === "string" &&
@@ -600,7 +628,7 @@ const isGatewayCalendarEvent = (value: unknown): value is CalendarEvent =>
   (value.busy === undefined || typeof value.busy === "boolean") &&
   (value.allDay === undefined || typeof value.allDay === "boolean") &&
   (value.providerHtmlLink === undefined || isGoogleCalendarHtmlUrl(value.providerHtmlLink)) &&
-  (value.providerJoinUrl === undefined || isGoogleMeetJoinUrl(value.providerJoinUrl)) &&
+  (value.providerJoinUrl === undefined || isConferenceJoinUrl(value.providerJoinUrl)) &&
   (value.source === undefined || (
     isRecord(value.source) &&
     (value.source.kind === "task" || value.source.kind === "channel" ||
@@ -702,7 +730,7 @@ export function isCalendarGatewayBookingCommit(
     isStringArray(booking.pendingAttendeeEmails) &&
     (booking.approvalExpiresAt === null || isIsoDateTime(booking.approvalExpiresAt)) &&
     (booking.providerHtmlLink === null || isGoogleCalendarHtmlUrl(booking.providerHtmlLink)) &&
-    (booking.providerJoinUrl === null || isGoogleMeetJoinUrl(booking.providerJoinUrl)) &&
+    (booking.providerJoinUrl === null || isConferenceJoinUrl(booking.providerJoinUrl)) &&
     (booking.conferenceStatus === "none" ||
       booking.conferenceStatus === "pending" ||
       booking.conferenceStatus === "ready") &&
@@ -762,7 +790,7 @@ export function isCalendarGatewayBookingResolution(
     typeof resolution.providerEventId === "string" &&
     resolution.providerEventId.length > 0 &&
     typeof resolution.providerEventRemoved === "boolean" &&
-    (resolution.providerJoinUrl === null || isGoogleMeetJoinUrl(resolution.providerJoinUrl)) &&
+    (resolution.providerJoinUrl === null || isConferenceJoinUrl(resolution.providerJoinUrl)) &&
     (resolution.event === null || isGatewayCalendarEvent(resolution.event)) &&
     isIsoDateTime(value.resolvedAt) &&
     typeof value.idempotentReplay === "boolean"
@@ -891,13 +919,18 @@ export interface CalendarGatewayClient {
   ): Promise<CalendarGatewayConnection>;
   startOAuth(input: {
     readonly id: string;
-    readonly provider: "google" | "microsoft";
+    readonly provider: "google" | "microsoft" | "zoom";
     readonly label?: string;
   }): Promise<{
     readonly connectionId: string;
     readonly authorizationUrl: string;
     readonly expiresAt: string;
   }>;
+  listMeetingProviderConnections(): Promise<readonly CalendarGatewayMeetingProviderConnection[]>;
+  verifyMeetingProviderConnection(
+    connectionId: string,
+  ): Promise<CalendarGatewayMeetingProviderConnection>;
+  deleteMeetingProviderConnection(connectionId: string): Promise<void>;
   syncConnection(connectionId: string): Promise<CalendarGatewayConnection>;
   queryEvents(input: {
     readonly timeMin: string;
@@ -1102,6 +1135,34 @@ export function createCalendarGatewayClient(input: {
     return value as unknown as CalendarGatewayConnection;
   };
 
+  const ownedMeetingProviderConnection = (
+    value: unknown,
+  ): CalendarGatewayMeetingProviderConnection => {
+    if (
+      !isRecord(value) ||
+      value.workspaceId !== workspaceId ||
+      value.ownerPrincipalId !== principalId ||
+      typeof value.id !== "string" ||
+      !value.id.trim() ||
+      value.provider !== "zoom" ||
+      value.mode !== "oauth" ||
+      typeof value.label !== "string" ||
+      !value.label.trim() ||
+      (value.status !== "pending" &&
+        value.status !== "connected" &&
+        value.status !== "attention") ||
+      !isIsoDateTime(value.createdAt) ||
+      !isIsoDateTime(value.updatedAt)
+    ) {
+      throw new CalendarGatewayError(
+        502,
+        "gateway_owner_mismatch",
+        "The Calendar gateway returned a meeting-provider connection outside the mounted TAP owner boundary.",
+      );
+    }
+    return value as unknown as CalendarGatewayMeetingProviderConnection;
+  };
+
   const connection = async (
     method: "POST" | "GET",
     path: string,
@@ -1208,6 +1269,33 @@ export function createCalendarGatewayClient(input: {
         "POST",
         `/v1/oauth/${provider}/start`,
         body,
+      );
+    },
+    async listMeetingProviderConnections() {
+      const result = await request<{
+        readonly connections: unknown;
+      }>("GET", "/v1/meeting-providers/connections");
+      if (!Array.isArray(result.connections)) {
+        throw new CalendarGatewayError(
+          502,
+          "gateway_response_invalid",
+          "The Calendar gateway returned an invalid meeting-provider connection list.",
+        );
+      }
+      return result.connections.map(ownedMeetingProviderConnection);
+    },
+    async verifyMeetingProviderConnection(connectionId) {
+      const result = await request<{ readonly connection: unknown }>(
+        "POST",
+        `/v1/meeting-providers/connections/${encodeURIComponent(connectionId)}/verify`,
+        {},
+      );
+      return ownedMeetingProviderConnection(result.connection);
+    },
+    async deleteMeetingProviderConnection(connectionId) {
+      await request(
+        "DELETE",
+        `/v1/meeting-providers/connections/${encodeURIComponent(connectionId)}`,
       );
     },
     async syncConnection(connectionId) {

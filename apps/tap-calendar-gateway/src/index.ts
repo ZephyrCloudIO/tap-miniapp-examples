@@ -88,6 +88,21 @@ import {
   PublicTurnstileError,
   verifyPublicBookingTurnstile,
 } from "./public-booking-turnstile";
+import {
+  buildZoomAuthorizationUrl,
+  createZoomMeeting,
+  deleteZoomMeeting,
+  exchangeZoomAuthorizationCode,
+  getZoomCurrentUser,
+  missingZoomOAuthScopes,
+  normalizeZoomJoinUrl,
+  refreshZoomAccessToken,
+  revokeZoomToken,
+  updateZoomMeeting,
+  ZoomProviderError,
+  type ZoomOAuthClientConfig,
+  type ZoomTokenSet,
+} from "./zoom-provider";
 
 type CalendarProvider =
   | "google"
@@ -108,6 +123,8 @@ interface CalendarGatewayEnv extends Env {
   readonly GOOGLE_CLIENT_SECRET?: string;
   readonly MICROSOFT_CLIENT_ID?: string;
   readonly MICROSOFT_CLIENT_SECRET?: string;
+  readonly ZOOM_CLIENT_ID?: string;
+  readonly ZOOM_CLIENT_SECRET?: string;
   readonly PUBLIC_TURNSTILE_SITE_KEY?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
   readonly PUBLIC_BOOKING_SLOT_SIGNING_KEY?: string;
@@ -163,6 +180,44 @@ interface TokenSecret {
   readonly expiresAt: string;
   readonly tokenType: string;
   readonly scope?: string;
+}
+
+interface MeetingProviderConnectionRow {
+  readonly id: string;
+  readonly workspace_id: string;
+  readonly principal_id: string;
+  readonly provider: "zoom";
+  readonly mode: "oauth";
+  readonly label: string;
+  readonly status: "pending" | "connected" | "attention";
+  readonly credential_ciphertext: string | null;
+  readonly token_expires_at: string | null;
+  readonly provider_account_id: string | null;
+  readonly provider_user_id: string | null;
+  readonly provider_email: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly last_verified_at: string | null;
+  readonly refresh_lease_token: string | null;
+  readonly refresh_lease_until: string | null;
+}
+
+interface MeetingProviderOAuthStateRow {
+  readonly connection_id: string;
+  readonly workspace_id: string;
+  readonly principal_id: string;
+  readonly provider: "zoom";
+  readonly verifier_ciphertext: string;
+  readonly redirect_uri: string;
+  readonly expires_at: string;
+}
+
+interface ZoomMeetingOperationRow {
+  readonly connection_id: string;
+  readonly request_hash: string;
+  readonly state: "creating" | "created" | "create_uncertain" | "deleted";
+  readonly zoom_meeting_id: string | null;
+  readonly join_url: string | null;
 }
 
 interface DiscoveredCalendar {
@@ -314,7 +369,7 @@ interface ProviderBookingCommitInput extends EventQueryInput {
   readonly location: string | null;
   readonly bookingKind: "meeting" | "approval-hold" | "work-block";
   readonly attendeeEmails: readonly string[];
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
   readonly expiresAt: string | null;
 }
 
@@ -341,7 +396,7 @@ interface ProviderBookingResolutionInput {
   readonly location: string | null;
   readonly attendeeEmails: readonly string[];
   readonly attendeeEmailsProvided: boolean;
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
   readonly currentConflictCalendarIds: readonly string[];
 }
 
@@ -414,6 +469,9 @@ const WATCH_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const WATCH_TTL_SECONDS = 7 * 24 * 60 * 60;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_MS = 60 * 1000;
+const ZOOM_TOKEN_REFRESH_LEASE_MS = 30 * 1000;
+const ZOOM_TOKEN_REFRESH_WAIT_ATTEMPTS = 20;
+const ZOOM_TOKEN_REFRESH_WAIT_MS = 100;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,254}$/u;
 const COLOR = /^#[0-9a-fA-F]{6}$/u;
 const RFC3339_INSTANT =
@@ -517,6 +575,25 @@ const googleMeetConferenceRequested = (
     ? createRequest.conferenceSolutionKey
     : null;
   return solutionKey?.type === "hangoutsMeet";
+};
+
+const providerConferenceJoinUrl = (
+  value: Readonly<Record<string, unknown>>,
+): string | null =>
+  googleMeetJoinUrl(value) ?? normalizeZoomJoinUrl(value.location);
+
+const normalizedProviderJoinUrl = (value: unknown): string | null =>
+  normalizeGoogleMeetJoinUrl(value) ?? normalizeZoomJoinUrl(value);
+
+const zoomMeetingIdFromGoogleEvent = (
+  value: Readonly<Record<string, unknown>>,
+): string | null => {
+  const extended = isRecord(value.extendedProperties) ? value.extendedProperties : null;
+  const privateValues = extended && isRecord(extended.private) ? extended.private : null;
+  const candidate = privateValues?.tapZoomMeetingId;
+  return typeof candidate === "string" && /^\d{9,11}$/u.test(candidate)
+    ? candidate
+    : null;
 };
 
 const requiredText = (
@@ -1807,6 +1884,53 @@ const providerCatalog = (env: CalendarGatewayEnv) => ({
   localConnector: env.LOCAL_DEVELOPMENT === "true",
 });
 
+const zoomOAuthConfigured = (env: CalendarGatewayEnv): boolean =>
+  Boolean(
+    env.ZOOM_CLIENT_ID &&
+    env.ZOOM_CLIENT_SECRET &&
+    env.TOKEN_ENCRYPTION_KEY,
+  );
+
+const zoomRedirectUri = (request: Request, env: CalendarGatewayEnv): string => {
+  const configured = typeof env.PUBLIC_BASE_URL === "string"
+    ? env.PUBLIC_BASE_URL.trim()
+    : "";
+  const origin = configured || new URL(request.url).origin;
+  return new URL("/v1/oauth/zoom/callback", origin).href;
+};
+
+const zoomOAuthClientConfig = (
+  env: CalendarGatewayEnv,
+  redirectUri: string,
+): ZoomOAuthClientConfig => {
+  if (!zoomOAuthConfigured(env)) {
+    throw new ApiError(
+      503,
+      "provider_unconfigured",
+      "Zoom OAuth credentials are not configured for TAP Calendar.",
+    );
+  }
+  return {
+    clientId: env.ZOOM_CLIENT_ID!,
+    clientSecret: env.ZOOM_CLIENT_SECRET!,
+    redirectUri,
+  };
+};
+
+const meetingProviderConnectionProjection = (row: MeetingProviderConnectionRow) => ({
+  id: row.id,
+  workspaceId: row.workspace_id,
+  ownerPrincipalId: row.principal_id,
+  provider: row.provider,
+  mode: row.mode,
+  label: row.label,
+  status: row.status,
+  providerEmail: row.provider_email,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastVerifiedAt: row.last_verified_at,
+});
+
 const calendarProjection = (row: CalendarRow) => ({
   id: row.id,
   providerCalendarId: row.provider_calendar_id,
@@ -1890,6 +2014,46 @@ async function listConnections(
       connectionProjection(row, grouped.get(row.id) ?? []),
     ),
   });
+}
+
+async function listMeetingProviderConnections(
+  request: Request,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const connections = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ?
+      ORDER BY updated_at DESC, id`,
+  )
+    .bind(workspace, principal)
+    .all<MeetingProviderConnectionRow>();
+  return json({
+    providers: [{ id: "zoom", authorization: "oauth", configured: zoomOAuthConfigured(env) }],
+    connections: connections.results.map(meetingProviderConnectionProjection),
+  });
+}
+
+async function meetingProviderConnectionById(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  connectionId: string,
+): Promise<MeetingProviderConnectionRow> {
+  const row = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ? AND id = ?`,
+  )
+    .bind(workspace, principal, connectionId)
+    .first<MeetingProviderConnectionRow>();
+  if (!row) {
+    throw new ApiError(
+      404,
+      "meeting_provider_connection_not_found",
+      "The meeting provider connection was not found.",
+    );
+  }
+  return row;
 }
 
 interface LocalCalendarInput {
@@ -2391,6 +2555,106 @@ async function beginOAuth(
   );
 }
 
+async function beginZoomOAuth(
+  request: Request,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const redirectUri = zoomRedirectUri(request, env);
+  const config = zoomOAuthClientConfig(env, redirectUri);
+  const body = await readJson(request);
+  const requestedConnectionId = identifier(body.id, "id");
+  const labelHint = typeof body.label === "string" && body.label.trim()
+    ? requiredText(body.label, "label")
+    : "Zoom";
+  const existingConnection = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom'
+      ORDER BY updated_at DESC LIMIT 1`,
+  )
+    .bind(workspace, principal)
+    .first<MeetingProviderConnectionRow>();
+  if (existingConnection?.status === "connected") {
+    throw new ApiError(
+      409,
+      "zoom_already_connected",
+      "Zoom is already connected.",
+    );
+  }
+  const connectionId = existingConnection?.id ?? requestedConnectionId;
+  const state = randomValue(32);
+  const stateHash = await sha256(state);
+  const verifier = randomValue(64);
+  const challenge = await sha256(verifier);
+  const verifierCiphertext = await encryptSecret(env, { verifier });
+  const now = new Date();
+  const expiresAt = new Date(now.valueOf() + OAUTH_STATE_TTL_MS).toISOString();
+  try {
+    const statements: D1PreparedStatement[] = [];
+    if (existingConnection) {
+      statements.push(
+        env.CALENDAR_DB.prepare(
+          `DELETE FROM meeting_provider_oauth_states
+            WHERE workspace_id = ? AND principal_id = ? AND connection_id = ?`,
+        ).bind(workspace, principal, connectionId),
+        env.CALENDAR_DB.prepare(
+          `UPDATE meeting_provider_connections
+              SET label = ?, status = 'pending', updated_at = ?,
+                  refresh_lease_token = NULL, refresh_lease_until = NULL
+            WHERE id = ? AND workspace_id = ? AND principal_id = ?
+              AND status IN ('pending', 'attention')`,
+        ).bind(labelHint, now.toISOString(), connectionId, workspace, principal),
+      );
+    } else {
+      statements.push(env.CALENDAR_DB.prepare(
+        `INSERT INTO meeting_provider_connections
+          (id, workspace_id, principal_id, provider, mode, label, status,
+           credential_ciphertext, token_expires_at, provider_account_id,
+           provider_user_id, provider_email, created_at, updated_at, last_verified_at)
+         VALUES (?, ?, ?, 'zoom', 'oauth', ?, 'pending', NULL, NULL, NULL, NULL,
+                 NULL, ?, ?, NULL)`,
+      ).bind(
+        connectionId,
+        workspace,
+        principal,
+        labelHint,
+        now.toISOString(),
+        now.toISOString(),
+      ));
+    }
+    statements.push(env.CALENDAR_DB.prepare(
+        `INSERT INTO meeting_provider_oauth_states
+          (state_hash, connection_id, workspace_id, principal_id, provider,
+           verifier_ciphertext, redirect_uri, expires_at, created_at)
+         VALUES (?, ?, ?, ?, 'zoom', ?, ?, ?, ?)`,
+      ).bind(
+        stateHash,
+        connectionId,
+        workspace,
+        principal,
+        verifierCiphertext,
+        redirectUri,
+        expiresAt,
+        now.toISOString(),
+      ));
+    await env.CALENDAR_DB.batch(statements);
+  } catch {
+    throw new ApiError(
+      409,
+      "connection_conflict",
+      "A Zoom account is already connected. Disconnect it before connecting another account.",
+    );
+  }
+  return json({
+    connectionId,
+    authorizationUrl: buildZoomAuthorizationUrl(config, {
+      state,
+      codeChallenge: challenge,
+    }),
+    expiresAt,
+  }, 201);
+}
+
 async function discoverGoogle(
   accessToken: string,
   providerFetch: ProviderFetch = fetch,
@@ -2802,6 +3066,125 @@ async function completeOAuth(
   return oauthPage("Calendar connected", `${discovery.label} is ready in TAP Calendar.`);
 }
 
+const zoomProviderApiError = (error: unknown, fallback: string): ApiError => {
+  if (!(error instanceof ZoomProviderError)) {
+    return new ApiError(502, "zoom_request_failed", fallback);
+  }
+  const status = error.providerStatus === 401 || error.providerStatus === 403
+    ? 409
+    : error.providerStatus === 429 || (error.providerStatus ?? 0) >= 500
+      ? 503
+      : 502;
+  const code = error.providerStatus === 401 || error.providerStatus === 403
+    ? "zoom_reauthorization_required"
+    : error.providerStatus === 429
+      ? "zoom_rate_limited"
+      : error.code;
+  return new ApiError(status, code, error.message || fallback, {
+    ...(error.retryAfterSeconds === undefined
+      ? {}
+      : { retryAfterSeconds: error.retryAfterSeconds }),
+  });
+};
+
+const zoomTokenSecret = (token: ZoomTokenSet): TokenSecret => ({
+  accessToken: token.accessToken,
+  refreshToken: token.refreshToken,
+  expiresAt: token.expiresAt,
+  tokenType: token.tokenType,
+  scope: token.scope,
+});
+
+async function completeZoomOAuth(
+  request: Request,
+  env: CalendarGatewayEnv,
+  providerFetch: ProviderFetch = fetch,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const providerError = url.searchParams.get("error");
+  if (providerError) {
+    return oauthPage("Zoom authorization cancelled", "Zoom access was not granted.", 400);
+  }
+  const state = requiredText(url.searchParams.get("state"), "state", 1_024);
+  const stateHash = await sha256(state);
+  const code = requiredText(url.searchParams.get("code"), "code", 16_384);
+  const row = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, workspace_id, principal_id, provider, verifier_ciphertext,
+            redirect_uri, expires_at
+       FROM meeting_provider_oauth_states
+      WHERE state_hash = ? AND provider = 'zoom'`,
+  )
+    .bind(stateHash)
+    .first<MeetingProviderOAuthStateRow>();
+  if (!row || Date.parse(row.expires_at) <= Date.now()) {
+    throw new ApiError(400, "oauth_state_invalid", "The Zoom authorization has expired.");
+  }
+  await env.CALENDAR_DB.prepare(
+    "DELETE FROM meeting_provider_oauth_states WHERE state_hash = ?",
+  )
+    .bind(stateHash)
+    .run();
+  const connection = await meetingProviderConnectionById(
+    env,
+    row.workspace_id,
+    row.principal_id,
+    row.connection_id,
+  );
+  const verifierSecret = await decryptSecret<{ readonly verifier: string }>(
+    env,
+    row.verifier_ciphertext,
+  );
+  try {
+    const token = await exchangeZoomAuthorizationCode(
+      zoomOAuthClientConfig(env, row.redirect_uri),
+      { code, codeVerifier: verifierSecret.verifier },
+      { fetch: providerFetch },
+    );
+    const missingScopes = missingZoomOAuthScopes(token.scope);
+    if (missingScopes.length > 0) {
+      throw new ApiError(
+        409,
+        "zoom_scopes_missing",
+        `Zoom did not grant the permissions TAP Calendar needs: ${missingScopes.join(", ")}.`,
+      );
+    }
+    const user = await getZoomCurrentUser(token.accessToken, { fetch: providerFetch });
+    if (user.status !== "active") {
+      throw new ApiError(
+        409,
+        "zoom_user_inactive",
+        "The authorized Zoom user is not active.",
+      );
+    }
+    const now = new Date().toISOString();
+    await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections
+          SET label = ?, status = 'connected', credential_ciphertext = ?,
+              token_expires_at = ?, provider_account_id = ?, provider_user_id = ?,
+              provider_email = ?, updated_at = ?, last_verified_at = ?
+        WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+    )
+      .bind(
+        connection.label === "Zoom" ? user.displayName : connection.label,
+        await encryptSecret(env, zoomTokenSecret(token)),
+        token.expiresAt,
+        user.accountId,
+        user.id,
+        user.email,
+        now,
+        now,
+        connection.id,
+        connection.workspace_id,
+        connection.principal_id,
+      )
+      .run();
+    return oauthPage("Zoom connected", `${user.email} is ready for TAP bookings.`);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw zoomProviderApiError(error, "TAP Calendar could not finish connecting Zoom.");
+  }
+}
+
 async function refreshToken(
   config: OAuthProviderConfig,
   secret: TokenSecret,
@@ -2924,6 +3307,354 @@ async function authorizedToken(
   return { config, secret };
 }
 
+const zoomRefreshRedirectUri = (env: CalendarGatewayEnv): string => {
+  const configured = typeof env.PUBLIC_BASE_URL === "string"
+    ? env.PUBLIC_BASE_URL.trim()
+    : "";
+  return new URL(
+    "/v1/oauth/zoom/callback",
+    configured || "http://127.0.0.1",
+  ).href;
+};
+
+async function authorizedZoomTokenForScope(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  providerFetch: ProviderFetch = fetch,
+): Promise<{
+  readonly connection: MeetingProviderConnectionRow;
+  readonly secret: TokenSecret;
+}> {
+  let connection = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom'
+      ORDER BY updated_at DESC LIMIT 1`,
+  )
+    .bind(workspace, principal)
+    .first<MeetingProviderConnectionRow>();
+  for (let attempt = 0; attempt <= ZOOM_TOKEN_REFRESH_WAIT_ATTEMPTS; attempt += 1) {
+    if (!connection || connection.status !== "connected" || !connection.credential_ciphertext) {
+      throw new ApiError(
+        409,
+        "zoom_not_connected",
+        "Connect Zoom in Calendar settings before using it for a meeting.",
+      );
+    }
+    const secret = storedTokenSecret(
+      await decryptSecret<unknown>(env, connection.credential_ciphertext),
+    );
+    if (Date.parse(secret.expiresAt) > Date.now() + TOKEN_REFRESH_SKEW_MS) {
+      return { connection, secret };
+    }
+    if (!secret.refreshToken) {
+      throw new ApiError(
+        409,
+        "zoom_reauthorization_required",
+        "Reconnect Zoom in Calendar settings before creating another meeting.",
+      );
+    }
+    const leaseToken = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const leaseUntil = new Date(Date.now() + ZOOM_TOKEN_REFRESH_LEASE_MS).toISOString();
+    const acquired = await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections
+          SET refresh_lease_token = ?, refresh_lease_until = ?
+        WHERE id = ? AND workspace_id = ? AND principal_id = ?
+          AND (refresh_lease_token IS NULL OR refresh_lease_until <= ?)`,
+    )
+      .bind(leaseToken, leaseUntil, connection.id, workspace, principal, now)
+      .run();
+    if (Number(acquired.meta.changes ?? 0) !== 1) {
+      if (attempt === ZOOM_TOKEN_REFRESH_WAIT_ATTEMPTS) {
+        throw new ApiError(
+          409,
+          "zoom_refresh_in_progress",
+          "Another booking is refreshing Zoom access. Retry shortly.",
+        );
+      }
+      await new Promise<void>(resolve => globalThis.setTimeout(resolve, ZOOM_TOKEN_REFRESH_WAIT_MS));
+      connection = await meetingProviderConnectionById(
+        env,
+        workspace,
+        principal,
+        connection.id,
+      );
+      continue;
+    }
+    try {
+      const leased = await meetingProviderConnectionById(
+        env,
+        workspace,
+        principal,
+        connection.id,
+      );
+      if (!leased.credential_ciphertext) {
+        throw new ApiError(
+          409,
+          "zoom_reauthorization_required",
+          "Reconnect Zoom in Calendar settings before creating another meeting.",
+        );
+      }
+      const leasedSecret = storedTokenSecret(
+        await decryptSecret<unknown>(env, leased.credential_ciphertext),
+      );
+      if (Date.parse(leasedSecret.expiresAt) > Date.now() + TOKEN_REFRESH_SKEW_MS) {
+        return { connection: leased, secret: leasedSecret };
+      }
+      if (!leasedSecret.refreshToken) {
+        throw new ApiError(
+          409,
+          "zoom_reauthorization_required",
+          "Reconnect Zoom in Calendar settings before creating another meeting.",
+        );
+      }
+      const refreshed = await refreshZoomAccessToken(
+        zoomOAuthClientConfig(env, zoomRefreshRedirectUri(env)),
+        leasedSecret.refreshToken,
+        { fetch: providerFetch },
+      );
+      const missingScopes = missingZoomOAuthScopes(refreshed.scope);
+      if (missingScopes.length > 0) {
+        throw new ApiError(
+          409,
+          "zoom_scopes_missing",
+          "Reconnect Zoom and approve all requested meeting permissions.",
+        );
+      }
+      const nextSecret = zoomTokenSecret(refreshed);
+      const nextCiphertext = await encryptSecret(env, nextSecret);
+      const updatedAt = new Date().toISOString();
+      const persisted = await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET credential_ciphertext = ?, token_expires_at = ?, updated_at = ?,
+                refresh_lease_token = NULL, refresh_lease_until = NULL
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?
+            AND refresh_lease_token = ?`,
+      )
+        .bind(
+          nextCiphertext,
+          nextSecret.expiresAt,
+          updatedAt,
+          connection.id,
+          workspace,
+          principal,
+          leaseToken,
+        )
+        .run();
+      if (Number(persisted.meta.changes ?? 0) !== 1) {
+        throw new ApiError(
+          502,
+          "zoom_refresh_uncertain",
+          "Zoom access was refreshed, but TAP could not save the rotated token safely.",
+        );
+      }
+      return {
+        connection: {
+          ...leased,
+          credential_ciphertext: nextCiphertext,
+          token_expires_at: nextSecret.expiresAt,
+          updated_at: updatedAt,
+          refresh_lease_token: null,
+          refresh_lease_until: null,
+        },
+        secret: nextSecret,
+      };
+    } catch (error) {
+      const definitiveAuthorizationFailure = error instanceof ZoomProviderError &&
+        error.providerStatus !== undefined &&
+        [400, 401, 403].includes(error.providerStatus);
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET refresh_lease_token = NULL, refresh_lease_until = NULL,
+                status = CASE WHEN ? THEN 'attention' ELSE status END,
+                updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?
+            AND refresh_lease_token = ?`,
+      )
+        .bind(
+          definitiveAuthorizationFailure ? 1 : 0,
+          new Date().toISOString(),
+          connection.id,
+          workspace,
+          principal,
+          leaseToken,
+        )
+        .run();
+      if (error instanceof ApiError) throw error;
+      throw zoomProviderApiError(error, "TAP Calendar could not refresh Zoom access.");
+    } finally {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET refresh_lease_token = NULL, refresh_lease_until = NULL
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?
+            AND refresh_lease_token = ?`,
+      )
+        .bind(connection.id, workspace, principal, leaseToken)
+        .run();
+    }
+  }
+  throw new ApiError(409, "zoom_refresh_in_progress", "Zoom access is being refreshed.");
+}
+
+async function deleteMeetingProviderConnection(
+  request: Request,
+  env: CalendarGatewayEnv,
+  connectionId: string,
+  providerFetch: ProviderFetch = fetch,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const connection = await meetingProviderConnectionById(
+    env,
+    workspace,
+    principal,
+    connectionId,
+  );
+  const activeMeeting = await env.CALENDAR_DB.prepare(
+    `SELECT 1
+       FROM zoom_meeting_operations AS zoom_operations
+       INNER JOIN provider_booking_commits AS bookings
+         ON bookings.workspace_id = zoom_operations.workspace_id
+        AND bookings.principal_id = zoom_operations.principal_id
+        AND bookings.idempotency_key = zoom_operations.booking_idempotency_key
+      WHERE zoom_operations.connection_id = ?
+        AND zoom_operations.workspace_id = ? AND zoom_operations.principal_id = ?
+        AND zoom_operations.state = 'created' AND bookings.end_at > ?
+      LIMIT 1`,
+  )
+    .bind(connectionId, workspace, principal, new Date().toISOString())
+    .first<number>();
+  if (activeMeeting !== null) {
+    throw new ApiError(
+      409,
+      "zoom_connection_in_use",
+      "Cancel upcoming Zoom bookings before disconnecting this account.",
+    );
+  }
+  if (connection.credential_ciphertext && zoomOAuthConfigured(env)) {
+    try {
+      const secret = storedTokenSecret(
+        await decryptSecret<unknown>(env, connection.credential_ciphertext),
+      );
+      await revokeZoomToken(
+        zoomOAuthClientConfig(env, zoomRedirectUri(request, env)),
+        secret.accessToken,
+        { fetch: providerFetch },
+      );
+    } catch (error) {
+      logCalendarSync("warn", "Zoom token revocation failed during disconnect", {
+        workspace_id: workspace,
+        connection_id: connectionId,
+        error: error instanceof ZoomProviderError ? error.code : "unknown error",
+      });
+    }
+  }
+  await env.CALENDAR_DB.prepare(
+    `DELETE FROM zoom_meeting_operations
+      WHERE connection_id = ? AND workspace_id = ? AND principal_id = ?`,
+  )
+    .bind(connectionId, workspace, principal)
+    .run();
+  await env.CALENDAR_DB.prepare(
+    `DELETE FROM meeting_provider_connections
+      WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+  )
+    .bind(connectionId, workspace, principal)
+    .run();
+  return new Response(null, { status: 204 });
+}
+
+async function verifyMeetingProviderConnection(
+  request: Request,
+  env: CalendarGatewayEnv,
+  connectionId: string,
+  providerFetch: ProviderFetch = fetch,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const connection = await meetingProviderConnectionById(
+    env,
+    workspace,
+    principal,
+    connectionId,
+  );
+  if (connection.status !== "connected" || !connection.credential_ciphertext) {
+    return json({ connection: meetingProviderConnectionProjection(connection) });
+  }
+  try {
+    const authorization = await authorizedZoomTokenForScope(
+      env,
+      workspace,
+      principal,
+      providerFetch,
+    );
+    if (authorization.connection.id !== connection.id) {
+      throw new ApiError(
+        409,
+        "zoom_connection_mismatch",
+        "The Zoom connection changed while it was being checked.",
+      );
+    }
+    const user = await getZoomCurrentUser(authorization.secret.accessToken, {
+      fetch: providerFetch,
+    });
+    if (
+      user.status !== "active" ||
+      user.id !== connection.provider_user_id ||
+      user.accountId !== connection.provider_account_id
+    ) {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET status = 'attention', updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+      )
+        .bind(new Date().toISOString(), connection.id, workspace, principal)
+        .run();
+      throw new ApiError(
+        409,
+        "zoom_reauthorization_required",
+        "Reconnect the same Zoom account before creating another meeting.",
+      );
+    }
+    const verifiedAt = new Date().toISOString();
+    await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections
+          SET provider_email = ?, status = 'connected',
+              last_verified_at = ?, updated_at = ?
+        WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+    )
+      .bind(
+        user.email,
+        verifiedAt,
+        verifiedAt,
+        connection.id,
+        workspace,
+        principal,
+      )
+      .run();
+    const verified = await meetingProviderConnectionById(
+      env,
+      workspace,
+      principal,
+      connection.id,
+    );
+    return json({ connection: meetingProviderConnectionProjection(verified) });
+  } catch (error) {
+    const authorizationRejected = error instanceof ZoomProviderError &&
+      (error.providerStatus === 401 || error.providerStatus === 403);
+    if (authorizationRejected) {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET status = 'attention', updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+      )
+        .bind(new Date().toISOString(), connection.id, workspace, principal)
+        .run();
+    }
+    if (error instanceof ApiError) throw error;
+    throw zoomProviderApiError(error, "TAP Calendar could not verify Zoom access.");
+  }
+}
+
 async function syncConnection(
   request: Request,
   env: CalendarGatewayEnv,
@@ -3043,11 +3774,14 @@ export function normalizeGoogleCalendarEvent(
     : {};
   const conferenceKey = isRecord(conferenceSolution.key) ? conferenceSolution.key : {};
   const hasGoogleMeetJoinUrl = googleMeetJoinUrl(value) !== null;
+  const hasZoomJoinUrl = normalizeZoomJoinUrl(value.location) !== null;
   const location: GatewayCalendarEvent["location"] =
     hasGoogleMeetJoinUrl &&
         (conferenceKey.type === "hangoutsMeet" ||
           normalizeGoogleMeetJoinUrl(value.hangoutLink) !== null)
       ? "google-meet"
+      : hasZoomJoinUrl
+        ? "zoom"
       : typeof value.location === "string" && value.location.trim().length > 0
         ? "physical"
         : null;
@@ -4855,11 +5589,15 @@ function providerBookingCommitInput(
     );
   }
   const conferenceProvider = body.conferenceProvider ?? "none";
-  if (conferenceProvider !== "none" && conferenceProvider !== "google-meet") {
+  if (
+    conferenceProvider !== "none" &&
+    conferenceProvider !== "google-meet" &&
+    conferenceProvider !== "zoom"
+  ) {
     throw new ApiError(
       400,
       "unsupported_conference_provider",
-      "conferenceProvider must be none or google-meet for a Google destination.",
+      "conferenceProvider must be none, google-meet, or zoom for a Google destination.",
     );
   }
   if (body.bookingKind !== "meeting" && conferenceProvider !== "none") {
@@ -4991,6 +5729,324 @@ const GOOGLE_COMMITTED_EVENT_FIELDS = [
   "extendedProperties(private)",
 ].join(",");
 
+interface ProvisionedZoomConference {
+  readonly meetingId: string;
+  readonly joinUrl: string;
+  readonly createdThisAttempt: boolean;
+}
+
+const zoomMeetingDurationForRange = (timeMin: string, timeMax: string): number =>
+  Math.max(1, Math.min(1_440, Math.ceil(
+    (Date.parse(timeMax) - Date.parse(timeMin)) / (60 * 1_000),
+  )));
+
+const zoomMeetingDuration = (input: ProviderBookingCommitInput): number =>
+  zoomMeetingDurationForRange(input.timeMin, input.timeMax);
+
+async function provisionZoomConference(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  input: ProviderBookingCommitInput,
+  requestHash: string,
+  providerFetch: ProviderFetch,
+): Promise<ProvisionedZoomConference> {
+  const authorization = await authorizedZoomTokenForScope(
+    env,
+    workspace,
+    principal,
+    providerFetch,
+  );
+  const existing = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, request_hash, state, zoom_meeting_id, join_url
+       FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?`,
+  )
+    .bind(workspace, principal, input.idempotencyKey)
+    .first<ZoomMeetingOperationRow>();
+  if (existing) {
+    if (existing.request_hash !== requestHash) {
+      throw new ApiError(
+        409,
+        "idempotency_key_reused",
+        "This idempotency key was already used for a different Zoom meeting.",
+      );
+    }
+    if (existing.state === "created" && existing.zoom_meeting_id && existing.join_url) {
+      const joinUrl = normalizeZoomJoinUrl(existing.join_url);
+      if (!joinUrl) {
+        throw new ApiError(
+          500,
+          "zoom_booking_state_invalid",
+          "The stored Zoom meeting details are invalid.",
+        );
+      }
+      return {
+        meetingId: existing.zoom_meeting_id,
+        joinUrl,
+        createdThisAttempt: false,
+      };
+    }
+    throw new ApiError(
+      502,
+      "zoom_create_uncertain",
+      "Zoom did not confirm whether the meeting was created. TAP will not create a duplicate; reconnect Zoom or contact support to reconcile this booking.",
+    );
+  }
+  const now = new Date().toISOString();
+  const inserted = await env.CALENDAR_DB.prepare(
+    `INSERT OR IGNORE INTO zoom_meeting_operations
+      (workspace_id, principal_id, booking_idempotency_key, connection_id,
+       request_hash, state, zoom_meeting_id, join_url, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'creating', NULL, NULL, ?, ?)`,
+  )
+    .bind(
+      workspace,
+      principal,
+      input.idempotencyKey,
+      authorization.connection.id,
+      requestHash,
+      now,
+      now,
+    )
+    .run();
+  if (Number(inserted.meta.changes ?? 0) !== 1) {
+    throw new ApiError(
+      409,
+      "zoom_create_in_progress",
+      "This Zoom meeting is already being created. Retry shortly with the same booking key.",
+    );
+  }
+  try {
+    const meeting = await createZoomMeeting(
+      authorization.secret.accessToken,
+      {
+        topic: input.title.slice(0, 200),
+        startTime: input.timeMin,
+        durationMinutes: zoomMeetingDuration(input),
+        ...(input.description ? { agenda: input.description.slice(0, 2_000) } : {}),
+      },
+      { fetch: providerFetch },
+    );
+    const persisted = await env.CALENDAR_DB.prepare(
+      `UPDATE zoom_meeting_operations
+          SET state = 'created', zoom_meeting_id = ?, join_url = ?, updated_at = ?
+        WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+          AND request_hash = ? AND state = 'creating'`,
+    )
+      .bind(
+        meeting.id,
+        meeting.joinUrl,
+        new Date().toISOString(),
+        workspace,
+        principal,
+        input.idempotencyKey,
+        requestHash,
+      )
+      .run();
+    if (Number(persisted.meta.changes ?? 0) !== 1) {
+      throw new ApiError(
+        502,
+        "zoom_create_uncertain",
+        "Zoom created a meeting, but TAP could not save its result. TAP will not create a duplicate.",
+      );
+    }
+    return {
+      meetingId: meeting.id,
+      joinUrl: meeting.joinUrl,
+      createdThisAttempt: true,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const providerStatus = error instanceof ZoomProviderError
+      ? error.providerStatus
+      : undefined;
+    const definitive = providerStatus !== undefined &&
+      providerStatus >= 400 && providerStatus < 500 &&
+      providerStatus !== 408 && providerStatus !== 429;
+    if (definitive) {
+      await env.CALENDAR_DB.prepare(
+        `DELETE FROM zoom_meeting_operations
+          WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+            AND state = 'creating'`,
+      )
+        .bind(workspace, principal, input.idempotencyKey)
+        .run();
+    } else {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE zoom_meeting_operations
+            SET state = 'create_uncertain', updated_at = ?
+          WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+            AND state = 'creating'`,
+      )
+        .bind(new Date().toISOString(), workspace, principal, input.idempotencyKey)
+        .run();
+    }
+    throw zoomProviderApiError(error, "Zoom could not create the meeting.");
+  }
+}
+
+async function deleteZoomConferenceOperation(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  bookingIdempotencyKey: string,
+  providerFetch: ProviderFetch,
+  expectedMeetingId?: string | null,
+): Promise<void> {
+  const operation = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, request_hash, state, zoom_meeting_id, join_url
+       FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?`,
+  )
+    .bind(workspace, principal, bookingIdempotencyKey)
+    .first<ZoomMeetingOperationRow>();
+  if (!operation || operation.state === "deleted") return;
+  if (operation.state !== "created" || !operation.zoom_meeting_id) {
+    throw new ApiError(
+      502,
+      "zoom_delete_uncertain",
+      "TAP cannot safely remove a Zoom meeting whose creation is unresolved.",
+    );
+  }
+  if (expectedMeetingId !== undefined && operation.zoom_meeting_id !== expectedMeetingId) {
+    throw new ApiError(
+      409,
+      "zoom_booking_state_mismatch",
+      "The stored Zoom meeting does not match the Google booking.",
+    );
+  }
+  const authorization = await authorizedZoomTokenForScope(
+    env,
+    workspace,
+    principal,
+    providerFetch,
+  );
+  if (authorization.connection.id !== operation.connection_id) {
+    throw new ApiError(
+      409,
+      "zoom_connection_mismatch",
+      "This booking belongs to a different Zoom connection.",
+    );
+  }
+  try {
+    await deleteZoomMeeting(
+      authorization.secret.accessToken,
+      operation.zoom_meeting_id,
+      { fetch: providerFetch },
+    );
+  } catch (error) {
+    if (!(error instanceof ZoomProviderError) || error.providerStatus !== 404) {
+      throw zoomProviderApiError(error, "Zoom could not remove the meeting.");
+    }
+  }
+  await env.CALENDAR_DB.prepare(
+    `UPDATE zoom_meeting_operations
+        SET state = 'deleted', join_url = NULL, updated_at = ?
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+        AND zoom_meeting_id = ?`,
+  )
+    .bind(
+      new Date().toISOString(),
+      workspace,
+      principal,
+      bookingIdempotencyKey,
+      operation.zoom_meeting_id,
+    )
+    .run();
+}
+
+async function rollbackZoomConferenceOperation(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  bookingIdempotencyKey: string,
+  providerFetch: ProviderFetch,
+): Promise<void> {
+  await deleteZoomConferenceOperation(
+    env,
+    workspace,
+    principal,
+    bookingIdempotencyKey,
+    providerFetch,
+  );
+  await env.CALENDAR_DB.prepare(
+    `DELETE FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+        AND state = 'deleted'`,
+  )
+    .bind(workspace, principal, bookingIdempotencyKey)
+    .run();
+}
+
+async function updateZoomConferenceOperation(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  bookingIdempotencyKey: string,
+  googleEvent: Readonly<Record<string, unknown>>,
+  timeMin: string,
+  timeMax: string,
+  providerFetch: ProviderFetch,
+): Promise<boolean> {
+  const operation = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, request_hash, state, zoom_meeting_id, join_url
+       FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?`,
+  )
+    .bind(workspace, principal, bookingIdempotencyKey)
+    .first<ZoomMeetingOperationRow>();
+  const eventMeetingId = zoomMeetingIdFromGoogleEvent(googleEvent);
+  if (!operation) {
+    if (eventMeetingId) {
+      throw new ApiError(
+        409,
+        "zoom_booking_state_mismatch",
+        "The Google event references a Zoom meeting TAP does not own.",
+      );
+    }
+    return false;
+  }
+  if (
+    operation.state !== "created" ||
+    !operation.zoom_meeting_id ||
+    operation.zoom_meeting_id !== eventMeetingId
+  ) {
+    throw new ApiError(
+      409,
+      "zoom_booking_state_mismatch",
+      "The stored Zoom meeting does not match the Google booking.",
+    );
+  }
+  const authorization = await authorizedZoomTokenForScope(
+    env,
+    workspace,
+    principal,
+    providerFetch,
+  );
+  if (authorization.connection.id !== operation.connection_id) {
+    throw new ApiError(
+      409,
+      "zoom_connection_mismatch",
+      "This booking belongs to a different Zoom connection.",
+    );
+  }
+  try {
+    await updateZoomMeeting(
+      authorization.secret.accessToken,
+      operation.zoom_meeting_id,
+      {
+        startTime: timeMin,
+        durationMinutes: zoomMeetingDurationForRange(timeMin, timeMax),
+      },
+      { fetch: providerFetch },
+    );
+  } catch (error) {
+    throw zoomProviderApiError(error, "Zoom could not reschedule the meeting.");
+  }
+  return true;
+}
+
 async function getGoogleCommittedEvent(
   target: CalendarSyncTarget,
   providerEventId: string,
@@ -5018,13 +6074,18 @@ const googleCommitEventBody = (
   input: ProviderBookingCommitInput,
   providerEventId: string,
   requestHash: string,
+  zoomConference: ProvisionedZoomConference | null,
 ): Readonly<Record<string, unknown>> => ({
   id: providerEventId,
   summary: input.bookingKind === "approval-hold"
     ? `Pending approval: ${input.title}`.slice(0, 255)
     : input.title,
   ...(input.description ? { description: input.description } : {}),
-  ...(input.location ? { location: input.location } : {}),
+  ...(zoomConference
+    ? { location: zoomConference.joinUrl }
+    : input.location
+      ? { location: input.location }
+      : {}),
   start: { dateTime: input.timeMin },
   end: { dateTime: input.timeMax },
   transparency: "opaque",
@@ -5047,6 +6108,12 @@ const googleCommitEventBody = (
     private: {
       tapCommitHash: requestHash,
       tapBookingKind: input.bookingKind,
+      ...(zoomConference
+        ? {
+            tapConferenceProvider: "zoom",
+            tapZoomMeetingId: zoomConference.meetingId,
+          }
+        : {}),
     },
   },
 });
@@ -5058,6 +6125,7 @@ async function insertGoogleCommittedEvent(
   requestHash: string,
   accessToken: string,
   providerFetch: ProviderFetch,
+  zoomConference: ProvisionedZoomConference | null = null,
 ): Promise<Readonly<Record<string, unknown>>> {
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(target.provider_calendar_id)}/events`,
@@ -5080,7 +6148,9 @@ async function insertGoogleCommittedEvent(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(googleCommitEventBody(input, providerEventId, requestHash)),
+      body: JSON.stringify(
+        googleCommitEventBody(input, providerEventId, requestHash, zoomConference),
+      ),
     },
     providerFetch,
   );
@@ -5136,9 +6206,11 @@ function committedBookingProjection(
         : [],
       approvalExpiresAt: input.expiresAt,
       providerHtmlLink: normalizeGoogleCalendarHtmlUrl(providerEvent.htmlLink),
-      providerJoinUrl: googleMeetJoinUrl(providerEvent),
+      providerJoinUrl: providerConferenceJoinUrl(providerEvent),
       conferenceStatus: input.conferenceProvider === "google-meet"
         ? googleMeetJoinUrl(providerEvent) ? "ready" : "pending"
+        : input.conferenceProvider === "zoom"
+          ? normalizeZoomJoinUrl(providerEvent.location) ? "ready" : "pending"
         : "none",
       event,
     },
@@ -5191,11 +6263,12 @@ function recoveredCommittedBookingProjection(
     )
     : [];
   const storedConferenceStatus = storedBooking?.conferenceStatus;
-  const providerJoinUrl = googleMeetJoinUrl(providerEvent);
+  const providerJoinUrl = providerConferenceJoinUrl(providerEvent);
   const conferenceRequested =
     storedConferenceStatus === "pending" ||
     storedConferenceStatus === "ready" ||
     storedRequest?.conferenceProvider === "google-meet" ||
+    storedRequest?.conferenceProvider === "zoom" ||
     googleMeetConferenceRequested(providerEvent);
   const committedAt = typeof storedResponse?.committedAt === "string" &&
       Number.isFinite(Date.parse(storedResponse.committedAt))
@@ -5262,9 +6335,9 @@ function storedCommittedBookingProjection(
     ...eventWithoutLinks
   } = storedEvent;
   const providerHtmlLink = normalizeGoogleCalendarHtmlUrl(storedBooking.providerHtmlLink);
-  const providerJoinUrl = normalizeGoogleMeetJoinUrl(storedBooking.providerJoinUrl);
+  const providerJoinUrl = normalizedProviderJoinUrl(storedBooking.providerJoinUrl);
   const eventProviderHtmlLink = normalizeGoogleCalendarHtmlUrl(storedEventHtmlLink);
-  const eventProviderJoinUrl = normalizeGoogleMeetJoinUrl(storedEventJoinUrl);
+  const eventProviderJoinUrl = normalizedProviderJoinUrl(storedEventJoinUrl);
   const storedConferenceStatus = storedBooking.conferenceStatus;
   return {
     booking: {
@@ -5312,15 +6385,17 @@ function enrichedStoredBookingProjection(
     );
   }
   const storedRequest = parsedRecord(row.request_json);
-  const providerJoinUrl = googleMeetJoinUrl(providerEvent);
+  const providerJoinUrl = providerConferenceJoinUrl(providerEvent);
   const storedConferenceStatus = booking.conferenceStatus;
   const conferenceRequested =
     storedConferenceStatus === "pending" ||
     storedConferenceStatus === "ready" ||
     storedRequest?.conferenceProvider === "google-meet" ||
+    storedRequest?.conferenceProvider === "zoom" ||
     googleMeetConferenceRequested(providerEvent);
-  const meetingRequestedGoogleMeet = row.booking_kind === "meeting" &&
-    (storedRequest?.conferenceProvider === "google-meet" ||
+  const requestedConference = storedRequest?.conferenceProvider;
+  const meetingRequestedConference = row.booking_kind === "meeting" &&
+    ((requestedConference === "google-meet" || requestedConference === "zoom") ||
       storedConferenceStatus === "pending" ||
       storedConferenceStatus === "ready");
   return {
@@ -5330,8 +6405,13 @@ function enrichedStoredBookingProjection(
       providerHtmlLink: normalizeGoogleCalendarHtmlUrl(providerEvent.htmlLink),
       providerJoinUrl,
       conferenceStatus: providerJoinUrl ? "ready" : conferenceRequested ? "pending" : "none",
-      event: meetingRequestedGoogleMeet
-        ? { ...event, location: providerJoinUrl ? "google-meet" : null }
+      event: meetingRequestedConference
+        ? {
+            ...event,
+            location: providerJoinUrl
+              ? requestedConference === "zoom" ? "zoom" : "google-meet"
+              : null,
+          }
         : event,
     },
   };
@@ -5495,7 +6575,7 @@ async function getGoogleBookingStatus(
     );
   }
   const providerHtmlLink = normalizeGoogleCalendarHtmlUrl(providerEvent.htmlLink);
-  const providerJoinUrl = googleMeetJoinUrl(providerEvent);
+  const providerJoinUrl = providerConferenceJoinUrl(providerEvent);
   const currentEventProjection = {
     ...currentEvent,
     ...(providerHtmlLink ? { providerHtmlLink } : {}),
@@ -5960,6 +7040,34 @@ async function commitGoogleBookingForScope(
         );
       }
     }
+    const zoomConference = input.conferenceProvider === "zoom"
+      ? await provisionZoomConference(
+          env,
+          workspace,
+          principal,
+          input,
+          requestHash,
+          providerFetch,
+        )
+      : null;
+    if (zoomConference && assertWriteStillAuthorized) {
+      try {
+        await assertWriteStillAuthorized();
+      } catch {
+        await rollbackZoomConferenceOperation(
+          env,
+          workspace,
+          principal,
+          input.idempotencyKey,
+          providerFetch,
+        );
+        throw new ApiError(
+          409,
+          "public_page_changed",
+          "This booking page changed before the booking was created.",
+        );
+      }
+    }
     try {
       providerEvent = await insertGoogleCommittedEvent(
         target,
@@ -5968,9 +7076,25 @@ async function commitGoogleBookingForScope(
         requestHash,
         secret.accessToken,
         providerFetch,
+        zoomConference,
       );
     } catch (error) {
-      if (!(error instanceof ProviderHttpError) || error.providerStatus !== 409) throw error;
+      if (!(error instanceof ProviderHttpError) || error.providerStatus !== 409) {
+        if (
+          zoomConference && error instanceof ProviderHttpError &&
+          error.providerStatus >= 400 && error.providerStatus < 500 &&
+          error.providerStatus !== 408 && error.providerStatus !== 429
+        ) {
+          await rollbackZoomConferenceOperation(
+            env,
+            workspace,
+            principal,
+            input.idempotencyKey,
+            providerFetch,
+          );
+        }
+        throw error;
+      }
       providerEvent = await getGoogleCommittedEvent(
         target,
         providerEventId,
@@ -5978,6 +7102,15 @@ async function commitGoogleBookingForScope(
         providerFetch,
       );
       if (!providerEvent || googleCommitHash(providerEvent) !== requestHash) {
+        if (zoomConference) {
+          await rollbackZoomConferenceOperation(
+            env,
+            workspace,
+            principal,
+            input.idempotencyKey,
+            providerFetch,
+          );
+        }
         throw new ApiError(
           409,
           "provider_event_id_collision",
@@ -6622,6 +7755,13 @@ async function cancelPublicGoogleBookingForScope(
         providerFetch,
       );
       if (lookup.status === "absent") {
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6630,6 +7770,14 @@ async function cancelPublicGoogleBookingForScope(
           lookup.event.id !== input.providerEventId ||
           googleCommitHash(lookup.event) !== input.originalCommitHash
         ) return { status: "conflict", reason: "provider-mismatch" };
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+          zoomMeetingIdFromGoogleEvent(lookup.event),
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6649,12 +7797,24 @@ async function cancelPublicGoogleBookingForScope(
         return { status: "conflict", reason: "provider-mismatch" };
       }
       if (deletion === "failed") return { status: "uncertain" };
+      await deleteZoomConferenceOperation(
+        env,
+        input.scope.workspace,
+        input.scope.principal,
+        input.providerOperationId,
+        providerFetch,
+        zoomMeetingIdFromGoogleEvent(lookup.event),
+      );
       await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
       return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
     } finally {
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      (error.code === "zoom_booking_state_mismatch" || error.code === "zoom_connection_mismatch")
+    ) return { status: "conflict", reason: "provider-mismatch" };
     return { status: "uncertain" };
   }
 }
@@ -6832,6 +7992,16 @@ async function reschedulePublicGoogleBookingForScope(
       );
       if (lookup.status === "absent") return { status: "uncertain" };
       if (rescheduleAlreadyCommitted(lookup.event, input)) {
+        await updateZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          lookup.event,
+          input.timeMin,
+          input.timeMax,
+          providerFetch,
+        );
         await stageRescheduledPublicGoogleBooking(env, target, lookup.event);
         return { status: "committed", receipt: publicGoogleRescheduleReceipt(input) };
       }
@@ -6865,16 +8035,50 @@ async function reschedulePublicGoogleBookingForScope(
       if (!validation.conclusive) return { status: "uncertain" };
       if (!validation.available) return { status: "conflict", reason: "slot-conflict" };
       await assertWriteStillAuthorized(input);
-      lookup = {
-        status: "present",
-        event: await patchVerifiedPublicGoogleBooking(
-          target,
-          lookup.event,
-          input,
-          secret.accessToken,
-          providerFetch,
-        ),
-      };
+      const originalProviderEvent = lookup.event;
+      const zoomUpdated = await updateZoomConferenceOperation(
+        env,
+        input.scope.workspace,
+        input.scope.principal,
+        input.providerOperationId,
+        originalProviderEvent,
+        input.timeMin,
+        input.timeMax,
+        providerFetch,
+      );
+      try {
+        lookup = {
+          status: "present",
+          event: await patchVerifiedPublicGoogleBooking(
+            target,
+            originalProviderEvent,
+            input,
+            secret.accessToken,
+            providerFetch,
+          ),
+        };
+      } catch (error) {
+        const definitiveProviderRejection = error instanceof ProviderHttpError &&
+          error.providerStatus >= 400 && error.providerStatus < 500 &&
+          error.providerStatus !== 408 && error.providerStatus !== 429;
+        if (zoomUpdated && definitiveProviderRejection) {
+          try {
+            await updateZoomConferenceOperation(
+              env,
+              input.scope.workspace,
+              input.scope.principal,
+              input.providerOperationId,
+              originalProviderEvent,
+              input.originalTimeMin,
+              input.originalTimeMax,
+              providerFetch,
+            );
+          } catch {
+            return { status: "uncertain" };
+          }
+        }
+        throw error;
+      }
       if (!rescheduleAlreadyCommitted(lookup.event, input)) return { status: "uncertain" };
       await stageRescheduledPublicGoogleBooking(env, target, lookup.event);
       return { status: "committed", receipt: publicGoogleRescheduleReceipt(input) };
@@ -6882,6 +8086,10 @@ async function reschedulePublicGoogleBookingForScope(
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
   } catch (error) {
+    if (
+      error instanceof ApiError &&
+      (error.code === "zoom_booking_state_mismatch" || error.code === "zoom_connection_mismatch")
+    ) return { status: "conflict", reason: "provider-mismatch" };
     if (
       error instanceof ProviderHttpError &&
       (error.providerStatus === 409 || error.providerStatus === 412)
@@ -6921,6 +8129,13 @@ async function recoverPublicGoogleCancellationForScope(
         providerFetch,
       );
       if (lookup.status === "absent") {
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6929,6 +8144,14 @@ async function recoverPublicGoogleCancellationForScope(
           lookup.event.id !== input.providerEventId ||
           googleCommitHash(lookup.event) !== input.originalCommitHash
         ) return { status: "uncertain" };
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+          zoomMeetingIdFromGoogleEvent(lookup.event),
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6984,13 +8207,23 @@ async function recoverPublicGoogleRescheduleForScope(
       );
       if (lookup.status === "absent") return { status: "uncertain" };
       if (rescheduleAlreadyCommitted(lookup.event, input)) {
+        await updateZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          lookup.event,
+          input.timeMin,
+          input.timeMax,
+          providerFetch,
+        );
         await stageRescheduledPublicGoogleBooking(env, target, lookup.event);
         return { status: "committed", receipt: publicGoogleRescheduleReceipt(input) };
       }
       if (googleRescheduleHash(lookup.event) === input.rescheduleHash) {
         return { status: "uncertain" };
       }
-      return verifiedManagedGoogleEvent(
+      if (!verifiedManagedGoogleEvent(
         lookup.event,
         {
           providerEventId: input.providerEventId,
@@ -6999,9 +8232,18 @@ async function recoverPublicGoogleRescheduleForScope(
           timeMax: input.originalTimeMax,
         },
         input.destinationCalendarId,
-      )
-        ? { status: "absent" }
-        : { status: "uncertain" };
+      )) return { status: "uncertain" };
+      await updateZoomConferenceOperation(
+        env,
+        input.scope.workspace,
+        input.scope.principal,
+        input.providerOperationId,
+        lookup.event,
+        input.originalTimeMin,
+        input.originalTimeMax,
+        providerFetch,
+      );
+      return { status: "absent" };
     } finally {
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
@@ -7066,11 +8308,15 @@ function providerBookingResolutionInput(
     throw new ApiError(400, "invalid_attendees", "Attendee emails must be unique.");
   }
   const conferenceProvider = body.conferenceProvider ?? "none";
-  if (conferenceProvider !== "none" && conferenceProvider !== "google-meet") {
+  if (
+    conferenceProvider !== "none" &&
+    conferenceProvider !== "google-meet" &&
+    conferenceProvider !== "zoom"
+  ) {
     throw new ApiError(
       400,
       "unsupported_conference_provider",
-      "conferenceProvider must be none or google-meet for a Google destination.",
+      "conferenceProvider must be none, google-meet, or zoom for a Google destination.",
     );
   }
   if (
@@ -7130,6 +8376,7 @@ async function patchGoogleApprovedHold(
   requestHash: string,
   accessToken: string,
   providerFetch: ProviderFetch,
+  zoomConference: ProvisionedZoomConference | null,
 ): Promise<Readonly<Record<string, unknown>>> {
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(target.provider_calendar_id)}/events/${encodeURIComponent(original.provider_event_id)}`,
@@ -7153,11 +8400,21 @@ async function patchGoogleApprovedHold(
         tapCommitHash: original.request_hash,
         tapBookingKind: "meeting",
         tapResolutionHash: requestHash,
+        ...(zoomConference
+          ? {
+              tapConferenceProvider: "zoom",
+              tapZoomMeetingId: zoomConference.meetingId,
+            }
+          : {}),
       },
     },
   };
   if (input.description !== null) body.description = input.description;
-  if (input.location !== null) body.location = input.location;
+  if (zoomConference) {
+    body.location = zoomConference.joinUrl;
+  } else if (input.location !== null) {
+    body.location = input.location;
+  }
   if (input.conferenceProvider === "google-meet") {
     body.conferenceData = {
       createRequest: {
@@ -7661,15 +8918,61 @@ async function resolveGoogleApprovalHold(
         }
         await ensurePendingResolution();
         providerMutationMayHaveOccurred = true;
-        providerEvent = await patchGoogleApprovedHold(
-          target,
-          original,
-          providerEvent,
-          input,
-          requestHash,
-          secret.accessToken,
-          providerFetch,
-        );
+        const zoomConference = input.conferenceProvider === "zoom"
+          ? await provisionZoomConference(
+              env,
+              workspace,
+              principal,
+              {
+                destinationCalendarId: original.destination_calendar_id,
+                calendarIds: approvalConflictRange!.calendarIds,
+                timeMin: original.start_at!,
+                timeMax: original.end_at!,
+                conflictTimeMin: approvalConflictRange!.timeMin,
+                conflictTimeMax: approvalConflictRange!.timeMax,
+                idempotencyKey: bookingIdempotencyKey,
+                title: input.title ?? (
+                  typeof providerEvent.summary === "string"
+                    ? providerEvent.summary.replace(/^Pending approval:\s*/u, "").trim()
+                    : "Approved meeting"
+                ),
+                description: input.description,
+                location: null,
+                bookingKind: "meeting",
+                attendeeEmails: input.attendeeEmails,
+                conferenceProvider: "zoom",
+                expiresAt: null,
+              },
+              requestHash,
+              providerFetch,
+            )
+          : null;
+        try {
+          providerEvent = await patchGoogleApprovedHold(
+            target,
+            original,
+            providerEvent,
+            input,
+            requestHash,
+            secret.accessToken,
+            providerFetch,
+            zoomConference,
+          );
+        } catch (error) {
+          const definitiveProviderRejection = error instanceof ProviderHttpError &&
+            error.providerStatus >= 400 && error.providerStatus < 500 &&
+            error.providerStatus !== 408 && error.providerStatus !== 429;
+          if (zoomConference && definitiveProviderRejection) {
+            await rollbackZoomConferenceOperation(
+              env,
+              workspace,
+              principal,
+              bookingIdempotencyKey,
+              providerFetch,
+            );
+          }
+          throw error;
+        }
       } else {
         await ensurePendingResolution();
       }
@@ -7687,6 +8990,14 @@ async function resolveGoogleApprovalHold(
       await ensurePendingResolution();
       if (providerEvent) {
         providerMutationMayHaveOccurred = true;
+        await deleteZoomConferenceOperation(
+          env,
+          workspace,
+          principal,
+          bookingIdempotencyKey,
+          providerFetch,
+          zoomMeetingIdFromGoogleEvent(providerEvent),
+        );
         await deleteGoogleApprovalHold(
           target,
           original.provider_event_id,
@@ -7709,7 +9020,7 @@ async function resolveGoogleApprovalHold(
         bookingIdempotencyKey,
         providerEventId: original.provider_event_id,
         providerEventRemoved: input.decision === "decline",
-        providerJoinUrl: providerEvent ? googleMeetJoinUrl(providerEvent) : null,
+        providerJoinUrl: providerEvent ? providerConferenceJoinUrl(providerEvent) : null,
         event: resolvedEvent
           ? { ...resolvedEvent, kind: "meeting", status: "confirmed" }
           : null,
@@ -8728,8 +10039,14 @@ async function route(
       providerFetch,
     );
   }
+  if (request.method === "GET" && path === "/v1/oauth/zoom/callback") {
+    return completeZoomOAuth(request, env, providerFetch);
+  }
   if (request.method === "GET" && path === "/v1/connections") {
     return listConnections(request, env);
+  }
+  if (request.method === "GET" && path === "/v1/meeting-providers/connections") {
+    return listMeetingProviderConnections(request, env);
   }
   if (request.method === "POST" && path === "/v1/connections/local") {
     return createLocalConnection(request, env);
@@ -8767,6 +10084,37 @@ async function route(
   const oauthStartMatch = path.match(/^\/v1\/oauth\/(google|microsoft)\/start$/u);
   if (request.method === "POST" && oauthStartMatch) {
     return beginOAuth(request, env, oauthStartMatch[1] as "google" | "microsoft");
+  }
+  if (request.method === "POST" && path === "/v1/oauth/zoom/start") {
+    return beginZoomOAuth(request, env);
+  }
+  const meetingProviderVerificationMatch = path.match(
+    /^\/v1\/meeting-providers\/connections\/([^/]+)\/verify$/u,
+  );
+  if (request.method === "POST" && meetingProviderVerificationMatch?.[1]) {
+    return verifyMeetingProviderConnection(
+      request,
+      env,
+      identifier(
+        decodeURIComponent(meetingProviderVerificationMatch[1]),
+        "connectionId",
+      ),
+      providerFetch,
+    );
+  }
+  const meetingProviderConnectionMatch = path.match(
+    /^\/v1\/meeting-providers\/connections\/([^/]+)$/u,
+  );
+  if (request.method === "DELETE" && meetingProviderConnectionMatch?.[1]) {
+    return deleteMeetingProviderConnection(
+      request,
+      env,
+      identifier(
+        decodeURIComponent(meetingProviderConnectionMatch[1]),
+        "connectionId",
+      ),
+      providerFetch,
+    );
   }
   const addCalendarsMatch = path.match(/^\/v1\/connections\/([^/]+)\/calendars\/local$/u);
   if (request.method === "POST" && addCalendarsMatch?.[1]) {

@@ -92,7 +92,7 @@ export interface PublicBookingManagementRecord {
   readonly approvalExpiresAt: string | null;
   readonly organizerName: string;
   readonly eventTitle: string;
-  readonly location: "google-meet" | "phone" | "in-person" | "custom";
+  readonly location: "google-meet" | "zoom" | "phone" | "in-person" | "custom";
   readonly locationLabel: string;
   readonly timeZone: string;
   readonly cancelledAt: string | null;

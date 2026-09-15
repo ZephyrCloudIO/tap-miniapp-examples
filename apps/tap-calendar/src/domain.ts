@@ -48,6 +48,8 @@ export interface ConnectedCalendar {
   readonly conflicts: boolean;
   readonly writable: boolean;
   readonly destination: boolean;
+  /** Provider-designated primary calendar. Missing in legacy persisted state. */
+  readonly primary?: boolean;
   readonly freshness: "live" | "delayed" | "stale";
   readonly unreadCount?: number;
 }
@@ -555,6 +557,15 @@ export const allCalendars = (
 ): readonly ConnectedCalendar[] =>
   state.accounts.flatMap(account => account.calendars);
 
+export const preferredDestinationCalendar = <Calendar extends {
+  readonly writable: boolean;
+  readonly destination?: boolean;
+  readonly primary?: boolean;
+}>(calendars: readonly Calendar[]): Calendar | undefined =>
+  calendars.find(calendar => calendar.writable && calendar.destination) ??
+  calendars.find(calendar => calendar.writable && calendar.primary) ??
+  calendars.find(calendar => calendar.writable);
+
 const mutationSucceeded = (state: CalendarState): CalendarMutationResult => ({
   ok: true,
   state,
@@ -1005,7 +1016,7 @@ export function addConnectedAccount(
   }
   const automaticDestination = incomingDestinations.length === 0 &&
     allCalendars(state).every(calendar => !calendar.destination)
-    ? input.calendars.find(calendar => calendar.writable)
+    ? preferredDestinationCalendar(input.calendars)
     : undefined;
   const effectiveIncomingDestinations = automaticDestination
     ? [automaticDestination]
@@ -1141,7 +1152,7 @@ export function addCalendarsToAccount(
   }
   const automaticDestination = incomingDestinations.length === 0 &&
     allCalendars(state).every(calendar => !calendar.destination)
-    ? input.calendars.find(calendar => calendar.writable)
+    ? preferredDestinationCalendar(input.calendars)
     : undefined;
   const effectiveIncomingDestinations = automaticDestination
     ? [automaticDestination]
@@ -2319,6 +2330,7 @@ const isConnectedCalendar = (value: unknown): value is ConnectedCalendar => {
     typeof value.conflicts === "boolean" &&
     typeof value.writable === "boolean" &&
     typeof value.destination === "boolean" &&
+    (value.primary === undefined || typeof value.primary === "boolean") &&
     isOneOf(value.freshness, ["live", "delayed", "stale"] as const) &&
     (value.unreadCount === undefined || isNonNegativeInteger(value.unreadCount)) &&
     value.writable === (value.role === "owner" || value.role === "writer") &&

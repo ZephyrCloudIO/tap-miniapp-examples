@@ -8,7 +8,7 @@ export const PUBLIC_MANAGEMENT_CANCEL_SCHEMA_VERSION =
 export const PUBLIC_MANAGEMENT_RESCHEDULE_SCHEMA_VERSION =
   "tap.calendar.public-management-reschedule.v1" as const;
 
-export type PublicMeetingLocation = "google-meet" | "phone" | "in-person" | "custom";
+export type PublicMeetingLocation = "google-meet" | "zoom" | "phone" | "in-person" | "custom";
 
 export interface PublicBookingProfile {
   readonly schemaVersion: typeof PUBLIC_PROFILE_SCHEMA_VERSION;
@@ -229,7 +229,7 @@ export function isPublicBookingProfile(
       !Number.isInteger(eventType.durationMinutes) ||
       Number(eventType.durationMinutes) < 5 ||
       Number(eventType.durationMinutes) > 1_440 ||
-      !["google-meet", "phone", "in-person", "custom"].includes(String(eventType.location)) ||
+      !["google-meet", "zoom", "phone", "in-person", "custom"].includes(String(eventType.location)) ||
       !boundedText(eventType.locationLabel, 160) ||
       typeof eventType.approvalRequired !== "boolean"
     ) return false;
@@ -251,7 +251,7 @@ export function isPublicBookingPage(
     !(value.eventType.description === undefined || typeof value.eventType.description === "string") ||
     !Number.isInteger(value.eventType.durationMinutes) ||
     Number(value.eventType.durationMinutes) < 5 || Number(value.eventType.durationMinutes) > 1440 ||
-    !["google-meet", "phone", "in-person", "custom"].includes(String(value.eventType.location)) ||
+    !["google-meet", "zoom", "phone", "in-person", "custom"].includes(String(value.eventType.location)) ||
     !boundedText(value.eventType.locationLabel, 160) ||
     typeof value.eventType.approvalRequired !== "boolean" ||
     !isRecord(value.bookingWindow) ||
@@ -325,11 +325,20 @@ export function publicManagementTokenFromHash(hash: string): string | null {
 
 const validJoinUrl = (value: unknown, location: unknown): boolean => {
   if (value === undefined) return true;
-  if (location !== "google-meet" || !boundedText(value, 2048)) return false;
+  if ((location !== "google-meet" && location !== "zoom") || !boundedText(value, 2048)) {
+    return false;
+  }
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "meet.google.com" &&
-      url.pathname.length > 1 && !url.username && !url.password;
+    if (
+      url.protocol !== "https:" || url.username || url.password || url.port ||
+      url.pathname.length <= 1
+    ) return false;
+    if (location === "google-meet") return url.hostname === "meet.google.com";
+    return !url.hash &&
+      (url.hostname === "zoom.us" || url.hostname.endsWith(".zoom.us")) &&
+      /^\/j\/[0-9]{9,11}\/?$/u.test(url.pathname) &&
+      [...url.searchParams.keys()].every(key => key === "pwd" || key === "omn");
   } catch {
     return false;
   }
@@ -350,7 +359,7 @@ export function isPublicBookingManagement(value: unknown): value is PublicBookin
     Number(value.event.durationMinutes) > 1_440 ||
     Date.parse(value.event.endsAt) - Date.parse(value.event.startsAt) !==
       Number(value.event.durationMinutes) * 60_000 ||
-    !["google-meet", "phone", "in-person", "custom"].includes(String(value.event.location)) ||
+    !["google-meet", "zoom", "phone", "in-person", "custom"].includes(String(value.event.location)) ||
     !boundedText(value.event.locationLabel, 160) ||
     !validJoinUrl(value.event.joinUrl, value.event.location) ||
     !(value.event.approvalExpiresAt === null || validInstant(value.event.approvalExpiresAt)) ||

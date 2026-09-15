@@ -42,7 +42,7 @@ export interface PublicPageSnapshot {
   readonly title: string;
   readonly description: string;
   readonly durationMinutes: number;
-  readonly location: "google-meet" | "phone" | "in-person" | "custom";
+  readonly location: "google-meet" | "zoom" | "phone" | "in-person" | "custom";
   readonly locationLabel: string;
   readonly approvalRequired: boolean;
 }
@@ -291,7 +291,7 @@ function parsePublicSnapshot(value: unknown): PublicPageSnapshot {
     typeof value.description !== "string" ||
     value.description.length > 2_000 ||
     !validInteger(value.durationMinutes, 5, 1_440) ||
-    !["google-meet", "phone", "in-person", "custom"].includes(String(value.location)) ||
+    !["google-meet", "zoom", "phone", "in-person", "custom"].includes(String(value.location)) ||
     !validIdentifier(value.locationLabel, 160) ||
     typeof value.approvalRequired !== "boolean"
   ) return invalidStoredSnapshot();

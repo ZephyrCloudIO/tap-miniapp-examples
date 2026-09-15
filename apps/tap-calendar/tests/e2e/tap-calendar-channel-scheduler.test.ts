@@ -49,6 +49,11 @@ test("renders an honest channel scheduler without creating a booking", async ({
   await expect(starts).toBeVisible();
   await expect(duration).toHaveValue("30");
   await expect(location).toHaveValue("google-meet");
+  await expect(location.locator("option")).toHaveCount(1);
+  await expect(surface.getByText(
+    "Google Meet is included with your Google Destination Calendar. Connect Zoom in Settings to use it.",
+    { exact: true },
+  )).toBeVisible();
   await duration.selectOption("60");
   await expect(duration).toHaveValue("60");
   await expect(surface.locator(".mutual-slot-summary")).toContainText("60 minutes");

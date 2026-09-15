@@ -368,7 +368,9 @@ p { text-wrap: pretty; }
 .availability-policy-error { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; border: 1px solid color-mix(in srgb, #dc554b 25%, var(--border)); border-radius: 8px; background: color-mix(in srgb, #dc554b 7%, var(--card)); padding: 8px 10px; color: #c1463e; font-size: 8px; }
 .availability-policy-error svg { flex: 0 0 14px; width: 14px; }
 .availability-conflict-policy { grid-column: 1 / -1; }
-.availability-conflict-policy > p { min-height: 0; }
+.availability-conflict-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.availability-conflict-heading > p { min-height: 0; margin: 0; color: var(--muted-foreground); font-size: 8px; line-height: 1.45; }
+.availability-conflict-heading > button { flex: 0 0 auto; }
 .availability-conflict-groups { display: grid; gap: 10px; }
 .availability-conflict-groups > section { overflow: hidden; border: 1px solid var(--border); border-radius: 9px; }
 .availability-conflict-groups > section > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--muted); padding: 7px 10px; }
@@ -416,6 +418,9 @@ p { text-wrap: pretty; }
 .profile-actions { display: flex; align-items: center; gap: 8px; }
 .published-badge { display: flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 8px; }
 .published-badge > span { width: 6px; height: 6px; border-radius: 50%; background: var(--calendar-green); }
+.profile-publication-guidance { margin: 17px 17px 0; }
+.profile-publication-guidance-layout { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-publication-guidance-copy { min-width: 0; }
 .event-type-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; padding: 17px; }
 .event-type-card { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--background); padding: 15px; }
 .event-type-stripe { position: absolute; top: 0; right: 0; left: 0; height: 3px; background: var(--event-type-color); }
@@ -536,6 +541,7 @@ p { text-wrap: pretty; }
 .provider-icon svg { width: 15px; }
 .provider-google { color: #4285f4; }
 .provider-microsoft { color: #26a6d1; }
+.provider-zoom { color: #2d8cff; }
 .provider-icloud { color: #5f8ee9; }
 .provider-exchange { color: #d18a20; }
 .connection-group > header > div { display: grid; min-width: 0; flex: 1; gap: 2px; }
@@ -565,6 +571,20 @@ p { text-wrap: pretty; }
 .connection-name strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .connection-name small { color: var(--muted-foreground); font-size: 7px; text-transform: capitalize; }
 .connection-row .switch { margin: auto; }
+.meeting-provider-settings { display: grid; gap: 10px; border-top: 1px solid var(--border); padding: 17px; }
+.meeting-provider-settings > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.meeting-provider-settings > header > div { display: grid; gap: 3px; }
+.meeting-provider-settings h3 { margin: 0; font-size: 12px; }
+.meeting-provider-settings header p { margin: 0; color: var(--muted-foreground); font-size: 8px; line-height: 1.5; }
+.meeting-provider-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 56px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--muted) 16%, var(--card)); padding: 10px; }
+.meeting-provider-copy { display: grid; min-width: 0; gap: 3px; }
+.meeting-provider-copy strong { font-size: 10px; }
+.meeting-provider-copy small { color: var(--muted-foreground); font-size: 8px; line-height: 1.4; }
+.zoom-connection-dialog { display: grid; gap: 14px; }
+.meeting-provider-dialog-summary { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--muted) 22%, var(--card)); padding: 12px; }
+.meeting-provider-dialog-summary > span:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.meeting-provider-dialog-summary strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.meeting-provider-dialog-summary small { color: var(--muted-foreground); font-size: 8px; }
 .radio-control { display: grid; place-items: center; }
 .radio-control input { width: 14px; height: 14px; accent-color: var(--calendar-accent); }
 .settings-aside { display: grid; gap: 12px; }
@@ -953,11 +973,14 @@ p { text-wrap: pretty; }
   .availability-layout { gap: 12px; }
   .availability-policy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .availability-conflict-policy { grid-column: 1 / -1; }
+  .availability-conflict-heading { align-items: stretch; flex-direction: column; }
+  .availability-conflict-heading > button { align-self: flex-start; }
   .schedule-list { order: 2; }
   .content-stack { padding: 17px 15px 60px; }
   .tool-grid { grid-template-columns: 1fr; }
   .profile-header { align-items: flex-start; flex-direction: column; }
   .profile-actions { width: 100%; flex-wrap: wrap; }
+  .profile-publication-guidance-layout { align-items: flex-start; flex-direction: column; }
   .public-booking-shell { padding-inline: 24px; }
   .public-booking-card { min-height: 0; grid-template-columns: 1fr; }
   .public-booking-info { border-right: 0; border-bottom: 1px solid var(--public-border); padding: 32px; }
@@ -999,6 +1022,8 @@ p { text-wrap: pretty; }
   .node-grid { grid-template-columns: 1fr; }
   .automation-hero, .slash-command { align-items: flex-start; flex-direction: column; }
   .connection-head, .connection-row { grid-template-columns: minmax(130px, 1fr) 45px 52px 58px; }
+  .meeting-provider-row { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  .meeting-provider-row > [data-slot="button"] { grid-column: 2 / -1; justify-self: start; }
   .settings-layout { padding-inline: 10px; }
   .modal-backdrop { padding: 0; place-items: end center; }
   .modal-card { width: 100%; max-height: 94dvh; border-radius: 16px 16px 0 0; }

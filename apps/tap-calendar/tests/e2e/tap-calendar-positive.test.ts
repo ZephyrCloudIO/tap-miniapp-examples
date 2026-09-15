@@ -65,6 +65,36 @@ test("shows the Availability Schedule assigned to each booking page", async ({
   await expect(standard.getByText("Standard working hours", { exact: true })).toBeVisible();
 });
 
+test("makes publishing an active booking page explicit", async ({ surface }) => {
+  await expectReadySurface(surface);
+  await surface.getByRole("button", { name: "Booking pages", exact: true }).click();
+
+  const profile = surface.locator(".profile-panel").filter({
+    has: surface.getByRole("heading", { name: "Alex Morgan", exact: true }),
+  });
+  const eventType = profile.getByRole("article").filter({
+    has: surface.getByRole("heading", { name: "30 minute meeting", exact: true }),
+  });
+
+  await expect(eventType.getByText("Ready to publish", { exact: true })).toBeVisible();
+  await expect(eventType.getByText(/^Not live · cal\.with-tap\.ai\//u)).toBeVisible();
+  await expect(profile.getByText(
+    "Your active Event Types are ready, but their booking pages are not live yet.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(profile.getByText(
+    "Publishing makes every active Event Type in this profile public.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(profile.getByRole("button", {
+    name: "Publish booking pages",
+    exact: true,
+  })).toBeEnabled();
+  await expect(profile.getByRole("button", {
+    name: /^More options for /u,
+  })).toHaveCount(0);
+});
+
 test("renders a month-first public booking page powered by TAP", async ({
   surface,
 }) => {
@@ -251,7 +281,29 @@ test("configures and persists the booking policy from Availability", async ({
   await policy.getByLabel("Booking horizon", { exact: true }).selectOption("90");
   await policy.getByLabel("Buffer before", { exact: true }).selectOption("15");
   await policy.getByLabel("Buffer after", { exact: true }).selectOption("30");
-  await policy.getByLabel("Check Zephyr Cloud for conflicts", { exact: true }).uncheck();
+  const conflictCheckboxes = policy.getByRole("checkbox", {
+    name: /^Check .+ for conflicts$/u,
+  });
+  const selectableConflictCheckboxes = [];
+  for (const checkbox of await conflictCheckboxes.all()) {
+    if (await checkbox.isEnabled()) selectableConflictCheckboxes.push(checkbox);
+  }
+  expect(selectableConflictCheckboxes.length).toBeGreaterThan(0);
+  for (const checkbox of selectableConflictCheckboxes) {
+    await expect(checkbox).toBeChecked();
+  }
+  await policy.getByRole("button", { name: "Disable all", exact: true }).click();
+  for (const checkbox of selectableConflictCheckboxes) {
+    await expect(checkbox).not.toBeChecked();
+  }
+  await expect(policy.getByText(
+    "No shared Conflict Calendars are checked. Each Event Type will still check its Destination Calendar.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(policy.getByText(
+    "Still checked when used as a destination",
+    { exact: true },
+  )).toBeVisible();
   await expect(policy.getByText("Unsaved changes", { exact: true })).toBeVisible();
   await policy.getByRole("button", { name: "Save booking policy", exact: true }).click();
 
@@ -270,16 +322,23 @@ test("configures and persists the booking policy from Availability", async ({
         bufferAfterMinutes?: number;
       }>;
       accounts?: Array<{
-        calendars?: Array<{ id?: string; conflicts?: boolean }>;
+        calendars?: Array<{
+          conflicts?: boolean;
+          freshness?: string;
+        }>;
       }>;
     } | undefined;
     const schedule = value?.availability?.find(
       candidate => candidate.id === "fixture-availability-standard",
     );
-    const calendar = value?.accounts
+    const selectableCalendars = value?.accounts
       ?.flatMap(account => account.calendars ?? [])
-      .find(candidate => candidate.id === "fixture-calendar-work");
-    return { schedule, conflicts: calendar?.conflicts };
+      .filter(calendar => calendar.freshness !== "stale") ?? [];
+    return {
+      schedule,
+      allSelectableConflictCalendarsDisabled: selectableCalendars.length > 0 &&
+        selectableCalendars.every(calendar => calendar.conflicts === false),
+    };
   }).toEqual({
     schedule: expect.objectContaining({
       preferredStart: "11:00",
@@ -289,7 +348,7 @@ test("configures and persists the booking policy from Availability", async ({
       bufferBeforeMinutes: 15,
       bufferAfterMinutes: 30,
     }),
-    conflicts: false,
+    allSelectableConflictCalendarsDisabled: true,
   });
 
   await surface.getByRole("button", { name: "Calendar", exact: true }).click();
@@ -486,6 +545,43 @@ test("manages a connected account from its accessible actions menu", async ({
           }),
         ]),
       }),
+    }),
+  );
+});
+
+test("persists per-calendar visibility and conflict switches", async ({
+  surface,
+  tap,
+}) => {
+  await expectReadySurface(surface);
+  await surface.getByRole("button", { name: "Settings", exact: true }).click();
+
+  const visibility = surface.getByLabel("Show Zephyr Cloud", { exact: true });
+  const conflicts = surface.getByLabel("Use Zephyr Cloud for conflicts", {
+    exact: true,
+  });
+  await expect(visibility).toBeChecked();
+  await expect(conflicts).toBeChecked();
+
+  await visibility.click();
+  await expect(visibility).not.toBeChecked();
+  await conflicts.click();
+  await expect(conflicts).not.toBeChecked();
+
+  const snapshot = await tap.fixture.snapshot();
+  expect(storageRecord(snapshot)?.value).toEqual(
+    expect.objectContaining({
+      accounts: expect.arrayContaining([
+        expect.objectContaining({
+          calendars: expect.arrayContaining([
+            expect.objectContaining({
+              id: "fixture-calendar-work",
+              visible: false,
+              conflicts: false,
+            }),
+          ]),
+        }),
+      ]),
     }),
   );
 });
