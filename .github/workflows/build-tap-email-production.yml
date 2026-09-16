@@ -1,0 +1,70 @@
+name: Build and publish TAP Email production package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-tap-email-production.yml"
+      - "apps/tap-email/**"
+      - "apps/tap-email-protocol/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: build-tap-email-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Assemble production TAP Email package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and verify the production package
+        run: pnpm --filter @tap-examples/tap-email build
+
+      - name: Guard against a dev coordinator origin in the artifact
+        run: |
+          set -euo pipefail
+          if rg -l --hidden 'localhost:8787|TAP Email (Local Dev)' \
+            apps/tap-email/.tap-package apps/tap-email/.tap-build >/dev/null 2>&1; then
+            echo "::error::The assembled package references the local-dev coordinator (localhost:8787) or the local-dev presentation name. Refusing to ship a dev build."
+            exit 1
+          fi
+          if rg -q --hidden 'tap-email-coordinator.theaiplatform.app' \
+            apps/tap-email/.tap-package apps/tap-email/.tap-build; then
+            echo "Assembled package uses the production coordinator origin."
+          else
+            echo "::warning::Production coordinator origin was not found in the assembled artifact; verify the coordinator origin before publishing."
+          fi
+
+      - name: Publish to Zephyr Cloud
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ZE_CI_TOKEN: ${{ secrets.ZE_CI_TOKEN }}
+        run: pnpm --filter @tap-examples/tap-email run publish --from .tap-package
