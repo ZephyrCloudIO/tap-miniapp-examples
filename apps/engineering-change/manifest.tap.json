@@ -136,7 +136,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/engineering-change-specialist/0.1.0.json"
+        "manifest": "specialists/engineering-change-specialist/0.2.0.json"
       }
     },
     {

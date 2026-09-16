@@ -125,7 +125,7 @@
       "authorization": { "allOf": ["health-ledger.research"] },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/personal-health-researcher/0.1.0.json"
+        "manifest": "specialists/personal-health-researcher/0.2.0.json"
       }
     },
     {

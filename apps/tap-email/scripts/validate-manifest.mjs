@@ -24,12 +24,12 @@ if (!validate(manifest)) {
   process.exit(1);
 }
 const specialistAssetUrl = new URL(
-  '../specialists/tap-email-specialist/0.1.0.json',
+  '../specialists/tap-email-specialist/0.2.0.json',
   import.meta.url,
 );
 const specialistAsset = JSON.parse(fs.readFileSync(specialistAssetUrl, 'utf8'));
 const emailOperationsSkillUrl = new URL(
-  '../skills/email-operations/0.1.0/SKILL.md',
+  '../skills/email-operations/0.2.0/SKILL.md',
   import.meta.url,
 );
 const stagedLiveMcpInputSchemaNames = [
@@ -68,7 +68,7 @@ assert.ok(specialist, 'TAP Email specialist contribution is required.');
 assert.ok(mcpServer, 'TAP Email MCP contribution is required.');
 assert.equal(
   specialist.options.manifest,
-  'specialists/tap-email-specialist/0.1.0.json',
+  'specialists/tap-email-specialist/0.2.0.json',
 );
 assert.deepEqual(mcpServer.options.consumerPolicy.contributionIds, [
   'tap-email-specialist',

@@ -175,7 +175,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/tap-email-specialist/0.1.0.json"
+        "manifest": "specialists/tap-email-specialist/0.2.0.json"
       }
     },
     {

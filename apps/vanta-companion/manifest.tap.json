@@ -132,7 +132,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/vanta-soc2-companion-us/0.1.0.json"
+        "manifest": "specialists/vanta-soc2-companion-us/0.2.0.json"
       }
     },
     {
@@ -144,7 +144,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/vanta-soc2-companion-eu/0.1.0.json"
+        "manifest": "specialists/vanta-soc2-companion-eu/0.2.0.json"
       }
     },
     {
@@ -156,7 +156,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/vanta-soc2-companion-aus/0.1.0.json"
+        "manifest": "specialists/vanta-soc2-companion-aus/0.2.0.json"
       }
     },
     {

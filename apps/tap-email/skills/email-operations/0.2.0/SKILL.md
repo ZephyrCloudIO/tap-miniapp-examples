@@ -1,7 +1,7 @@
 ---
 name: email-operations
 description: Review TAP Email's content-free operational state and safely plan email work. Use for mailbox coverage questions, triage planning, and review-only drafting from content the user explicitly shares.
-version: 0.1.0
+version: 0.2.0
 allowed_tools:
   - get_mailbox_summary
   - get_active_email_context

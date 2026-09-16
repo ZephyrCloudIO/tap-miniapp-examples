@@ -1,8 +1,8 @@
 {
-  "name": "engineering-change-specialist@0.1.0",
+  "name": "engineering-change-specialist@0.2.0",
   "slug": "engineering-change-specialist",
   "displayName": "Engineering Change Coordinator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "schemaVersion": "2.0.0",
   "maintainers": [
     {
