@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@zephyrcloudio/miniapp-zephyr-publisher':
+        specifier: 2.20.0
+        version: 2.20.0(@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
@@ -17,6 +20,12 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zephyr-agent:
+        specifier: 1.4.0
+        version: 1.4.0
+      zephyr-rsbuild-plugin:
+        specifier: 1.4.0
+        version: 1.4.0(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))
 
   apps/agent-browser-gateway:
     dependencies:
@@ -52,8 +61,8 @@ importers:
   apps/agent-browser-prototype:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
         specifier: ^19.2.0
         version: 19.3.0
@@ -98,8 +107,8 @@ importers:
   apps/brainrot-tower-defense:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
     devDependencies:
       '@module-federation/rsbuild-plugin':
         specifier: 2.8.1
@@ -122,9 +131,6 @@ importers:
       '@types/node':
         specifier: ^24.13.2
         version: 24.13.4
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -134,15 +140,12 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/engineering-change:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -180,9 +183,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -192,15 +192,12 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/family-task-board:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -238,18 +235,12 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       playwright:
         specifier: ^1.61.0
         version: 1.63.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/kart-royale:
     dependencies:
@@ -257,8 +248,8 @@ importers:
         specifier: workspace:*
         version: link:../kart-royale-protocol
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       n8ao:
         specifier: ^2.0.0
         version: 2.0.1(postprocessing@6.39.5(three@0.185.1))(three@0.185.1)
@@ -293,9 +284,6 @@ importers:
       '@types/three':
         specifier: ^0.185.1
         version: 0.185.4
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       playwright:
         specifier: ^1.61.0
         version: 1.63.0
@@ -305,12 +293,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
-      zephyr-rsbuild-plugin:
-        specifier: 1.2.1
-        version: 1.2.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(webpack@5.110.3)
 
   apps/kart-royale-protocol:
     devDependencies:
@@ -352,8 +334,8 @@ importers:
   apps/personal-health-ledger:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -391,9 +373,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -403,15 +382,12 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/pyre:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -449,9 +425,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -461,9 +434,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/tap-calendar:
     dependencies:
@@ -513,9 +483,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       moment-timezone:
         specifier: 0.6.3
         version: 0.6.3
@@ -525,9 +492,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/tap-calendar-gateway:
     dependencies:
@@ -600,8 +564,8 @@ importers:
         specifier: workspace:*
         version: link:../tap-email-protocol
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       dompurify:
         specifier: ^3.4.15
         version: 3.4.15
@@ -642,9 +606,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -657,9 +618,6 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/tap-email-coordinator:
     dependencies:
@@ -707,8 +665,8 @@ importers:
   apps/unofficial-suno-player:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -749,9 +707,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: 8.20.0
         version: 8.20.0
@@ -761,15 +716,12 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/vanta-companion:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.15.0
-        version: 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.16.0
+        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: ^1.14.0
         version: 1.45.0(react@19.3.0)
@@ -807,9 +759,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
-      '@zephyrcloudio/miniapp-zephyr-publisher':
-        specifier: 2.15.0
-        version: 2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -819,9 +768,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zephyr-agent:
-        specifier: 1.2.4
-        version: 1.2.4
 
   apps/vanta-companion-api:
     dependencies:
@@ -1031,6 +977,10 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@bybrave/proper-lockfile2@5.0.0':
+    resolution: {integrity: sha512-oeebmWF78nnEw/v3B93dOsuqpGFseDoab9YdSDXSNGfksh5n9KIabFo9lzleEdiPygbpm6btCj6O58k0z1xaEw==}
+    engines: {node: '>=18'}
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
@@ -1918,11 +1868,6 @@ packages:
   '@modelcontextprotocol/server@2.0.0':
     resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
     engines: {node: '>=20'}
-
-  '@module-federation/automatic-vendor-federation@1.2.1':
-    resolution: {integrity: sha512-73wxkXM7pbRZ6GGM90JP5IPTPvY3fvrhQyTVdMCUx85cQRWqnbzbibcsz3pkOMOeXyYAO4tXXsG13yNaEEGhJA==}
-    peerDependencies:
-      webpack: ^5.0.0-beta.16
 
   '@module-federation/bridge-react-webpack-plugin@2.8.1':
     resolution: {integrity: sha512-w/+d+OjtzT6sa0b3elBcCw6uw+6l8JDOtMIyWzx1lNNuV9IPhq2pgSLXEVEHdIo77r4zgQAktm9kUfCzjO0VrQ==}
@@ -2984,46 +2929,6 @@ packages:
   '@swc/helpers@0.5.23':
     resolution: {integrity: sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw==}
 
-  '@theaiplatform/miniapp-sdk@0.15.0':
-    resolution: {integrity: sha512-2StZ+cr24pwEvWrE86F64cqQxTGVB74eaE47JBIUXoXr3/rwxj3ABwfZ4K2pStvjBNwtMan27xjFk8JDbzzu2A==}
-    engines: {node: '>=20'}
-    hasBin: true
-    peerDependencies:
-      '@module-federation/rsbuild-plugin': 2.8.1
-      '@module-federation/runtime-tools': 2.8.1
-      '@rsbuild/core': '>=2 <3'
-      '@rslib/core': '>=0.21 <1'
-      '@rstest/core': 0.11.5
-      '@rstest/playwright': 0.11.5
-      '@tanstack/react-query': '>=5 <6'
-      '@tanstack/react-router': '>=1 <2'
-      playwright: '>=1.61 <2'
-      react: '>=19 <20'
-      react-dom: '>=19 <20'
-    peerDependenciesMeta:
-      '@module-federation/rsbuild-plugin':
-        optional: true
-      '@module-federation/runtime-tools':
-        optional: true
-      '@rsbuild/core':
-        optional: true
-      '@rslib/core':
-        optional: true
-      '@rstest/core':
-        optional: true
-      '@rstest/playwright':
-        optional: true
-      '@tanstack/react-query':
-        optional: true
-      '@tanstack/react-router':
-        optional: true
-      playwright:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
   '@theaiplatform/miniapp-sdk@0.16.0':
     resolution: {integrity: sha512-c+ocmKKRhYZbibgi2E1ELtfilJ7eiAkZF743NNvhq7YQq4rf0EF6AhYuwxL04+bkgB7t+5DFdmw/8zjPQN/1VA==}
     engines: {node: '>=20'}
@@ -3066,6 +2971,9 @@ packages:
 
   '@toon-format/toon@0.9.0':
     resolution: {integrity: sha512-BaMhGh1+/z8ceDrF2xL9Drd42hijbUJlivm/1goPR26RgCYsqlMkHbg48hx9a5UjZC7oZqxWPJ6ju5qvALi6Ag==}
+
+  '@toon-format/toon@4.1.1':
+    resolution: {integrity: sha512-SGCkS7IjVpwRmGPgnY8ENKpAf0EdAnZDOQkvFW0d2cgOpdn9FEFl7sTgryESyypXrWr0YajHGpwsAUX4zw9ZvA==}
 
   '@turbo/darwin-64@2.10.5':
     resolution: {integrity: sha512-ENvPwy3x5yS7MwNYHeWjqOBXkwIMp39Pd+/zXC6PoiNzF8EIvvLZOZZ+ny6L9x4WgS5vxUii2LM5gM+zjPdnWw==}
@@ -3264,8 +3172,8 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@zephyrcloudio/miniapp-zephyr-publisher@2.15.0':
-    resolution: {integrity: sha512-ENTWtWryM+vCGVrhcd0P4aoD/jakrkNHPeBQthdVMH5bFYdaBCf99th9gUvbWCDQ9EhZjyfoDtG/n1aaSQrfuQ==, tarball: https://npm.pkg.github.com/download/@zephyrcloudio/miniapp-zephyr-publisher/2.15.0/26003404114af824fc643fedc674c40d40cae48e}
+  '@zephyrcloudio/miniapp-zephyr-publisher@2.20.0':
+    resolution: {integrity: sha512-nmCVSN5aHCXw48ZhiupJP5Iah8XC1N7BWE7MUU6JtbNoLuW4ci1XI0HSsAPqlTT9PuJf681KdM5PQofkHzDa9g==, tarball: https://npm.pkg.github.com/download/@zephyrcloudio/miniapp-zephyr-publisher/2.20.0/43b75c8befd58c89eb2d76b9aa674709995beea7}
     peerDependencies:
       '@theaiplatform/miniapp-sdk': '>=0.6.0 <1'
 
@@ -3289,6 +3197,10 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
+
+  agent-base@9.0.0:
+    resolution: {integrity: sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==}
+    engines: {node: '>= 20'}
 
   agents@0.20.1:
     resolution: {integrity: sha512-HQRYMeZpD3k8djYBH7atRPojZMee3NvmXkzsmMWXfdHZ94vMljmWqSsD1XZd70LovHyQrw6/R81AZZIsRiFM6Q==}
@@ -3718,6 +3630,10 @@ packages:
     resolution: {integrity: sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ==}
     engines: {node: '>=18.0.0'}
 
+  eventsource-parser@4.1.0:
+    resolution: {integrity: sha512-+DHvQ1wLO//MK+1OZgcuXCbZFKgu3YjKPJt7n98rxX8vezL0ni+7s3ZQiM8bJkUEOk7MsuCycrPLj0FzUNf7Og==}
+    engines: {node: '>=22.12'}
+
   eventsource@3.0.7:
     resolution: {integrity: sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==}
     engines: {node: '>=18.0.0'}
@@ -3725,6 +3641,10 @@ packages:
   eventsource@4.1.1:
     resolution: {integrity: sha512-D6bTRWh6KahHTK/m4WnjPQyEinNPf9eFLEZSEoj7d6fTibspnAVYfzHvirL7u/aoX5d9YYfIkBVAhmigUELk9w==}
     engines: {node: '>=20.0.0'}
+
+  eventsource@5.1.1:
+    resolution: {integrity: sha512-onrlI7l612Ee3xnBqZNTq4djf6Fho/0yIpO/rYjRG/FzjMyPJquNx9SS3QyjglnVFxwxrube1XmX41zB+0Rdgw==}
+    engines: {node: '>=22.12.0'}
 
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
@@ -3764,9 +3684,6 @@ packages:
   finalhandler@2.1.1:
     resolution: {integrity: sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA==}
     engines: {node: '>= 18.0.0'}
-
-  find-package-json@1.2.0:
-    resolution: {integrity: sha512-+SOGcLGYDJHtyqHd87ysBhmaeQ95oWspDKnMXBrnQ9Eq4OkLNqejgoaD8xVWu6GPa0B6roa6KinCMEMcVeqONw==}
 
   follow-redirects@1.16.0:
     resolution: {integrity: sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw==}
@@ -3907,6 +3824,10 @@ packages:
     resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
     engines: {node: '>= 14'}
 
+  https-proxy-agent@9.1.0:
+    resolution: {integrity: sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA==}
+    engines: {node: '>= 20'}
+
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
@@ -3952,6 +3873,10 @@ packages:
 
   is-hexadecimal@2.0.1:
     resolution: {integrity: sha512-DgZQp241c8oO6cA1SbTEWiXeoxV42vlcJxgH+B3hi1AiqqKruZR3ZGF8In3fj4+/y/7rHvlOZLZtgJ/4ttYGZg==}
+
+  is-in-ssh@1.0.0:
+    resolution: {integrity: sha512-jYa6Q9rH90kR1vKB6NM7qqd1mge3Fx4Dhw5TVlK1MUBqhEOuCagrEHMevNuCcbECmXZ0ThXkRm+Ymr51HwEPAw==}
+    engines: {node: '>=20'}
 
   is-inside-container@1.0.0:
     resolution: {integrity: sha512-KIYLCCJghfHZxqjYBE7rEy0OBuTd5xCHS7tHVgvCLkx7StIoaxwNW3hCALgEUjFfeRk+MG/Qxmp/vtETEF3tRA==}
@@ -4468,6 +4393,10 @@ packages:
     resolution: {integrity: sha512-YgBpdJHPyQ2UE5x+hlSXcnejzAvD0b22U2OuAP+8OnlJT+PjWPxtgmGqKKc+RgTM63U9gN0YzrYc71R2WT/hTA==}
     engines: {node: '>=18'}
 
+  open@11.0.4:
+    resolution: {integrity: sha512-++Zlftm0kVLPmzC06t6epuWmcRMDbI4z5P3NNX979WA/k23+NtSOynEGzsVfZwguKw2mi5umVgnBlJQMwRz4Pg==}
+    engines: {node: '>=20'}
+
   p-limit@3.1.0:
     resolution: {integrity: sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==}
     engines: {node: '>=10'}
@@ -4548,6 +4477,14 @@ packages:
     peerDependencies:
       three: '>= 0.168.0 < 0.187.0'
 
+  powershell-utils@0.1.0:
+    resolution: {integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==}
+    engines: {node: '>=20'}
+
+  powershell-utils@0.2.1:
+    resolution: {integrity: sha512-C+y9x90UElAddDZmV4qOx9W53B61PO7cIqWz2dQsWlwswuq4mr8NEwytdGKboYbQlGZ3awrkTeNvcZiZNHnQ8A==}
+    engines: {node: '>=20'}
+
   proper-lockfile@4.1.2:
     resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
 
@@ -4560,6 +4497,15 @@ packages:
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
     engines: {node: '>= 0.10'}
+
+  proxy-agent-negotiate@1.1.0:
+    resolution: {integrity: sha512-N8IBcM3UgCVzz2L2Lqv8DVntDnnC8/hiV4nEDUPkqq72TPUgYWjQc+bdZlBPZK9LzPAvOY//gAt0S0DApoOXWQ==}
+    engines: {node: '>= 20'}
+    peerDependencies:
+      kerberos: ^2.0.0
+    peerDependenciesMeta:
+      kerberos:
+        optional: true
 
   proxy-from-env@2.1.0:
     resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
@@ -4676,6 +4622,10 @@ packages:
 
   retry@0.12.0:
     resolution: {integrity: sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==}
+    engines: {node: '>= 4'}
+
+  retry@0.13.1:
+    resolution: {integrity: sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==}
     engines: {node: '>= 4'}
 
   rolldown@1.2.8:
@@ -5249,6 +5199,10 @@ packages:
     resolution: {integrity: sha512-h3Fbisa2nKGPxCpm89Hk33lBLsnaGBvctQopaBSOW/uIs6FTe1ATyAnKFJrzVs9vpGdsTe73WF3V4lIsk4Gacw==}
     engines: {node: '>=18'}
 
+  wsl-utils@1.0.0:
+    resolution: {integrity: sha512-Hl0ZOAs672vg+06kfujwRhoS6/jehvULrlFkuF2dRu6pHgA8U06h3xqNIqNNU1LTXPcedxByAR4GS6pwQK0mgA==}
+    engines: {node: '>=20'}
+
   xml-name-validator@5.0.0:
     resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
     engines: {node: '>=18'}
@@ -5283,30 +5237,30 @@ packages:
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
-  zephyr-agent@1.2.1:
-    resolution: {integrity: sha512-jIAztXae300LG1yl6+v0s4N83xeL0Ttq/5cA6JIJdVn8YvNIZZMH1RQhJCKbjpAo+MyuXbJmi2zvu6ixB1/jgw==}
-
   zephyr-agent@1.2.4:
     resolution: {integrity: sha512-XUpQdQTooLpxr4fnjA1fDsA4kfWRm+x5T5Vchxmjfp/0GsoSJcwd3824VDGgPvwox1ZZLOfoqT3wxQKgwI81Vg==}
 
-  zephyr-edge-contract@1.2.1:
-    resolution: {integrity: sha512-IWJHnxB96cunATEp+EHDznyCHZyvBzMdD6xC4/OGV01wyocT7iHkxA6jNIe+StJrWJy/t0t43R3ewIE1EtNUpQ==}
+  zephyr-agent@1.4.0:
+    resolution: {integrity: sha512-5DP9yr63WSe9tNszyJIa3OdW5Y0yCoQ00StpGOWzbfLJOVRD3kOkVYJ8Oecy3InIQ2rFpIDwpG/insf9bi44rg==}
 
   zephyr-edge-contract@1.2.4:
     resolution: {integrity: sha512-bEub/S+AowPi+7NiQ+isW9FrjrMWVyWk3DgXSDDygHx/jnruRYI2siZ8mRkBQG8Csnh5jLS3+/zr0GkoVzsT8Q==}
 
-  zephyr-rsbuild-plugin@1.2.1:
-    resolution: {integrity: sha512-EM3IQ6FSzchv9KI45WdsTqtlSTy6lBn6ZheBkp9Tppjiz1W3BoYGl/DoYGcvRtGfh/yx76Ixd0nWE4d5mcXkMg==}
+  zephyr-edge-contract@1.4.0:
+    resolution: {integrity: sha512-0x3Yv8TufB1ie24q1sRhW/xnvge4Pfxo+1NjZ7CRDixsIyWodNef9P0wZvN4pPhXunKJgJ1oLRdb0VjUiBDOPw==}
+
+  zephyr-rsbuild-plugin@1.4.0:
+    resolution: {integrity: sha512-0DJlsS93Jn5h3ClNdll4UXW6/HT22wzxv4UiYTmQjibMSYHKriQ77p6NrhwnneSXvR8nvTl8LwUFtpxVxS9XQA==}
     peerDependencies:
       '@rsbuild/core': ^1.0.0 || ^2.0.0-0
 
-  zephyr-rspack-plugin@1.2.1:
-    resolution: {integrity: sha512-ObWEvozWs1FneSp/8LMXWlcUcwwmjhkiV8Pw35+6p7ey1IGy8WpNshiazgcptE8XxexcrxWGdTBSZQA9KWiYrw==}
+  zephyr-rspack-plugin@1.4.0:
+    resolution: {integrity: sha512-/QiPEjnXYoCqbpxbgTjcR6VO0mWFqmKzjnXP32djqhuEhufajQ7pfhZLJ2M6Q2x2UStZOgZscdDapv0STgg6/A==}
     peerDependencies:
       '@rspack/core': ^1.0.0 || ^2.0.0-0
 
-  zephyr-xpack-internal@1.2.1:
-    resolution: {integrity: sha512-rT5yxrSgrA0HVT4TVoLs1ZnxIAYS+MvsaPdwlln+e76wC3rQ8gm/E+Q0bntH8UObYgEzAssSQwphi0O9HEzE/w==}
+  zephyr-xpack-internal@1.4.0:
+    resolution: {integrity: sha512-Z+a8MfKCibtuoGoto2HW/TvU8sGGlwgYLspoDYXOMM3YCGgukyCuyPpnpR8OkOW2rmRq8ApdIyZExJzSxnJvzg==}
 
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
@@ -5523,6 +5477,12 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@bybrave/proper-lockfile2@5.0.0':
+    dependencies:
+      graceful-fs: 4.2.11
+      retry: 0.13.1
+      signal-exit: 3.0.7
 
   '@cfworker/json-schema@4.1.1': {}
 
@@ -6072,6 +6032,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
       '@jridgewell/trace-mapping': 0.3.31
+    optional: true
 
   '@jridgewell/gen-mapping@0.4.0-beta.0':
     dependencies:
@@ -6084,6 +6045,7 @@ snapshots:
     dependencies:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
+    optional: true
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
@@ -6139,11 +6101,6 @@ snapshots:
     dependencies:
       '@modelcontextprotocol/core': 2.0.0
       zod: 4.4.3
-
-  '@module-federation/automatic-vendor-federation@1.2.1(webpack@5.110.3)':
-    dependencies:
-      find-package-json: 1.2.0
-      webpack: 5.110.3
 
   '@module-federation/bridge-react-webpack-plugin@2.8.1':
     dependencies:
@@ -7194,7 +7151,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -7228,53 +7185,6 @@ snapshots:
       zod: 4.6.4
     optionalDependencies:
       '@module-federation/rsbuild-plugin': 2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3)
-      '@module-federation/runtime-tools': 2.8.1
-      '@rsbuild/core': 2.2.5(@module-federation/runtime-tools@2.8.1)
-      '@rslib/core': 0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3)
-      '@rstest/core': 0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1)
-      '@rstest/playwright': 0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0)
-      playwright: 1.63.0
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-    transitivePeerDependencies:
-      - '@types/react'
-      - '@types/react-dom'
-      - supports-color
-
-  '@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
-    dependencies:
-      '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-checkbox': 1.3.11(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-collapsible': 1.1.20(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-label': 2.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-progress': 1.1.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-radio-group': 1.4.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-scroll-area': 1.2.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-select': 2.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-separator': 1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-slider': 1.4.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-tabs': 1.1.21(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-toggle': 1.1.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-toggle-group': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-tooltip': 1.2.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      ajv: 8.20.0
-      ajv-draft-04: 1.0.0(ajv@8.20.0)
-      chokidar: 4.0.3
-      class-variance-authority: 0.7.1
-      clsx: 2.1.1
-      jiti: 2.7.0
-      jsonc-parser: 3.3.1
-      lucide-react: 1.45.0(react@19.3.0)
-      react-resizable-panels: 4.12.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      remark-gemoji: 8.0.0
-      saxes: 6.0.0
-      streamdown: 2.6.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      use-stick-to-bottom: 1.1.6(react@19.3.0)
-      zod: 4.6.4
-    optionalDependencies:
-      '@module-federation/rsbuild-plugin': 2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3)
       '@module-federation/runtime-tools': 2.8.1
       '@rsbuild/core': 2.2.5(@module-federation/runtime-tools@2.8.1)
       '@rslib/core': 0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3)
@@ -7336,6 +7246,8 @@ snapshots:
       - supports-color
 
   '@toon-format/toon@0.9.0': {}
+
+  '@toon-format/toon@4.1.1': {}
 
   '@turbo/darwin-64@2.10.5':
     optional: true
@@ -7492,20 +7404,26 @@ snapshots:
     dependencies:
       '@webassemblyjs/helper-numbers': 1.13.2
       '@webassemblyjs/helper-wasm-bytecode': 1.13.2
+    optional: true
 
-  '@webassemblyjs/floating-point-hex-parser@1.13.2': {}
+  '@webassemblyjs/floating-point-hex-parser@1.13.2':
+    optional: true
 
-  '@webassemblyjs/helper-api-error@1.13.2': {}
+  '@webassemblyjs/helper-api-error@1.13.2':
+    optional: true
 
-  '@webassemblyjs/helper-buffer@1.14.1': {}
+  '@webassemblyjs/helper-buffer@1.14.1':
+    optional: true
 
   '@webassemblyjs/helper-numbers@1.13.2':
     dependencies:
       '@webassemblyjs/floating-point-hex-parser': 1.13.2
       '@webassemblyjs/helper-api-error': 1.13.2
       '@xtuc/long': 4.2.2
+    optional: true
 
-  '@webassemblyjs/helper-wasm-bytecode@1.13.2': {}
+  '@webassemblyjs/helper-wasm-bytecode@1.13.2':
+    optional: true
 
   '@webassemblyjs/helper-wasm-section@1.14.1':
     dependencies:
@@ -7513,16 +7431,20 @@ snapshots:
       '@webassemblyjs/helper-buffer': 1.14.1
       '@webassemblyjs/helper-wasm-bytecode': 1.13.2
       '@webassemblyjs/wasm-gen': 1.14.1
+    optional: true
 
   '@webassemblyjs/ieee754@1.13.2':
     dependencies:
       '@xtuc/ieee754': 1.2.0
+    optional: true
 
   '@webassemblyjs/leb128@1.13.2':
     dependencies:
       '@xtuc/long': 4.2.2
+    optional: true
 
-  '@webassemblyjs/utf8@1.13.2': {}
+  '@webassemblyjs/utf8@1.13.2':
+    optional: true
 
   '@webassemblyjs/wasm-edit@1.14.1':
     dependencies:
@@ -7534,6 +7456,7 @@ snapshots:
       '@webassemblyjs/wasm-opt': 1.14.1
       '@webassemblyjs/wasm-parser': 1.14.1
       '@webassemblyjs/wast-printer': 1.14.1
+    optional: true
 
   '@webassemblyjs/wasm-gen@1.14.1':
     dependencies:
@@ -7542,6 +7465,7 @@ snapshots:
       '@webassemblyjs/ieee754': 1.13.2
       '@webassemblyjs/leb128': 1.13.2
       '@webassemblyjs/utf8': 1.13.2
+    optional: true
 
   '@webassemblyjs/wasm-opt@1.14.1':
     dependencies:
@@ -7549,6 +7473,7 @@ snapshots:
       '@webassemblyjs/helper-buffer': 1.14.1
       '@webassemblyjs/wasm-gen': 1.14.1
       '@webassemblyjs/wasm-parser': 1.14.1
+    optional: true
 
   '@webassemblyjs/wasm-parser@1.14.1':
     dependencies:
@@ -7558,31 +7483,21 @@ snapshots:
       '@webassemblyjs/ieee754': 1.13.2
       '@webassemblyjs/leb128': 1.13.2
       '@webassemblyjs/utf8': 1.13.2
+    optional: true
 
   '@webassemblyjs/wast-printer@1.14.1':
     dependencies:
       '@webassemblyjs/ast': 1.14.1
       '@xtuc/long': 4.2.2
+    optional: true
 
-  '@xtuc/ieee754@1.2.0': {}
+  '@xtuc/ieee754@1.2.0':
+    optional: true
 
-  '@xtuc/long@4.2.2': {}
+  '@xtuc/long@4.2.2':
+    optional: true
 
-  '@zephyrcloudio/miniapp-zephyr-publisher@2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
-    dependencies:
-      '@theaiplatform/miniapp-sdk': 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      zephyr-agent: 1.2.4
-    transitivePeerDependencies:
-      - supports-color
-
-  '@zephyrcloudio/miniapp-zephyr-publisher@2.15.0(@theaiplatform/miniapp-sdk@0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
-    dependencies:
-      '@theaiplatform/miniapp-sdk': 0.15.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      zephyr-agent: 1.2.4
-    transitivePeerDependencies:
-      - supports-color
-
-  '@zephyrcloudio/miniapp-zephyr-publisher@2.15.0(@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
+  '@zephyrcloudio/miniapp-zephyr-publisher@2.20.0(@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
     dependencies:
       '@theaiplatform/miniapp-sdk': 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       zephyr-agent: 1.2.4
@@ -7594,7 +7509,8 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
-  acorn@8.18.0: {}
+  acorn@8.18.0:
+    optional: true
 
   adm-zip@0.6.0: {}
 
@@ -7605,6 +7521,8 @@ snapshots:
       - supports-color
 
   agent-base@7.1.4: {}
+
+  agent-base@9.0.0: {}
 
   agents@0.20.1(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260911.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.3.0)(rolldown@1.2.8)(vite@8.3.0(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))(zod@4.4.3):
     dependencies:
@@ -7716,7 +7634,8 @@ snapshots:
       node-releases: 2.0.55
       update-browserslist-db: 1.3.3(browserslist@4.28.9)
 
-  buffer-from@1.1.2: {}
+  buffer-from@1.1.2:
+    optional: true
 
   buffer-image-size@0.6.4:
     dependencies:
@@ -7757,7 +7676,8 @@ snapshots:
     dependencies:
       readdirp: 4.1.2
 
-  chrome-trace-event@1.0.4: {}
+  chrome-trace-event@1.0.4:
+    optional: true
 
   chromium-bidi@17.0.2(devtools-protocol@0.0.1666840):
     dependencies:
@@ -7789,7 +7709,8 @@ snapshots:
 
   commander@11.1.0: {}
 
-  commander@2.20.3: {}
+  commander@2.20.3:
+    optional: true
 
   content-disposition@1.1.0: {}
 
@@ -7902,6 +7823,7 @@ snapshots:
     dependencies:
       graceful-fs: 4.2.11
       tapable: 2.3.3
+    optional: true
 
   entities@6.0.1: {}
 
@@ -8003,9 +7925,12 @@ snapshots:
 
   event-target-polyfill@0.0.4: {}
 
-  events@3.3.0: {}
+  events@3.3.0:
+    optional: true
 
   eventsource-parser@3.1.1: {}
+
+  eventsource-parser@4.1.0: {}
 
   eventsource@3.0.7:
     dependencies:
@@ -8014,6 +7939,10 @@ snapshots:
   eventsource@4.1.1:
     dependencies:
       eventsource-parser: 3.1.1
+
+  eventsource@5.1.1:
+    dependencies:
+      eventsource-parser: 4.1.0
 
   expect-type@1.4.0: {}
 
@@ -8080,8 +8009,6 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
-
-  find-package-json@1.2.0: {}
 
   follow-redirects@1.16.0(debug@4.4.3):
     optionalDependencies:
@@ -8159,7 +8086,8 @@ snapshots:
       - utf-8-validate
     optional: true
 
-  has-flag@4.0.0: {}
+  has-flag@4.0.0:
+    optional: true
 
   has-symbols@1.1.0: {}
 
@@ -8284,6 +8212,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  https-proxy-agent@9.1.0:
+    dependencies:
+      agent-base: 9.0.0
+      debug: 4.4.3
+      proxy-agent-negotiate: 1.1.0
+    transitivePeerDependencies:
+      - kerberos
+      - supports-color
+
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
@@ -8319,6 +8256,8 @@ snapshots:
 
   is-hexadecimal@2.0.1: {}
 
+  is-in-ssh@1.0.0: {}
+
   is-inside-container@1.0.0:
     dependencies:
       is-docker: 3.0.0
@@ -8350,6 +8289,7 @@ snapshots:
       '@types/node': 24.13.4
       merge-stream: 2.0.0
       supports-color: 8.1.1
+    optional: true
 
   jiti@2.4.2: {}
 
@@ -8633,7 +8573,8 @@ snapshots:
 
   merge-descriptors@2.0.0: {}
 
-  merge-stream@2.0.0: {}
+  merge-stream@2.0.0:
+    optional: true
 
   meshoptimizer@1.1.1: {}
 
@@ -8890,6 +8831,7 @@ snapshots:
       schema-utils: 4.5.0
       terser: 5.51.2
       webpack: 5.110.3
+    optional: true
 
   mitt@3.0.1: {}
 
@@ -8920,7 +8862,8 @@ snapshots:
     dependencies:
       content-type: 2.1.0
 
-  neo-async@2.6.2: {}
+  neo-async@2.6.2:
+    optional: true
 
   node-fetch@2.7.0(encoding@0.1.13):
     dependencies:
@@ -8954,6 +8897,15 @@ snapshots:
       define-lazy-prop: 3.0.0
       is-inside-container: 1.0.0
       wsl-utils: 0.1.0
+
+  open@11.0.4:
+    dependencies:
+      default-browser: 5.5.1
+      define-lazy-prop: 3.0.0
+      is-in-ssh: 1.0.0
+      is-inside-container: 1.0.0
+      powershell-utils: 0.2.1
+      wsl-utils: 1.0.0
 
   p-limit@3.1.0:
     dependencies:
@@ -9029,6 +8981,10 @@ snapshots:
     dependencies:
       three: 0.185.1
 
+  powershell-utils@0.1.0: {}
+
+  powershell-utils@0.2.1: {}
+
   proper-lockfile@4.1.2:
     dependencies:
       graceful-fs: 4.2.11
@@ -9043,6 +8999,8 @@ snapshots:
     dependencies:
       forwarded: 0.2.0
       ipaddr.js: 1.9.1
+
+  proxy-agent-negotiate@1.1.0: {}
 
   proxy-from-env@2.1.0: {}
 
@@ -9194,6 +9152,8 @@ snapshots:
 
   retry@0.12.0: {}
 
+  retry@0.13.1: {}
+
   rolldown@1.2.8:
     dependencies:
       '@oxc-project/types': 0.149.0
@@ -9255,6 +9215,7 @@ snapshots:
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       ajv-keywords: 5.1.0(ajv@8.20.0)
+    optional: true
 
   semver@7.8.5: {}
 
@@ -9394,8 +9355,10 @@ snapshots:
     dependencies:
       buffer-from: 1.1.2
       source-map: 0.6.1
+    optional: true
 
-  source-map@0.6.1: {}
+  source-map@0.6.1:
+    optional: true
 
   space-separated-tokens@2.0.2: {}
 
@@ -9460,6 +9423,7 @@ snapshots:
   supports-color@8.1.1:
     dependencies:
       has-flag: 4.0.0
+    optional: true
 
   symbol-tree@3.2.4: {}
 
@@ -9467,7 +9431,8 @@ snapshots:
 
   tapable@2.3.0: {}
 
-  tapable@2.3.3: {}
+  tapable@2.3.3:
+    optional: true
 
   terser@5.51.2:
     dependencies:
@@ -9475,6 +9440,7 @@ snapshots:
       acorn: 8.18.0
       commander: 2.20.3
       source-map-support: 0.5.21
+    optional: true
 
   three@0.185.1: {}
 
@@ -9680,6 +9646,7 @@ snapshots:
   watchpack@2.5.2:
     dependencies:
       graceful-fs: 4.2.11
+    optional: true
 
   web-namespaces@2.0.1: {}
 
@@ -9689,7 +9656,8 @@ snapshots:
 
   webidl-conversions@8.0.1: {}
 
-  webpack-sources@3.5.1: {}
+  webpack-sources@3.5.1:
+    optional: true
 
   webpack@5.110.3:
     dependencies:
@@ -9729,6 +9697,7 @@ snapshots:
       - sharp
       - svgo
       - uglify-js
+    optional: true
 
   whatwg-mimetype@3.0.0:
     optional: true
@@ -9856,6 +9825,11 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
 
+  wsl-utils@1.0.0:
+    dependencies:
+      is-wsl: 3.1.1
+      powershell-utils: 0.1.0
+
   xml-name-validator@5.0.0: {}
 
   xmlchars@2.2.0: {}
@@ -9890,25 +9864,6 @@ snapshots:
       cookie: 1.1.1
       youch-core: 0.3.3
 
-  zephyr-agent@1.2.1:
-    dependencies:
-      '@toon-format/toon': 0.9.0
-      axios: 1.20.0(debug@4.4.3)
-      axios-retry: 4.5.0(axios@1.20.0)
-      debug: 4.4.3
-      eventsource: 4.1.1
-      git-url-parse: 16.1.0
-      https-proxy-agent: 7.0.6
-      is-ci: 4.1.0
-      jiti: 2.7.0
-      jose: 5.10.0
-      node-persist: 4.0.4
-      open: 10.2.0
-      proper-lockfile: 4.1.2
-      zephyr-edge-contract: 1.2.1
-    transitivePeerDependencies:
-      - supports-color
-
   zephyr-agent@1.2.4:
     dependencies:
       '@toon-format/toon': 0.9.0
@@ -9928,38 +9883,54 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  zephyr-edge-contract@1.2.1: {}
+  zephyr-agent@1.4.0:
+    dependencies:
+      '@bybrave/proper-lockfile2': 5.0.0
+      '@toon-format/toon': 4.1.1
+      axios: 1.20.0(debug@4.4.3)
+      ci-info: 4.4.0
+      debug: 4.4.3
+      eventsource: 5.1.1
+      https-proxy-agent: 9.1.0
+      jiti: 2.7.0
+      jose: 6.2.3
+      open: 11.0.4
+      zephyr-edge-contract: 1.4.0
+    transitivePeerDependencies:
+      - kerberos
+      - supports-color
 
   zephyr-edge-contract@1.2.4: {}
 
-  zephyr-rsbuild-plugin@1.2.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(webpack@5.110.3):
+  zephyr-edge-contract@1.4.0: {}
+
+  zephyr-rsbuild-plugin@1.4.0(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23)):
     dependencies:
       '@rsbuild/core': 2.2.5(@module-federation/runtime-tools@2.8.1)
-      zephyr-agent: 1.2.1
-      zephyr-rspack-plugin: 1.2.1(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(webpack@5.110.3)
-      zephyr-xpack-internal: 1.2.1(webpack@5.110.3)
+      zephyr-agent: 1.4.0
+      zephyr-rspack-plugin: 1.4.0(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))
+      zephyr-xpack-internal: 1.4.0
     transitivePeerDependencies:
       - '@rspack/core'
+      - kerberos
       - supports-color
-      - webpack
 
-  zephyr-rspack-plugin@1.2.1(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(webpack@5.110.3):
+  zephyr-rspack-plugin@1.4.0(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23)):
     dependencies:
       '@rspack/core': 2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23)
-      zephyr-agent: 1.2.1
-      zephyr-xpack-internal: 1.2.1(webpack@5.110.3)
+      zephyr-agent: 1.4.0
+      zephyr-xpack-internal: 1.4.0
     transitivePeerDependencies:
+      - kerberos
       - supports-color
-      - webpack
 
-  zephyr-xpack-internal@1.2.1(webpack@5.110.3):
+  zephyr-xpack-internal@1.4.0:
     dependencies:
-      '@module-federation/automatic-vendor-federation': 1.2.1(webpack@5.110.3)
-      zephyr-agent: 1.2.1
-      zephyr-edge-contract: 1.2.1
+      zephyr-agent: 1.4.0
+      zephyr-edge-contract: 1.4.0
     transitivePeerDependencies:
+      - kerberos
       - supports-color
-      - webpack
 
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:

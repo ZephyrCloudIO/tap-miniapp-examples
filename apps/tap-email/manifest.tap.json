@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
   "buildSchemaVersion": 2,
-  "versionLabel": "0.1.0",
+  "versionLabel": "0.2.0",
   "presentation": {
     "name": "TAP Email",
     "slug": "tap-email",

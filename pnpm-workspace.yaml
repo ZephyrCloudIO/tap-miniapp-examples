@@ -11,9 +11,12 @@ allowBuilds:
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@theaiplatform/miniapp-sdk"
-  - "@zephyrcloudio/miniapp-zephyr-publisher@2.15.0"
-  - "zephyr-agent@1.2.4"
-  - "zephyr-edge-contract@1.2.4"
+  - "@zephyrcloudio/miniapp-zephyr-publisher@2.20.0"
+  - "zephyr-agent@1.4.0"
+  - "zephyr-edge-contract"
+  - "zephyr-rsbuild-plugin"
+  - "zephyr-rspack-plugin"
+  - "zephyr-xpack-internal"
   - "@cloudflare/vitest-pool-workers@0.18.6"
   - "@cloudflare/vitest-pool-workers@0.21.3"
   - "@types/node@26.1.1"

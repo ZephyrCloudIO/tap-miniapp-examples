@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/tap-calendar",
-  "version": "0.1.10",
+  "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -27,12 +27,12 @@
     "verify:package": "tap-miniapp check"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.16.0",
     "@vvo/tzdb": "6.198.0",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "timezone-support": "3.1.0"
+    "timezone-support": "3.1.0",
+    "@theaiplatform/miniapp-sdk": "0.16.0"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.1",
@@ -44,10 +44,8 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@zephyrcloudio/miniapp-zephyr-publisher": "2.15.0",
     "moment-timezone": "0.6.3",
     "playwright": "^1.61.0",
-    "typescript": "^6.0.3",
-    "zephyr-agent": "1.2.4"
+    "typescript": "^6.0.3"
   }
 }

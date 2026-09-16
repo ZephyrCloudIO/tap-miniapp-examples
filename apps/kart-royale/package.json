@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/kart-royale",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -28,11 +28,11 @@
   },
   "dependencies": {
     "@tap-examples/kart-royale-protocol": "workspace:*",
-    "@theaiplatform/miniapp-sdk": "0.15.0",
     "n8ao": "^2.0.0",
     "postprocessing": "^6.39.3",
     "simplex-noise": "^4.0.3",
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "@theaiplatform/miniapp-sdk": "0.16.0"
   },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "2.8.1",
@@ -42,11 +42,8 @@
     "@rstest/playwright": "0.11.5",
     "@types/node": "^24.13.2",
     "@types/three": "^0.185.1",
-    "@zephyrcloudio/miniapp-zephyr-publisher": "2.15.0",
     "playwright": "^1.61.0",
     "puppeteer": "^25.3.0",
-    "typescript": "^6.0.3",
-    "zephyr-agent": "1.2.4",
-    "zephyr-rsbuild-plugin": "1.2.1"
+    "typescript": "^6.0.3"
   }
 }
