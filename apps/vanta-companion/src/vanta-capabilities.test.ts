@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@rstest/core';
-import ausSpecialist from '../specialists/vanta-soc2-companion-aus/0.1.0.json';
-import euSpecialist from '../specialists/vanta-soc2-companion-eu/0.1.0.json';
-import usSpecialist from '../specialists/vanta-soc2-companion-us/0.1.0.json';
+import ausSpecialist from '../specialists/vanta-soc2-companion-aus/0.2.0.json';
+import euSpecialist from '../specialists/vanta-soc2-companion-eu/0.2.0.json';
+import usSpecialist from '../specialists/vanta-soc2-companion-us/0.2.0.json';
 import {
   analysisPrompt,
   clearLegacyManagedSpecialist,
@@ -59,7 +59,7 @@ describe('Vanta capability inventory', () => {
       ['eu', 'https://mcp.eu.vanta.com/mcp', euSpecialist],
       ['aus', 'https://mcp.aus.vanta.com/mcp', ausSpecialist],
     ] as const) {
-      expect(manifest.name).toBe(`${VANTA_SPECIALIST_SLUGS[region]}@0.1.0`);
+      expect(manifest.name).toBe(`${VANTA_SPECIALIST_SLUGS[region]}@0.2.0`);
       expect(manifest.slug).toBe(VANTA_SPECIALIST_SLUGS[region]);
       const template = manifest.tooling.mcpTemplates[0]!;
       const policy = template.toolPolicy;

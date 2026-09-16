@@ -1,8 +1,8 @@
 {
-  "name": "personal-health-researcher@0.1.0",
+  "name": "personal-health-researcher@0.2.0",
   "slug": "personal-health-researcher",
   "displayName": "Personal Health Researcher",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "schemaVersion": "2.0.0",
   "maintainers": [
     {

@@ -1,7 +1,7 @@
 ---
 name: security-impact-hypothesis
 description: Produce a security Impact Hypothesis while an Engineering Change is still shaping — before any implementation exists. Use when a change is in draft or shaping and its proposal names a target scope.
-version: 0.1.0
+version: 0.2.0
 allowed_tools:
   - get_change
   - list_changes

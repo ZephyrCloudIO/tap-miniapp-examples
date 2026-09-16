@@ -44,7 +44,7 @@ const regions = [
 ];
 for (const [region, endpoint] of regions) {
   const slug = `vanta-soc2-companion-${region}`;
-  const assetPath = `specialists/${slug}/0.1.0.json`;
+  const assetPath = `specialists/${slug}/0.2.0.json`;
   const contribution = manifest.contributions.find(
     candidate => candidate.kind === 'specialist' && candidate.id === slug,
   );

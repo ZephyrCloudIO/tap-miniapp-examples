@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@rstest/core';
 import { addItem, addSavedView, createLedger } from './domain';
 import { createAdministrationDraft } from './administration-draft';
-import specialistManifest from '../specialists/personal-health-researcher/0.1.0.json';
+import specialistManifest from '../specialists/personal-health-researcher/0.2.0.json';
 import {
   buildSpecialistPrompt,
   extractHealthSpecialistResult,
@@ -41,7 +41,7 @@ const runtimeState = () =>
 
 describe('health specialist contract', () => {
   it('packages the Grok preference while allowlisting runtime tools', () => {
-    expect(specialistManifest.name).toBe('personal-health-researcher@0.1.0');
+    expect(specialistManifest.name).toBe('personal-health-researcher@0.2.0');
     expect(specialistManifest.slug).toBe('personal-health-researcher');
     expect(specialistManifest.models.prefer).toEqual([GROK_MODEL_PREFERENCE]);
     expect(HEALTH_SPECIALIST_TOOLS).not.toContain('x_search');

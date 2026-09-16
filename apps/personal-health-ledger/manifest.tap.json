@@ -9,8 +9,8 @@
     "slug": "personal-health-ledger"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_personal_health_ledger_0001@0.1.0",
-    "version": "0.1.0",
+    "releaseId": "tap_pkg_examples_personal_health_ledger_0001@0.2.0",
+    "version": "0.2.0",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -125,7 +125,7 @@
       "authorization": { "allOf": ["health-ledger.research"] },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/personal-health-researcher/0.1.0.json"
+        "manifest": "specialists/personal-health-researcher/0.2.0.json"
       }
     },
     {

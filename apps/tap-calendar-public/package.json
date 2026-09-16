@@ -17,11 +17,11 @@
     "types:check": "wrangler types --env production --strict-vars=false --check"
   },
   "dependencies": {
-    "@theaiplatform/miniapp-sdk": "0.16.0",
     "@vvo/tzdb": "6.198.0",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "@theaiplatform/miniapp-sdk": "0.16.0"
   },
   "devDependencies": {
     "@rsbuild/core": "^2.1.5",

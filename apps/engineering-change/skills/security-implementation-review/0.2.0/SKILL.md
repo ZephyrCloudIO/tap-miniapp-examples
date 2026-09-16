@@ -1,7 +1,7 @@
 ---
 name: security-implementation-review
 description: Review the security of an implemented Engineering Change against its approved proposal and Impact Hypothesis. Use after a pull request or governed diff is linked to the change.
-version: 0.1.0
+version: 0.2.0
 allowed_tools:
   - get_change
   - get_impact_hypothesis

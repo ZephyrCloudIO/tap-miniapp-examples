@@ -9,8 +9,8 @@
     "slug": "vanta-companion"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_vanta_companion_0001@0.1.0",
-    "version": "0.1.0",
+    "releaseId": "tap_pkg_examples_vanta_companion_0001@0.2.0",
+    "version": "0.2.0",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -132,7 +132,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/vanta-soc2-companion-us/0.1.0.json"
+        "manifest": "specialists/vanta-soc2-companion-us/0.2.0.json"
       }
     },
     {
@@ -144,7 +144,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/vanta-soc2-companion-eu/0.1.0.json"
+        "manifest": "specialists/vanta-soc2-companion-eu/0.2.0.json"
       }
     },
     {
@@ -156,7 +156,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/vanta-soc2-companion-aus/0.1.0.json"
+        "manifest": "specialists/vanta-soc2-companion-aus/0.2.0.json"
       }
     },
     {

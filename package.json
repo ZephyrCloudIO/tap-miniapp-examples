@@ -20,8 +20,11 @@
     "verify:tap": "pnpm run test:tap:static && pnpm run typecheck:tap"
   },
   "devDependencies": {
+    "@zephyrcloudio/miniapp-zephyr-publisher": "2.20.0",
     "cross-env": "^10.1.0",
     "turbo": "2.10.5",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zephyr-agent": "1.4.0",
+    "zephyr-rsbuild-plugin": "1.4.0"
   }
 }

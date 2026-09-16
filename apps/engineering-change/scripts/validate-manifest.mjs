@@ -41,12 +41,12 @@ assert.deepEqual(specialist.targets, {
 assert.equal(specialist.lifecycleScope, "installation");
 assert.equal(
   specialist.options?.manifest,
-  "specialists/engineering-change-specialist/0.1.0.json",
+  "specialists/engineering-change-specialist/0.2.0.json",
 );
 const specialistAsset = JSON.parse(
   fs.readFileSync(
     new URL(
-      "../specialists/engineering-change-specialist/0.1.0.json",
+      "../specialists/engineering-change-specialist/0.2.0.json",
       import.meta.url,
     ),
     "utf8",
@@ -99,7 +99,7 @@ for (const [skillId, gate] of expectedSkills) {
   assert.deepEqual(skill.options?.files, ["SKILL.md"]);
   assert.deepEqual(skill.authorization?.allOf, [gate]);
   const skillAsset = fs.readFileSync(
-    new URL(`../skills/${skillId}/0.1.0/SKILL.md`, import.meta.url),
+    new URL(`../skills/${skillId}/0.2.0/SKILL.md`, import.meta.url),
     "utf8",
   );
   const frontmatter = skillAsset.match(/^---\n([\s\S]*?)\n---/u);

@@ -1,7 +1,7 @@
 ---
 name: review-coordinator
 description: Synthesize all Review Contributions on an Engineering Change into one Review Synthesis — deduplicating, re-categorizing, verifying uncertain claims, and reconciling severity. Use after every required capability has contributed.
-version: 0.1.0
+version: 0.2.0
 allowed_tools:
   - get_change
   - get_review_synthesis

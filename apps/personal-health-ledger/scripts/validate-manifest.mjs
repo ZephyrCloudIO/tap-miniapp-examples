@@ -22,12 +22,12 @@ assert.deepEqual(specialist.targets, {
 assert.equal(specialist.lifecycleScope, "installation");
 assert.equal(
   specialist.options?.manifest,
-  "specialists/personal-health-researcher/0.1.0.json",
+  "specialists/personal-health-researcher/0.2.0.json",
 );
 const specialistAsset = JSON.parse(
   fs.readFileSync(
     new URL(
-      "../specialists/personal-health-researcher/0.1.0.json",
+      "../specialists/personal-health-researcher/0.2.0.json",
       import.meta.url,
     ),
     "utf8",

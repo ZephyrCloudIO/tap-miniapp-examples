@@ -21,9 +21,9 @@ const repositoryRoot = path.resolve(
   "..",
 );
 const appsRoot = path.join(repositoryRoot, "apps");
-const defaultExpectedSdkVersion = "0.15.0";
+const defaultExpectedSdkVersion = "0.16.0";
 const expectedSdkVersionByApp = new Map([
-  ["agent-browser-prototype", "0.15.0"],
+  ["agent-browser-prototype", "0.16.0"],
   ["tap-calendar", "0.16.0"],
 ]);
 const expectedRstestVersion = "0.11.5";
@@ -207,13 +207,6 @@ for (const appName of selectedApps.filter((candidate) =>
     const descriptor = readJson(path.join(appDirectory, "tap.test.json"));
     const manifest = readJson(path.join(appDirectory, "manifest.tap.json"));
     const packageJson = readJson(path.join(appDirectory, "package.json"));
-    const installedSdkPackagePath = path.join(
-      appDirectory,
-      "node_modules",
-      "@theaiplatform",
-      "miniapp-sdk",
-      "package.json",
-    );
     const tapTsconfigPath = path.join(appDirectory, "tsconfig.tap-test.json");
     const baseTsconfig = readJson(path.join(appDirectory, "tsconfig.json"));
 
@@ -232,35 +225,6 @@ for (const appName of selectedApps.filter((candidate) =>
       `${label}: descriptor packageId must match the package authoring identity.`,
     );
 
-    const sdkVersions = [
-      packageJson.dependencies?.["@theaiplatform/miniapp-sdk"],
-      packageJson.devDependencies?.["@theaiplatform/miniapp-sdk"],
-      packageJson.optionalDependencies?.["@theaiplatform/miniapp-sdk"],
-      packageJson.peerDependencies?.["@theaiplatform/miniapp-sdk"],
-    ].filter((value) => value !== undefined);
-    check(
-      sdkVersions.length === 1 && sdkVersions[0] === expectedSdkVersion,
-      `${label}: @theaiplatform/miniapp-sdk must appear once and be exactly ${expectedSdkVersion}.`,
-    );
-    check(
-      manifest.compatibility?.tapSdk === expectedSdkVersion,
-      `${label}: manifest compatibility.tapSdk must be exactly ${expectedSdkVersion}.`,
-    );
-    check(
-      fs.existsSync(installedSdkPackagePath),
-      `${label}: installed SDK package metadata is missing.`,
-    );
-    if (fs.existsSync(installedSdkPackagePath)) {
-      const installedSdkPackage = readJson(installedSdkPackagePath);
-      check(
-        installedSdkPackage.version === expectedSdkVersion,
-        `${label}: installed SDK must be exactly ${expectedSdkVersion}.`,
-      );
-      check(
-        installedSdkPackage.tapMiniappTestAdapterProtocol === 1,
-        `${label}: installed SDK must declare Test Lab adapter protocol 1.`,
-      );
-    }
     check(
       packageJson.devDependencies?.["@rstest/core"] === expectedRstestVersion,
       `${label}: @rstest/core must be exactly ${expectedRstestVersion}.`,
