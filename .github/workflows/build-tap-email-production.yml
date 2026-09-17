@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/build-tap-email-production.yml"
+      - ".github/scripts/guard-tap-email-production-artifact.mjs"
       - "apps/tap-email/**"
       - "apps/tap-email-protocol/**"
       - "pnpm-lock.yaml"
@@ -49,19 +50,10 @@ jobs:
         run: pnpm --filter @tap-examples/tap-email build
 
       - name: Guard against a dev coordinator origin in the artifact
-        run: |
-          set -euo pipefail
-          if rg -l --hidden 'localhost:8787|TAP Email (Local Dev)' \
-            apps/tap-email/.tap-package apps/tap-email/.tap-build >/dev/null 2>&1; then
-            echo "::error::The assembled package references the local-dev coordinator (localhost:8787) or the local-dev presentation name. Refusing to ship a dev build."
-            exit 1
-          fi
-          if rg -q --hidden 'tap-email-coordinator.theaiplatform.app' \
-            apps/tap-email/.tap-package apps/tap-email/.tap-build; then
-            echo "Assembled package uses the production coordinator origin."
-          else
-            echo "::warning::Production coordinator origin was not found in the assembled artifact; verify the coordinator origin before publishing."
-          fi
+        run: >-
+          node .github/scripts/guard-tap-email-production-artifact.mjs
+          apps/tap-email/.tap-package
+          apps/tap-email/.tap-build
 
       - name: Publish to Zephyr Cloud
         env:
