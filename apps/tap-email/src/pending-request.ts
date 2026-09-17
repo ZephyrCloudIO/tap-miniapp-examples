@@ -1,8 +1,7 @@
-export const INITIAL_MAILBOX_APPROVAL_DELAY_MS = 1_500;
+export const INITIAL_MAILBOX_PENDING_DELAY_MS = 1_500;
 
-export const INITIAL_MAILBOX_APPROVAL_MESSAGE =
-  'Approve the API Workbench network access prompt for localhost to load mail. ' +
-  'If it is behind TAP, bring it forward and choose “Allow for Session.”';
+export const INITIAL_MAILBOX_PENDING_MESSAGE =
+  'TAP Email is waiting for a response from the mail service.';
 
 export interface DelayedPendingRequest<T> {
   readonly result: Promise<T>;
@@ -12,7 +11,7 @@ export interface DelayedPendingRequest<T> {
 export function watchForDelayedPendingRequest<T>(
   request: Promise<T>,
   onPendingChange: (pending: boolean) => void,
-  delayMs = INITIAL_MAILBOX_APPROVAL_DELAY_MS,
+  delayMs = INITIAL_MAILBOX_PENDING_DELAY_MS,
 ): DelayedPendingRequest<T> {
   let active = true;
   let pendingShown = false;

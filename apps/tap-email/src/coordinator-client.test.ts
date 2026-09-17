@@ -87,6 +87,52 @@ describe('TAP Email coordinator client', () => {
     ]);
   });
 
+  it('publishes and checkpoints a bounded page before a later page fails', async () => {
+    let requests = 0;
+    const seenPages: Array<{ nextCursor: string | null; loadedThreadCount: number }> = [];
+    const transport: CoordinatorTransport = {
+      request(input) {
+        requests += 1;
+        if (requests === 2) throw new Error('host request timed out');
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify({
+            mailbox: {
+              schemaVersion: 1,
+              accounts: [],
+              threads: [mailboxThread('thread_recent')],
+            },
+            pageInfo: { nextCursor: 'older_page' },
+          }),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 1_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox({
+      onPage(progress) {
+        seenPages.push({
+          nextCursor: progress.nextCursor,
+          loadedThreadCount: progress.loadedThreadCount,
+        });
+      },
+    })).rejects.toThrow('host request timed out');
+
+    expect(seenPages).toEqual([{
+      nextCursor: 'older_page',
+      loadedThreadCount: 1,
+    }]);
+    expect(requests).toBe(2);
+  });
+
   it('loads mailbox history beyond 100 pages and 10,000 threads', async () => {
     const pageSize = 100;
     const pageCount = 101;

@@ -64,7 +64,6 @@ jobs:
           fi
 
       - name: Publish to Zephyr Cloud
-        if: github.event_name == 'workflow_dispatch'
         env:
           ZE_CI_TOKEN: ${{ secrets.ZE_CI_TOKEN }}
         run: pnpm --filter @tap-examples/tap-email run publish --from .tap-package

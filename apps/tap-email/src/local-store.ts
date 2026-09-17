@@ -27,6 +27,9 @@ export interface LocalMailStore {
   readonly capability: LocalMailStoreCapability;
   load(): Promise<MailState | null>;
   save(state: MailState): Promise<void>;
+  loadMailboxPageProgress(): Promise<MailboxPageProgress | null>;
+  saveMailboxPageProgress(progress: MailboxPageProgress): Promise<void>;
+  clearMailboxPageProgress(): Promise<void>;
   loadRemoteImages(urls: readonly string[]): Promise<Readonly<Record<string, string>>>;
   saveRemoteImages(images: Readonly<Record<string, string>>): Promise<void>;
   loadAttachment(identity: AttachmentCacheIdentity): Promise<Uint8Array | null>;
@@ -35,6 +38,13 @@ export interface LocalMailStore {
   wipeAccount(accountId: string): Promise<LocalDataWipeReceipt>;
   wipeDevice(): Promise<LocalDataWipeReceipt>;
   close(): Promise<void>;
+}
+
+export interface MailboxPageProgress {
+  readonly nextCursor: string;
+  readonly pagesLoaded: number;
+  readonly threadsLoaded: number;
+  readonly updatedAt: string;
 }
 
 export type LocalStorageClass =
@@ -101,6 +111,7 @@ export interface AttachmentCacheIdentity {
 }
 
 const previewKey = 'tap-example.tap-email.preview-mailbox.v1';
+const previewMailboxPageProgressKey = 'tap-example.tap-email.preview-mailbox-page-progress.v1';
 const databaseName = 'tap-email-mailbox-v1.sqlite';
 const remoteImageDirectory = 'remote-images';
 const attachmentDirectory = 'attachments';
@@ -401,6 +412,28 @@ interface StoredMailboxState {
   readonly updatedAt: string;
 }
 
+function mailboxPageProgress(value: unknown): MailboxPageProgress | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Readonly<Record<string, unknown>>;
+  if (
+    typeof candidate.nextCursor !== 'string' ||
+    candidate.nextCursor.length === 0 ||
+    candidate.nextCursor.length > 4_096 ||
+    !Number.isSafeInteger(candidate.pagesLoaded) ||
+    Number(candidate.pagesLoaded) < 0 ||
+    !Number.isSafeInteger(candidate.threadsLoaded) ||
+    Number(candidate.threadsLoaded) < 0 ||
+    typeof candidate.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(candidate.updatedAt))
+  ) return null;
+  return {
+    nextCursor: candidate.nextCursor,
+    pagesLoaded: Number(candidate.pagesLoaded),
+    threadsLoaded: Number(candidate.threadsLoaded),
+    updatedAt: new Date(Date.parse(candidate.updatedAt)).toISOString(),
+  };
+}
+
 function parseStoredMailboxState(
   columns: readonly string[],
   row: readonly unknown[] | undefined,
@@ -547,6 +580,26 @@ export class PreviewFixtureMailStore implements LocalMailStore {
     globalThis.localStorage?.setItem(previewKey, JSON.stringify(state));
   }
 
+  async loadMailboxPageProgress(): Promise<MailboxPageProgress | null> {
+    const raw = globalThis.localStorage?.getItem(previewMailboxPageProgressKey);
+    if (!raw) return null;
+    try {
+      return mailboxPageProgress(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+
+  async saveMailboxPageProgress(progress: MailboxPageProgress): Promise<void> {
+    const valid = mailboxPageProgress(progress);
+    if (!valid) throw new Error('Mailbox page progress is malformed.');
+    globalThis.localStorage?.setItem(previewMailboxPageProgressKey, JSON.stringify(valid));
+  }
+
+  async clearMailboxPageProgress(): Promise<void> {
+    globalThis.localStorage?.removeItem(previewMailboxPageProgressKey);
+  }
+
   async loadRemoteImages(): Promise<Readonly<Record<string, string>>> {
     return {};
   }
@@ -631,6 +684,7 @@ export class PreviewFixtureMailStore implements LocalMailStore {
 
   async wipeDevice(): Promise<LocalDataWipeReceipt> {
     globalThis.localStorage?.removeItem(previewKey);
+    globalThis.localStorage?.removeItem(previewMailboxPageProgressKey);
     return incompleteWipeReceipt(
       'device',
       null,
@@ -810,6 +864,53 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           this.writeStoredMailbox(transaction, state, updatedAt));
         await database.checkpoint();
       });
+    return this.pendingWrite;
+  }
+
+  async loadMailboxPageProgress(): Promise<MailboxPageProgress | null> {
+    await this.pendingWrite.catch(() => undefined);
+    const { database } = await this.connect();
+    const result = await database.query(
+      `SELECT next_cursor, pages_loaded, threads_loaded, updated_at
+         FROM local_mail_page_progress WHERE id = ?`,
+      [1],
+    );
+    if (!result.rows[0]) return null;
+    return mailboxPageProgress({
+      nextCursor: valueAt(result.columns, result.rows[0], 'next_cursor'),
+      pagesLoaded: valueAt(result.columns, result.rows[0], 'pages_loaded'),
+      threadsLoaded: valueAt(result.columns, result.rows[0], 'threads_loaded'),
+      updatedAt: valueAt(result.columns, result.rows[0], 'updated_at'),
+    });
+  }
+
+  saveMailboxPageProgress(progress: MailboxPageProgress): Promise<void> {
+    const valid = mailboxPageProgress(progress);
+    if (!valid) return Promise.reject(new Error('Mailbox page progress is malformed.'));
+    this.pendingWrite = this.pendingWrite.catch(() => undefined).then(async () => {
+      const { database } = await this.connect();
+      await database.execute(
+        `INSERT INTO local_mail_page_progress
+           (id, next_cursor, pages_loaded, threads_loaded, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           next_cursor = excluded.next_cursor,
+           pages_loaded = excluded.pages_loaded,
+           threads_loaded = excluded.threads_loaded,
+           updated_at = excluded.updated_at`,
+        [1, valid.nextCursor, valid.pagesLoaded, valid.threadsLoaded, valid.updatedAt],
+      );
+      await database.checkpoint();
+    });
+    return this.pendingWrite;
+  }
+
+  clearMailboxPageProgress(): Promise<void> {
+    this.pendingWrite = this.pendingWrite.catch(() => undefined).then(async () => {
+      const { database } = await this.connect();
+      await database.execute('DELETE FROM local_mail_page_progress WHERE id = ?', [1]);
+      await database.checkpoint();
+    });
     return this.pendingWrite;
   }
 
@@ -1619,6 +1720,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
         await database.transaction(async transaction => {
           await transaction.execute('DELETE FROM mailbox_state WHERE id = ?', [1]);
           await deleteNormalizedLocalReplica(transaction);
+          await transaction.execute('DELETE FROM local_mail_page_progress WHERE id = ?', [1]);
           await transaction.execute('DELETE FROM attachment_cache');
           await transaction.execute('DELETE FROM remote_image_cache');
         });
@@ -1695,6 +1797,14 @@ export class UnavailableLocalProfileMailStore implements LocalMailStore {
       'TAP Email needs SDK private profile storage before it can persist mailbox content on this device.',
     );
   }
+
+  async loadMailboxPageProgress(): Promise<MailboxPageProgress | null> {
+    return null;
+  }
+
+  async saveMailboxPageProgress(): Promise<void> {}
+
+  async clearMailboxPageProgress(): Promise<void> {}
 
   async loadRemoteImages(): Promise<Readonly<Record<string, string>>> {
     return {};

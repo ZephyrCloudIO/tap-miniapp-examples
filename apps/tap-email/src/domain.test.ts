@@ -9,11 +9,13 @@ import {
   markDone,
   markThreadRead,
   mailSplitThreadCount,
+  mergeMailboxPage,
   mergeMailboxSnapshot,
   moveSelection,
   normalizeMailPreferences,
   notificationsEnabledForAccount,
   previewMailState,
+  projectedThreads,
   remindThread,
   resolveReminderInput,
   rollbackUnpersistedMailCommand,
@@ -158,10 +160,12 @@ describe('TAP Email domain', () => {
     };
     const changed = markDone(collision, 'cmd_collision', now);
     expect(
-      changed.threads.find(thread => emailThreadKey(thread) === emailThreadKey(workThread))?.status,
+      projectedThreads(changed).find(
+        thread => emailThreadKey(thread) === emailThreadKey(workThread),
+      )?.status,
     ).toBe('done');
     expect(
-      changed.threads.find(
+      projectedThreads(changed).find(
         thread => thread.accountId === personalThread.accountId && thread.threadId === workThread.threadId,
       )?.status,
     ).toBe(personalThread.status);
@@ -172,7 +176,7 @@ describe('TAP Email domain', () => {
     const current = selectedThread(state);
     const next = markDone(state, 'cmd_done_1', now);
     expect(
-      next.threads.find(thread => thread.threadId === current?.threadId)?.status,
+      projectedThreads(next).find(thread => thread.threadId === current?.threadId)?.status,
     ).toBe('done');
     expect(next.commands[0]).toMatchObject({
       commandId: 'cmd_done_1',
@@ -181,6 +185,8 @@ describe('TAP Email domain', () => {
       kind: 'archive',
     });
     expect(selectedThread(next)?.threadId).not.toBe(current?.threadId);
+    expect(next.threads.find(thread => thread.threadId === current?.threadId)?.status)
+      .toBe(current?.status);
   });
 
   it('restores an optimistic Done transition when the provider does not apply it', () => {
@@ -314,10 +320,10 @@ describe('TAP Email domain', () => {
       now,
     );
 
-    expect(next.threads.find(thread =>
+    expect(projectedThreads(next).find(thread =>
       thread.accountId === work.accountId && thread.threadId === work.threadId
     )?.unread).toBe(false);
-    expect(next.threads.find(thread =>
+    expect(projectedThreads(next).find(thread =>
       thread.accountId === personal.accountId && thread.threadId === work.threadId
     )?.unread).toBe(true);
     expect(next.commands.at(-1)).toMatchObject({
@@ -357,7 +363,7 @@ describe('TAP Email domain', () => {
     if (!current) return;
 
     const trashed = trashThread(state, 'cmd_trash_1', now);
-    expect(trashed.threads.find(thread =>
+    expect(projectedThreads(trashed).find(thread =>
       emailThreadKey(thread) === emailThreadKey(current)
     )?.status).toBe('trashed');
     expect(trashed.commands.at(-1)).toMatchObject({
@@ -386,7 +392,7 @@ describe('TAP Email domain', () => {
       now,
     );
     expect(
-      next.threads.find(thread => thread.threadId === current?.threadId),
+      projectedThreads(next).find(thread => thread.threadId === current?.threadId),
     ).toMatchObject({
       status: 'reminded',
       reminder: { condition: 'if_no_reply' },
@@ -425,7 +431,9 @@ describe('TAP Email domain', () => {
     expect(selectedThread(unstarred)?.providerResources).toEqual(['inbox']);
 
     const done = markDone(projected, 'cmd_done_resource', now);
-    expect(done.threads.find(thread => thread.threadId === current.threadId)?.providerResources)
+    expect(projectedThreads(done).find(
+      thread => thread.threadId === current.threadId,
+    )?.providerResources)
       .toEqual([]);
     expect(visibleThreads(done)).not.toContainEqual(
       expect.objectContaining({ threadId: current.threadId }),
@@ -714,6 +722,30 @@ describe('TAP Email domain', () => {
     expect(merged.selectedThreadKey).toBe(state.selectedThreadKey);
   });
 
+  it('merges a partial mailbox page without treating absent provider rows as deleted', () => {
+    const state = previewMailState();
+    const first = state.threads[0]!;
+    const updated = { ...first, unread: !first.unread };
+    const merged = mergeMailboxPage(state, {
+      schemaVersion: 1,
+      accounts: state.accounts,
+      threads: [updated],
+    });
+
+    expect(merged.threads).toHaveLength(state.threads.length);
+    expect(merged.threads.find(thread => emailThreadKey(thread) === emailThreadKey(first))?.unread)
+      .toBe(updated.unread);
+    expect(merged.threads.some(thread => emailThreadKey(thread) === emailThreadKey(state.threads[1]!)))
+      .toBe(true);
+
+    const complete = mergeMailboxSnapshot(merged, {
+      schemaVersion: 1,
+      accounts: state.accounts,
+      threads: [updated],
+    });
+    expect(complete.threads).toHaveLength(1);
+  });
+
   it('preserves explicit TAP triage corrections across provider refreshes', () => {
     const state = previewMailState();
     const target = state.threads[0]!;
@@ -724,7 +756,7 @@ describe('TAP Email domain', () => {
       { critical: false, responseState: 'waiting' },
       now,
     );
-    const correctedTarget = corrected.threads[0]!;
+    const correctedTarget = projectedThreads(corrected)[0]!;
     expect(correctedTarget).toMatchObject({
       critical: false,
       needsResponse: false,
@@ -741,7 +773,7 @@ describe('TAP Email domain', () => {
       accounts: state.accounts,
       threads: state.threads.map(thread => ({ ...thread })),
     });
-    expect(merged.threads[0]).toMatchObject({
+    expect(projectedThreads(merged)[0]).toMatchObject({
       critical: false,
       needsResponse: false,
       waitingOnOthers: true,
@@ -769,7 +801,7 @@ describe('TAP Email domain', () => {
       '2026-09-14T09:01:00.000Z',
     );
 
-    expect(responseCorrection.threads[0]).toMatchObject({
+    expect(projectedThreads(responseCorrection)[0]).toMatchObject({
       critical: false,
       needsResponse: false,
       waitingOnOthers: true,

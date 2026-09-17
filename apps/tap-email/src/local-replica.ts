@@ -167,6 +167,16 @@ export const localReplicaMigrations = [
         account_id, status, unread, starred, received_at DESC, thread_id
       )`,
   },
+  {
+    version: 21,
+    sql: `CREATE TABLE IF NOT EXISTS local_mail_page_progress (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      next_cursor TEXT NOT NULL,
+      pages_loaded INTEGER NOT NULL CHECK (pages_loaded >= 0),
+      threads_loaded INTEGER NOT NULL CHECK (threads_loaded >= 0),
+      updated_at TEXT NOT NULL
+    )`,
+  },
 ] as const satisfies readonly MiniAppSqlMigration[];
 
 const normalizedTablesInDeleteOrder = [
@@ -629,6 +639,9 @@ export function mailStateWithoutAccount(
         ? null
         : state.selectedThreadKey,
     commands: state.commands.filter(command => commandForOtherAccount(command, accountId)),
+    pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(
+      intent => intent.accountId !== accountId,
+    ),
     outbox: state.outbox?.filter(item =>
       item.attempts[0]?.command.accountId !== accountId
     ),
