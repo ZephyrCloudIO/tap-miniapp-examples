@@ -102,6 +102,8 @@ test('healthy monitor paginates queues and uses the official consumer field', as
   const query = fake.calls.find(call => call.method === 'POST');
   const body = JSON.parse(query.body);
   assert.match(body.sql, /^WITH anomalies/u);
+  assert.match(body.sql, /recent_sync_not_requested/u);
+  assert.match(body.sql, /last_sync_requested_at/u);
   assert.doesNotMatch(body.sql, /\b(?:INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER)\b/iu);
   assert.equal(body.params.length, 3);
 });
