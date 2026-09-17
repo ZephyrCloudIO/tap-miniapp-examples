@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@rstest/core';
 import {
-  INITIAL_MAILBOX_APPROVAL_MESSAGE,
+  INITIAL_MAILBOX_PENDING_MESSAGE,
   watchForDelayedPendingRequest,
 } from './pending-request';
 
@@ -63,11 +63,10 @@ describe('delayed pending request', () => {
     expect(transitions).toEqual([true, false]);
   });
 
-  it('names the exact prompt and action needed to load mail', () => {
-    expect(INITIAL_MAILBOX_APPROVAL_MESSAGE).toContain('API Workbench');
-    expect(INITIAL_MAILBOX_APPROVAL_MESSAGE).toContain('network access prompt');
-    expect(INITIAL_MAILBOX_APPROVAL_MESSAGE).toContain('localhost');
-    expect(INITIAL_MAILBOX_APPROVAL_MESSAGE).toContain('load mail');
-    expect(INITIAL_MAILBOX_APPROVAL_MESSAGE).toContain('Allow for Session');
+  it('describes a slow request without assuming an approval prompt', () => {
+    expect(INITIAL_MAILBOX_PENDING_MESSAGE).toContain('mail service');
+    expect(INITIAL_MAILBOX_PENDING_MESSAGE).not.toMatch(
+      /API Workbench|localhost|approval|Allow for Session/iu,
+    );
   });
 });

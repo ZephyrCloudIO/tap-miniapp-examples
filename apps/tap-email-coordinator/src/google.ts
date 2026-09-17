@@ -762,15 +762,11 @@ async function writeProviderDraft(
   mime: { readonly raw: string; readonly threadId?: string },
 ): Promise<Readonly<Record<string, unknown>>> {
   if (providerDraftId) {
-    try {
-      return await googleJson(
-        accessToken,
-        `/gmail/v1/users/me/drafts/${encodeURIComponent(providerDraftId)}`,
-        { method: 'PUT', body: JSON.stringify({ message: mime }) },
-      );
-    } catch (error) {
-      if (!(error instanceof GoogleApiError) || error.status !== 404) throw error;
-    }
+    return googleJson(
+      accessToken,
+      `/gmail/v1/users/me/drafts/${encodeURIComponent(providerDraftId)}`,
+      { method: 'PUT', body: JSON.stringify({ message: mime }) },
+    );
   }
   return googleJson(accessToken, '/gmail/v1/users/me/drafts', {
     method: 'POST',
@@ -802,7 +798,16 @@ async function executeSaveDraft(
   const identity = `${payload.draftKey}@tap-email.local`;
   const providerDraftId = recorded?.provider_draft_id ??
     await listedProviderDraftId(accessToken, identity);
-  const saved = await writeProviderDraft(accessToken, providerDraftId, mime);
+  let saved: Readonly<Record<string, unknown>>;
+  try {
+    saved = await writeProviderDraft(accessToken, providerDraftId, mime);
+  } catch (error) {
+    if (providerDraftId && error instanceof GoogleApiError && error.status === 404) {
+      await recordProviderDraft(env, scope, command, payload, null, 'discarded', now);
+      return { outcome: 'failed', errorCode: 'provider_draft_deleted' };
+    }
+    throw error;
+  }
   const savedId = typeof saved.id === 'string' ? saved.id : providerDraftId;
   if (!savedId) {
     return { outcome: 'retryable', errorCode: 'gmail_draft_checkpoint_missing' };
@@ -881,7 +886,16 @@ async function executeSend(
   if (!canReuseCheckpoint) {
     const mime = await mimeFor(env, scope, command, payload, current);
     if (!mime) return { outcome: 'failed', errorCode: 'invalid_message' };
-    const saved = await writeProviderDraft(accessToken, draftId, mime);
+    let saved: Readonly<Record<string, unknown>>;
+    try {
+      saved = await writeProviderDraft(accessToken, draftId, mime);
+    } catch (error) {
+      if (draftId && error instanceof GoogleApiError && error.status === 404) {
+        await recordProviderDraft(env, scope, command, payload, null, 'discarded', now);
+        return { outcome: 'failed', errorCode: 'provider_draft_deleted' };
+      }
+      throw error;
+    }
     draftId = typeof saved.id === 'string' ? saved.id : draftId;
     if (!draftId) return { outcome: 'retryable', errorCode: 'gmail_draft_checkpoint_missing' };
     await recordProviderDraft(
@@ -943,6 +957,21 @@ function providerError(error: unknown): ProviderExecutionResult {
   return { outcome: 'failed', errorCode: error.code };
 }
 
+async function providerThreadRevision(
+  accessToken: string,
+  threadId: string,
+): Promise<string | null> {
+  const parameters = new URLSearchParams({
+    format: 'minimal',
+    fields: 'id,historyId',
+  });
+  const thread = await googleJson(
+    accessToken,
+    `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?${parameters.toString()}`,
+  );
+  return typeof thread.historyId === 'string' ? thread.historyId : null;
+}
+
 export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderPort {
   return {
     async execute(scope, command) {
@@ -969,6 +998,15 @@ export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderP
         }
         if (!command.threadId) {
           return { outcome: 'failed', errorCode: 'thread_required' };
+        }
+        if (
+          (command.kind === 'archive' || command.kind === 'trash') &&
+          command.expectedProviderRevision !== null
+        ) {
+          const observedRevision = await providerThreadRevision(accessToken, command.threadId);
+          if (observedRevision !== command.expectedProviderRevision) {
+            return { outcome: 'failed', errorCode: 'provider_revision_conflict' };
+          }
         }
         if (command.kind === 'trash') {
           const result = await googleJson(

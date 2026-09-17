@@ -266,6 +266,11 @@ describe('Google provider writes', () => {
   it('maps Done to an idempotent INBOX label removal', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
+      if (init?.method !== 'POST') {
+        expect(url.pathname).toBe('/gmail/v1/users/me/threads/thread_1');
+        expect(url.searchParams.get('format')).toBe('minimal');
+        return Response.json({ id: 'thread_1', historyId: 'history_9' });
+      }
       expect(url.pathname).toBe('/gmail/v1/users/me/threads/thread_1/modify');
       expect(init?.method).toBe('POST');
       expect(JSON.parse(String(init?.body))).toEqual({
@@ -279,6 +284,20 @@ describe('Google provider writes', () => {
       outcome: 'acknowledged',
       providerRevision: 'history_10',
     });
+  });
+
+  it('does not archive a thread that changed after the reviewed projection', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      id: 'thread_1',
+      historyId: 'history_new_reply',
+    }));
+    const provider = createGoogleProvider(env, () => now);
+
+    await expect(provider.execute(scope, command())).resolves.toEqual({
+      outcome: 'failed',
+      errorCode: 'provider_revision_conflict',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -370,6 +389,56 @@ describe('Google provider writes', () => {
       provider_draft_id: 'draft_1',
       latest_revision: 2,
       state: 'active',
+    });
+  });
+
+  it('does not recreate a provider draft deleted outside TAP Email', async () => {
+    let creates = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname === '/gmail/v1/users/me/drafts' && init?.method !== 'POST') {
+        return Response.json({});
+      }
+      if (url.pathname === '/gmail/v1/users/me/drafts' && init?.method === 'POST') {
+        creates += 1;
+        return Response.json({ id: 'draft_deleted_elsewhere', message: { historyId: 'history_1' } });
+      }
+      if (url.pathname === '/gmail/v1/users/me/drafts/draft_deleted_elsewhere') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 });
+      }
+      throw new Error(`Unexpected Google request: ${url}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const save = (revision: number) => command({
+      commandId: `cmd_deleted_${revision}`,
+      idempotencyKey: `tap-email:google_1:deleted:${revision}`,
+      kind: 'save_draft',
+      payload: {
+        draftKey: 'draft_deleted',
+        draftRevision: revision,
+        to: 'maya@example.com',
+        subject: 'Deleted elsewhere',
+        bodyText: `Revision ${revision}`,
+      },
+    });
+
+    await expect(provider.execute(scope, save(1))).resolves.toMatchObject({
+      outcome: 'acknowledged',
+    });
+    await expect(provider.execute(scope, save(2))).resolves.toEqual({
+      outcome: 'failed',
+      errorCode: 'provider_draft_deleted',
+    });
+    expect(creates).toBe(1);
+    await expect(env.DB.prepare(
+      `SELECT provider_draft_id, latest_revision, state
+         FROM provider_drafts
+        WHERE profile_id = 'profile_1' AND account_id = 'google_1'
+          AND draft_key = 'draft_deleted'`,
+    ).first()).resolves.toEqual({
+      provider_draft_id: null,
+      latest_revision: 2,
+      state: 'discarded',
     });
   });
 

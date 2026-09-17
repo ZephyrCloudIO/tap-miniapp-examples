@@ -240,9 +240,22 @@ async function call(
   return body;
 }
 
-interface MailboxPage {
+export interface MailboxPage {
   readonly mailbox: MailboxSnapshot;
   readonly nextCursor: string | null;
+}
+
+export interface MailboxLoadProgress extends MailboxPage {
+  readonly loadedThreadCount: number;
+  readonly pageCount: number;
+  readonly complete: boolean;
+}
+
+export interface MailboxLoadOptions {
+  /** Resume after the last page that was durably merged into the device replica. */
+  readonly startCursor?: string | null;
+  /** Called once for every bounded page, before the following request begins. */
+  readonly onPage?: (progress: MailboxLoadProgress) => void | Promise<void>;
 }
 
 function mailboxPage(value: unknown): MailboxPage {
@@ -378,28 +391,39 @@ export function createCoordinatorClient(
       }
       return body.authorizationUrl;
     },
-    async getMailbox(): Promise<MailboxSnapshot> {
+    async getMailboxPage(cursor: string | null = null): Promise<MailboxPage> {
+      if (
+        cursor !== null &&
+        (cursor.length === 0 || cursor.length > maximumMailboxCursorLength)
+      ) {
+        throw new CoordinatorError(400, 'invalid_mailbox_cursor', 'Mailbox page cursor is malformed.');
+      }
+      return mailboxPage(
+        await call(
+          resolved,
+          {
+            method: 'GET',
+            url: cursor
+              ? `${origin}/v1/mailbox?cursor=${encodeURIComponent(cursor)}`
+              : `${origin}/v1/mailbox`,
+          },
+          2_097_152,
+          origin,
+        ),
+      );
+    },
+    async getMailbox(options: MailboxLoadOptions = {}): Promise<MailboxSnapshot> {
       const threads: MailboxSnapshot['threads'][number][] = [];
       const seenThreadKeys = new Set<string>();
       const seenCursors = new Set<string>();
       let accounts: MailboxSnapshot['accounts'] = [];
-      let cursor: string | null = null;
+      let cursor: string | null = options.startCursor ?? null;
+      let pageCount = 0;
 
       while (true) {
-        const page = mailboxPage(
-          await call(
-            resolved,
-            {
-              method: 'GET',
-              url: cursor
-                ? `${origin}/v1/mailbox?cursor=${encodeURIComponent(cursor)}`
-                : `${origin}/v1/mailbox`,
-            },
-            2_097_152,
-            origin,
-          ),
-        );
-        if (cursor === null) accounts = page.mailbox.accounts;
+        const page = await this.getMailboxPage(cursor);
+        pageCount += 1;
+        if (accounts.length === 0) accounts = page.mailbox.accounts;
         let addedThreads = 0;
         for (const thread of page.mailbox.threads) {
           const key = `${thread.accountId}\u0000${thread.threadId}`;
@@ -409,7 +433,15 @@ export function createCoordinatorClient(
           addedThreads += 1;
         }
 
-        if (page.nextCursor === null) {
+        const complete = page.nextCursor === null;
+        await options.onPage?.({
+          ...page,
+          loadedThreadCount: threads.length,
+          pageCount,
+          complete,
+        });
+
+        if (complete) {
           return { schemaVersion: 1, accounts, threads };
         }
         if (

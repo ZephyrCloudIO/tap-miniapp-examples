@@ -74,7 +74,7 @@ function stateWithResources(): MailState {
 describe('normalized local mail replica', () => {
   it('uses additive migrations with deterministic search indexes', () => {
     expect(localReplicaMigrations.map(migration => migration.version)).toEqual(
-      Array.from({ length: 16 }, (_, index) => index + 5),
+      Array.from({ length: 17 }, (_, index) => index + 5),
     );
     expect(localReplicaMigrations.map(migration => migration.sql).join('\n'))
       .toContain('local_mail_attachment_metadata');

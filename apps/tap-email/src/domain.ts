@@ -68,6 +68,7 @@ const providerMailboxResources = new Set<ProviderMailboxResource>([
 ]);
 export type AccountSelection = 'all' | string;
 export type ThreadStatus = 'inbox' | 'done' | 'reminded' | 'trashed';
+const threadStatuses = new Set<ThreadStatus>(['inbox', 'done', 'reminded', 'trashed']);
 
 export interface EmailAccount {
   readonly accountId: string;
@@ -182,6 +183,20 @@ export interface RecoverableImmediateSend {
   readonly updatedAt: string;
 }
 
+export interface PendingThreadIntent {
+  readonly commandId: string;
+  readonly accountId: string;
+  readonly threadId: string;
+  /** A view overlay. Provider projection rows are changed only after acknowledgement. */
+  readonly patch: Readonly<{
+    unread?: boolean;
+    starred?: boolean;
+    status?: ThreadStatus;
+    providerResources?: readonly ProviderMailboxResource[];
+    reminder?: TapEmailReminder | null;
+  }>;
+}
+
 export interface MailState {
   readonly schemaVersion: 2;
   readonly accounts: readonly EmailAccount[];
@@ -190,6 +205,7 @@ export interface MailState {
   readonly selectedSplit: MailSplit;
   readonly selectedThreadKey: string | null;
   readonly commands: readonly MailCommand[];
+  readonly pendingThreadIntents?: readonly PendingThreadIntent[];
   /** Recoverable immediate-send outcomes; optional for schema-v2 cache compatibility. */
   readonly outbox?: readonly RecoverableImmediateSend[];
   readonly preferences: MailPreferences;
@@ -226,6 +242,7 @@ export function emptyMailState(): MailState {
     selectedSplit: 'inbox',
     selectedThreadKey: null,
     commands: [],
+    pendingThreadIntents: [],
     outbox: [],
     preferences: defaultPreferences,
     undo: null,
@@ -742,6 +759,11 @@ export function recoverableImmediateSends(
 export function isMailState(value: unknown): value is MailState {
   if (!isRecord(value)) return false;
   const commands = Array.isArray(value.commands) ? value.commands : null;
+  const pendingThreadIntents = value.pendingThreadIntents === undefined
+    ? []
+    : Array.isArray(value.pendingThreadIntents)
+      ? value.pendingThreadIntents
+      : null;
   const validAccountSelection = value.selectedAccountId === 'all' ||
     isSafeMailIdentifier(value.selectedAccountId);
   const undo = isRecord(value.undo) ? value.undo : null;
@@ -769,6 +791,24 @@ export function isMailState(value: unknown): value is MailState {
     commands !== null &&
     commands.length <= 10_000 &&
     commands.every(isMailCommand) &&
+    pendingThreadIntents !== null &&
+    pendingThreadIntents.length <= 10_000 &&
+    pendingThreadIntents.every(item => {
+      if (!isRecord(item) || !isRecord(item.patch)) return false;
+      const patch = item.patch;
+      return isSafeMailIdentifier(item.commandId) &&
+        isSafeMailIdentifier(item.accountId) &&
+        isSafeMailIdentifier(item.threadId) &&
+        (patch.unread === undefined || typeof patch.unread === 'boolean') &&
+        (patch.starred === undefined || typeof patch.starred === 'boolean') &&
+        (patch.status === undefined || threadStatuses.has(patch.status as ThreadStatus)) &&
+        (patch.providerResources === undefined || (
+          Array.isArray(patch.providerResources) &&
+          patch.providerResources.every(resource =>
+            providerMailboxResources.has(resource as ProviderMailboxResource))
+        )) &&
+        (patch.reminder === undefined || isReminder(patch.reminder));
+    }) &&
     (value.outbox === undefined || (
       Array.isArray(value.outbox) &&
       value.outbox.length <= 1_000 &&
@@ -837,7 +877,7 @@ export function mailSplitThreadCount(state: MailState, split: MailSplit): number
       );
     }).length;
   }
-  return state.threads.filter(thread =>
+  return projectedThreads(state).filter(thread =>
     (state.selectedAccountId === 'all' || thread.accountId === state.selectedAccountId) &&
     threadMatchesSplit(thread, split)
   ).length;
@@ -901,15 +941,36 @@ export function settleMailCommand(
       }
     }
   }
+  const pendingIntent = (state.pendingThreadIntents ?? []).find(
+    intent => intent.commandId === command.commandId,
+  );
+  const acknowledgedPatch = pendingIntent && command.kind === 'create_reminder'
+    ? { reminder: pendingIntent.patch.reminder }
+    : pendingIntent?.patch;
+  const threads = receipt.state === 'applied' && pendingIntent && acknowledgedPatch
+    ? state.threads.map(thread =>
+        thread.accountId === pendingIntent.accountId &&
+        thread.threadId === pendingIntent.threadId
+          ? { ...thread, ...acknowledgedPatch }
+          : thread)
+    : state.threads;
   const settled = {
     ...state,
+    threads,
     commands: state.commands.filter(item => item.commandId !== command.commandId),
+    pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(
+      intent => intent.commandId !== command.commandId,
+    ),
     outbox,
     undo: state.undo?.commandId === command.commandId ? null : state.undo,
+    selectedThreadKey:
+      receipt.state !== 'applied' &&
+      state.undo?.kind !== 'send' &&
+      state.undo?.commandId === command.commandId
+        ? state.undo.previousSelectedThreadKey
+        : state.selectedThreadKey,
   };
-  return command.kind === 'archive' && receipt.state !== 'applied'
-    ? restoreOptimisticArchive(settled, command, state.undo)
-    : settled;
+  return settled;
 }
 
 function restoreOptimisticArchive(
@@ -918,32 +979,15 @@ function restoreOptimisticArchive(
   undo: UndoEntry | null = state.undo,
 ): MailState {
   if (command.kind !== 'archive' || !command.threadId) return state;
-  const matchingUndo = undo?.kind !== 'send' && undo?.commandId === command.commandId
-    ? undo
+  const restored = undo?.kind !== 'send' && undo?.commandId === command.commandId
+    ? undo.thread
     : null;
-  const optimistic = state.threads.find(thread =>
-    thread.accountId === command.accountId && thread.threadId === command.threadId
-  );
-  const restored = matchingUndo?.thread ?? (optimistic
-    ? {
-        ...optimistic,
-        status: 'inbox' as const,
-        ...(optimistic.providerResources
-          ? {
-              providerResources: [
-                ...new Set([...optimistic.providerResources, 'inbox' as const]),
-              ],
-            }
-          : {}),
-      }
-    : null);
-  if (!restored) return state;
   return {
     ...state,
-    threads: state.threads.map(thread =>
-      emailThreadKey(thread) === emailThreadKey(restored) ? restored : thread
+    pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(
+      intent => intent.commandId !== command.commandId,
     ),
-    selectedThreadKey: emailThreadKey(restored),
+    ...(restored ? { selectedThreadKey: emailThreadKey(restored) } : {}),
   };
 }
 
@@ -1016,7 +1060,7 @@ export function retryRecoverableImmediateSend(
 }
 
 export function visibleThreads(state: MailState): readonly EmailThread[] {
-  return state.threads
+  return projectedThreads(state)
     .filter(thread =>
       state.selectedAccountId === 'all'
         ? true
@@ -1024,6 +1068,32 @@ export function visibleThreads(state: MailState): readonly EmailThread[] {
     )
     .filter(thread => threadMatchesSplit(thread, state.selectedSplit))
     .toSorted((left, right) => right.receivedAt.localeCompare(left.receivedAt));
+}
+
+export function projectedThreads(state: MailState): readonly EmailThread[] {
+  const intents = state.pendingThreadIntents ?? [];
+  const byThread = new Map<string, PendingThreadIntent[]>();
+  for (const intent of intents) {
+    const key = `${intent.accountId}\u0000${intent.threadId}`;
+    const group = byThread.get(key) ?? [];
+    group.push(intent);
+    byThread.set(key, group);
+  }
+  return state.threads.map(thread => {
+    const providerWithReminder = thread.reminder
+      ? { ...thread, status: 'reminded' as const }
+      : thread;
+    const withTapOverlay = thread.attentionCorrection
+      ? applyAttentionCorrectionToThread(providerWithReminder, thread.attentionCorrection)
+      : providerWithReminder;
+    const group = byThread.get(emailThreadKey(thread));
+    return group
+      ? group.reduce<EmailThread>(
+          (projected, intent) => ({ ...projected, ...intent.patch }),
+          withTapOverlay,
+        )
+      : withTapOverlay;
+  });
 }
 
 export function selectedThread(state: MailState): EmailThread | null {
@@ -1102,16 +1172,34 @@ function withThreadAction(
   const currentKey = emailThreadKey(thread);
   const currentIndex = before.findIndex(item => emailThreadKey(item) === currentKey);
   const changed = update(thread);
-  const threads = state.threads.map(item =>
-    emailThreadKey(item) === currentKey ? changed : item,
-  );
-  const provisional = { ...state, threads };
+  const patch: PendingThreadIntent['patch'] = {
+    ...(changed.unread === thread.unread ? {} : { unread: changed.unread }),
+    ...(changed.starred === thread.starred ? {} : { starred: changed.starred }),
+    ...(changed.status === thread.status ? {} : { status: changed.status }),
+    ...(changed.providerResources === thread.providerResources
+      ? {}
+      : { providerResources: changed.providerResources ?? [] }),
+    ...(changed.reminder === thread.reminder ? {} : { reminder: changed.reminder }),
+  };
+  const nextCommand = command(thread);
+  const provisional = {
+    ...state,
+    pendingThreadIntents: [
+      ...(state.pendingThreadIntents ?? []),
+      {
+        commandId,
+        accountId: thread.accountId,
+        threadId: thread.threadId,
+        patch,
+      },
+    ],
+  };
   const after = visibleThreads(provisional);
   const nextThread = after[Math.min(Math.max(0, currentIndex), after.length - 1)];
   return {
     ...provisional,
     selectedThreadKey: nextThread ? emailThreadKey(nextThread) : null,
-    commands: [...state.commands, command(thread)],
+    commands: [...state.commands, nextCommand],
     undo: {
       label,
       thread,
@@ -1152,21 +1240,18 @@ export function markThreadRead(
   commandId: string,
   now: string,
 ): MailState {
-  const thread = state.threads.find(
+  const thread = projectedThreads(state).find(
     item => item.accountId === accountId && item.threadId === threadId,
   );
   if (!thread?.unread) return state;
+  const command = commandFor(thread, commandId, 'mark_read', now, {});
   return {
     ...state,
-    threads: state.threads.map(item =>
-      item.accountId === accountId && item.threadId === threadId
-        ? { ...item, unread: false }
-        : item,
-    ),
-    commands: [
-      ...state.commands,
-      commandFor(thread, commandId, 'mark_read', now, {}),
+    pendingThreadIntents: [
+      ...(state.pendingThreadIntents ?? []),
+      { commandId, accountId, threadId, patch: { unread: false } },
     ],
+    commands: [...state.commands, command],
   };
 }
 
@@ -1178,15 +1263,19 @@ export function toggleThreadRead(
   const thread = selectedThread(state);
   if (!thread) return state;
   const unread = !thread.unread;
+  const command = commandFor(thread, commandId, unread ? 'mark_unread' : 'mark_read', now, {});
   return {
     ...state,
-    threads: state.threads.map(item =>
-      emailThreadKey(item) === emailThreadKey(thread) ? { ...item, unread } : item,
-    ),
-    commands: [
-      ...state.commands,
-      commandFor(thread, commandId, unread ? 'mark_unread' : 'mark_read', now, {}),
+    pendingThreadIntents: [
+      ...(state.pendingThreadIntents ?? []),
+      {
+        commandId,
+        accountId: thread.accountId,
+        threadId: thread.threadId,
+        patch: { unread },
+      },
     ],
+    commands: [...state.commands, command],
   };
 }
 
@@ -1285,8 +1374,8 @@ export function undoLastAction(state: MailState, now: string): MailState {
   const restored = state.undo.thread;
   return {
     ...state,
-    threads: state.threads.map(thread =>
-      emailThreadKey(thread) === emailThreadKey(restored) ? restored : thread,
+    pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(
+      intent => intent.commandId !== state.undo?.commandId,
     ),
     commands: state.commands.filter(
       command => command.commandId !== state.undo?.commandId,
@@ -1309,17 +1398,19 @@ export function toggleStar(
       ? [...new Set([...thread.providerResources, 'starred' as const])]
       : thread.providerResources.filter(resource => resource !== 'starred')
     : undefined;
+  const command = commandFor(thread, commandId, starred ? 'star' : 'unstar', now, {});
   return {
     ...state,
-    threads: state.threads.map(item =>
-      emailThreadKey(item) === emailThreadKey(thread)
-        ? { ...item, starred, ...(providerResources ? { providerResources } : {}) }
-        : item,
-    ),
-    commands: [
-      ...state.commands,
-      commandFor(thread, commandId, starred ? 'star' : 'unstar', now, {}),
+    pendingThreadIntents: [
+      ...(state.pendingThreadIntents ?? []),
+      {
+        commandId,
+        accountId: thread.accountId,
+        threadId: thread.threadId,
+        patch: { starred, ...(providerResources ? { providerResources } : {}) },
+      },
     ],
+    commands: [...state.commands, command],
   };
 }
 
@@ -1525,7 +1616,7 @@ export function mergeMailboxSnapshot(
     if (!previous) return incoming;
 
     const correctedIncoming = previous.attentionCorrection
-      ? applyAttentionCorrectionToThread(incoming, previous.attentionCorrection)
+      ? { ...incoming, attentionCorrection: previous.attentionCorrection }
       : incoming;
 
     // `/v1/mailbox` intentionally carries only the latest plaintext preview.
@@ -1565,6 +1656,29 @@ export function mergeMailboxSnapshot(
     return state;
   }
   return { ...merged, selectedThreadKey };
+}
+
+/**
+ * Merges one bounded provider page without interpreting absence from that page
+ * as provider deletion. Only a completed traversal may replace the full
+ * provider projection through `mergeMailboxSnapshot`.
+ */
+export function mergeMailboxPage(
+  state: MailState,
+  page: MailboxSnapshot,
+): MailState {
+  const threads = new Map(
+    state.threads.map(thread => [emailThreadKey(thread), thread] as const),
+  );
+  for (const thread of page.threads) threads.set(emailThreadKey(thread), thread);
+  return mergeMailboxSnapshot(state, {
+    schemaVersion: 1,
+    accounts: page.accounts.length > 0 ? page.accounts : state.accounts,
+    threads: [...threads.values()].toSorted((left, right) =>
+      right.receivedAt.localeCompare(left.receivedAt) ||
+      left.accountId.localeCompare(right.accountId) ||
+      left.threadId.localeCompare(right.threadId)),
+  });
 }
 
 function arraysReferenceEqual<T>(
@@ -1711,7 +1825,7 @@ export function correctThreadAttention(
       correctedAt,
     };
     changed = true;
-    return applyAttentionCorrectionToThread(thread, record);
+    return { ...thread, attentionCorrection: record };
   });
   return changed ? { ...state, threads } : state;
 }
@@ -1749,7 +1863,8 @@ export function mergeThreadMessages(
 }
 
 export function mailboxSummary(state: MailState, now: string): MailboxSummary {
-  const active = state.threads.filter(thread => thread.status === 'inbox');
+  const threads = projectedThreads(state);
+  const active = threads.filter(thread => thread.status === 'inbox');
   const coverageComplete = operationalZeroAllowed(
     state.accounts.map(account => account.coverage),
   );
@@ -1764,7 +1879,7 @@ export function mailboxSummary(state: MailState, now: string): MailboxSummary {
     critical: active.filter(thread => thread.critical).length,
     needsResponse: active.filter(thread => thread.needsResponse).length,
     waiting: active.filter(thread => thread.waitingOnOthers).length,
-    dueReminders: state.threads.filter(
+    dueReminders: threads.filter(
       thread =>
         thread.status === 'reminded' &&
         thread.reminder &&

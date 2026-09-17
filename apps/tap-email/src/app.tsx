@@ -48,12 +48,14 @@ import {
   mailSplitThreadCount,
   markDone,
   markThreadRead,
+  mergeMailboxPage,
   mergeMailboxSnapshot,
   mergeThreadMessages,
   moveSelection,
   normalizeMailPreferences,
   notificationsEnabledForAccount,
   previewMailState,
+  projectedThreads,
   recoverableImmediateSends,
   remindThread,
   resolveReminderInput,
@@ -145,6 +147,7 @@ import {
   type AttachmentCacheIdentity,
   type LocalDataWipeReceipt,
   type LocalMailStore,
+  type MailboxPageProgress,
 } from './local-store';
 import { mailStateWithoutAccount } from './local-replica';
 import { StoragePrivacyPanel } from './storage-privacy-panel';
@@ -177,7 +180,7 @@ import {
 } from './thread-list-dates';
 import { THREAD_LIST_PANE_ID, ThreadListToggle } from './thread-list-toggle';
 import {
-  INITIAL_MAILBOX_APPROVAL_MESSAGE,
+  INITIAL_MAILBOX_PENDING_MESSAGE,
   watchForDelayedPendingRequest,
   type DelayedPendingRequest,
 } from './pending-request';
@@ -454,7 +457,7 @@ function applyMailViewLocation(state: MailState, location: MailViewLocation): Ma
 }
 
 function accountScopedThreads(state: MailState): readonly EmailThread[] {
-  return state.threads.filter(thread =>
+  return projectedThreads(state).filter(thread =>
     state.selectedAccountId === 'all' || thread.accountId === state.selectedAccountId);
 }
 
@@ -709,7 +712,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [mailboxError, setMailboxError] = useState('');
   const [cacheError, setCacheError] = useState('');
   const [activityError, setActivityError] = useState('');
-  const [initialMailboxApprovalPending, setInitialMailboxApprovalPending] = useState(false);
+  const [initialMailboxRequestPending, setInitialMailboxRequestPending] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [replyDrafts, setReplyDrafts] = useState<Readonly<Record<string, ReplyDraft>>>({});
   const [poppedReplyKey, setPoppedReplyKey] = useState<string | null>(null);
@@ -753,6 +756,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     { readonly attempts: number; readonly revision: string }
   >());
   const hydrationRetryTimer = useRef<number | null>(null);
+  const initialMailboxLoadInFlight = useRef(false);
   const refreshMailboxInFlight = useRef<Promise<void> | null>(null);
   const syncInFlight = useRef<Promise<void> | null>(null);
   const observedNotifications = useRef(new Set<string>());
@@ -766,6 +770,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const activitySettlementActive = useRef(true);
   const activityReconciliationsPending = useRef(new Set<string>());
   const queuedDraftRevisions = useRef(new Map<string, number>());
+  const mailboxPageProgressPending = useRef<MailboxPageProgress | null | undefined>(undefined);
   const semanticIndexRef = useRef<Promise<EmailSemanticIndex> | null>(null);
   const idFactory = useCallback(
     () => surfaceContext?.entropy.randomUUID() ?? crypto.randomUUID(),
@@ -955,12 +960,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   useEffect(() => {
     let active = true;
-    let pendingMailboxRequest: DelayedPendingRequest<{
-      readonly mailbox: Awaited<ReturnType<CoordinatorClient['getMailbox']>> | null;
-      readonly error: unknown;
-    }> | null = null;
+    let cachedMailAvailable = false;
+    let pendingMailboxRequest: DelayedPendingRequest<void> | null = null;
     setCoordinatorNetworkReady(false);
-    setInitialMailboxApprovalPending(false);
+    setInitialMailboxRequestPending(false);
     void (async () => {
       try {
         if (preview) {
@@ -981,26 +984,17 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           requestAnimationFrame(() => rootRef.current?.focus());
         } else {
           await waitForHostAuthority(surfaceContext);
-          const client = createCoordinatorClient();
-          coordinatorRef.current = client;
-          pendingMailboxRequest = watchForDelayedPendingRequest(
-            client.getMailbox().then(
-              mailbox => ({ mailbox, error: null }),
-              error => ({ mailbox: null, error }),
-            ),
-            pending => {
-              if (active) setInitialMailboxApprovalPending(pending);
-            },
-          );
           const cacheRequest = store.load().then(
             mail => ({ mail, error: null }),
             error => ({ mail: null, error }),
           );
-          const [cached, preferences] = await Promise.all([
+          const [cached, preferences, savedProgress] = await Promise.all([
             cacheRequest,
             loadPreferences(false).catch(() => defaultPreferences),
+            store.loadMailboxPageProgress().catch(() => null),
           ]);
           if (!active) return;
+          cachedMailAvailable = cached.mail !== null;
           commandPersistenceBarrier.current.seedFromCache(
             cached.mail ?? { commands: [] },
             store.capability,
@@ -1013,24 +1007,74 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           }));
           setHydrated(true);
           requestAnimationFrame(() => rootRef.current?.focus());
-
-          const remote = await pendingMailboxRequest.result;
+          const client = createCoordinatorClient();
+          coordinatorRef.current = client;
+          const startCursor = cached.mail ? savedProgress?.nextCursor ?? null : null;
+          let firstPageSettled = false;
+          let resolveFirstPage!: () => void;
+          let rejectFirstPage!: (error: unknown) => void;
+          const firstPage = new Promise<void>((resolve, reject) => {
+            resolveFirstPage = resolve;
+            rejectFirstPage = reject;
+          });
+          pendingMailboxRequest = watchForDelayedPendingRequest(
+            firstPage,
+            pending => {
+              if (active) setInitialMailboxRequestPending(pending);
+            },
+          );
+          initialMailboxLoadInFlight.current = true;
+          const remoteRequest = client.getMailbox({
+            startCursor,
+            onPage: progress => {
+              if (!active) return;
+              setCoordinatorNetworkReady(true);
+              mailboxPageProgressPending.current = progress.nextCursor
+                ? {
+                    nextCursor: progress.nextCursor,
+                    pagesLoaded: (savedProgress?.pagesLoaded ?? 0) + progress.pageCount,
+                    threadsLoaded: (savedProgress?.threadsLoaded ?? 0) + progress.loadedThreadCount,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : null;
+              setState(current => ({
+                ...mergeMailboxPage(current, progress.mailbox),
+                preferences: current.preferences,
+              }));
+              setMailboxError('');
+              if (!firstPageSettled) {
+                firstPageSettled = true;
+                resolveFirstPage();
+              }
+            },
+          });
+          void remoteRequest.then(
+            mailbox => {
+              initialMailboxLoadInFlight.current = false;
+              if (!active) return;
+              if (startCursor === null) {
+                setState(current => ({
+                  ...mergeMailboxSnapshot(current, mailbox),
+                  preferences: current.preferences,
+                }));
+              }
+              mailboxPageProgressPending.current = null;
+              setMailboxError('');
+            },
+            error => {
+              initialMailboxLoadInFlight.current = false;
+              if (!firstPageSettled) {
+                firstPageSettled = true;
+                rejectFirstPage(error);
+              } else if (active) {
+                setMailboxError(
+                  `Loaded recent mail; older cloud history will resume from the device checkpoint: ${String(error)}`,
+                );
+              }
+            },
+          );
+          await pendingMailboxRequest.result;
           if (!active) return;
-          if (remote.error || !remote.mailbox) {
-            setMailboxError(
-              cached.mail
-                ? `Using the device cache because cloud refresh failed: ${String(remote.error)}`
-                : `TAP Email could not open the cloud mailbox: ${String(remote.error)}`,
-            );
-            return;
-          }
-          const mailbox = remote.mailbox;
-          setCoordinatorNetworkReady(true);
-          setState(current => ({
-            ...mergeMailboxSnapshot(current, mailbox),
-            preferences: current.preferences,
-          }));
-          setMailboxError('');
           setCacheError(
             cached.error
               ? `Mail is live, but the device cache could not open: ${String(cached.error)}`
@@ -1039,7 +1083,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         }
       } catch (error) {
         if (!active) return;
-        setMailboxError(`TAP Email could not open the cloud mailbox: ${String(error)}`);
+        setMailboxError(
+          cachedMailAvailable
+            ? `Using the device cache because cloud refresh failed: ${String(error)}`
+            : `TAP Email could not open the cloud mailbox: ${String(error)}`,
+        );
       } finally {
         if (active) {
           setHydrated(true);
@@ -1064,9 +1112,19 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     }
     const timer = window.setTimeout(() => {
       void store.save(state).then(
-        () => {
+        async () => {
           const released = commandPersistenceBarrier.current
             .releaseAfterSuccessfulSave(state, store.capability);
+          const progress = mailboxPageProgressPending.current;
+          if (progress === null) {
+            await store.clearMailboxPageProgress();
+            mailboxPageProgressPending.current = undefined;
+          } else if (progress !== undefined) {
+            await store.saveMailboxPageProgress(progress);
+            if (mailboxPageProgressPending.current === progress) {
+              mailboxPageProgressPending.current = undefined;
+            }
+          }
           setCacheError('');
           if (released) setDispatchTick(value => value + 1);
         },
@@ -1379,7 +1437,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       surfaceContext?.events.publish('tap-email.context.changed', activeContext),
     ).catch(() => undefined);
     if (sdk.home) {
-      const critical = state.threads.filter(item => item.status === 'inbox' && item.critical);
+      const critical = projectedThreads(state).filter(
+        item => item.status === 'inbox' && item.critical,
+      );
       void Promise.resolve(
         sdk.home.publishAttention({
           sourceId: 'tap-email-operational',
@@ -1461,7 +1521,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       readonly message: string;
     }> = [];
     const currentTime = Date.now();
-    for (const item of state.threads) {
+    for (const item of projectedThreads(state)) {
       if (item.status === 'inbox' && item.critical && item.unread) {
         candidates.push({
           accountId: item.accountId,
@@ -1493,36 +1553,27 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         notify(candidate.message);
       }
     }
-  }, [hydrated, initialLoadSettled, notify, preview, state.preferences, state.threads]);
+  }, [
+    hydrated,
+    initialLoadSettled,
+    notify,
+    preview,
+    state.pendingThreadIntents,
+    state.preferences,
+    state.threads,
+  ]);
 
   const refreshMailbox = useCallback((): Promise<void> => {
     const existingRefresh = refreshMailboxInFlight.current;
     if (existingRefresh) return existingRefresh;
 
     const refresh = (async () => {
-      if (stateRef.current.commands.length > 0) return;
       await waitForHostAuthority(surfaceContext);
       const client = coordinatorRef.current ?? createCoordinatorClient();
       coordinatorRef.current = client;
-      const mailbox = await client.getMailbox();
+      const { mailbox } = await client.getMailboxPage();
       setCoordinatorNetworkReady(true);
-
-      // Retain hydration for every thread still represented by the mailbox.
-      // A changed providerRevision naturally misses the revision-aware lookup
-      // below and revalidates only that selected conversation.
-      const mailboxThreadKeys = new Set(mailbox.threads.map(emailThreadKey));
-      for (const key of loadedThreadRevisions.current.keys()) {
-        if (!mailboxThreadKeys.has(key)) loadedThreadRevisions.current.delete(key);
-      }
-      for (const key of threadHydrationInFlight.current.keys()) {
-        if (!mailboxThreadKeys.has(key)) threadHydrationInFlight.current.delete(key);
-      }
-      for (const key of threadHydrationFailures.current.keys()) {
-        if (!mailboxThreadKeys.has(key)) threadHydrationFailures.current.delete(key);
-      }
-      setState(current =>
-        current.commands.length > 0 ? current : mergeMailboxSnapshot(current, mailbox),
-      );
+      setState(current => mergeMailboxPage(current, mailbox));
       setMailboxError('');
     })();
 
@@ -1557,6 +1608,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         // A throttled request means there is no new queue work to wait for.
         // The lightweight refresh remains useful and is now non-destructive.
         if (queued.some(Boolean)) await wait(1_200);
+        if (initialMailboxLoadInFlight.current) return;
         await refreshMailbox();
       } finally {
         setSyncing(false);
@@ -1693,7 +1745,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         const existing = new Set(stateRef.current.accounts.map(account => account.accountId));
         for (let attempt = 0; attempt < 45; attempt += 1) {
           await wait(2_000);
-          const mailbox = await client.getMailbox();
+          const mailbox = (await client.getMailboxPage()).mailbox;
           if (mailbox.accounts.some(account => !existing.has(account.accountId))) {
             setGoogleAuthorizationUrl(null);
             setState(current => mergeMailboxSnapshot(current, mailbox));
@@ -1723,7 +1775,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       setMailboxError(`Mailbox synchronization failed: ${String(error)}`),
     );
     const interval = window.setInterval(() => {
-      if (stateRef.current.commands.length > 0) return;
       void requestFreshMail().catch(() => undefined);
     }, 30_000);
     return () => window.clearInterval(interval);
@@ -2631,7 +2682,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const showCapabilityBanner =
     preview ||
     Boolean(loadError) ||
-    initialMailboxApprovalPending ||
+    initialMailboxRequestPending ||
     store.capability === 'unavailable';
   const capabilityBannerTitle = mailboxError
     ? state.accounts.length > 0
@@ -2641,16 +2692,16 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       ? 'Device cache unavailable'
       : activityError
         ? 'Activity history catching up'
-      : initialMailboxApprovalPending
-        ? 'Waiting for approval'
+      : initialMailboxRequestPending
+        ? 'Connecting to mail service'
         : preview
           ? 'Fixture mailbox'
           : state.accounts.length > 0
             ? 'Cloud mailbox active'
             : 'Google account required';
   const capabilityBannerMessage = loadError || (
-    initialMailboxApprovalPending
-      ? INITIAL_MAILBOX_APPROVAL_MESSAGE
+    initialMailboxRequestPending
+      ? INITIAL_MAILBOX_PENDING_MESSAGE
       : preview
         ? 'Disposable sample data; no Gmail account is connected.'
         : state.accounts.length > 0
@@ -2659,7 +2710,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   );
   const capabilityBannerClass = preview
     ? 'is-preview'
-    : initialMailboxApprovalPending
+    : initialMailboxRequestPending
       ? 'is-pending'
       : loadError
         ? ''

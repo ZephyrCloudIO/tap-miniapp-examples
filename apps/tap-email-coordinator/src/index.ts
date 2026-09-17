@@ -1882,6 +1882,50 @@ async function providerEventRow(
     .first<ProviderEventRow>();
 }
 
+function refreshAccountCoverageStatement(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  now: string,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `UPDATE google_accounts
+        SET unresolved_failures = (
+              SELECT COUNT(*) FROM provider_events
+               WHERE profile_id = ? AND account_id = ?
+                 AND state IN ('retryable', 'dead_letter')
+                 AND (
+                   google_accounts.last_full_sync_completed_at IS NULL OR
+                   updated_at > google_accounts.last_full_sync_completed_at
+                 )
+            ),
+            coverage_state = CASE
+              WHEN connection_state != 'active' THEN 'blocked'
+              WHEN backfill_page_token IS NOT NULL THEN 'backfilling'
+              WHEN EXISTS (
+                SELECT 1 FROM provider_events
+                 WHERE profile_id = ? AND account_id = ?
+                   AND state IN ('retryable', 'dead_letter')
+                   AND (
+                     google_accounts.last_full_sync_completed_at IS NULL OR
+                     updated_at > google_accounts.last_full_sync_completed_at
+                   )
+              ) THEN 'stale'
+              ELSE 'current'
+            END,
+            updated_at = ?
+      WHERE profile_id = ? AND account_id = ?`,
+  ).bind(
+    profileId,
+    accountId,
+    profileId,
+    accountId,
+    now,
+    profileId,
+    accountId,
+  );
+}
+
 async function processSyncMessage(
   message: Message<SyncQueueMessage>,
   env: Env,
@@ -1971,6 +2015,12 @@ async function processSyncMessage(
         'applied',
         timestamp,
       ),
+      refreshAccountCoverageStatement(
+        env,
+        leased.profile_id,
+        leased.account_id,
+        timestamp,
+      ),
     ]);
     message.ack();
   } catch (error) {
@@ -1984,19 +2034,6 @@ async function processSyncMessage(
     const delaySeconds = Math.min(300, 2 ** Math.min(8, leased.attempts + 4));
     const nextAttemptAt = new Date(now.getTime() + delaySeconds * 1_000).toISOString();
     await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE google_accounts
-          SET coverage_state = ?, unresolved_failures = unresolved_failures + 1,
-              updated_at = ?
-        WHERE profile_id = ? AND account_id = ?`,
-      ).bind(
-        error instanceof GoogleApiError && error.code === 'google_reauthorization_required'
-          ? 'blocked'
-          : 'stale',
-        timestamp,
-        leased.profile_id,
-        leased.account_id,
-      ),
       env.DB.prepare(
         `UPDATE provider_events
           SET state = ?, error_code = ?, lease_token = NULL,
@@ -2014,6 +2051,12 @@ async function processSyncMessage(
         leased.account_id,
         leased.event_id,
         leaseToken,
+      ),
+      refreshAccountCoverageStatement(
+        env,
+        leased.profile_id,
+        leased.account_id,
+        timestamp,
       ),
       auditStatement(
         env,
