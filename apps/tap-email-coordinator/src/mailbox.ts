@@ -1266,56 +1266,42 @@ export async function requestAccountSync(
   now: Date,
 ): Promise<boolean> {
   const account = await env.DB.prepare(
-    `SELECT backfill_page_token, sync_generation, unresolved_failures
+    `SELECT backfill_page_token, unresolved_failures
        FROM google_accounts
       WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'`,
   )
     .bind(profileId, accountId)
     .first<{
       backfill_page_token: string | null;
-      sync_generation: string | null;
       unresolved_failures: number;
     }>();
   if (!account) return false;
 
   const threshold = new Date(now.getTime() - 30_000).toISOString();
   const timestamp = now.toISOString();
-  const pageToken = account.backfill_page_token;
-  const updated = pageToken === null
-    ? await env.DB.prepare(
-      `UPDATE google_accounts
-          SET last_sync_requested_at = ?
-        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
-          AND coverage_state != 'backfilling'
-          AND backfill_page_token IS NULL
-          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
-    )
-      .bind(timestamp, profileId, accountId, threshold)
-      .run()
-    : await env.DB.prepare(
-      `UPDATE google_accounts
-          SET last_sync_requested_at = ?, coverage_state = 'backfilling', updated_at = ?
-        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
-          AND coverage_state != 'backfilling'
-          AND backfill_page_token = ?
-          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
-    )
-      .bind(timestamp, timestamp, profileId, accountId, pageToken, threshold)
-      .run();
+  const updated = await env.DB.prepare(
+    `UPDATE google_accounts
+        SET last_sync_requested_at = ?
+      WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
+        AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM provider_events event
+           WHERE event.profile_id = google_accounts.profile_id
+             AND event.account_id = google_accounts.account_id
+             AND event.state IN ('received', 'processing', 'retryable')
+             AND COALESCE(json_extract(event.payload_json, '$.mode'), '') != 'continue'
+        )`,
+  )
+    .bind(timestamp, profileId, accountId, threshold)
+    .run();
   if (Number(updated.meta.changes ?? 0) !== 1) return false;
   await enqueueSyncEvent(
     env,
-    pageToken === null
+    account.backfill_page_token === null
       ? account.unresolved_failures > 0
         ? { profileId, accountId, mode: 'newest' }
         : { profileId, accountId, mode: 'partial' }
-      : {
-          profileId,
-          accountId,
-          mode: 'continue',
-          pageToken,
-          ...(account.sync_generation ? { syncGeneration: account.sync_generation } : {}),
-        },
+      : { profileId, accountId, mode: 'partial' },
     now,
   );
   return true;
@@ -2020,29 +2006,64 @@ export async function markDueReminders(env: Env, now: string): Promise<void> {
 export async function enqueueScheduledSyncs(env: Env, now: Date): Promise<void> {
   const staleBefore = new Date(now.getTime() - 4 * 60_000).toISOString();
   const accounts = await env.DB.prepare(
-    `SELECT profile_id, account_id
+    `SELECT profile_id, account_id, backfill_page_token, unresolved_failures
       FROM google_accounts
-      WHERE connection_state = 'active' AND coverage_state != 'backfilling'
-        AND updated_at < ?
+      WHERE connection_state = 'active'
+        AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
         AND NOT EXISTS (
           SELECT 1 FROM provider_events event
            WHERE event.profile_id = google_accounts.profile_id
              AND event.account_id = google_accounts.account_id
              AND event.state IN ('received', 'processing', 'retryable')
+             AND COALESCE(json_extract(event.payload_json, '$.mode'), '') != 'continue'
         )
-      ORDER BY updated_at
+      ORDER BY COALESCE(last_sync_requested_at, created_at)
       LIMIT 20`,
   )
     .bind(staleBefore)
-    .all<{ profile_id: string; account_id: string }>();
+    .all<{
+      profile_id: string;
+      account_id: string;
+      backfill_page_token: string | null;
+      unresolved_failures: number;
+    }>();
   if (accounts.results.length === 0) return;
+
+  const timestamp = now.toISOString();
+  const claimed: typeof accounts.results = [];
+  for (const account of accounts.results) {
+    const updated = await env.DB.prepare(
+      `UPDATE google_accounts
+          SET last_sync_requested_at = ?
+        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
+          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM provider_events event
+             WHERE event.profile_id = google_accounts.profile_id
+               AND event.account_id = google_accounts.account_id
+               AND event.state IN ('received', 'processing', 'retryable')
+               AND COALESCE(json_extract(event.payload_json, '$.mode'), '') != 'continue'
+          )`,
+    )
+      .bind(timestamp, account.profile_id, account.account_id, staleBefore)
+      .run();
+    if (Number(updated.meta.changes ?? 0) === 1) claimed.push(account);
+  }
+  if (claimed.length === 0) return;
+
   await enqueueSyncEvents(
     env,
-    accounts.results.map(account => ({
-      profileId: account.profile_id,
-      accountId: account.account_id,
-      mode: 'partial' as const,
-    })),
+    claimed.map(account => account.backfill_page_token === null && account.unresolved_failures > 0
+      ? {
+          profileId: account.profile_id,
+          accountId: account.account_id,
+          mode: 'newest' as const,
+        }
+      : {
+          profileId: account.profile_id,
+          accountId: account.account_id,
+          mode: 'partial' as const,
+        }),
     now,
   );
 }

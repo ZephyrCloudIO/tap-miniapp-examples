@@ -61,6 +61,17 @@ const syncHealthSql = `WITH anomalies(signal, observed_at) AS (
           AND event.account_id = account.account_id
           AND event.state IN ('received', 'processing', 'retryable')
      )
+
+  UNION ALL
+
+  SELECT 'recent_sync_not_requested',
+         COALESCE(account.last_sync_requested_at, account.created_at)
+    FROM google_accounts account
+   WHERE account.connection_state = 'active'
+     AND (
+       account.last_sync_requested_at IS NULL OR
+       account.last_sync_requested_at <= ?3
+     )
 )
 SELECT signal,
        COUNT(*) AS affected_count,

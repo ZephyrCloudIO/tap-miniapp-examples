@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodeBase64Url, openSecret, sealSecret } from '../src/crypto';
 import {
+  enqueueScheduledSyncs,
   freshGoogleThreadHasExternalReplyAfter,
   mailboxPage,
   mailboxSnapshot,
@@ -521,14 +522,14 @@ describe('Google mailbox synchronization', () => {
     ).first()).toEqual({ content_state: 'full' });
   });
 
-  it('resumes a saved newest-first backfill instead of starting a partial sync', async () => {
+  it('requests recent history without restarting a saved newest-first backfill', async () => {
     await env.DB.prepare(
       `INSERT INTO google_accounts
          (profile_id, account_id, google_subject, connection_state,
           coverage_state, newest_history_id, backfill_page_token,
           unresolved_failures, email_address, created_at, updated_at)
        VALUES ('profile_resume', 'google_resume', 'subject_resume', 'active',
-               'blocked', 'history_10', 'next-page-2', 1,
+               'backfilling', 'history_10', 'next-page-2', 1,
                'resume@example.com', ?, ?)`,
     ).bind(now.toISOString(), now.toISOString()).run();
 
@@ -556,9 +557,69 @@ describe('Google mailbox synchronization', () => {
     expect(JSON.parse(event?.payload_json ?? '{}')).toMatchObject({
       profileId: 'profile_resume',
       accountId: 'google_resume',
-      mode: 'continue',
-      pageToken: 'next-page-2',
+      mode: 'partial',
     });
+    expect(JSON.parse(event?.payload_json ?? '{}')).not.toHaveProperty('pageToken');
+    expect(await requestAccountSync(
+      env,
+      'profile_resume',
+      'google_resume',
+      new Date(now.getTime() + 31_000),
+    )).toBe(false);
+  });
+
+  it('schedules recent history while an archive continuation is active', async () => {
+    const oldRequest = new Date(now.getTime() - 5 * 60_000).toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO google_accounts
+           (profile_id, account_id, google_subject, connection_state,
+            coverage_state, newest_history_id, backfill_page_token,
+            unresolved_failures, email_address, last_sync_requested_at,
+            created_at, updated_at)
+         VALUES ('profile_scheduled_backfill', 'google_scheduled_backfill',
+                 'subject_scheduled_backfill', 'active', 'backfilling',
+                 'history_10', 'next-page-3', 2, 'scheduled@example.com', ?, ?, ?)`,
+      ).bind(oldRequest, oldRequest, now.toISOString()),
+      env.DB.prepare(
+        `INSERT INTO provider_events
+           (profile_id, account_id, event_id, history_id, state, payload_json,
+            dispatch_pending, received_at, updated_at)
+         VALUES ('profile_scheduled_backfill', 'google_scheduled_backfill',
+                 'sync_archive_continue', 'history_10', 'received', ?, 0, ?, ?)`,
+      ).bind(JSON.stringify({
+        kind: 'sync-account',
+        eventId: 'sync_archive_continue',
+        profileId: 'profile_scheduled_backfill',
+        accountId: 'google_scheduled_backfill',
+        mode: 'continue',
+        pageToken: 'next-page-3',
+      }), oldRequest, oldRequest),
+    ]);
+
+    await enqueueScheduledSyncs(env, now);
+
+    expect(await env.DB.prepare(
+      `SELECT coverage_state, backfill_page_token, last_sync_requested_at
+         FROM google_accounts
+        WHERE profile_id = 'profile_scheduled_backfill'
+          AND account_id = 'google_scheduled_backfill'`,
+    ).first()).toEqual({
+      coverage_state: 'backfilling',
+      backfill_page_token: 'next-page-3',
+      last_sync_requested_at: now.toISOString(),
+    });
+    const events = (await env.DB.prepare(
+      `SELECT payload_json
+         FROM provider_events
+        WHERE profile_id = 'profile_scheduled_backfill'
+          AND account_id = 'google_scheduled_backfill'
+        ORDER BY received_at`,
+    ).all<{ payload_json: string }>()).results.map(row => JSON.parse(row.payload_json));
+    expect(events).toEqual([
+      expect.objectContaining({ mode: 'continue', pageToken: 'next-page-3' }),
+      expect.objectContaining({ mode: 'partial' }),
+    ]);
   });
 
   it('keeps a normal manual refresh on the incremental sync path', async () => {
