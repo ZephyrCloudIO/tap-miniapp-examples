@@ -1,10 +1,10 @@
-# ADR 0002: Host-governed Email Activity source for Chloe status
+# ADR 0002: Register TAP Email activity through the host activity registry
 
 ## Status
 
-Proposed; the package-side ledger, MCP aggregate, and dormant source runtime
-are implemented, while automatic Chloe inclusion is blocked on a host/SDK
-contribution contract
+Accepted; activation waits for the SDK and host `activity.source` and
+`activity_get` contracts tracked in
+[ze-agency-tauri#10771](https://github.com/ZephyrCloudIO/ze-agency-tauri/issues/10771)
 
 ## Date
 
@@ -12,170 +12,113 @@ contribution contract
 
 ## Context
 
-TAP Email now records terminal, authoritative command receipts in an
-idempotent private-profile SQLite ledger. It publishes a bounded,
-content-free `activity/v1` projection and exposes
-`get_email_activity_summary` through the package MCP. A user-selected
-specialist, including Chloe when explicitly granted access, can call that tool
-for an exact half-open time range.
+TAP Email records authoritative command receipts in an idempotent,
+private-profile SQLite ledger. It publishes a bounded `activity/v1` projection
+and exposes `get_email_activity_summary` through its package MCP server. That
+tool gives an explicitly authorized specialist a source-specific view, but it
+does not let TAP discover Email activity as part of a general activity query.
 
-Automatic inclusion in Chloe's universal status is a different trust path.
-The package must not self-enroll in status collection, impersonate active-time
-telemetry, or cause Chloe to discover arbitrary MCP tools. The host must choose
-eligible sources, supply the signed-in principal and workspace, impose the
-time range, and preserve failures and incomplete coverage in the composed
-answer.
+The platform already registers specialists, MCP servers, and tools from an
+installed miniapp's manifest. Activity needs the same extension model. A fixed
+Email hook or Chloe-only status path would force the host to add package-specific
+code for each new source.
 
-Platform implementation is tracked in
-[ze-agency-tauri#10771](https://github.com/ZephyrCloudIO/ze-agency-tauri/issues/10771).
-
-Miniapp SDK 0.15 does not expose that path:
-
-- `config-schema.json` has a closed contribution union containing
-  `ui.surface`, `context.provider`, `agent.skill`, MCP contributions, and other
-  existing kinds, but no `activity.source` kind.
-- `sdk.d.ts` exposes no `sdk.activity` API.
-- `sdk.home` is documented as a reserved, currently uninstalled attention
-  projection. Its `publishAttention` method supplies UI attention items, not
-  query-time status aggregates, and is therefore not a substitute.
-
-Registering an invented contribution in `manifest.tap.json` would fail schema
-validation and would not create a governed host consumer. The active manifest
-therefore registers only the privacy-bounded MCP tool.
-
-The package includes a dormant `activity-source.ts` runtime for the future host
-contract. It requires frozen, exact user/workspace/source context; accepts only
-the exact half-open range request below; and can receive only a read-only,
-host-scoped storage reader. It is not reachable from the active manifest.
+The activity path must keep Email's content boundary. It must not expose
+subjects, bodies, people, account or message identities, item timelines, or
+idempotency keys. It must not treat Email actions as device-presence evidence or
+write them to the active-time ledger.
 
 ## Decision
 
-Add an SDK and host contribution named `activity.source`. TAP Email will opt
-in only after the host implements the following contract.
+TAP Email will register its committed-action aggregate as a repeatable,
+manifest-declared `activity.source` contribution after the SDK and host support
+the platform contract in
+[ze-agency-tauri#10771](https://github.com/ZephyrCloudIO/ze-agency-tauri/issues/10771).
 
-### Proposed descriptor
+The initial source has the stable contribution ID
+`tap-email-committed-actions`. Its manifest metadata declares:
 
-The precise field names may follow platform naming conventions, but the
-semantics are required:
+- a static source name and description;
+- the activity types and optional statuses that Email reports, with static
+  names and descriptions;
+- `self` scope;
+- the standing canonical specialist-slug access pattern `chloe`;
+- the exact read-only storage row `tap-email / activity/v1`; and
+- the existing `tap-email.view` authorization requirement.
 
-```json
-{
-  "kind": "activity.source",
-  "id": "tap-email-committed-actions",
-  "apiVersion": 1,
-  "targets": {
-    "quickjs": {
-      "expose": "./activity/tap-email-committed-actions",
-      "runtime": "quickjs"
-    }
-  },
-  "authorization": {
-    "allOf": ["tap-email.view"],
-    "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
-  },
-  "lifecycleScope": "contribution",
-  "options": {
-    "summaryKind": "committed-domain-actions",
-    "privacyClass": "content-free-aggregate",
-    "storageReads": [
-      { "namespace": "tap-email", "keyTemplate": "activity/v1" }
-    ]
-  }
-}
-```
+Installation registers the source and its access automatically. A user may
+narrow or disable access. Source access does not add `activity_get` to Chloe's
+toolset; Chloe's own tool policy controls that capability.
 
-The package runtime accepts only:
+Each aggregate returned by the source has a declared activity ID, an optional
+declared status ID, a nonnegative integer value, and the explicit unit `count`.
+Runtime output contains no names, descriptions, free-form text, identities, or
+item-level records. Email owns the meaning and tracking of its activity types
+and statuses; the static manifest descriptions explain those values to an
+authorized consumer.
 
-```ts
-type ActivitySourceRequest = Readonly<{
-  startAt: string;          // inclusive RFC3339 instant
-  endAtExclusive: string;   // exclusive RFC3339 instant
-  timeZone: string;         // host-validated IANA zone
-}>;
-```
+The host supplies the authenticated user, current workspace, exact
+installation and source identity, requested scope, and exact half-open time
+range of at least 15 minutes. Package code cannot select another user or
+workspace, widen the range, or change the consumer identity.
 
-`userId`, `workspaceId`, package identity, and caller identity are supplied in
-an immutable host execution context. They are never request parameters. The
-package rejects missing trusted user/workspace scope and undeclared input
-properties.
+The host executes the package source locally in a read-only runtime; the final
+specialist is only the consumer. The source can read only its declared storage
+row. It cannot write storage, use the network, invoke host actions, or call
+tools. The host validates the result, isolates source failures, and attaches
+package, publisher, installation, source, and coverage provenance with an
+`Official` or `Untrusted` trust label.
 
-The result is the existing `EmailActivitySummary` contract plus host-owned
-provenance:
+`activity_get` is the canonical activity tool. It queries every registered
+source available to the final specialist and keeps results grouped by source.
+The host does not combine Email with another source or another Email
+installation. A complete zero remains distinct from partial or unavailable
+coverage.
 
-```ts
-type GovernedActivitySourceResult = Readonly<{
-  sourceId: "tap-email-committed-actions";
-  sourceRevision: string; // revision of activity/v1 read by the host
-  summary: EmailActivitySummary;
-}>;
-```
+The current `activity/v1` projection is self-scoped and remains bound to the
+current workspace installation. TAP Email will not claim workspace coverage or
+account-wide, cross-device coverage. A future authoritative workspace aggregate
+or cross-installation deduplication path requires a separate source and
+decision.
 
-`EmailActivitySummary` contains only action/outcome counts, the exact requested
-range, failures, and coverage. It never contains message subjects or bodies,
-correspondents, recipients, account IDs, thread/message IDs, idempotency keys,
-or per-thread timelines. Sync, import, indexing, remote-image fetching, and
-other background work are excluded. Applied actions use the provider
-acknowledgement timestamp. When today's receipt shape has no terminal timestamp
-for a non-applied outcome, the summary uses the coordinator acceptance time and
-emits an explicit coverage warning rather than pretending it is completion
-time.
-
-### Host governance
-
-The host:
-
-1. Maintains the allowlist of source contribution IDs eligible for Chloe's
-   built-in status. Installing TAP Email does not automatically grant that
-   access.
-2. Supplies the trusted user/workspace principal and query range from Chloe's
-   status request; a package cannot select another principal or widen the
-   range.
-3. Invokes sources read-only with a deadline, bounds result size, validates the
-   declared output contract, and records source provenance.
-4. Joins the aggregate into `self_status_get` alongside existing authoritative
-   sources. A failed or partial source is reported as unavailable or partial;
-   it is never silently treated as zero activity.
-5. Does not write these counts into `RecordActivityPulse` or the trusted-device
-   active-time ledger. Email actions and active minutes remain distinct facts.
-
-### Multi-installation coverage
-
-The current local ledger proves only receipts observed by this TAP Email
-installation. Its coverage fields make that limitation visible. A universal,
-cross-device Chloe result requires the host to either:
-
-- invoke every authorized installation and merge aggregates after deduplicating
-  at a trusted boundary with the authoritative command idempotency key; or
-- read a coordinator-owned, profile-scoped committed-receipt aggregate that
-  already performs that deduplication.
-
-The package must not publish idempotency keys to shared JSON merely to enable
-cross-device merging. Until a trusted aggregation path exists, Chloe must label
-the result as installation-scoped rather than account-complete.
-
-## Activation gate
-
-TAP Email may add the descriptor to its active manifest only when all of these
-conditions are true:
-
-- the installed SDK schema recognizes `activity.source`;
-- the runtime supplies trusted user and workspace context;
-- the host has an explicit source allowlist and per-source authorization;
-- `self_status_get` preserves source coverage, warnings, failures, and
-  provenance;
-- tests prove principal substitution, range widening, raw event return, and
-  active-time writes are rejected;
-- multi-installation behavior is either deduplicated or explicitly reported as
-  installation-scoped.
+Disabling or uninstalling TAP Email unregisters the source. TAP does not retain
+a second copy of Email's activity history.
 
 ## Consequences
 
-- Chloe can use the implemented MCP summary now when the user explicitly
-  selects/grants her as a consumer.
-- Automatic universal status remains honestly unavailable in SDK 0.15 rather
-  than being simulated through an unrelated API.
-- The package-side data and output contract can be reused by the future host
-  contribution without changing the privacy boundary.
-- Conversation handoffs, Tasks, and non-command workflow events are not counted
-  until each has an authoritative, idempotent receipt with equivalent actor and
-  timestamp semantics.
+- TAP Email participates in the same activity registry as built-in and other
+  miniapp sources.
+- Chloe receives Email aggregates through `activity_get` without discovering or
+  invoking a package-specific MCP tool.
+- The package can add another activity source when it needs a different scope,
+  access policy, or privacy boundary.
+- The existing MCP summary remains available as a separately authorized,
+  source-specific capability while the platform registry is unavailable.
+- Workspace Email totals, other-user queries, item-level detail, and
+  cross-installation deduplication remain outside this source.
+
+## Activation gate
+
+TAP Email may add the source to its active manifest only after the platform:
+
+- recognizes repeatable `activity.source` contributions;
+- registers their static metadata, specialist access patterns, scopes, and
+  storage reads;
+- exposes canonical `activity_get` queries;
+- derives user, workspace, final specialist, source identity, scope, and range
+  from host authority;
+- rejects query windows shorter than 15 minutes;
+- enforces read-only execution and aggregate-only output;
+- preserves explicit zero, coverage, provenance, and isolated failures; and
+- keeps results separate across sources, installations, and devices.
+
+## Alternatives considered
+
+- **Add TAP Email directly to `self_status_get`:** rejected because every
+  miniapp would require host-specific wiring and a fixed source list.
+- **Have Chloe call the Email MCP tool automatically:** rejected because MCP is
+  a separate source-specific capability and access boundary.
+- **Write Email actions into active-time storage:** rejected because an Email
+  command receipt does not prove device presence or active minutes.
+- **Publish receipt identities for host deduplication:** rejected because it
+  would weaken the content-free aggregate and expose private linkage keys.
