@@ -91,6 +91,10 @@ infrastructure before production release.
   approval-required booking, location choice, and no-TAP-account messaging.
 - [x] Track page views, slot views, booking starts, requests, confirmations, and
   view-to-confirmed conversion in the calendar domain.
+- [x] Read historical public booking counts from the owner-scoped gateway and
+  record future views, slot views, and starts with per-visit deduplication.
+  Refresh live counters on open, focus, network recovery, and every minute;
+  exclude preview activity and do not infer unrecorded historical conversion.
 - [x] Describe secure cancel/reschedule management links in the confirmation
   journey.
 - [x] Authenticate organizer publication from the TAP miniapp with the
@@ -98,7 +102,7 @@ infrastructure before production release.
   and publish/unpublish whole profiles with D1 generation CAS, immutable
   revisions, atomic routing changes, and idempotent replay receipts.
 - [ ] Add anonymous public page/availability/booking endpoints, signed
-  cancel/reschedule links, transactional email, and durable public analytics.
+  cancel/reschedule links, and transactional email.
 - [ ] Cloudflare Turnstile must be verified server-side. Cloudflare WAF,
   managed DDoS mitigation, rate limits, and privacy-safe abuse telemetry belong
   at `cal.with-tap.ai`; the organizer UI reports this protection as setup

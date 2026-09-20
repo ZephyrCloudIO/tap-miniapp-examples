@@ -195,6 +195,30 @@ not advertise native or durable triggers.
 
 ## Public booking contract
 
+### Booking analytics
+
+The Booking Pages screen reads owner-scoped totals from
+`GET /v1/publications/analytics` on open, every minute while visible and online,
+on focus/network recovery, and on **Refresh analytics**. Failures retain the last
+loaded totals with an error; an initial failure shows unavailable counters.
+Server totals are a read projection and do not update publication drafts or
+include organizer preview activity.
+
+Requests count committed public booking attempts. Confirmations count bookings
+that were confirmed automatically or subsequently approved, including historical
+bookings across publication revisions and after cancellation. Retries and
+reschedules do not add bookings. The public page separately records views, slot
+views, and starts once per ephemeral page visit, without guest details, cookies,
+or fingerprinting. These stages begin when tracking is deployed; old traffic
+cannot be reconstructed, so the live UI does not calculate a historical
+conversion rate from mismatched totals.
+
+Roll out gateway migration `0017_public_booking_analytics.sql` before deploying
+the gateway, public page, and updated miniapp package. No booking-data backfill
+or provider writes are required: existing booking totals are queried directly.
+
+### Public URLs
+
 Public URLs use:
 
 ```text
@@ -211,11 +235,10 @@ publication attempts cannot partially change live routing.
 
 The public page resolves availability from the Event Type's explicit
 Availability Schedule, not from whichever schedule is currently marked as the
-workspace default. Anonymous page resolution, authoritative slot APIs, public
-booking commits, signed management links, durable funnel analytics, Cloudflare
-Turnstile verification, WAF/rate-limit policy, and production deployment at
-`cal.with-tap.ai` remain later gateway phases; a server publication receipt does
-not yet make the guest route deployable.
+workspace default. The gateway serves anonymous page resolution, authoritative
+slots, public booking commits, signed management links, transactional email,
+and durable booking analytics. The separate public app is hosted at
+`cal.with-tap.ai`; the gateway enforces Turnstile and request rate limits.
 
 See [REQUIREMENTS.md](./REQUIREMENTS.md) for the complete one-release scope and
 the explicit host/service boundaries.

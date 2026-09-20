@@ -6,6 +6,7 @@ import {
   unpublishPublicBookingProfile,
 } from "./public-booking-publication";
 import { loadPublicBookingBusyIntervals } from "./public-booking-busy";
+import { loadPublicBookingAnalytics, parsePublicBookingFunnelEvent, recordPublicBookingFunnelEvent } from "./public-booking-analytics";
 import {
   enforcePublicBookingRateLimit,
   PublicBookingRateLimitError,
@@ -1090,6 +1091,30 @@ async function getPublishedPublicBookingPage(
       ),
       now: Date.now(),
     }));
+  } catch (error) {
+    return publicBookingReadApiError(error);
+  }
+}
+
+async function trackPublishedPublicBookingFunnel(
+  request: Request,
+  route: NonNullable<ReturnType<typeof parsePublicBookingPagePath>>,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  try {
+    await enforcePublicBookingRateLimit({
+      limiter: env.PUBLIC_AVAILABILITY_RATE_LIMITER,
+      localDevelopment: env.LOCAL_DEVELOPMENT === "true",
+      request,
+      resource: `analytics:${route.profileSlug}/${route.eventTypeSlug}`,
+    });
+    const event = parsePublicBookingFunnelEvent(await readJson(request));
+    if (!event) throw new ApiError(400, "invalid_public_request", "This analytics event is invalid.");
+    const resolved = await resolvePublishedPublicBookingPage(
+      env.CALENDAR_DB.withSession("first-primary"), route.profileSlug, route.eventTypeSlug,
+    );
+    await recordPublicBookingFunnelEvent(env.CALENDAR_DB, resolved.pageId, event);
+    return json({ recorded: true });
   } catch (error) {
     return publicBookingReadApiError(error);
   }
@@ -9979,6 +10004,10 @@ async function route(
     );
   }
   const publicBookingRoute = parsePublicBookingPagePath(path);
+  if (request.method === "POST" && publicBookingRoute?.resource === "analytics") {
+    if (url.search) throw new ApiError(400, "invalid_public_request", "This public booking request is invalid.");
+    return trackPublishedPublicBookingFunnel(request, publicBookingRoute, env);
+  }
   if (request.method === "GET" && publicBookingRoute?.resource === "page") {
     if (url.search) {
       throw new ApiError(
@@ -10020,6 +10049,10 @@ async function route(
   }
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
+  }
+  if (request.method === "GET" && path === "/v1/publications/analytics") {
+    const scope = await principalScope(request, env);
+    return json(await loadPublicBookingAnalytics(env.CALENDAR_DB, scope));
   }
   if (request.method === "POST" && path === "/v1/publications/profiles/unpublish") {
     return unpublishBookingProfile(request, env);
