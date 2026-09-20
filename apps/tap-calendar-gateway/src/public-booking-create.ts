@@ -225,6 +225,7 @@ export interface PublicBookingProvider {
     readonly location: string;
     readonly guest: PublicBookingGuestInput;
     readonly bookingKind: "meeting" | "approval-hold";
+    readonly hostEmails?: readonly string[];
     readonly conferenceProvider: "none" | "google-meet" | "zoom";
     /** Required and stable for approval holds; null for ordinary meetings. */
     readonly expiresAt: string | null;
@@ -963,7 +964,10 @@ export async function createPublicBooking(
         location: current.privateSnapshot.location,
         guest: attempt.guest,
         bookingKind: current.publicSnapshot.approvalRequired ? "approval-hold" : "meeting",
-        conferenceProvider: current.publicSnapshot.location === "google-meet"
+        ...(current.privateSnapshot.collectiveHosts ? { hostEmails: current.privateSnapshot.collectiveHosts.slice(1).map(host => host.email) } : {}),
+        conferenceProvider: current.publicSnapshot.approvalRequired
+          ? "none"
+          : current.publicSnapshot.location === "google-meet"
           ? "google-meet"
           : current.publicSnapshot.location === "zoom"
             ? "zoom"

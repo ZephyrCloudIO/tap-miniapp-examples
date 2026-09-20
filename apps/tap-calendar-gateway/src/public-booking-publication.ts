@@ -1,3 +1,5 @@
+import type { CollectiveHost } from "./collective-types";
+
 const PUBLICATION_SCHEMA_VERSION = "tap.calendar.publication.v1" as const;
 const PROFILE_PUBLICATION_SCHEMA_VERSION = "tap.calendar.profile-publication.v1" as const;
 const PROFILE_UNPUBLICATION_SCHEMA_VERSION = "tap.calendar.profile-unpublication.v1" as const;
@@ -34,6 +36,8 @@ const RESERVED_PROFILE_SLUGS = new Set([
 export interface PublicBookingOwnerScope {
   readonly workspace: string;
   readonly principal: string;
+  /** Only the authenticated workspace-management route may set this. */
+  readonly ownerKind?: "workspace";
 }
 
 export interface PublicationAvailabilityWindow {
@@ -53,6 +57,8 @@ export interface PublicationAvailabilityOverride {
 }
 
 export interface PublicBookingPublicationInput {
+  /** Resolved from enrolled hosts by the gateway, never parsed from public input. */
+  readonly collectiveHosts?: readonly CollectiveHost[];
   readonly schemaVersion: typeof PUBLICATION_SCHEMA_VERSION;
   readonly sourceProfileId: string;
   readonly profileSlug: string;
@@ -661,12 +667,13 @@ function publicationSnapshots(
     privateSnapshot: {
       schemaVersion: PRIVATE_PAGE_SNAPSHOT_SCHEMA_VERSION,
       workspaceId: scope.workspace,
-      principalId: scope.principal,
+      principalId: input.collectiveHosts?.[0]?.principalId ?? scope.principal,
       destinationCalendarId: input.destinationCalendarId,
       conflictCalendarIds: input.conflictCalendarIds,
       sourceAvailabilityScheduleId: input.sourceAvailabilityScheduleId,
       location: input.location,
       schedule: input.schedule,
+      ...(input.collectiveHosts ? { collectiveHosts: input.collectiveHosts } : {}),
     },
   };
 }
@@ -735,7 +742,17 @@ async function preparePublications(options: {
   }
   const result: PreparedPublication[] = [];
   for (const input of options.inputs) {
-    await validateOwnedCalendars(options.database, options.scope, input);
+    if (input.collectiveHosts && options.scope.ownerKind !== "workspace") {
+      throw new PublicBookingPublicationError(403, "workspace_management_required", "Shared publication requires workspace management authority.");
+    }
+    if (input.collectiveHosts) {
+      for (const host of input.collectiveHosts) {
+        await validateOwnedCalendars(options.database, { workspace: options.scope.workspace, principal: host.principalId },
+          { ...input, destinationCalendarId: host.destinationCalendarId, conflictCalendarIds: host.conflictCalendarIds });
+      }
+    } else {
+      await validateOwnedCalendars(options.database, options.scope, input);
+    }
     const page = bySourceId.get(input.sourceEventTypeId) ?? null;
     if (page && page.current_slug !== input.eventTypeSlug) {
       throw new PublicBookingPublicationError(
@@ -878,9 +895,9 @@ export async function publishPublicBookingProfile(options: {
       options.database.prepare(
         `INSERT INTO public_booking_profiles (
            id, workspace_id, principal_id, source_profile_id, current_slug,
-           display_name, owner_type, status, publication_generation,
+           display_name, owner_type, owner_kind, status, publication_generation,
            created_at, updated_at, published_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 'individual', 'published', ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, 'individual', ?, 'published', ?, ?, ?, ?)`,
       ).bind(
         profileId,
         options.scope.workspace,
@@ -888,6 +905,7 @@ export async function publishPublicBookingProfile(options: {
         options.input.sourceProfileId,
         options.input.profileSlug,
         options.input.displayName,
+        options.scope.ownerKind ?? "individual",
         targetGeneration,
         now,
         now,

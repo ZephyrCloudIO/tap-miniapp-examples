@@ -570,6 +570,7 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
               <strong>{page.profile.displayName}</strong>
             </div>
             <h1 id="public-booking-title" className="public-booking-title">{page.eventType.title}</h1>
+            {page.eventType.hosts ? <p className="public-booking-description">With {page.eventType.hosts.map(host => host.displayName).join(" and ")}. Every host attends.</p> : null}
             {page.eventType.description ? <p className="public-booking-description">{page.eventType.description}</p> : null}
             <ul className="public-booking-meta">
               <li><Clock3 aria-hidden="true" /><span>{page.eventType.durationMinutes} minutes</span></li>

@@ -1,3 +1,4 @@
+import { WorkspaceBookingPanel } from "./workspace-booking-panel";
 import { applyPublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
@@ -2937,6 +2938,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           {section === "availability" ? (
             <AvailabilityScreen state={state} commit={commit} />
           ) : null}
+          {section === "booking-pages" && !preview ? <WorkspaceBookingPanel gateway={calendarGateway} state={state} authorize={action => requireCalendarAuthority(context, false, action)} /> : null}
           {section === "booking-pages" ? (
             <BookingPagesScreen
               state={state}

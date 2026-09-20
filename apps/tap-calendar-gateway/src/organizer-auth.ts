@@ -7,6 +7,11 @@ const ASYMMETRIC_JWT_ALGORITHMS = [
 ] as const;
 
 interface AuthzWorkspaceAccessBinding {
+  checkWorkspacePrincipalActions?(input: {
+    readonly organizationId: string;
+    readonly userId: string;
+    readonly actions: readonly string[];
+  }): Promise<unknown>;
   checkWorkspaceAccessBySubject(input: {
     readonly organizationId: string;
     readonly externalSubject: string;
@@ -22,6 +27,27 @@ export interface OrganizerAuthEnv {
   readonly AUTH0_AUDIENCE?: string;
   readonly AUTH0_JWKS_URL?: string;
   readonly AUTHZ_API?: AuthzWorkspaceAccessBinding;
+}
+
+/** Uses Directory membership and Cerbos policy; never accepts a client role. */
+export async function authorizeWorkspacePrincipal(
+  env: OrganizerAuthEnv, workspaceId: string, userId: string,
+  action: "workspace:read" | "workspace:manage",
+): Promise<boolean> {
+  if (env.LOCAL_DEVELOPMENT === "true") return true;
+  const binding = env.AUTHZ_API;
+  if (!binding?.checkWorkspacePrincipalActions) throw authUnavailable("Workspace management authorization is unavailable.");
+  try {
+    const result = await binding.checkWorkspacePrincipalActions({ organizationId: workspaceId, userId, actions: [action] });
+    if (!result || typeof result !== "object") throw authUnavailable("Workspace authorization returned an invalid response.");
+    const role = Reflect.get(result, "role");
+    const actions: unknown = Reflect.get(result, "actions");
+    return ["owner", "admin", "member", "view_only"].includes(String(role)) &&
+      actions !== null && typeof actions === "object" && Reflect.get(actions, action) === true;
+  } catch (error) {
+    if (error instanceof OrganizerAuthError) throw error;
+    throw authUnavailable("Workspace authorization is unavailable.");
+  }
 }
 
 export interface OrganizerScope {

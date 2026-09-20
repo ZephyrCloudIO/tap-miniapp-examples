@@ -2,6 +2,68 @@
 
 This package is the locally runnable Cloudflare Worker boundary for TAP Calendar. It persists provider connections, discovered calendars, revisioned event-cache generations, Google sync cursors, and webhook channels in D1. It also exposes a no-secret local connector for end-to-end miniapp development, OAuth authorization-code + PKCE adapters for Google Calendar and Microsoft 365, and a separate user-managed Zoom OAuth connection for real Zoom conferencing.
 
+## Workspace bookings
+
+Migration `0018_collective_workspace_bookings.sql` adds workspace-owned profile
+definitions, self-enrolled host policies, actor audit records, and transactional
+host reservations. The public routes retain `/{profileNamespace}/{eventType}`.
+Workspace ownership is bound to the canonical workspace ID; the public name
+is a namespace claim, not proof of a legal organization or a verified domain.
+The workspace owns one profile, with up to 20 meeting types and ten required
+hosts per meeting.
+
+- `GET /v1/workspace-bookings` returns the caller's host settings and pending
+  shared-meeting approvals. Workspace managers also receive the shared profile,
+  enrolled eligible hosts, publication receipt, and host-policy freshness.
+- `POST /v1/workspace-bookings/host` enrolls/updates/disables the authenticated
+  caller only, with `expectedVersion`. Invite email comes from the connected
+  account's discovered owned Google primary calendar, never a supplied email.
+- `POST /v1/workspace-bookings/profile` saves and publishes/unpublishes the
+  workspace profile with `expectedVersion`. Every event carries `hostIds` and
+  `organizerId`; the organizer must be one of those hosts.
+
+Production calls use the existing JWT subject-to-canonical-user check and
+`AUTHZ_API.checkWorkspacePrincipalActions({ organizationId, userId, actions })`.
+Profile management requires `workspace:manage` (owner/admin in the default
+policy). Every host must remain a member with `workspace:read`, own a connected
+Google calendar, and explicitly enable this workspace's shared bookings.
+Provider credentials always retain their real authorizing principal. The
+registry-only `workspace:{workspaceId}` owner key never authorizes provider I/O.
+Missing Authz service capabilities, missing calendars, revoked consent, and
+partial provider results fail closed.
+
+Reservations cover every host, including individual/native booking commits.
+D1 rejects overlapping host reservations in one transaction across different
+organizers. Stored buffers remain occupied, and calendar invitation delivery
+is not the reservation mechanism. Pending/uncertain provider writes remain
+reserved. Rescheduling retains old/new times during uncertainty, cancellation
+releases all hosts, and declined/expired holds release their reservations.
+Removing an organizer calendar is blocked while it owns active future shared
+bookings, because deleting its commit rows would discard other hosts' holds.
+An external calendar writer can still race the final provider check; Google
+has no atomic availability-and-insert operation across accounts.
+
+Host settings are published snapshots. Updating/revoking a host invalidates
+links using the old policy until a manager refreshes the publication. Failed
+publication leaves a recoverable draft. `definition_version` identifies the
+settings that actually published; `hosts_current` detects stale enrollment.
+The UI offers event-link copying only for confirmed, current settings.
+Unpublishing remains possible after a host leaves or disables participation.
+
+Deployment order:
+
+1. Apply all D1 migrations, including `0018`, before deploying this gateway.
+2. Deploy the gateway and public site, and publish the rebuilt Calendar miniapp.
+3. Verify the production Authz RPC includes `checkWorkspacePrincipalActions`.
+   Google OAuth now also requests `calendar.events.freebusy`; reconnect accounts
+   whose existing grants cannot read selected shared Conflict Calendars.
+4. Each host connects their own Google account and enables shared bookings in
+   the target workspace. A manager claims an available namespace and publishes
+   the meeting. These consent steps cannot be replaced by entering host emails.
+
+No production migration, deployment, namespace claim, or host enrollment is
+performed by building or running the test suite.
+
 ## Booking analytics
 
 `GET /v1/publications/analytics` returns totals scoped to the authenticated

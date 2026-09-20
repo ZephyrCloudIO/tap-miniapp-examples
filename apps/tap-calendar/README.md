@@ -20,6 +20,43 @@ and Google Meet provisioning now run in that always-on boundary. Reminder
 delivery gateways and public-page hosting remain service responsibilities beyond
 the mounted surface.
 
+## Shared booking links
+
+Open **Booking pages → Shared bookings** in the TAP workspace. Each required
+host connects Google Calendar, chooses an Availability Schedule, and enables
+shared bookings from their own account. Their public name and provider-verified
+Google identity become available to workspace booking managers.
+
+A workspace owner/admin can claim a globally unique Profile Namespace, add a
+shared meeting, select every required host, choose its organizer and duration,
+and publish. For example, claiming `zephyr` and publishing `zack-and-vern`
+would produce `https://cal.with-tap.ai/zephyr/zack-and-vern`. This is an example;
+installing the code does not claim that name or enroll either person.
+
+The gateway offers only times that satisfy every host's schedule, time zone,
+notice, buffers, date overrides, live Google conflicts, and existing TAP
+reservations. It creates one organizer event and invites the other hosts plus
+the guest. Both Google Meet and the organizer's connected Zoom account are
+supported. Approval-required meetings appear in the organizer's shared-booking
+panel; approval rechecks every host. Guest rescheduling and cancellation update
+the same meeting and reservations.
+
+The workspace owns the shared profile. Any authorized workspace manager can
+edit it; leaving the creator's account does not transfer calendar credentials.
+Profile and published meeting names stay stable. Add a new meeting to use a new
+URL. Save shared availability and refresh the links after changing a host's
+Availability Schedule or Conflict Calendars. Withdrawing a host immediately
+prevents new bookings; existing meetings remain scheduled.
+
+This release supports one guest booking up to ten required Google-connected
+hosts. Seat-capacity classes, round robin, external attendees' unconnected
+calendars, and collective Microsoft availability are outside this implementation.
+In-app individual availability validation also respects reservations created by
+shared links; arbitrary attendee emails do not grant calendar access.
+
+The additive migration, authorization binding, and deployment order are in the
+[gateway README](../tap-calendar-gateway/README.md#workspace-bookings).
+
 ## Run locally
 
 From the repository root, start the local D1 gateway in one terminal:
