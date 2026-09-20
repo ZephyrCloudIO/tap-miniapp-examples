@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCalendarGatewayWorker,
 } from "../src/index";
+import { D1PublicBookingEmailOutbox } from "../src/public-booking-email";
 import { verifyPublicSlotToken } from "../src/public-booking-read";
 
 const organizerOrigin = "http://localhost:3000";
@@ -311,6 +312,118 @@ describe("anonymous public booking reads", () => {
     return { calendarId: calendarId!, revisionId: receipt.publication.pages[0]!.revisionId };
   };
 
+  it("records anonymous funnel stages once per visit without allowing forged booking counts", async () => {
+    await connectAndPublish();
+    const path = "/api/public/pages/public-owner/30min/analytics";
+    const visitId = "450414f6-93ca-42df-88a7-7d9d0cb8a925";
+    for (const stage of ["starts", "views", "slotViews", "starts"]) {
+      const response = await worker.fetch(publicRequest(path, {
+        method: "POST", json: { visitId, stage },
+      }), workerEnv());
+      expect(response.status).toBe(200);
+    }
+    const stats = await worker.fetch(organizerRequest("/v1/publications/analytics"), workerEnv());
+    expect(stats.headers.get("Cache-Control")).toBe("no-store");
+    expect(await stats.json()).toEqual({ pages: [{
+      sourceProfileId: "profile-public-read", sourceEventTypeId: "event-public-read",
+      analytics: { views: 1, slotViews: 1, starts: 1, requests: 0, confirmed: 0 },
+    }] });
+    for (const json of [
+      { visitId, stage: "confirmed" },
+      { visitId: "not-a-uuid", stage: "views" },
+      { visitId, stage: "views", confirmed: 99 },
+    ]) {
+      expect((await worker.fetch(publicRequest(path, { method: "POST", json }), workerEnv())).status).toBe(400);
+    }
+    expect((await worker.fetch(publicRequest("/api/public/pages/missing-owner/30min/analytics", {
+      method: "POST", json: { visitId, stage: "views" },
+    }), workerEnv())).status).toBe(404);
+    const limited = await worker.fetch(publicRequest(path, {
+      method: "POST", json: { visitId, stage: "views" },
+    }), { ...workerEnv(), PUBLIC_AVAILABILITY_RATE_LIMITER: { limit: async () => ({ success: false }) } });
+    expect(limited.status).toBe(429);
+  });
+
+  it("limits analytics to the authenticated owner and workspace", async () => {
+    await connectAndPublish();
+    const path = "/v1/publications/analytics";
+    expect((await worker.fetch(publicRequest(path), workerEnv())).status).toBe(401);
+    for (const headers of [
+      { "X-TAP-Workspace-Id": workspace, "X-TAP-Principal-Id": "other-user" },
+      { "X-TAP-Workspace-Id": "other-workspace", "X-TAP-Principal-Id": principal },
+    ]) {
+      const result = await worker.fetch(new Request(`https://calendar-api.theaiplatform.app${path}`, {
+        headers: { ...headers, Origin: organizerOrigin },
+      }), workerEnv());
+      expect(result.status).toBe(200);
+      expect(await result.json()).toEqual({ pages: [] });
+    }
+    const spoofed = await worker.fetch(organizerRequest(path), { ...workerEnv(), LOCAL_DEVELOPMENT: "false" });
+    expect(spoofed.status).toBe(401);
+  });
+
+  it("aggregates historical revisions and counts confirmed and approved bookings separately from pending attempts", async () => {
+    const { revisionId, calendarId } = await connectAndPublish();
+    const cases = [
+      { id: "confirmed", state: "committed", status: "confirmed", resolution: null },
+      { id: "approved", state: "committed", status: "pending", resolution: "approved" },
+      { id: "pending", state: "committed", status: "pending", resolution: null },
+      { id: "declined", state: "committed", status: "pending", resolution: "declined" },
+      { id: "uncertain", state: "uncertain", status: "confirmed", resolution: null },
+      { id: "rejected", state: "rejected", status: "confirmed", resolution: null },
+    ];
+    const now = new Date().toISOString();
+    for (const item of cases) {
+      const operation = `provider-operation-${item.id}`;
+      await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_attempts (
+        workspace_id, principal_id, idempotency_key, request_hash, provider_operation_id,
+        booking_reference, revision_id, start_at, end_at, guest_name, guest_email,
+        state, response_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Guest', 'guest@example.com', ?, ?, ?, ?)`).bind(
+        workspace, principal, `booking-attempt-${item.id}`, "hash-of-booking-request", operation,
+        `booking-reference-${item.id}`, revisionId, now, "2026-08-17T12:30:00.000Z",
+        item.state, JSON.stringify({ status: item.status }), now, now,
+      ).run();
+      if (item.resolution) await env.CALENDAR_DB.prepare(`INSERT INTO provider_booking_commits (
+        workspace_id, principal_id, idempotency_key, request_hash, destination_calendar_id,
+        provider_event_id, booking_kind, start_at, end_at, state, resolution_status, created_at, updated_at
+      ) VALUES (?, ?, ?, 'request-hash', ?, ?, 'approval-hold', ?, ?, 'committed', ?, ?, ?)`).bind(
+        workspace, principal, operation, calendarId, `event-${item.id}`, now,
+        "2026-08-17T12:30:00.000Z", item.resolution, now, now,
+      ).run();
+    }
+    // Confirmation history survives cancellation and provider-calendar cleanup.
+    await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_management_credentials (
+      booking_reference, workspace_id, principal_id, token_hash, page_id, revision_id,
+      provider_booking_id, provider_operation_id, start_at, end_at, guest_name,
+      guest_email, status, booking_status, created_at, updated_at
+    ) SELECT 'booking-reference-approved', ?, ?, ?, page_id, id, 'event-approved',
+      'provider-operation-approved', ?, ?, 'Guest', 'guest@example.com',
+      'cancelled', 'cancelled', ?, ? FROM public_booking_page_revisions WHERE id = ?`).bind(
+      workspace, principal, "a".repeat(43), now, "2026-08-17T12:30:00.000Z", now, now, revisionId,
+    ).run();
+    await new D1PublicBookingEmailOutbox(env.CALENDAR_DB, { id: () => crypto.randomUUID() }).enqueue({
+      eventKey: "approval-approved:booking-reference-approved",
+      bookingReference: "booking-reference-approved",
+      scope: { workspace, principal }, kind: "approval-approved",
+      recipient: { name: "Guest", email: "guest@example.com" },
+      organizerName: "Public Owner", eventTitle: "Approved meeting",
+      startsAt: now, endsAt: "2026-08-17T12:30:00.000Z", timeZone: "UTC",
+    });
+    await env.CALENDAR_DB.prepare("DELETE FROM provider_booking_commits WHERE resolution_status = 'approved'").run();
+    const republished = await worker.fetch(organizerRequest("/v1/publications/profiles", {
+      method: "POST", json: { schemaVersion: "tap.calendar.profile-publication.v1", expectedGeneration: 1,
+        publications: [publicationPage(calendarId, "Updated meeting")] },
+    }), workerEnv());
+    expect(republished.status).toBe(200);
+    await env.CALENDAR_DB.prepare("UPDATE public_booking_profiles SET status = 'unpublished'").run();
+    const stats = await worker.fetch(organizerRequest("/v1/publications/analytics"), workerEnv());
+    expect(await stats.json()).toEqual({ pages: [{
+      sourceProfileId: "profile-public-read", sourceEventTypeId: "event-public-read",
+      analytics: { views: 0, slotViews: 0, starts: 0, requests: 4, confirmed: 2 },
+    }] });
+  });
+
   it("returns the exact guest-safe Booking Profile root without organizer authentication", async () => {
     const { calendarId } = await connectAndPublish();
     const response = await worker.fetch(publicRequest(
@@ -580,6 +693,12 @@ describe("anonymous public booking reads", () => {
     expect(replay.status).toBe(201);
     expect(await replay.json()).toEqual(result);
     expect(providerInsertCalls).toBe(1);
+    const analytics = await worker.fetch(organizerRequest("/v1/publications/analytics"), workerEnv());
+    expect(analytics.status).toBe(200);
+    expect(await analytics.json()).toEqual({ pages: [{
+      sourceProfileId: "profile-public-read", sourceEventTypeId: "event-public-read",
+      analytics: { views: 0, slotViews: 0, starts: 0, requests: 1, confirmed: 1 },
+    }] });
 
     turnstileAccepted = false;
     const rejected = await worker.fetch(publicRequest(path, {

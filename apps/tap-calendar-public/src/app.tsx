@@ -35,6 +35,7 @@ import { TimeZoneCombobox } from "../../tap-calendar/src/time-zone-combobox";
 import { isSupportedTimeZone } from "../../tap-calendar/src/time-zone";
 import {
   createPublicBooking,
+  trackPublicBookingFunnel,
   loadPublicAvailability,
   loadPublicBookingPage,
   loadPublicBookingProfile,
@@ -310,6 +311,7 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
   readonly page: PublicBookingPage;
   readonly onPublishedPageChanged: () => void;
 }) {
+  const [visitId] = useState(() => crypto.randomUUID());
   const [policyNow] = useState(() => Date.now());
   const [viewerTimeZone, setViewerTimeZone] = useState(() => {
     const detected = detectedTimeZone();
@@ -322,6 +324,15 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [step, setStep] = useState<"date" | "slot" | "details" | "success">("date");
+  useEffect(() => {
+    if (step === "success") return;
+    void trackPublicBookingFunnel({
+      profileSlug: route.profileSlug,
+      eventTypeSlug: route.eventTypeSlug,
+      visitId,
+      stage: step === "details" ? "starts" : step === "slot" ? "slotViews" : "views",
+    }).catch(() => undefined); // Analytics must never block a guest's booking.
+  }, [route.profileSlug, route.eventTypeSlug, visitId, step]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicBookingSlot | null>(null);
   const [name, setName] = useState("");

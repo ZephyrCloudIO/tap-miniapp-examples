@@ -2,6 +2,19 @@
 
 This package is the locally runnable Cloudflare Worker boundary for TAP Calendar. It persists provider connections, discovered calendars, revisioned event-cache generations, Google sync cursors, and webhook channels in D1. It also exposes a no-secret local connector for end-to-end miniapp development, OAuth authorization-code + PKCE adapters for Google Calendar and Microsoft 365, and a separate user-managed Zoom OAuth connection for real Zoom conferencing.
 
+## Booking analytics
+
+`GET /v1/publications/analytics` returns totals scoped to the authenticated
+organizer's canonical workspace and user. Booking counts come from committed
+attempts across all page revisions, with approval outcomes retained after
+provider cleanup. The anonymous
+`POST /api/public/pages/{profileSlug}/{eventTypeSlug}/analytics` accepts only a
+UUID visit ID and `views`, `slotViews`, or `starts` stage. It is rate-limited and
+cannot write requests or confirmations. Migration `0017_public_booking_analytics.sql`
+adds the deduplicated visit ledger and booking lookup index. Apply it before
+deploying this version. Earlier booking counts are available immediately;
+earlier visitor activity was not collected.
+
 ## Start it locally
 
 From the repository root:

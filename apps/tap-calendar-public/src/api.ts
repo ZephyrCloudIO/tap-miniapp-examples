@@ -81,6 +81,19 @@ export function publicProfilePath(profileSlug: string): string {
   return `/api/public/profiles/${encodeURIComponent(profileSlug)}`;
 }
 
+export async function trackPublicBookingFunnel(options: {
+  readonly profileSlug: string;
+  readonly eventTypeSlug: string;
+  readonly visitId: string;
+  readonly stage: "views" | "slotViews" | "starts";
+}): Promise<void> {
+  await requestJson(`${publicPagePath(options.profileSlug, options.eventTypeSlug)}/analytics`, {
+    method: "POST",
+    body: JSON.stringify({ visitId: options.visitId, stage: options.stage }),
+    keepalive: true,
+  });
+}
+
 export function loadPublicBookingProfile(
   profileSlug: string,
   signal?: AbortSignal,

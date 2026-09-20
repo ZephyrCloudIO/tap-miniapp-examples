@@ -1,4 +1,5 @@
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk/sdk";
+import { isPublicBookingAnalytics, type PublicBookingAnalytics } from "./public-booking-analytics";
 import type {
   CalendarEvent,
   CalendarProvider,
@@ -891,6 +892,7 @@ export interface CalendarGatewayClient {
   readonly principalId: string;
   health(): Promise<{ readonly ok: boolean; readonly localDevelopment: boolean }>;
   providers(): Promise<CalendarGatewayProviderCatalog>;
+  publicBookingAnalytics(): Promise<PublicBookingAnalytics>;
   publishPublicBookingProfile(
     input: PublicBookingProfilePublicationInput,
   ): Promise<CalendarGatewayPublishedBookingProfile>;
@@ -1190,6 +1192,14 @@ export function createCalendarGatewayClient(input: {
           "gateway_response_invalid",
           "The Calendar gateway returned an invalid provider catalog.",
         );
+      }
+      return result;
+    },
+    async publicBookingAnalytics() {
+      const result = await request<unknown>("GET", "/v1/publications/analytics");
+      if (!isPublicBookingAnalytics(result)) {
+        throw new CalendarGatewayError(502, "gateway_response_invalid",
+          "The Calendar gateway returned invalid booking analytics.");
       }
       return result;
     },

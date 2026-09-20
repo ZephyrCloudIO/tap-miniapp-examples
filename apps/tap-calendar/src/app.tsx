@@ -1,3 +1,5 @@
+import { applyPublicBookingAnalytics } from "./public-booking-analytics";
+import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
 import { isMiniAppHostActionError, sdk } from "@theaiplatform/miniapp-sdk/sdk";
 import {
@@ -1388,6 +1390,14 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       transport,
     });
   }, [calendarPrincipalId, context, preview]);
+  const bookingAnalytics = usePublicBookingAnalytics(
+    calendarGateway, !preview && state !== null && section === "booking-pages",
+  );
+  const bookingAnalyticsState = useMemo(() => state && !preview
+    ? applyPublicBookingAnalytics(state, bookingAnalytics.data ?? { pages: [] })
+    : state, [state, preview, bookingAnalytics.data]);
+  const bookingAnalyticsAvailable = preview || bookingAnalytics.data !== null;
+
   const providerBookingOutbox = useMemo(
     () => createProviderBookingOutbox(preview, calendarPrincipalId),
     [calendarPrincipalId, preview],
@@ -2848,7 +2858,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
             }}
           />
         ) : (
-          <RailContext section={section} state={state} />
+          <RailContext section={section} state={bookingAnalyticsState!} analyticsAvailable={bookingAnalyticsAvailable} />
         )}
         <button
           className={`rail-status status-${eventSyncState.status}`}
@@ -2898,6 +2908,14 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           <div className="error-banner" role="alert"><AlertTriangle /><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X /></button></div>
         ) : null}
 
+        {section === "booking-pages" && !preview ? (
+          <div className="analytics-status" role={bookingAnalytics.error ? "alert" : "status"}>
+            <span>{bookingAnalytics.error
+              ? `${bookingAnalytics.error}${bookingAnalytics.data ? " Showing the last loaded totals." : ""}`
+              : bookingAnalytics.loading ? "Refreshing booking analytics…" : "Public booking analytics refresh every minute."}</span>
+            <button type="button" className="text-button" disabled={bookingAnalytics.loading} onClick={bookingAnalytics.refresh}>Refresh analytics</button>
+          </div>
+        ) : null}
         <div className="workspace-content" ref={workspaceContentRef}>
           {section === "calendar" ? (
             <CalendarScreen
@@ -2922,6 +2940,9 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           {section === "booking-pages" ? (
             <BookingPagesScreen
               state={state}
+              analyticsState={bookingAnalyticsState!}
+              analyticsAvailable={bookingAnalyticsAvailable}
+              liveAnalytics={!preview}
               commit={commit}
               onNavigate={navigate}
               zoomConnected={zoomConnected}
@@ -3282,7 +3303,7 @@ function CalendarList({
   );
 }
 
-function RailContext({ section, state }: { readonly section: Section; readonly state: CalendarState }) {
+function RailContext({ section, state, analyticsAvailable }: { readonly section: Section; readonly state: CalendarState; readonly analyticsAvailable: boolean }) {
   const activeSchedule = state.availability.find(
     item => item.id === state.activeAvailabilityId,
   );
@@ -3296,7 +3317,7 @@ function RailContext({ section, state }: { readonly section: Section; readonly s
     ],
     "booking-pages": [
       { label: "Published profiles", value: String(state.bookingProfiles.filter(profile => profile.published).length), icon: <Globe2 /> },
-      { label: "Confirmed bookings", value: String(confirmedBookings), icon: <CheckCircle2 /> },
+      { label: "Confirmed bookings", value: analyticsAvailable ? String(confirmedBookings) : "—", icon: <CheckCircle2 /> },
     ],
     notifications: [
       { label: "Pending approvals", value: String(state.bookingRequests.filter(request => request.status === "pending").length), icon: <Bell /> },
@@ -4417,10 +4438,12 @@ function AvailabilityOverrideDialog({
   );
 }
 
-function BookingPagesScreen({ state, commit, onNavigate, onSyncPublication, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
+function BookingPagesScreen({ state, analyticsState, analyticsAvailable, liveAnalytics, commit, onNavigate, onSyncPublication, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly analyticsState: CalendarState; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
   const [profileEditor, setProfileEditor] = useState<BookingProfile | "new" | null>(null);
   const [eventTypeProfileId, setEventTypeProfileId] = useState<string | null>(null);
   const [insights, setInsights] = useState<{ profile: BookingProfile; eventType: EventType } | null>(null);
+  const insightsProfile = analyticsState.bookingProfiles.find(profile => profile.id === insights?.profile.id);
+  const insightsEventType = insightsProfile?.eventTypes.find(eventType => eventType.id === insights?.eventType.id);
   const [publishingProfileId, setPublishingProfileId] = useState<string | null>(null);
   const [publicationErrors, setPublicationErrors] = useState<Record<string, string | null>>({});
   const copyBookingPageUrl = useCallback(async (profileSlug: string, eventType: EventType): Promise<void> => {
@@ -4444,7 +4467,7 @@ function BookingPagesScreen({ state, commit, onNavigate, onSyncPublication, onPr
       return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
   }, [state.bookingProfiles]);
-  const totals = state.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => ({ views: sum.views + eventType.analytics.views, confirmed: sum.confirmed + eventType.analytics.confirmed }), { views: 0, confirmed: 0 });
+  const totals = analyticsState.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => ({ views: sum.views + eventType.analytics.views, confirmed: sum.confirmed + eventType.analytics.confirmed }), { views: 0, confirmed: 0 });
   const liveProfiles = state.bookingProfiles.filter(profile =>
     deriveBookingProfilePublicationState(profile).liveStatus === "published");
   const liveEventPageCount = liveProfiles.reduce(
@@ -4569,8 +4592,8 @@ function BookingPagesScreen({ state, commit, onNavigate, onSyncPublication, onPr
   return (
     <div className="content-stack">
       <section className="summary-grid">
-        <MetricCard icon={<Eye />} label="Page views" value={totals.views.toLocaleString()} detail="Privacy-preserving, no fingerprinting" tone="blue" />
-        <MetricCard icon={<MousePointerClick />} label="Confirmed bookings" value={totals.confirmed.toLocaleString()} detail={`${((totals.confirmed / Math.max(1, totals.views)) * 100).toFixed(1)}% view-to-booking conversion`} tone="green" />
+        <MetricCard icon={<Eye />} label="Page views" value={analyticsAvailable ? totals.views.toLocaleString() : "—"} detail={liveAnalytics ? "Views recorded since tracking was enabled" : "Local preview activity"} tone="blue" />
+        <MetricCard icon={<MousePointerClick />} label="Confirmed bookings" value={analyticsAvailable ? totals.confirmed.toLocaleString() : "—"} detail={liveAnalytics ? "All-time confirmed public bookings" : `${((totals.confirmed / Math.max(1, totals.views)) * 100).toFixed(1)}% view-to-booking conversion`} tone="green" />
         <MetricCard icon={<Link2 />} label="Published URLs" value={String(liveUrlCount)} detail="Profile and Event Type URLs confirmed by the server" tone="violet" />
         <MetricCard icon={<ShieldCheck />} label="Public protection" value="Managed" detail="Cloudflare Turnstile verification plus gateway rate limits" tone="green" />
       </section>
@@ -4678,6 +4701,8 @@ function BookingPagesScreen({ state, commit, onNavigate, onSyncPublication, onPr
           ) : null}
           <div className="event-type-grid">
             {profile.eventTypes.map(eventType => {
+              const analytics = analyticsState.bookingProfiles.find(item => item.id === profile.id)!
+                .eventTypes.find(item => item.id === eventType.id)!.analytics;
               const pageIsLive = isEventTypePublicationLive(profile, eventType);
               const eventTypeStatus = !eventType.active
                 ? "Paused"
@@ -4691,7 +4716,7 @@ function BookingPagesScreen({ state, commit, onNavigate, onSyncPublication, onPr
                 <h3>{eventType.title}</h3><p>{eventType.description}</p>
                 <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><Video /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
                 <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span>{pageIsLive ? <button type="button" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button> : null}</div>
-                <div className="conversion-row"><div><span>Views</span><strong>{eventType.analytics.views.toLocaleString()}</strong></div><ArrowRight /><div><span>Starts</span><strong>{eventType.analytics.starts.toLocaleString()}</strong></div><ArrowRight /><div><span>Confirmed</span><strong>{eventType.analytics.confirmed.toLocaleString()}</strong></div><b>{(conversionRate(eventType.analytics) * 100).toFixed(1)}%</b></div>
+                <div className="conversion-row"><div><span>Views</span><strong>{analyticsAvailable ? analytics.views.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Starts</span><strong>{analyticsAvailable ? analytics.starts.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Confirmed</span><strong>{analyticsAvailable ? analytics.confirmed.toLocaleString() : "—"}</strong></div><b>{liveAnalytics ? "Public" : `${(conversionRate(analytics) * 100).toFixed(1)}%`}</b></div>
                 <footer><button type="button" className="secondary-button" onClick={() => onPreview(profile.id, eventType.id)}><Eye /> Preview page</button><button type="button" className="secondary-button" onClick={() => setInsights({ profile, eventType })}><BarChart3 /> Insights</button></footer>
               </article>
             );})}
@@ -4701,7 +4726,7 @@ function BookingPagesScreen({ state, commit, onNavigate, onSyncPublication, onPr
       );})}
       {profileEditor ? <BookingProfileDialog state={state} profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} /> : null}
       {eventTypeProfileId ? <EventTypeDialog state={state} profileId={eventTypeProfileId} zoomConnected={zoomConnected} onClose={() => setEventTypeProfileId(null)} onNavigate={onNavigate} onSubmit={saveEventType} /> : null}
-      {insights ? <BookingInsightsDialog profile={insights.profile} eventType={insights.eventType} onClose={() => setInsights(null)} /> : null}
+      {insightsProfile && insightsEventType ? <BookingInsightsDialog analyticsAvailable={analyticsAvailable} liveAnalytics={liveAnalytics} profile={insightsProfile} eventType={insightsEventType} onClose={() => setInsights(null)} /> : null}
     </div>
   );
 }
@@ -4874,7 +4899,7 @@ function EventTypeDialog({
   );
 }
 
-function BookingInsightsDialog({ profile, eventType, onClose }: { readonly profile: BookingProfile; readonly eventType: EventType; readonly onClose: () => void }) {
+function BookingInsightsDialog({ profile, eventType, analyticsAvailable, liveAnalytics, onClose }: { readonly profile: BookingProfile; readonly eventType: EventType; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly onClose: () => void }) {
   const steps = [
     ["Views", eventType.analytics.views],
     ["Slot views", eventType.analytics.slotViews],
@@ -4885,8 +4910,8 @@ function BookingInsightsDialog({ profile, eventType, onClose }: { readonly profi
   return (
     <Modal title={`${eventType.title} insights`} description={`Privacy-preserving funnel analytics for cal.with-tap.ai/${profile.slug}/${eventType.slug}.`} onClose={onClose}>
       <div className="content-stack insights-dialog">
-        <div className="conversion-row">{steps.map(([label, value], index) => <div key={label}><span>{label}</span><strong>{value.toLocaleString()}</strong>{index < steps.length - 1 ? <ArrowRight /> : null}</div>)}</div>
-        <div className="privacy-preview"><BarChart3 /><div><strong>{(conversionRate(eventType.analytics) * 100).toFixed(1)}% view-to-confirmed conversion</strong><p>Counts are aggregated by Event Type without cross-site fingerprinting.</p><small>Production ingestion is owned by the cal.with-tap.ai gateway.</small></div></div>
+        <div className="conversion-row">{steps.map(([label, value], index) => <div key={label}><span>{label}</span><strong>{analyticsAvailable ? value.toLocaleString() : "—"}</strong>{index < steps.length - 1 ? <ArrowRight /> : null}</div>)}</div>
+        <div className="privacy-preview"><BarChart3 /><div><strong>{liveAnalytics ? "Public booking totals" : `${(conversionRate(eventType.analytics) * 100).toFixed(1)}% view-to-confirmed conversion`}</strong><p>Counts are aggregated by Event Type without cross-site fingerprinting.</p><small>{liveAnalytics ? "Requests and confirmations include historical bookings. Views, slot views, and starts are recorded from when tracking was enabled, so historical conversion is unavailable. Confirmations remain counted after cancellation." : "Local preview activity only."}</small></div></div>
         <button type="button" className="primary-button full-width" onClick={onClose}>Done</button>
       </div>
     </Modal>

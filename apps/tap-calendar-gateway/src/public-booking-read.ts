@@ -22,7 +22,7 @@ const MIN_SIGNING_KEY_BYTES = 32;
 const MILLISECONDS_PER_MINUTE = 60_000;
 const MILLISECONDS_PER_DAY = 86_400_000;
 
-export type PublicBookingPageRouteResource = "page" | "availability" | "bookings";
+export type PublicBookingPageRouteResource = "page" | "availability" | "bookings" | "analytics";
 
 export interface PublicBookingPageRoute {
   readonly profileSlug: string;
@@ -412,12 +412,12 @@ const validSlug = (value: string): boolean =>
   value.length >= 2 && value.length <= 64 && SLUG_PATTERN.test(value);
 
 export function parsePublicBookingPagePath(pathname: string): PublicBookingPageRoute | null {
-  const match = /^\/api\/public\/pages\/([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(availability|bookings))?$/u.exec(pathname);
+  const match = /^\/api\/public\/pages\/([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(availability|bookings|analytics))?$/u.exec(pathname);
   if (!match?.[1] || !match[2] || !validSlug(match[1]) || !validSlug(match[2])) return null;
   return {
     profileSlug: match[1],
     eventTypeSlug: match[2],
-    resource: match[3] === "availability" || match[3] === "bookings" ? match[3] : "page",
+    resource: match[3] === "availability" || match[3] === "bookings" || match[3] === "analytics" ? match[3] : "page",
   };
 }
 
