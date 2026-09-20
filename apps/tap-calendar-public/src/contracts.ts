@@ -38,6 +38,7 @@ export interface PublicBookingPage {
     readonly initials: string;
   };
   readonly eventType: {
+    readonly hosts?: readonly { readonly displayName: string }[];
     readonly title: string;
     readonly description?: string;
     readonly durationMinutes: number;
@@ -247,6 +248,7 @@ export function isPublicBookingPage(
     !boundedText(value.pageRevision, 255) || !isRecord(value.profile) ||
     !boundedText(value.profile.displayName, 160) ||
     !boundedText(value.profile.initials, 12) || !isRecord(value.eventType) ||
+    !(value.eventType.hosts === undefined || (Array.isArray(value.eventType.hosts) && value.eventType.hosts.length > 0 && value.eventType.hosts.length <= 10 && value.eventType.hosts.every(host => isRecord(host) && boundedText(host.displayName, 160)))) ||
     !boundedText(value.eventType.title, 160) ||
     !(value.eventType.description === undefined || typeof value.eventType.description === "string") ||
     !Number.isInteger(value.eventType.durationMinutes) ||

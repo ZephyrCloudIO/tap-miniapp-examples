@@ -5,6 +5,21 @@ surface requirement is implemented in this package. A boundary requirement is
 represented honestly in the UI or contract but needs TAP-host or Zephyr gateway
 infrastructure before production release.
 
+## Workspace collective booking links
+
+- [x] Let workspace-authorized managers claim one stable shared Booking Profile
+  and publish meeting types with an explicit organizer and required host set.
+- [x] Require each host's own Google connection and explicit workspace booking
+  consent; enforce canonical membership and management authorization server-side.
+- [x] Intersect all required hosts' scheduling policies and live conflicts, and
+  reserve every host transactionally across individual and shared links.
+- [x] Create one invitation and meeting room; preserve all hosts through approval,
+  reschedule recovery, cancellation, and hold expiry.
+- [x] Show guest-safe host names publicly and copy only successfully published,
+  current links. Preserve recoverable drafts after publication failures.
+- [ ] Extend collective availability to Microsoft calendars, unconnected external
+  attendees, capacity-based group sessions, or round-robin assignment.
+
 ## Calendar and time model
 
 - [x] Add and display multiple provider accounts and calendars the user owns in

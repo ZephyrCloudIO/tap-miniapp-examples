@@ -1,3 +1,9 @@
+import type { CollectiveHost } from "./collective-types";
+import {
+  CollectiveBookingError, assertHostsCurrent, bookedHosts, hostBusyIntervals, listHosts,
+  parseWorkspaceDefinition, readHost, readWorkspaceDefinition, reserveHosts, saveHost,
+  storeWorkspaceDefinition, workspaceProfileScope, workspaceProfileSourceId, workspacePublication,
+} from "./collective-store";
 import {
   parsePublicBookingProfilePublication,
   parsePublicBookingProfileUnpublication,
@@ -15,6 +21,7 @@ import {
   assertPublicPageStillCurrent,
   availabilityQueryWindow,
   buildPublicAvailability,
+  hostScheduleAllowsInterval,
   parsePublicBookingPagePath,
   parsePublicBookingProfilePath,
   projectPublicBookingProfile,
@@ -28,6 +35,7 @@ import {
 } from "./public-booking-read";
 import {
   OrganizerAuthError,
+  authorizeWorkspacePrincipal,
   resolveOrganizerScope,
   type OrganizerAuthEnv,
 } from "./organizer-auth";
@@ -894,6 +902,125 @@ async function principalScope(
   return scope;
 }
 
+async function workspacePermission(env: CalendarGatewayEnv, scope: CalendarPrincipalScope, action: "workspace:read" | "workspace:manage"): Promise<boolean> {
+  return authorizeWorkspacePrincipal(env as unknown as OrganizerAuthEnv, scope.workspace, scope.principal, action);
+}
+
+async function assertCollectiveHostsAuthorized(env: CalendarGatewayEnv, workspace: string, hosts: readonly CollectiveHost[]): Promise<void> {
+  await assertHostsCurrent(env.CALENDAR_DB.withSession("first-primary"), workspace, hosts);
+  const results = await Promise.all(hosts.map(host => workspacePermission(env, { workspace, principal: host.principalId }, "workspace:read")));
+  if (results.some(allowed => !allowed)) throw new CollectiveBookingError(409, "shared_host_unavailable", "A required host is no longer available for shared bookings.");
+}
+
+async function workspaceBookingsRoute(request: Request, env: CalendarGatewayEnv, path: string): Promise<Response> {
+  const scope = await principalScope(request, env);
+  if (request.method === "POST" && path === "/v1/workspace-bookings/host") {
+    return json(await saveHost(env.CALENDAR_DB, scope, await readJson(request)));
+  }
+  const canManage = await workspacePermission(env, scope, "workspace:manage");
+  if (request.method === "GET" && path === "/v1/workspace-bookings") {
+    const [self, definition, allHosts] = await Promise.all([
+      readHost(env.CALENDAR_DB, scope),
+      canManage ? readWorkspaceDefinition(env.CALENDAR_DB, scope.workspace) : null,
+      canManage ? listHosts(env.CALENDAR_DB, scope.workspace) : [],
+    ]);
+    const active = await Promise.all(allHosts.map(host => workspacePermission(env, { workspace: scope.workspace, principal: host.principalId }, "workspace:read")));
+    const pendingRows = await env.CALENDAR_DB.prepare(`SELECT m.provider_operation_id, m.event_title, m.guest_name, m.guest_email, m.start_at,
+      c.conflict_calendar_ids_json, r.public_snapshot_json
+      FROM public_booking_management_credentials m
+      JOIN provider_booking_commits c ON c.workspace_id = m.workspace_id AND c.principal_id = m.principal_id AND c.idempotency_key = m.provider_operation_id
+      JOIN public_booking_page_revisions r ON r.id = m.revision_id
+      WHERE m.workspace_id = ? AND m.principal_id = ? AND m.status = 'active' AND m.booking_status = 'pending'
+        AND c.resolution_status IS NULL AND c.hold_expired_at IS NULL
+        AND EXISTS (SELECT 1 FROM calendar_host_reservations h WHERE h.workspace_id = c.workspace_id
+          AND h.organizer_principal_id = c.principal_id AND h.booking_operation_id = c.idempotency_key AND h.host_snapshot_json IS NOT NULL)
+      ORDER BY m.start_at LIMIT 100`).bind(scope.workspace, scope.principal).all<{
+        provider_operation_id: string; event_title: string; guest_name: string; guest_email: string; start_at: string;
+        conflict_calendar_ids_json: string; public_snapshot_json: string;
+      }>();
+    const pendingApprovals = pendingRows.results.map(row => {
+      const snapshot = JSON.parse(row.public_snapshot_json) as { location: string };
+      return { operationId: row.provider_operation_id, title: row.event_title, guestName: row.guest_name, guestEmail: row.guest_email,
+        startsAt: row.start_at, conflictCalendarIds: JSON.parse(row.conflict_calendar_ids_json) as string[],
+        conferenceProvider: snapshot.location === "zoom" ? "zoom" : "google-meet" };
+    });
+    const owner = workspaceProfileScope(scope.workspace);
+    const publication = canManage ? await env.CALENDAR_DB.prepare(`SELECT p.current_slug, p.display_name, p.status, p.publication_generation, d.published_version AS definition_version,
+      NOT EXISTS (SELECT 1 FROM public_booking_pages page JOIN public_booking_page_revisions r ON r.id = page.current_revision_id,
+        json_each(r.private_snapshot_json, '$.collectiveHosts') snapshot
+        LEFT JOIN calendar_booking_hosts host ON host.workspace_id = p.workspace_id AND host.principal_id = json_extract(snapshot.value, '$.principalId')
+        WHERE page.profile_id = p.id AND page.status = 'published'
+          AND (host.principal_id IS NULL OR host.enabled = 0 OR host.version <> json_extract(snapshot.value, '$.version'))) AS hosts_current
+      FROM public_booking_profiles p JOIN calendar_workspace_booking_profiles d ON d.workspace_id = p.workspace_id
+      WHERE p.workspace_id = ? AND p.principal_id = ? AND p.source_profile_id = ? AND p.owner_kind = 'workspace'`)
+      .bind(scope.workspace, owner.principal, workspaceProfileSourceId).first() : null;
+    const members = new Set(allHosts.filter((_, index) => active[index]).map(host => host.principalId));
+    const ready = publication?.hosts_current === 1 && definition?.events.every(event => event.hostIds.every(id => members.has(id)));
+    return json({ canManage, self, definition, pendingApprovals, publication: publication ? { ...publication, hosts_current: Boolean(ready) } : null, publicBaseUrl: publicBookingBaseUrl(env),
+      hosts: allHosts.filter((_, index) => active[index]).map(host => ({ principalId: host.principalId, displayName: host.displayName, email: host.email, version: host.version })) });
+  }
+  if (!canManage) throw new ApiError(403, "workspace_management_required", "Only workspace owners and admins can manage shared booking pages.");
+  if (request.method !== "POST" || path !== "/v1/workspace-bookings/profile") throw new ApiError(404, "not_found", "The shared booking route was not found.");
+  const desired = parseWorkspaceDefinition(await readJson(request));
+  const boundary = new D1PublicBookingSerializationBoundary(env.CALENDAR_DB);
+  return boundary.runExclusive(`shared-profile-${await sha256(scope.workspace)}`, async () => {
+    const existing = await readWorkspaceDefinition(env.CALENDAR_DB, scope.workspace);
+    if ((existing?.version ?? 0) !== desired.version - 1) throw new CollectiveBookingError(409, "shared_booking_changed", "The workspace profile changed. Refresh before saving.");
+    const owner = workspaceProfileScope(scope.workspace);
+    const reservedName = await env.CALENDAR_DB.prepare(`SELECT current_slug FROM public_booking_profiles WHERE workspace_id = ? AND principal_id = ? AND source_profile_id = ?`).bind(scope.workspace, owner.principal, workspaceProfileSourceId).first<string>("current_slug");
+    if (reservedName && reservedName !== desired.profileSlug) throw new CollectiveBookingError(409, "profile_slug_immutable", "The workspace's reserved public name cannot be changed.");
+    const publication = desired.published ? await workspacePublication(env.CALENDAR_DB, scope.workspace, desired) : null;
+    if (desired.published) {
+      for (const page of publication!.publications) {
+        await assertCollectiveHostsAuthorized(env, scope.workspace, page.collectiveHosts ?? []);
+        if (page.location === "zoom" && !await env.CALENDAR_DB.prepare(`SELECT 1 FROM meeting_provider_connections WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom' AND status = 'connected'`)
+          .bind(scope.workspace, page.collectiveHosts![0]!.principalId).first()) {
+          throw new CollectiveBookingError(409, "organizer_zoom_unavailable", "The organizer must connect Zoom in Settings before publishing a Zoom booking link.");
+        }
+      }
+    }
+    // Save desired state first. A failed publication remains a recoverable draft;
+    // only a server publication receipt means that the link is actually live.
+    await storeWorkspaceDefinition(env.CALENDAR_DB, scope, desired);
+    if (desired.published) {
+      const result = await publishPublicBookingProfile({ database: env.CALENDAR_DB, scope: owner, input: publication!, publicBaseUrl: publicBookingBaseUrl(env) });
+      await env.CALENDAR_DB.prepare("UPDATE calendar_workspace_booking_profiles SET published_version = ? WHERE workspace_id = ? AND version = ?").bind(desired.version, scope.workspace, desired.version).run();
+      await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_workspace_audit (workspace_id, actor_principal_id, action, created_at) VALUES (?, ?, 'publish', ?)`)
+        .bind(scope.workspace, scope.principal, new Date().toISOString()).run();
+      return json({ definition: desired, publication: result });
+    }
+    const current = await env.CALENDAR_DB.prepare(`SELECT publication_generation FROM public_booking_profiles WHERE workspace_id = ? AND principal_id = ? AND source_profile_id = ?`).bind(scope.workspace, owner.principal, workspaceProfileSourceId).first<{ publication_generation: number }>();
+    if (current) await unpublishPublicBookingProfile({ database: env.CALENDAR_DB, scope: owner,
+      input: { schemaVersion: "tap.calendar.profile-unpublication.v1", sourceProfileId: workspaceProfileSourceId, expectedGeneration: current.publication_generation } });
+    await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_workspace_audit (workspace_id, actor_principal_id, action, created_at) VALUES (?, ?, 'unpublish', ?)`)
+      .bind(scope.workspace, scope.principal, new Date().toISOString()).run();
+    return json({ definition: desired, publication: null });
+  });
+}
+
+async function collectiveAvailability(
+  env: CalendarGatewayEnv, workspace: string, hosts: readonly CollectiveHost[], start: string, end: string,
+  providerFetch: ProviderFetch, exclude?: { readonly principal: string; readonly operation: string; readonly providerEventId: string },
+  alreadyHeld = false,
+): Promise<boolean> {
+  await assertCollectiveHostsAuthorized(env, workspace, hosts);
+  for (const host of hosts) {
+    if (!hostScheduleAllowsInterval(alreadyHeld ? { ...host.schedule, minimumNoticeMinutes: 0 } : host.schedule, Date.parse(start), Date.parse(end), Date.now())) return false;
+    const from = new Date(Date.parse(start) - host.schedule.bufferBeforeMinutes * 60_000).toISOString();
+    const to = new Date(Date.parse(end) + host.schedule.bufferAfterMinutes * 60_000).toISOString();
+    const scope = { workspace, principal: host.principalId };
+    const [live, reservations] = await Promise.all([
+      strictLiveAvailabilityForScope(scope, env, { timeMin: from, timeMax: to, calendarIds: host.conflictCalendarIds }, providerFetch,
+        new Set(exclude ? host.conflictCalendarIds.map(id => googleEventId("event", id, exclude.providerEventId)) : [])),
+      hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), scope, from, to, exclude),
+    ]);
+    if (!live.conclusive) throw new ApiError(503, "live_availability_unavailable", "Every host's calendar must be checked before booking.");
+    if (!live.available || reservations.length > 0) return false;
+  }
+  await assertCollectiveHostsAuthorized(env, workspace, hosts);
+  return true;
+}
+
 function publicBookingBaseUrl(env: CalendarGatewayEnv): string {
   const configured = env.PUBLIC_BOOKING_BASE_URL?.trim() ?? "";
   if (!configured) {
@@ -1084,6 +1211,7 @@ async function getPublishedPublicBookingPage(
       route.profileSlug,
       route.eventTypeSlug,
     );
+    if (resolved.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
     return json(projectPublicBookingPage(resolved, {
       baseUrl: publicBookingBaseUrl(env),
       turnstileSiteKey: requiredPublicBookingConfiguration(
@@ -1163,13 +1291,15 @@ async function getPublishedPublicBookingAvailability(
     );
     const window = availabilityQueryWindow(resolved, query, requestNow);
     let busyIntervals: readonly PublicBusyInterval[] = [];
+    const collectiveBusy: { host: CollectiveHost; intervals: readonly PublicBusyInterval[] }[] = [];
+    if (resolved.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
     if (window) {
       const input: EventQueryInput = {
         ...window,
         calendarIds: resolved.privateSnapshot.conflictCalendarIds,
       };
       try {
-        const [providerBusy, committedBusy] = await Promise.all([
+        const [providerBusy, committedBusy, reservations] = await Promise.all([
           queryPublicGoogleBusyIntervals(env, {
             workspace: resolved.privateSnapshot.workspaceId,
             principal: resolved.privateSnapshot.principalId,
@@ -1182,8 +1312,21 @@ async function getPublishedPublicBookingAvailability(
             timeMin: window.timeMin,
             timeMax: window.timeMax,
           }),
+          hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), {
+            workspace: resolved.privateSnapshot.workspaceId, principal: resolved.privateSnapshot.principalId,
+          }, window.timeMin, window.timeMax),
         ]);
-        busyIntervals = [...providerBusy, ...committedBusy];
+        busyIntervals = [...providerBusy, ...committedBusy, ...reservations];
+        for (const host of resolved.privateSnapshot.collectiveHosts ?? []) {
+          const hostScope = { workspace: resolved.privateSnapshot.workspaceId, principal: host.principalId };
+          const from = new Date(Date.parse(window.timeMin) - host.schedule.bufferBeforeMinutes * 60_000).toISOString();
+          const to = new Date(Date.parse(window.timeMax) + host.schedule.bufferAfterMinutes * 60_000).toISOString();
+          const [provider, held] = await Promise.all([
+            queryPublicGoogleBusyIntervals(env, hostScope, { timeMin: from, timeMax: to, calendarIds: host.conflictCalendarIds }, providerFetch),
+            hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), hostScope, from, to),
+          ]);
+          collectiveBusy.push({ host, intervals: [...provider, ...held] });
+        }
       } catch (error) {
         if (error instanceof ApiError && error.code === "public_availability_unavailable") {
           throw new ApiError(
@@ -1213,6 +1356,10 @@ async function getPublishedPublicBookingAvailability(
       busyIntervals,
       signingKey,
       requestNow,
+      slot => collectiveBusy.every(({ host, intervals }) => !intervalsOverlap(
+        new Date(Date.parse(slot.start) - host.schedule.bufferBeforeMinutes * 60_000).toISOString(),
+        new Date(Date.parse(slot.end) + host.schedule.bufferAfterMinutes * 60_000).toISOString(), intervals,
+      )),
     ));
   } catch (error) {
     return publicBookingReadApiError(error);
@@ -1306,19 +1453,7 @@ async function createPublishedPublicBooking(
     }, {
       serialization: new D1PublicBookingSerializationBoundary(env.CALENDAR_DB),
       publications: {
-        currentPage: async pageId => {
-          try {
-            const current = await resolvePublishedPublicBookingPage(
-              env.CALENDAR_DB.withSession("first-primary"),
-              route.profileSlug,
-              route.eventTypeSlug,
-            );
-            return current.pageId === pageId ? current : null;
-          } catch (error) {
-            if (error instanceof PublicBookingReadError && error.status === 404) return null;
-            throw error;
-          }
-        },
+        currentPage: pageId => currentPublishedPublicBookingPageById(env, pageId),
       },
       attempts: new D1PublicBookingAttemptStore(env.CALENDAR_DB, {
         managementSecret,
@@ -1331,6 +1466,10 @@ async function createPublishedPublicBooking(
             timeMax: input.conflictEnd,
             calendarIds: input.conflictCalendarIds,
           }, providerFetch);
+          const operation = await publicBookingProviderOperationId(scope, resolved.privateSnapshot.destinationCalendarId, parsed.requestId);
+          const allHostsAvailable = !input.page.privateSnapshot.collectiveHosts || await collectiveAvailability(env, scope.workspace,
+            input.page.privateSnapshot.collectiveHosts, input.eventStart, input.eventEnd, providerFetch,
+            { principal: scope.principal, operation, providerEventId: operation });
           // Fence an unpublish/republish that happened during provider I/O.
           await assertPublicPageStillCurrent(
             env.CALENDAR_DB.withSession("first-primary"),
@@ -1343,13 +1482,14 @@ async function createPublishedPublicBooking(
             conflictStart: input.conflictStart,
             conflictEnd: input.conflictEnd,
             checkedCalendarIds: input.conflictCalendarIds,
-            status: intervalsOverlap(input.conflictStart, input.conflictEnd, busy)
+            status: !allHostsAvailable || intervalsOverlap(input.conflictStart, input.conflictEnd, busy)
               ? "conflict"
               : "available",
           };
         },
       },
       provider: createGatewayPublicBookingProvider(env, providerFetch, {
+        ...(resolved.privateSnapshot.collectiveHosts ? { collectiveHosts: resolved.privateSnapshot.collectiveHosts } : {}),
         assertPublicationCurrent: () => assertPublicPageStillCurrent(
           env.CALENDAR_DB.withSession("first-primary"),
           resolved,
@@ -1458,9 +1598,10 @@ async function currentPublishedPublicBookingPageById(
       row.profile_slug,
       row.event_type_slug,
     );
+    if (page.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, page.privateSnapshot.workspaceId, page.privateSnapshot.collectiveHosts);
     return page.pageId === pageId ? page : null;
   } catch (error) {
-    if (error instanceof PublicBookingReadError && error.status === 404) return null;
+    if ((error instanceof PublicBookingReadError && error.status === 404) || (error instanceof CollectiveBookingError && error.status === 409)) return null;
     throw error;
   }
 }
@@ -1516,6 +1657,7 @@ async function assertPublicManagementRescheduleStillAuthorized(
   env: CalendarGatewayEnv,
   booking: PublicBookingManagementRecord,
   input: ScopeFirstGoogleRescheduleInput,
+  providerFetch: ProviderFetch,
 ): Promise<void> {
   const mutation = await env.CALENDAR_DB.prepare(
     `SELECT page_revision_id, to_start_at, to_end_at,
@@ -1552,6 +1694,21 @@ async function assertPublicManagementRescheduleStillAuthorized(
   ) {
     throw new Error("The public booking publication changed before the provider write.");
   }
+  const originalHosts = await bookedHosts(env.CALENDAR_DB, booking.scope, booking.providerOperationId);
+  const hosts = page.privateSnapshot.collectiveHosts ?? [];
+  const hostIdentity = (values: readonly CollectiveHost[]) => values.map(host => `${host.principalId}\u0000${host.email}`).sort().join("\n");
+  if (hostIdentity(originalHosts) !== hostIdentity(hosts)) throw new ApiError(409, "booking_hosts_changed", "The hosts on this page changed. Keep or cancel the existing meeting before booking the new host set.");
+  if (hosts.length && !await collectiveAvailability(env, booking.scope.workspace, hosts, input.timeMin, input.timeMax, providerFetch,
+    { principal: booking.scope.principal, operation: booking.providerOperationId, providerEventId: booking.providerBookingId })) {
+    throw new ApiError(409, "slot_conflict", "A required host is no longer available.");
+  }
+  if (!await reserveHosts(env.CALENDAR_DB, booking.scope, booking.providerOperationId, input.timeMin, input.timeMax,
+    hosts.length ? hosts.map(host => ({ principalId: host.principalId, beforeMs: host.schedule.bufferBeforeMinutes * 60_000,
+      afterMs: host.schedule.bufferAfterMinutes * 60_000, snapshot: host })) : [{ principalId: booking.scope.principal,
+      beforeMs: Date.parse(input.timeMin) - Date.parse(input.conflictTimeMin), afterMs: Date.parse(input.conflictTimeMax) - Date.parse(input.timeMax) }], input.operationId)) {
+    throw new ApiError(409, "slot_conflict", "A required host is no longer available.");
+  }
+  await assertPublicPageStillCurrent(env.CALENDAR_DB.withSession("first-primary"), page);
 }
 
 function publicBookingManagementDependencies(
@@ -1618,7 +1775,7 @@ function publicBookingManagementDependencies(
     },
     provider: createGatewayPublicBookingManagementProvider(env, providerFetch, {
       assertRescheduleStillAuthorized: input =>
-        assertPublicManagementRescheduleStillAuthorized(env, booking, input),
+        assertPublicManagementRescheduleStillAuthorized(env, booking, input, providerFetch),
     }),
     email: createPublicBookingManagementEmailPort(
       publicBookingEmailOutbox(env),
@@ -1845,6 +2002,7 @@ function oauthProviderConfig(
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/calendar.freebusy",
+        "https://www.googleapis.com/auth/calendar.events.freebusy",
       ],
     };
   }
@@ -5373,8 +5531,10 @@ async function validateLiveAvailability(
 ): Promise<Response> {
   await principalScope(request, env);
   const input = eventQueryInput(await readJson(request));
+  const scope = await principalScope(request, env);
   const result = await strictLiveAvailability(request, env, input, providerFetch);
-  return json({ ...result, timeMin: input.timeMin, timeMax: input.timeMax });
+  const held = await hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), scope, input.timeMin, input.timeMax);
+  return json({ ...result, available: result.available && held.length === 0, timeMin: input.timeMin, timeMax: input.timeMax });
 }
 
 async function confirmLiveAvailability(
@@ -5467,7 +5627,9 @@ async function confirmLiveAvailability(
   // Confirmation always revalidates providers. Client-observed cache revisions are proof only,
   // never an authority for a new availability decision. An identical idempotency replay above
   // returns the already committed decision without depending on provider availability.
-  const validation = await strictLiveAvailability(request, env, input, providerFetch);
+  const live = await strictLiveAvailability(request, env, input, providerFetch);
+  const held = await hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), { workspace, principal }, input.timeMin, input.timeMax);
+  const validation = { ...live, available: live.available && held.length === 0 };
   if (!validation.conclusive) {
     throw new ApiError(
       503,
@@ -6827,6 +6989,7 @@ async function commitGoogleBookingForScope(
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch,
   assertWriteStillAuthorized?: () => Promise<void>,
+  collectiveHosts?: readonly CollectiveHost[],
 ): Promise<Response> {
   const { workspace, principal } = scope;
   const canonical = canonicalProviderBookingCommit(input);
@@ -6957,15 +7120,18 @@ async function commitGoogleBookingForScope(
     }
 
     const overlap = await env.CALENDAR_DB.prepare(
-      `SELECT idempotency_key
-         FROM provider_booking_commits
-        WHERE workspace_id = ? AND principal_id = ?
-          AND destination_calendar_id IN (${input.calendarIds.map(() => "?").join(", ")})
-          AND state IN ('pending', 'committed')
+      `SELECT commits.idempotency_key
+         FROM provider_booking_commits commits
+         LEFT JOIN public_booking_management_credentials managed ON managed.workspace_id = commits.workspace_id
+           AND managed.principal_id = commits.principal_id AND managed.provider_operation_id = commits.idempotency_key
+        WHERE commits.workspace_id = ? AND commits.principal_id = ?
+          AND commits.destination_calendar_id IN (${input.calendarIds.map(() => "?").join(", ")})
+          AND commits.state IN ('pending', 'committed')
           AND (booking_kind <> 'approval-hold' OR resolution_status IS NULL OR resolution_status <> 'declined')
           AND (booking_kind <> 'approval-hold' OR hold_expired_at IS NULL)
-          AND idempotency_key <> ?
-          AND start_at < ? AND end_at > ?
+          AND commits.idempotency_key <> ?
+          AND (managed.booking_reference IS NULL OR managed.status = 'active')
+          AND COALESCE(managed.start_at, commits.start_at) < ? AND COALESCE(managed.end_at, commits.end_at) > ?
         LIMIT 1`,
     )
       .bind(
@@ -7030,6 +7196,28 @@ async function commitGoogleBookingForScope(
           input.idempotencyKey,
         )
         .run();
+      return json(conflict, 409);
+    }
+    const hostReservations = collectiveHosts?.map(host => ({ principalId: host.principalId,
+      beforeMs: host.schedule.bufferBeforeMinutes * 60_000, afterMs: host.schedule.bufferAfterMinutes * 60_000, snapshot: host })) ??
+      [{ principalId: principal, beforeMs: Date.parse(input.timeMin) - Date.parse(input.conflictTimeMin),
+        afterMs: Date.parse(input.conflictTimeMax) - Date.parse(input.timeMax) }];
+    const reserved = await reserveHosts(env.CALENDAR_DB, scope, input.idempotencyKey, input.timeMin, input.timeMax, hostReservations);
+    let hostsAvailable = reserved;
+    if (reserved && collectiveHosts) {
+      try {
+        hostsAvailable = await collectiveAvailability(env, workspace, collectiveHosts, input.timeMin, input.timeMax, providerFetch,
+          { principal, operation: input.idempotencyKey, providerEventId });
+      } catch (error) {
+        if (!(error instanceof CollectiveBookingError)) throw error;
+        hostsAvailable = false;
+      }
+    }
+    if (!hostsAvailable) {
+      const conflict = { error: "slot_conflict", message: "A required host is no longer available at that time." };
+      await env.CALENDAR_DB.prepare(`UPDATE provider_booking_commits SET state = 'rejected', response_json = ?, last_error_code = 'slot_conflict', updated_at = ?
+        WHERE workspace_id = ? AND principal_id = ? AND idempotency_key = ?`)
+        .bind(JSON.stringify(conflict), new Date().toISOString(), workspace, principal, input.idempotencyKey).run();
       return json(conflict, 409);
     }
     // This is the public booking's write-authorization linearization point.
@@ -7282,6 +7470,7 @@ async function commitPublicGoogleBookingForScope(
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch,
   assertPublicationCurrent: () => Promise<void>,
+  collectiveHosts?: readonly CollectiveHost[],
 ): Promise<PublicProviderBookingCommit> {
   try {
     const input = publicGoogleCommitInput(command);
@@ -7295,6 +7484,7 @@ async function commitPublicGoogleBookingForScope(
       env,
       providerFetch,
       assertPublicationCurrent,
+      collectiveHosts,
     );
     const body: unknown = await response.json();
     if (response.status === 409 && isRecord(body) && body.error === "slot_conflict") {
@@ -7424,6 +7614,7 @@ export function createGatewayPublicBookingProvider(
   providerFetch: ProviderFetch,
   options: {
     readonly assertPublicationCurrent: () => Promise<void>;
+    readonly collectiveHosts?: readonly CollectiveHost[];
   },
 ): PublicBookingProvider {
   return createPublicGoogleBookingProvider({
@@ -7432,6 +7623,7 @@ export function createGatewayPublicBookingProvider(
       env,
       providerFetch,
       options.assertPublicationCurrent,
+      options.collectiveHosts,
     ),
     recover: command => recoverPublicGoogleBookingForScope(command, env, providerFetch),
   });
@@ -7836,6 +8028,8 @@ async function cancelPublicGoogleBookingForScope(
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
   } catch (error) {
+    if (error instanceof ApiError && error.code === "slot_conflict") return { status: "conflict", reason: "slot-conflict" };
+    if (error instanceof CollectiveBookingError || (error instanceof ApiError && error.code === "booking_hosts_changed")) return { status: "conflict", reason: "provider-mismatch" };
     if (
       error instanceof ApiError &&
       (error.code === "zoom_booking_state_mismatch" || error.code === "zoom_connection_mismatch")
@@ -8111,6 +8305,8 @@ async function reschedulePublicGoogleBookingForScope(
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
   } catch (error) {
+    if (error instanceof ApiError && error.code === "slot_conflict") return { status: "conflict", reason: "slot-conflict" };
+    if (error instanceof CollectiveBookingError || (error instanceof ApiError && error.code === "booking_hosts_changed")) return { status: "conflict", reason: "provider-mismatch" };
     if (
       error instanceof ApiError &&
       (error.code === "zoom_booking_state_mismatch" || error.code === "zoom_connection_mismatch")
@@ -8639,6 +8835,10 @@ async function resolveGoogleApprovalHold(
       attendeeEmails: storedPendingAttendeeEmails(original.response_json),
     };
   }
+  const requiredHosts = await bookedHosts(env.CALENDAR_DB, { workspace, principal }, bookingIdempotencyKey);
+  if (requiredHosts.length && input.decision === "approve") {
+    input = { ...input, attendeeEmails: [...new Set([...input.attendeeEmails, ...storedPendingAttendeeEmails(original.response_json)])] };
+  }
   const approvalConflictRange: EventQueryInput | null = input.decision === "approve"
     ? (() => {
       const storedConflictRange = storedBookingConflictRange(original);
@@ -8940,6 +9140,10 @@ async function resolveGoogleApprovalHold(
         }
         if (!validation.available) {
           throw new ApiError(409, "slot_conflict", "That time is no longer available.");
+        }
+        if (requiredHosts.length && !await collectiveAvailability(env, workspace, requiredHosts, original.start_at!, original.end_at!, providerFetch,
+          { principal, operation: bookingIdempotencyKey, providerEventId: original.provider_event_id }, true)) {
+          throw new ApiError(409, "slot_conflict", "A required host is no longer available.");
         }
         await ensurePendingResolution();
         providerMutationMayHaveOccurred = true;
@@ -10047,6 +10251,9 @@ async function route(
   if (request.method === "GET" && path === "/v1/providers") {
     return json(providerCatalog(env));
   }
+  if (path === "/v1/workspace-bookings" || path.startsWith("/v1/workspace-bookings/")) {
+    return workspaceBookingsRoute(request, env, path);
+  }
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
   }
@@ -10216,10 +10423,14 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
           headers: merged,
         });
       } catch (error) {
-        const apiError = error instanceof ApiError
+        const apiError = String(error).includes("calendar_shared_bookings_active")
+          ? new ApiError(409, "calendar_shared_bookings_active", "Active shared bookings use this calendar. Cancel or finish those meetings before removing it.")
+          : error instanceof CollectiveBookingError || error instanceof OrganizerAuthError || error instanceof PublicBookingPublicationError
+          ? new ApiError(error.status, error.code, error.message)
+          : error instanceof ApiError
           ? error
           : new ApiError(500, "internal_error", "The Calendar gateway could not complete the request.");
-        if (!(error instanceof ApiError)) console.error(error);
+        if (apiError.code === "internal_error") console.error(error);
         return json(
           { error: apiError.code, message: apiError.message, ...apiError.details },
           apiError.status,

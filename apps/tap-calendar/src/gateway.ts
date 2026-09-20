@@ -1,3 +1,4 @@
+import type { WorkspaceBookings, SharedHostInput, WorkspaceBookingProfileInput } from "./workspace-bookings";
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk/sdk";
 import { isPublicBookingAnalytics, type PublicBookingAnalytics } from "./public-booking-analytics";
 import type {
@@ -890,6 +891,9 @@ export function createTapCalendarGatewayTransport(
 export interface CalendarGatewayClient {
   readonly baseUrl: string;
   readonly principalId: string;
+  workspaceBookings(): Promise<WorkspaceBookings>;
+  saveSharedHost(input: SharedHostInput): Promise<void>;
+  saveWorkspaceBookingProfile(input: WorkspaceBookingProfileInput): Promise<void>;
   health(): Promise<{ readonly ok: boolean; readonly localDevelopment: boolean }>;
   providers(): Promise<CalendarGatewayProviderCatalog>;
   publicBookingAnalytics(): Promise<PublicBookingAnalytics>;
@@ -1181,6 +1185,15 @@ export function createCalendarGatewayClient(input: {
   return {
     baseUrl,
     principalId,
+    async workspaceBookings() {
+      return request<WorkspaceBookings>("GET", "/v1/workspace-bookings");
+    },
+    async saveSharedHost(value) {
+      await request("POST", "/v1/workspace-bookings/host", value);
+    },
+    async saveWorkspaceBookingProfile(value) {
+      await request("POST", "/v1/workspace-bookings/profile", value);
+    },
     async health() {
       return request("GET", "/health");
     },

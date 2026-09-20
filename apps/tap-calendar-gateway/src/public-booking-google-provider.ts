@@ -82,7 +82,7 @@ export const createPublicGoogleBookingProvider = (
       description: input.description || null,
       location: input.location || null,
       bookingKind: input.bookingKind,
-      attendeeEmails: [input.guest.email],
+      attendeeEmails: [...new Set([...(input.hostEmails ?? []), input.guest.email])],
       conferenceProvider: input.conferenceProvider,
       expiresAt: input.expiresAt,
     });

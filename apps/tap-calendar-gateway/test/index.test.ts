@@ -2728,8 +2728,9 @@ describe("TAP Calendar local gateway", () => {
       ...holdPayload,
       conflictCalendarIds: [calendarId, secondaryCalendarId],
       idempotencyKey: "booking-hold-conflict-then-decline",
-      start: "2026-08-21T15:30:00Z",
-      end: "2026-08-21T16:00:00Z",
+      // Leave the previous booking’s stored 15-minute buffer intact.
+      start: "2026-08-21T16:00:00Z",
+      end: "2026-08-21T16:30:00Z",
     };
     expect((await oauthWorker.fetch(
       request("/v1/bookings/commit", { method: "POST", json: conflictThenDeclineHold }),

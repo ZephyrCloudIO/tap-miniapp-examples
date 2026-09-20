@@ -1115,3 +1115,19 @@ p { text-wrap: pretty; }
   padding: 0.75rem 1.5rem;
   font-size: 0.85rem;
 }
+
+.shared-booking-panel { margin-bottom: 24px; padding: 24px; border: 1px solid var(--border, #dadde5); border-radius: 16px; background: var(--card); }
+.shared-booking-heading, .shared-booking-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.shared-booking-heading h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
+.shared-booking-heading p, .shared-booking-section p { line-height: 1.6; }
+.shared-booking-section { border-top: 1px solid var(--border, #dadde5); margin-top: 20px; padding-top: 20px; }
+.shared-booking-section summary { cursor: pointer; font-weight: 600; }
+.shared-booking-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.shared-booking-panel .field { display: flex; flex-direction: column; gap: 8px; }
+.shared-booking-panel input:not([type=checkbox]), .shared-booking-panel select, .shared-booking-panel textarea { min-height: 40px; border: 1px solid var(--border, #dadde5); border-radius: 8px; padding: 8px 10px; background: inherit; color: inherit; font: inherit; width: 100%; }
+.shared-booking-event { display: grid; gap: 16px; border: 1px solid var(--border, #dadde5); border-radius: 12px; padding: 20px; min-width: 0; }
+.shared-booking-hosts { border: 0; padding: 0; display: grid; gap: 10px; }
+.shared-booking-check { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; line-height: 1.5; }
+.shared-booking-panel small { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.shared-booking-error { color: #ad2828; }
+.shared-booking-actions { justify-content: flex-start; }
