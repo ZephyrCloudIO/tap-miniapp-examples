@@ -551,7 +551,12 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
                 <span>{dateTimeFormatter.format(new Date(result.startsAt))}</span>
                 <span>{page.eventType.locationLabel}</span>
               </div>
-              <Button asChild size="lg"><a href={result.managementUrl}>Manage booking</a></Button>
+              <div className="public-booking-success-actions">
+                <Button asChild size="lg"><a href={result.managementUrl}>Manage booking</a></Button>
+                <Button type="button" variant="outline" size="lg" onClick={onPublishedPageChanged}>
+                  Book another meeting
+                </Button>
+              </div>
             </section>
           </div>
           <PublicFooter />

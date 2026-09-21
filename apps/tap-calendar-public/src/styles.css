@@ -284,6 +284,7 @@ p { text-wrap: pretty; }
 .public-booking-success h1 { margin: 22px 0 9px; color: var(--public-ink); font-size: clamp(28px, 3vw, 36px); }
 .public-booking-success h1:focus { outline: none; }
 .public-booking-success > p { max-width: 440px; margin: 0; color: var(--public-muted); font-size: 14px; line-height: 1.65; }
+.public-booking-success-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 .public-booking-confirmation { display: grid; width: 100%; gap: 6px; margin: 25px 0; border: 1px solid var(--public-border); border-radius: 13px; background: #faf9fc; padding: 17px; }
 .public-booking-confirmation strong { color: #302c3d; font-size: 14px; }
 .public-booking-confirmation span { color: var(--public-muted); font-size: 12px; }
