@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "debug:local": "rsbuild build --config rsbuild.diagnostics.config.ts && node scripts/diagnostic-host.mjs",
+    "diagnostics:symbolicate": "node scripts/symbolicate-report.mjs",
     "dev": "rsbuild dev",
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
@@ -21,7 +23,7 @@
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
     "validate:manifest": "node scripts/validate-manifest.mjs",
-    "verify:package": "node scripts/verify-sdk-package.mjs && node ../../scripts/verify-built-package.mjs .tap-package && node scripts/verify-react-runtime.mjs"
+    "verify:package": "node scripts/verify-sdk-package.mjs && node ../../scripts/verify-built-package.mjs .tap-package && node scripts/verify-react-runtime.mjs && node scripts/verify-diagnostics.mjs"
   },
   "dependencies": {
     "@tap-examples/tap-email-protocol": "workspace:*",

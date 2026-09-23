@@ -55,6 +55,33 @@
 * { box-sizing: border-box; }
 
 html, body, #root { margin: 0; min-height: 100%; height: 100%; }
+.email-react-root { height: 100%; min-height: 100%; }
+.email-recovery {
+  max-width: 760px;
+  margin: auto;
+  padding: 48px 24px;
+  color: var(--mail-text);
+}
+.email-recovery p { color: var(--mail-muted); overflow-wrap: anywhere; }
+.email-recovery button {
+  margin: 8px 12px 16px 0;
+  padding: 10px 16px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-panel-raised);
+  cursor: pointer;
+}
+.email-recovery summary { cursor: pointer; margin-bottom: 12px; }
+.email-recovery textarea {
+  width: 100%;
+  height: 280px;
+  padding: 12px;
+  color: var(--mail-text);
+  background: var(--mail-input);
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  font: 12px ui-monospace, monospace;
+}
 button, input, textarea, select { font: inherit; }
 button { color: inherit; touch-action: manipulation; }
 button:disabled { cursor: not-allowed; opacity: .45; }

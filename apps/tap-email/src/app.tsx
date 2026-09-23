@@ -8,6 +8,7 @@ import type {
 } from '@tap-examples/tap-email-protocol';
 import type { TapFederatedSurfaceMountContext } from '@theaiplatform/miniapp-sdk/surface';
 import type { MiniAppTheme } from '@theaiplatform/miniapp-sdk/web';
+import type { EmailDiagnostics } from './diagnostics';
 import * as React from 'react';
 import {
   Button,
@@ -254,6 +255,7 @@ interface TapEmailAppProps {
   readonly appTheme?: MiniAppTheme;
   readonly preview?: boolean;
   readonly surfaceContext?: TapFederatedSurfaceMountContext;
+  readonly diagnostics?: EmailDiagnostics;
 }
 
 type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'shortcuts' | 'settings' | 'handoff' | 'workflows';
@@ -690,7 +692,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
   );
 }
 
-export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext }: TapEmailAppProps) {
+export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext, diagnostics }: TapEmailAppProps) {
   const store = useMemo(() => createLocalMailStore(preview), [preview]);
   const activityLedger = useMemo(
     () => createLocalEmailActivityLedger(preview),
@@ -706,6 +708,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   }, [preview]);
   const [state, setState] = useState<MailState>(() => preview ? previewMailState() : emptyMailState());
   const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (hydrated) diagnostics?.breadcrumb('mailbox.committed');
+  }, [hydrated, diagnostics]);
   const [initialLoadSettled, setInitialLoadSettled] = useState(false);
   const [coordinatorNetworkReady, setCoordinatorNetworkReady] = useState(false);
   const [locationReady, setLocationReady] = useState(false);
@@ -967,11 +972,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     void (async () => {
       try {
         if (preview) {
+          diagnostics?.breadcrumb('cache.loading');
           const [mail, preferences] = await Promise.all([
             store.load(),
             loadPreferences(true).catch(() => defaultPreferences),
           ]);
           if (!active) return;
+          diagnostics?.breadcrumb('cache.loaded');
           commandPersistenceBarrier.current.seedFromCache(
             mail ?? { commands: [] },
             store.capability,
@@ -983,7 +990,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           setHydrated(true);
           requestAnimationFrame(() => rootRef.current?.focus());
         } else {
+          diagnostics?.breadcrumb('authority.waiting');
           await waitForHostAuthority(surfaceContext);
+          diagnostics?.breadcrumb('authority.ready');
+          diagnostics?.breadcrumb('cache.loading');
           const cacheRequest = store.load().then(
             mail => ({ mail, error: null }),
             error => ({ mail: null, error }),
@@ -994,6 +1004,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             store.loadMailboxPageProgress().catch(() => null),
           ]);
           if (!active) return;
+          diagnostics?.breadcrumb(cached.error ? 'cache.failed' : 'cache.loaded');
           cachedMailAvailable = cached.mail !== null;
           commandPersistenceBarrier.current.seedFromCache(
             cached.mail ?? { commands: [] },
@@ -1024,10 +1035,12 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             },
           );
           initialMailboxLoadInFlight.current = true;
+          diagnostics?.breadcrumb('mailbox.requested');
           const remoteRequest = client.getMailbox({
             startCursor,
             onPage: progress => {
               if (!active) return;
+              diagnostics?.breadcrumb('mailbox.page');
               setCoordinatorNetworkReady(true);
               mailboxPageProgressPending.current = progress.nextCursor
                 ? {
@@ -1052,6 +1065,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             mailbox => {
               initialMailboxLoadInFlight.current = false;
               if (!active) return;
+              diagnostics?.breadcrumb('mailbox.loaded');
               if (startCursor === null) {
                 setState(current => ({
                   ...mergeMailboxSnapshot(current, mailbox),
@@ -1062,6 +1076,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               setMailboxError('');
             },
             error => {
+              diagnostics?.breadcrumb('mailbox.failed');
               initialMailboxLoadInFlight.current = false;
               if (!firstPageSettled) {
                 firstPageSettled = true;
@@ -1083,6 +1098,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         }
       } catch (error) {
         if (!active) return;
+        diagnostics?.breadcrumb('mailbox.failed');
         setMailboxError(
           cachedMailAvailable
             ? `Using the device cache because cloud refresh failed: ${String(error)}`
@@ -1100,7 +1116,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       active = false;
       pendingMailboxRequest?.cancel();
     };
-  }, [preview, store, surfaceContext]);
+  }, [preview, store, surfaceContext, diagnostics]);
 
   useEffect(() => {
     if (
