@@ -98,6 +98,23 @@ function toggleButtons(container: ParentNode): HTMLButtonElement[] {
 }
 
 describe('TAP Email thread message disclosure', () => {
+  it('removes the HTML frame and skips remote content when HTML is disabled', async () => {
+    const loadRemoteImages = rs.fn(async () => ({}));
+    const messages = [message('html-only', 'Avery', '2026-09-12T13:00:00.000Z', '',
+      '<p>HTML-only message</p><img src="https://sender.test/image.png"><script>bad()</script>')];
+    const { container, root } = await mountMessages(messages, 'html-only', {
+      htmlEnabled: false, scriptsEnabled: true, loadRemoteImages,
+    });
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.querySelector('.plain-message-body')?.textContent).toBe('HTML-only message');
+    expect(loadRemoteImages).not.toHaveBeenCalled();
+    await act(async () => root.render(<ThreadMessageList {...defaultProps} messages={messages} scriptsEnabled={false} />));
+    expect(container.querySelector('iframe')).not.toBeNull();
+    await act(async () => root.render(<ThreadMessageList {...defaultProps} messages={messages} htmlEnabled={false} />));
+    expect(container.querySelector('iframe')).toBeNull();
+    await unmount(root, container);
+  });
+
   it('collapses thread history and leaves the latest message open', async () => {
     const { container, root } = await mountMessages(threeMessages);
     const buttons = toggleButtons(container);

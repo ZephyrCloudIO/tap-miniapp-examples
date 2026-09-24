@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@rstest/core';
 import {
   composeMessage,
+  defaultPreferences,
+  isMailPreferences,
   cancelScheduledMessage,
   correctThreadAttention,
   emailThreadKey,
@@ -914,6 +916,16 @@ describe('TAP Email domain', () => {
       { ...state.preferences, notificationsConfigured: true, notificationAccountIds: [] },
       'google_personal',
     )).toBe(false);
+  });
+
+  it('defaults HTML and scripts on while preserving saved opt-outs and legacy preferences', () => {
+    expect(defaultPreferences).toMatchObject({ htmlEnabled: true, scriptsEnabled: true });
+    const legacy = { ...defaultPreferences, htmlEnabled: undefined, scriptsEnabled: undefined };
+    expect(isMailPreferences(legacy)).toBe(true);
+    expect(normalizeMailPreferences(legacy)).toMatchObject({ htmlEnabled: true, scriptsEnabled: true });
+    expect(normalizeMailPreferences({ ...legacy, htmlEnabled: false, scriptsEnabled: false }))
+      .toMatchObject({ htmlEnabled: false, scriptsEnabled: false });
+    expect(isMailPreferences({ ...legacy, scriptsEnabled: 'false' })).toBe(false);
   });
 
   it('migrates the former hard-coded image setting to proxied images with trackers off', () => {

@@ -9,6 +9,7 @@ import type {
 import type { TapFederatedSurfaceMountContext } from '@theaiplatform/miniapp-sdk/surface';
 import type { MiniAppTheme } from '@theaiplatform/miniapp-sdk/web';
 import type { EmailDiagnostics } from './diagnostics';
+import { ReadingPreferences } from './reading-preferences';
 import * as React from 'react';
 import {
   Button,
@@ -646,6 +647,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
       <DialogContent className="settings-dialog" hideCloseButton>
         <header><div><span className="eyebrow">Miniapp Settings</span><DialogTitle>Reading, Privacy & Alerts</DialogTitle><DialogDescription className="sr-only">Choose how TAP Email displays remote message content and which accounts may notify you.</DialogDescription></div><Button variant="ghost" size="icon-sm" type="button" onClick={onClose} aria-label="Close settings">×</Button></header>
+        <ReadingPreferences preferences={preferences} onChange={onChange} />
         <label className="setting-row">
           <span><strong>Remote images</strong><small>Loaded through TAP Email so senders do not receive your IP address, cookies, or referrer.</small></span>
           <Checkbox
@@ -683,7 +685,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
           </label>
         ))}
         {accounts.length === 0 ? <div className="settings-empty">Connect Google to configure account notifications.</div> : null}
-        <div className="settings-note">Rich HTML stays in an isolated frame. Images are validated through the coordinator, then cached privately on this device for repeat opens; links, scripts, forms, and direct sender requests remain blocked.</div>
+        <div className="settings-note">Rich HTML stays in an isolated frame. Images are validated through the coordinator, then cached privately on this device for repeat opens; message scripts cannot access TAP or other messages. Remote scripts, form submissions, and direct sender requests remain blocked.</div>
         <div className="settings-note">Meaning search embeds and indexes mail with an installed local model in private profile zvec storage. Email content is not sent to a remote embedding service.</div>
         <StoragePrivacyPanel accounts={accounts} onWipe={onWipe} store={store} />
         <div className="settings-note">Shortcut remapping will move to the host keybinding registry when the SDK capability lands.</div>
@@ -2974,6 +2976,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                     appTheme={appTheme}
                     attachmentExportSupported={attachmentFiles !== null}
                     expansionRequest={messageExpansionRequest}
+                    htmlEnabled={state.preferences.htmlEnabled !== false}
+                    scriptsEnabled={state.preferences.scriptsEnabled !== false}
                     imagesEnabled={state.preferences.imagesEnabled}
                     key={emailThreadKey(thread)}
                     loadAttachment={preview ? null : loadMessageAttachment}
