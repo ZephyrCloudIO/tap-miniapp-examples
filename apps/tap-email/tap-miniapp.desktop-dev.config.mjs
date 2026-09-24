@@ -3,7 +3,7 @@ import { defineTapMiniapp } from '@theaiplatform/miniapp-sdk/authoring';
 import { commandTargetBuilder } from '@theaiplatform/miniapp-sdk/lifecycle';
 import { staticContributionProvider } from '../../scripts/tap-miniapp-static-contributions.mjs';
 
-const devCoordinatorOrigin = 'http://localhost:8787';
+const devCoordinatorOrigin = process.env.TAP_EMAIL_COORDINATOR_ORIGIN ?? 'http://localhost:8787';
 
 const builder = commandTargetBuilder({
   command: 'pnpm',
@@ -11,11 +11,14 @@ const builder = commandTargetBuilder({
   env: { TAP_EMAIL_COORDINATOR_ORIGIN: devCoordinatorOrigin },
 });
 
-const quickjsContributionIds = new Set(
+const excludedContributionIds = new Set(
+  // A UI-only build cannot register the production specialist without its MCP
+  // tools, or reuse its version with a different capability manifest.
   manifest.contributions
     .filter(
       contribution =>
-        contribution.kind === 'mcp.server' || contribution.kind === 'mcp.tool',
+        contribution.kind === 'mcp.server' || contribution.kind === 'mcp.tool' ||
+        contribution.kind === 'specialist',
     )
     .map(contribution => contribution.id),
 );
@@ -23,7 +26,7 @@ const quickjsContributionIds = new Set(
 const desktopManifest = {
   ...manifest,
   contributions: manifest.contributions
-    .filter(contribution => !quickjsContributionIds.has(contribution.id))
+    .filter(contribution => !excludedContributionIds.has(contribution.id))
     .map(contribution =>
       contribution.kind === 'ui.surface'
         ? {
@@ -46,7 +49,7 @@ const desktopManifest = {
             options: {
               ...contribution.options,
               contributionIds: contribution.options.contributionIds.filter(
-                id => !quickjsContributionIds.has(id),
+                id => !excludedContributionIds.has(id),
               ),
             },
           }

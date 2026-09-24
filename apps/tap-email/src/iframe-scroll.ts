@@ -1,3 +1,5 @@
+import { readableFrameDocument } from './iframe-document';
+
 const wheelLineHeight = 16;
 const keyboardLineHeight = 40;
 
@@ -99,7 +101,7 @@ export function bridgeRichMessageWheel(
   frame: HTMLIFrameElement,
   reader: HTMLElement | null,
 ): () => void {
-  const frameDocument = frame.contentDocument;
+  const frameDocument = readableFrameDocument(frame);
   if (!frameDocument || !reader) return () => undefined;
 
   const onWheel = (event: WheelEvent) => {
@@ -129,7 +131,7 @@ export function bridgeRichMessageKeyboardScroll(
   frame: HTMLIFrameElement,
   reader: HTMLElement | null,
 ): () => void {
-  const frameDocument = frame.contentDocument;
+  const frameDocument = readableFrameDocument(frame);
   if (!frameDocument || !reader) return () => undefined;
 
   const onKeyDown = (event: KeyboardEvent) => {

@@ -64,7 +64,8 @@ export function createDiagnosticRoot(container: HTMLElement, diagnostics: EmailD
   let fatal = false;
   let mounted = true;
   const unsubscribe = diagnostics.subscribe(report => {
-    if (report.source === 'react.recoverable') return;
+    // Keep the initiating failure visible when teardown rejects in-flight work.
+    if (report.source === 'react.recoverable' || fatal) return;
     fatal = true;
     app.hidden = true;
     recovery.hidden = false;

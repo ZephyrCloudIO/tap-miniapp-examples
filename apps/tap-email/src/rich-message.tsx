@@ -13,6 +13,7 @@ import {
   bridgeRichMessageWheel,
 } from './iframe-scroll';
 import { watchRichMessageLayout } from './iframe-layout';
+import { readableFrameDocument } from './iframe-document';
 
 const allowedTags = [
   'a',
@@ -681,8 +682,12 @@ const maximumFrameHeight = 12_000;
 export const richMessageGutter = 'clamp(16px, 2.4vw, 26px)';
 
 function measuredFrameHeight(frame: HTMLIFrameElement): number {
-  const document = frame.contentDocument;
-  if (!document) return minimumFrameHeight;
+  const document = readableFrameDocument(frame);
+  // Opaque documents retain native scrolling without relaxing their sandbox.
+  if (!document) return Math.min(maximumFrameHeight, Math.max(
+    minimumFrameHeight,
+    frame.closest<HTMLElement>('.message-body')?.clientHeight || 480,
+  ));
   const height = Math.max(
     document.body?.scrollHeight ?? 0,
     document.documentElement.scrollHeight,
@@ -706,7 +711,7 @@ export function listenForRichMessageKeyDown(
   frame: HTMLIFrameElement,
   listener: (event: KeyboardEvent) => void,
 ): () => void {
-  const document = frame.contentDocument;
+  const document = readableFrameDocument(frame);
   if (!document) return () => undefined;
   document.addEventListener('keydown', listener);
   return () => document.removeEventListener('keydown', listener);
@@ -845,6 +850,8 @@ export function RichMessageBody({
       style={{ padding: richMessageGutter }}
     >
       <iframe
+        // TAP can prohibit navigation while the scriptless frame is guarded.
+        key={source}
         className="rich-message-frame"
         data-presentation={presentation}
         data-theme={theme}

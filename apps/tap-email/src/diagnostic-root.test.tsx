@@ -38,6 +38,11 @@ describe('Email diagnostic root', () => {
       await act(async () => copy.click());
       expect(container.querySelector('details')?.open).toBe(true);
       expect(container.querySelector('textarea')?.value).toContain('Injected mailbox render failure');
+      // Teardown can reject in-flight work; keep the initiating failure visible.
+      diagnostics.capture(new Error('The profile SQLite database is closed.'), 'window.rejection');
+      await diagnostics.flush();
+      expect(container.querySelector('textarea')?.value).toContain('Injected mailbox render failure');
+      expect(container.querySelector('textarea')?.value).not.toContain('database is closed');
     } finally {
       await act(async () => root.unmount());
       container.remove();
