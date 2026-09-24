@@ -2,6 +2,8 @@
 
 Run `pnpm --filter @tap-examples/tap-email debug:local` from the repository root, then open the printed localhost URL. This builds a minified copy of the real Email UI with a synthetic mailbox and a local diagnostic storage fixture. It does not connect Gmail or use production mailbox data.
 
+Email currently builds with published SDK 0.17.0, matching TAP 2.23.0. Updating the desktop app does not rebuild or replace a pinned Marketplace Email release. Check the installed package's SDK compatibility in **Miniapps → Installed → TAP Email**; build this branch and load `apps/tap-email/.tap-package` through **Miniapps → Develop** to test its diagnostic controls on this device.
+
 After the mailbox renders, use **Inject render failure** or **Inject rejected promise**. The recovery screen offers **Copy diagnostics**, **View diagnostic report**, and **Reload Email**. The parent page keeps saved reports visible outside the iframe. **Deny diagnostic storage** exercises the copyable fallback when persistence is unavailable. Failure controls are built only by `rsbuild.diagnostics.config.ts`; they are absent from production builds.
 
 In TAP, Email stores the last five reports through the governed storage API at namespace `tap-email`, key `diagnostics/v1`. Reports contain the build revision, package/release/installation/instance identifiers, sanitized error and component stacks, and the last 40 lifecycle events. They do not capture mailbox snapshots, HTTP bodies, or credential objects. Error text is bounded and redacts URLs, email addresses, common credential patterns, and quoted values.
