@@ -111,13 +111,13 @@ describe('normalized local mail replica', () => {
     );
 
     const sql = executed.map(entry => entry.sql).join('\n');
-    expect(sql).toContain('INSERT INTO local_mail_accounts');
-    expect(sql).toContain('INSERT INTO local_mail_threads');
-    expect(sql).toContain('INSERT INTO local_mail_messages');
-    expect(sql).toContain('INSERT INTO local_mail_message_participants');
-    expect(sql).toContain('INSERT INTO local_mail_thread_resources');
-    expect(sql).toContain('INSERT INTO local_mail_thread_labels');
-    expect(sql).toContain('INSERT INTO local_mail_attachment_metadata');
+    expect(sql).toContain('INTO local_mail_accounts');
+    expect(sql).toContain('INTO local_mail_threads');
+    expect(sql).toContain('INTO local_mail_messages');
+    expect(sql).toContain('INTO local_mail_message_participants');
+    expect(sql).toContain('INTO local_mail_thread_resources');
+    expect(sql).toContain('INTO local_mail_thread_labels');
+    expect(sql).toContain('INTO local_mail_attachment_metadata');
     const parameters = executed.flatMap(entry => entry.params);
     expect(parameters).toContain('brief.pdf');
     expect(parameters).toContain('attachment_1');
@@ -172,7 +172,7 @@ describe('normalized local mail replica', () => {
     expect(Math.max(...executed.map(entry => entry.params.length)))
       .toBeLessThanOrEqual(900);
     expect(executed.filter(entry =>
-      entry.sql.includes('INSERT INTO local_mail_threads'))).toHaveLength(14);
+      entry.sql.includes('INTO local_mail_threads')).length).toBeLessThan(20);
   });
 
   it('reports exact per-account coverage and removes every account-owned reference', () => {

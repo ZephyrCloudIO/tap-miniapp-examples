@@ -979,3 +979,53 @@ describe('TAP Email coordinator client', () => {
     expect(attachment).not.toHaveProperty('dataBase64');
   });
 });
+
+describe('streamed mailbox backpressure', () => {
+  function pages(count: number) {
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request(input) {
+        requests += 1;
+        return { finalUrl: input.url, status: 200, statusText: 'OK', headers: [],
+          bodyText: JSON.stringify({ mailbox: { schemaVersion: 1, accounts: [], threads: [mailboxThread(`thread_${requests}`)] },
+            pageInfo: { nextCursor: requests < count ? `page_${requests + 1}` : null } }),
+          bodyBase64: null, bodyKind: 'text', bodyTruncated: false, sizeBytes: 1000, elapsedMs: 1, contentType: 'application/json' };
+      },
+    };
+    return { client: createCoordinatorClient(transport), requests: () => requests };
+  }
+
+  it('does not fetch ahead of a durable page callback or retain collected history', async () => {
+    const fixture = pages(150);
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let observed = 0;
+    const loading = fixture.client.getMailbox({ collect: false, async onPage(page) {
+      observed = page.loadedThreadCount;
+      if (page.pageCount === 1) { enter(); await gate; }
+    } });
+    await entered;
+    expect(fixture.requests()).toBe(1);
+    release();
+    expect((await loading).threads).toEqual([]);
+    expect(observed).toBe(150);
+    expect(fixture.requests()).toBe(150);
+  });
+
+  it('stops traversal after cancellation during an in-flight page commit', async () => {
+    const fixture = pages(150);
+    const abort = new AbortController();
+    await expect(fixture.client.getMailbox({ collect: false, signal: abort.signal,
+      onPage() { abort.abort(); } })).rejects.toThrow();
+    expect(fixture.requests()).toBe(1);
+  });
+
+  it('never advances when the durable page commit rejects', async () => {
+    const fixture = pages(150);
+    await expect(fixture.client.getMailbox({ collect: false,
+      onPage() { throw new Error('page commit failed'); } })).rejects.toThrow('page commit failed');
+    expect(fixture.requests()).toBe(1);
+  });
+});

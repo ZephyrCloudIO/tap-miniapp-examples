@@ -834,3 +834,8 @@ kbd {
   .sync-button.is-syncing .sync-status-icon { animation: none; border-right-color: currentColor; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+
+.thread-column:has(.mail-history-pagination) .thread-list { height: calc(100% - 122px); }
+.mail-history-pagination { height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-top: 1px solid var(--mail-border); color: var(--mail-muted); font-size: 11px; }
+.mail-history-pagination button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
+.mail-history-pagination button:disabled { opacity: .4; cursor: default; }
