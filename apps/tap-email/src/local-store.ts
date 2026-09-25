@@ -1,3 +1,11 @@
+import type { MailboxPage } from './coordinator-client';
+import { writeRevisionedMailboxPage, type RevisionedMailboxUpdate } from './revisioned-mail-replica';
+import {
+  boundedReplicaMigrations, journalOf, readJournal, writeJournal, readReplicaState,
+  readRecord, writeRecord, writeReplicaThreads, writeReplicaUi, queryMailWindow,
+  readThread, readSync, writeSync, replicaStatistics, summarizeReplica,
+  type MailJournal, type MailWindow, type MailWindowQuery, type MailboxSyncCheckpoint,
+} from './bounded-mail-replica';
 import {
   sdk,
   type MiniAppPrivateSqlDatabase,
@@ -5,15 +13,14 @@ import {
   type MiniAppPrivateStorageApi,
   type MiniAppPrivateStorageHandle,
 } from '@theaiplatform/miniapp-sdk/sdk';
-import { isSafeMailIdentifier } from '@tap-examples/tap-email-protocol';
-import { isMailState, type MailState } from './domain';
+import { isSafeMailIdentifier, type MailboxSummary } from '@tap-examples/tap-email-protocol';
+import { isMailState, emptyMailState, type MailState, type MailboxSnapshot } from './domain';
 import {
   deleteNormalizedLocalAccount,
   deleteNormalizedLocalReplica,
   localReplicaMigrations,
   localReplicaStatistics,
   mailStateWithoutAccount,
-  replaceNormalizedLocalReplica,
   type LocalReplicaAccountCoverage,
   type LocalReplicaEntityCounts,
 } from './local-replica';
@@ -27,6 +34,18 @@ export interface LocalMailStore {
   readonly capability: LocalMailStoreCapability;
   load(): Promise<MailState | null>;
   save(state: MailState): Promise<void>;
+  saveJournal?(state: MailJournal): Promise<void>;
+  loadJournal?(): Promise<MailJournal | null>;
+  commitMailboxUpdate?(page: MailboxPage, options?: RevisionedMailboxUpdate & { checkpoint?: MailboxSyncCheckpoint }): Promise<{
+    mailbox: MailboxSnapshot; deleted: readonly { accountId: string; threadId: string }[]; checkpoint?: MailboxSyncCheckpoint;
+  }>;
+  commitMailboxRefresh?(mailbox: MailboxSnapshot): Promise<void>;
+  saveCache?(state: MailState): Promise<void>;
+  queryThreads?(query: MailWindowQuery): Promise<MailWindow>;
+  summarize?(accountId?: string): Promise<MailboxSummary>;
+  loadThread?(accountId: string, threadId: string, bodies?: boolean): Promise<MailState['threads'][number] | null>;
+  beginMailboxSync?(): Promise<MailboxSyncCheckpoint>;
+  commitMailboxPage?(expected: MailboxSyncCheckpoint, mailbox: MailboxSnapshot, nextCursor: string | null): Promise<MailboxSyncCheckpoint>;
   loadMailboxPageProgress(): Promise<MailboxPageProgress | null>;
   saveMailboxPageProgress(progress: MailboxPageProgress): Promise<void>;
   clearMailboxPageProgress(): Promise<void>;
@@ -705,6 +724,8 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   readonly capability = 'private-profile-sqlite' as const;
   private connection: Promise<ProfileConnection> | null = null;
   private pendingWrite: Promise<void> = Promise.resolve();
+  private persistedObjects = new WeakSet<object>();
+  private journalSignature: string | null = null;
 
   constructor(
     private readonly profileStorage: MiniAppPrivateStorageApi,
@@ -731,6 +752,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           attachmentMigration,
           attachmentStorageTokenMigration,
           ...localReplicaMigrations,
+          ...boundedReplicaMigrations,
         ]);
         for (const directory of [remoteImageDirectory, attachmentDirectory]) {
           try {
@@ -767,7 +789,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     }
   }
 
-  private async readStoredMailbox(
+  private async readLegacyMailbox(
     database: MiniAppPrivateSqlDatabase,
   ): Promise<StoredMailboxState | null> {
     const result = await database.query(
@@ -777,21 +799,53 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     return parseStoredMailboxState(result.columns, result.rows[0]);
   }
 
-  private async normalizedSourceUpdatedAt(
-    database: MiniAppPrivateSqlDatabase,
-  ): Promise<string | null> {
-    const result = await database.query(
-      `SELECT source_updated_at
-         FROM local_mail_replica_metadata
-        WHERE id = ?`,
-      [1],
-    );
-    const value = valueAt(
-      result.columns,
-      result.rows[0] ?? [],
-      'source_updated_at',
-    );
-    return typeof value === 'string' ? value : null;
+  private async readStoredMailbox(database: MiniAppPrivateSqlDatabase): Promise<StoredMailboxState | null> {
+    const state = await readReplicaState(database);
+    return state ? { state, serialized: '', updatedAt: new Date(this.now()).toISOString() } : null;
+  }
+
+  private enqueue<T>(operation: (database: MiniAppPrivateSqlDatabase) => Promise<T>): Promise<T> {
+    const task = this.pendingWrite.catch(() => undefined).then(async () => operation((await this.connect()).database));
+    this.pendingWrite = task.then(() => undefined, () => undefined);
+    return task;
+  }
+
+  private remember(state: MailState): void {
+    for (const entity of [...state.accounts, ...state.threads]) this.persistedObjects.add(entity);
+  }
+
+  private async migrateLegacy(database: MiniAppPrivateSqlDatabase): Promise<void> {
+    if (await readRecord(database, 'local_mail_records', 'ui')) return;
+    const legacy = await this.readLegacyMailbox(database);
+    if (!legacy) return;
+    // Journal first. Once initialized, it must never be replaced by the older
+    // snapshot on a resumed migration (new commands may already have committed).
+    if (!await readJournal(database)) {
+      await database.transaction(tx => writeJournal(tx, journalOf(legacy.state)));
+      await database.checkpoint();
+    }
+    const migrated = await readRecord<number>(database, 'local_mail_records', 'migration') ?? 0;
+    const now = new Date(this.now()).toISOString();
+    for (let offset = migrated; offset < legacy.state.threads.length; offset += 25) {
+      await database.transaction(async tx => {
+        if (offset === 0) await deleteNormalizedLocalReplica(tx);
+        await writeReplicaThreads(tx, { schemaVersion: 1, accounts: legacy.state.accounts,
+          threads: legacy.state.threads.slice(offset, offset + 25) }, now);
+        await writeRecord(tx, 'local_mail_records', 'migration', '', '', '', offset + 25);
+      });
+      await database.checkpoint();
+    }
+    await database.transaction(async tx => {
+      if (legacy.state.threads.length === 0) await deleteNormalizedLocalReplica(tx);
+      await writeReplicaThreads(tx, { schemaVersion: 1, accounts: legacy.state.accounts, threads: [] }, now);
+      await writeReplicaUi(tx, legacy.state);
+      // A legacy checkpoint was saved separately from its records and cannot be
+      // trusted. Restart traversal; idempotent page upserts preserve all history.
+      await tx.execute('DELETE FROM local_mail_page_progress');
+      await tx.execute('DELETE FROM mailbox_state WHERE id = ?', [1]);
+      await tx.execute("DELETE FROM local_mail_records WHERE kind = 'migration'");
+    });
+    await database.checkpoint();
   }
 
   private async normalizedIndexedAt(
@@ -810,61 +864,140 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   }
 
   private async writeStoredMailbox(
-    transaction: MiniAppPrivateSqlTransaction,
-    state: MailState,
-    updatedAt: string,
+    transaction: MiniAppPrivateSqlTransaction, state: MailState, updatedAt: string,
   ): Promise<void> {
-    const serialized = JSON.stringify(state);
-    await transaction.execute(
-      `INSERT INTO mailbox_state (id, schema_version, state_json, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         schema_version = excluded.schema_version,
-         state_json = excluded.state_json,
-         updated_at = excluded.updated_at`,
-      [1, state.schemaVersion, serialized, updatedAt],
-    );
-    await replaceNormalizedLocalReplica(
-      transaction,
-      state,
-      updatedAt,
-      updatedAt,
-    );
+    await writeReplicaUi(transaction, state);
+    const accounts = state.accounts.filter(account => !this.persistedObjects.has(account));
+    const threads = state.threads.filter(thread => !this.persistedObjects.has(thread));
+    if (accounts.length || threads.length) {
+      await writeReplicaThreads(transaction, { schemaVersion: 1, accounts, threads }, updatedAt, true, true);
+    }
   }
 
-  async load(): Promise<MailState | null> {
-    const task = this.pendingWrite
-      .catch(() => undefined)
-      .then(async () => {
-        const { database } = await this.connect();
-        const stored = await this.readStoredMailbox(database);
-        if (!stored) return null;
-        if (await this.normalizedSourceUpdatedAt(database) !== stored.updatedAt) {
-          await database.transaction(transaction => replaceNormalizedLocalReplica(
-            transaction,
-            stored.state,
-            stored.updatedAt,
-            new Date(this.now()).toISOString(),
-          ));
-          await database.checkpoint();
+  load(): Promise<MailState | null> {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      const state = await readReplicaState(database);
+      if (state) this.remember(state);
+      return state;
+    });
+  }
+
+  async save(state: MailState): Promise<void> {
+    await this.saveJournal(journalOf(state));
+    await this.saveCache(state);
+  }
+
+  loadJournal(): Promise<MailJournal | null> {
+    return this.enqueue(database => readJournal(database));
+  }
+
+  commitMailboxUpdate(page: MailboxPage, options: RevisionedMailboxUpdate & { checkpoint?: MailboxSyncCheckpoint } = {}) {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      const updatedAt = new Date(this.now()).toISOString();
+      const result = await database.transaction(async tx => {
+        const expected = options.checkpoint;
+        if (expected) {
+          const current = await readSync(tx);
+          if (!current || current.complete || current.generation !== expected.generation ||
+            current.nextCursor !== expected.nextCursor || current.pagesLoaded !== expected.pagesLoaded) {
+            throw new Error('This mailbox page belongs to a superseded sync checkpoint.');
+          }
         }
-        return stored.state;
+        const applied = await writeRevisionedMailboxPage(tx, page, options, updatedAt);
+        const checkpoint = expected ? { ...expected, nextCursor: page.nextCursor, complete: page.nextCursor === null,
+          pagesLoaded: expected.pagesLoaded + 1, threadsLoaded: expected.threadsLoaded + page.mailbox.threads.length, updatedAt } : undefined;
+        if (checkpoint) await writeSync(tx, checkpoint);
+        if (!await readRecord(tx, 'local_mail_records', 'ui')) await writeReplicaUi(tx, emptyMailState());
+        return { ...applied, checkpoint };
       });
-    this.pendingWrite = task.then(() => undefined, () => undefined);
-    return task;
+      await database.checkpoint();
+      return result;
+    });
   }
 
-  save(state: MailState): Promise<void> {
-    this.pendingWrite = this.pendingWrite
-      .catch(() => undefined)
-      .then(async () => {
-        const { database } = await this.connect();
-        const updatedAt = new Date(this.now()).toISOString();
-        await database.transaction(transaction =>
-          this.writeStoredMailbox(transaction, state, updatedAt));
-        await database.checkpoint();
+  commitMailboxRefresh(mailbox: MailboxSnapshot): Promise<void> {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      await database.transaction(tx => writeReplicaThreads(tx, mailbox, new Date(this.now()).toISOString(), false));
+      await database.checkpoint();
+    });
+  }
+
+  saveJournal(state: MailJournal): Promise<void> {
+    // This transaction never serializes mailbox content and survives cache errors.
+    return this.enqueue(async database => {
+      const signature = JSON.stringify(journalOf(state));
+      if (signature === this.journalSignature) return;
+      await database.transaction(tx => writeJournal(tx, journalOf(state)));
+      await database.checkpoint();
+      this.journalSignature = signature;
+    });
+  }
+
+  saveCache(state: MailState): Promise<void> {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      await database.transaction(tx => this.writeStoredMailbox(tx, state, new Date(this.now()).toISOString()));
+      await database.checkpoint();
+      this.remember(state);
+    });
+  }
+
+  queryThreads(query: MailWindowQuery): Promise<MailWindow> {
+    return this.enqueue(async database => {
+      const window = await queryMailWindow(database, query, await readJournal(database));
+      for (const thread of window.threads) this.persistedObjects.add(thread);
+      return window;
+    });
+  }
+
+  summarize(accountId = 'all'): Promise<MailboxSummary> {
+    return this.enqueue(database => summarizeReplica(database, new Date(this.now()).toISOString(), accountId));
+  }
+
+  loadThread(accountId: string, threadId: string, bodies = true): Promise<MailState['threads'][number] | null> {
+    return this.enqueue(async database => {
+      const thread = await readThread(database, accountId, threadId, bodies);
+      if (thread) this.persistedObjects.add(thread);
+      return thread;
+    });
+  }
+
+  beginMailboxSync(): Promise<MailboxSyncCheckpoint> {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      const current = await readSync(database);
+      if (current && !current.complete) return current;
+      const checkpoint: MailboxSyncCheckpoint = {
+        generation: crypto.randomUUID(), nextCursor: null, complete: false,
+        pagesLoaded: 0, threadsLoaded: 0, updatedAt: new Date(this.now()).toISOString(),
+      };
+      await database.transaction(tx => writeSync(tx, checkpoint));
+      await database.checkpoint();
+      return checkpoint;
+    });
+  }
+
+  commitMailboxPage(expected: MailboxSyncCheckpoint, mailbox: MailboxSnapshot, nextCursor: string | null): Promise<MailboxSyncCheckpoint> {
+    return this.enqueue(async database => {
+      const next: MailboxSyncCheckpoint = { ...expected, nextCursor, complete: nextCursor === null,
+        pagesLoaded: expected.pagesLoaded + 1, threadsLoaded: expected.threadsLoaded + mailbox.threads.length,
+        updatedAt: new Date(this.now()).toISOString() };
+      await database.transaction(async tx => {
+        const current = await readSync(tx);
+        if (!current || current.complete || current.generation !== expected.generation ||
+          current.nextCursor !== expected.nextCursor || current.pagesLoaded !== expected.pagesLoaded) {
+          throw new Error('This mailbox page belongs to a superseded sync checkpoint.');
+        }
+        await writeReplicaThreads(tx, mailbox, next.updatedAt, false);
+        if (!await readRecord(tx, 'local_mail_records', 'ui')) await writeReplicaUi(tx, emptyMailState());
+        await writeSync(tx, next);
       });
-    return this.pendingWrite;
+      await database.checkpoint();
+      return next;
+    });
   }
 
   async loadMailboxPageProgress(): Promise<MailboxPageProgress | null> {
@@ -1426,30 +1559,15 @@ export class ProfileSqliteMailStore implements LocalMailStore {
       .then(async () => {
         const { database, storage } = await this.connect();
         const stored = await this.readStoredMailbox(database);
-        if (
-          stored &&
-          await this.normalizedSourceUpdatedAt(database) !== stored.updatedAt
-        ) {
-          await database.transaction(transaction => replaceNormalizedLocalReplica(
-            transaction,
-            stored.state,
-            stored.updatedAt,
-            new Date(this.now()).toISOString(),
-          ));
-          await database.checkpoint();
-        }
         const [remoteImageFiles, attachmentFiles, usage] = await Promise.all([
           privateDirectoryUsage(storage, remoteImageDirectory),
           privateDirectoryUsage(storage, attachmentDirectory),
           Promise.resolve(storage.usage()).catch(() => null),
         ]);
-        const statistics = stored
-          ? localReplicaStatistics(stored.state)
-          : { counts: zeroEntityCounts, logicalBytes: 0, accounts: [] };
+        const statistics = await replicaStatistics(database);
         const indexedAt = await this.normalizedIndexedAt(database);
-        const rawBytes = stored
-          ? new TextEncoder().encode(stored.serialized).byteLength
-          : 0;
+        const raw = await database.query("SELECT COALESCE(SUM(length(CAST(payload AS BLOB))), 0) FROM local_mail_records");
+        const rawBytes = Number(raw.rows[0]?.[0] ?? 0);
         const warnings = [
           'Private profile storage is shared across workspaces for this package; workspace-level byte attribution is unavailable.',
           'The SDK reports physical bytes only for the whole private scope, so raw-mail and search-metadata bytes are logical UTF-8 measurements.',
@@ -1486,7 +1604,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
               measurement: 'logical',
               itemCount: stored ? 1 : 0,
               bytes: rawBytes,
-              note: 'Serialized compatibility snapshot; provider coverage is reported per account.',
+              note: 'Authoritative per-entity records with separately bounded message bodies.',
             },
             {
               class: 'search-metadata',
@@ -1565,20 +1683,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
       .then(async () => {
         const { database, storage } = await this.connect();
         const stored = await this.readStoredMailbox(database);
-        const targetState = stored
-          ? {
-              ...stored.state,
-              accounts: stored.state.accounts.filter(
-                account => account.accountId === accountId,
-              ),
-              threads: stored.state.threads.filter(
-                thread => thread.accountId === accountId,
-              ),
-            }
-          : null;
-        const removedStatistics = targetState
-          ? localReplicaStatistics(targetState)
-          : { counts: zeroEntityCounts };
+        const removedStatistics = await replicaStatistics(database, accountId);
         const attachmentResult = await database.query(
           `SELECT cache_key, account_id, thread_id, message_id, resource_id,
                   size_bytes, content_hash, storage_token, expires_at,
@@ -1626,9 +1731,15 @@ export class ProfileSqliteMailStore implements LocalMailStore {
               mailStateWithoutAccount(stored.state, accountId),
               updatedAt,
             );
-          } else {
-            await deleteNormalizedLocalAccount(transaction, accountId);
           }
+          await deleteNormalizedLocalAccount(transaction, accountId);
+          await transaction.execute('DELETE FROM local_mail_records WHERE account_id = ?', [accountId]);
+          await transaction.execute('DELETE FROM local_mail_bodies WHERE account_id = ?', [accountId]);
+          await transaction.execute('DELETE FROM local_mail_versions WHERE account_id = ?', [accountId]);
+          await transaction.execute("DELETE FROM local_mail_records WHERE kind = 'revision'");
+          const journal = await readJournal(transaction);
+          if (journal) await writeJournal(transaction, journalOf(mailStateWithoutAccount({ ...emptyMailState(), ...journal }, accountId)));
+          await transaction.execute('DELETE FROM local_mail_sync');
           await transaction.execute(
             'DELETE FROM attachment_cache WHERE account_id = ?',
             [accountId],
@@ -1636,6 +1747,8 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           await transaction.execute('DELETE FROM remote_image_cache');
         });
         await database.checkpoint();
+        this.persistedObjects = new WeakSet();
+        this.journalSignature = null;
 
         const remainingClasses: LocalStorageClass[] = [
           'semantic-vector',
@@ -1691,9 +1804,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
       .then(async () => {
         const { database, storage } = await this.connect();
         const stored = await this.readStoredMailbox(database);
-        const removedStatistics = stored
-          ? localReplicaStatistics(stored.state)
-          : { counts: zeroEntityCounts };
+        const removedStatistics = await replicaStatistics(database);
         const [attachmentResult, remoteImageResult] = await Promise.all([
           database.query(
             `SELECT cache_key, account_id, thread_id, message_id, resource_id,
@@ -1720,11 +1831,18 @@ export class ProfileSqliteMailStore implements LocalMailStore {
         await database.transaction(async transaction => {
           await transaction.execute('DELETE FROM mailbox_state WHERE id = ?', [1]);
           await deleteNormalizedLocalReplica(transaction);
+          await transaction.execute('DELETE FROM local_mail_records');
+          await transaction.execute('DELETE FROM local_mail_bodies');
+          await transaction.execute('DELETE FROM local_mail_versions');
+          await transaction.execute('DELETE FROM local_mail_journal');
+          await transaction.execute('DELETE FROM local_mail_sync');
           await transaction.execute('DELETE FROM local_mail_page_progress WHERE id = ?', [1]);
           await transaction.execute('DELETE FROM attachment_cache');
           await transaction.execute('DELETE FROM remote_image_cache');
         });
         await database.checkpoint();
+        this.persistedObjects = new WeakSet();
+        this.journalSignature = null;
         const completedAt = new Date(this.now()).toISOString();
         const remainingClasses: LocalStorageClass[] = [
           'semantic-vector',

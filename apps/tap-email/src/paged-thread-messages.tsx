@@ -5,6 +5,8 @@ import {
   type createCoordinatorClient,
   type ThreadPage,
 } from './coordinator-client';
+import { memoryBodyBudgetBytes } from './bounded-mail-replica';
+import { serializedBytes } from './bounded-sql';
 import type { EmailMessage } from './domain';
 import { ThreadMessageList, type ThreadMessageListProps } from './thread-messages';
 
@@ -17,6 +19,7 @@ interface Props extends ThreadMessageListProps {
 export function PagedThreadMessages({ client, providerRevision, onMessages, ...props }: Props) {
   const { accountId, threadId } = props;
   const [page, setPage] = useState<ThreadPage | null>(null);
+  const [windowed, setWindowed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const session = useRef({ active: true, busy: false, cursor: null as string | null,
@@ -35,14 +38,20 @@ export function PagedThreadMessages({ client, providerRevision, onMessages, ...p
           (result.nextCursor !== null && request.seen.has(result.nextCursor))) {
         throw new CoordinatorError(409, 'thread_changed', 'The conversation changed. Retry to load its latest messages.');
       }
-      const messages = mergeConversationPage(request.messages, result.messages);
+      let messages = mergeConversationPage(request.messages, result.messages);
       if (request.cursor !== null && messages.length === request.messages.length) {
         throw new Error('Conversation pagination did not advance. Retry loading messages.');
+      }
+      if (serializedBytes(messages) > memoryBodyBudgetBytes) {
+        // Keep the requested page readable without accumulating all conversation bodies.
+        messages = result.messages;
+        setWindowed(true);
       }
       request.messages = messages;
       request.revision = result.providerRevision;
       request.cursor = result.nextCursor;
       if (result.nextCursor !== null) request.seen.add(result.nextCursor);
+      if (request.seen.size > 32) request.seen.delete(request.seen.values().next().value!);
       setPage(result);
       onMessages(accountId, threadId, messages, providerRevision);
     } catch (failure) {
@@ -64,6 +73,7 @@ export function PagedThreadMessages({ client, providerRevision, onMessages, ...p
     session.current = { active: true, busy: false, cursor: null, revision: null, messages: [], seen: new Set() };
     const request = session.current;
     setPage(null);
+    setWindowed(false);
     setError(null);
     setLoading(false);
     void load();
@@ -80,7 +90,15 @@ export function PagedThreadMessages({ client, providerRevision, onMessages, ...p
       {page?.nextCursor && !error ? <button type="button" disabled={loading} onClick={() => void load()}>
         Load older messages
       </button> : null}
-      {page?.complete ? <p role="status">All conversation messages loaded</p> : null}
+      {windowed ? <button type="button" disabled={loading} onClick={() => {
+        session.current.cursor = null;
+        session.current.revision = null;
+        session.current.messages = [];
+        session.current.seen.clear();
+        setWindowed(false);
+        void load();
+      }}>Load newest messages</button> : null}
+      {page?.complete ? <p role="status">{windowed ? 'End of conversation' : 'All conversation messages loaded'}</p> : null}
     </div>
     <ThreadMessageList {...props} />
   </>;

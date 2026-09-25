@@ -80,6 +80,28 @@ describe('paged conversation reader', () => {
     }
   });
 
+  it('bounds accumulated bodies and lets the reader return to newest messages', async () => {
+    const large = (id: string) => ({ ...message(id), bodyText: 'x'.repeat(4_500_000), bodyHtml: undefined });
+    const newest = { ...page([], 'older'), messages: [large('newest')] };
+    const oldest = { ...page([], null), messages: [large('oldest')] };
+    const client = { getThreadPage: rs.fn<() => Promise<ThreadPage>>()
+      .mockResolvedValueOnce(newest).mockResolvedValueOnce(oldest).mockResolvedValueOnce(newest) };
+    const onMessages = rs.fn();
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<PagedThreadMessages {...defaults} client={client}
+        messages={[]} onMessages={onMessages} />));
+      await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
+      expect(onMessages.mock.calls.at(-1)?.[2]).toEqual(oldest.messages);
+      expect(container.textContent).toContain('End of conversation');
+      const newestButton = [...container.querySelectorAll('button')].find(button => button.textContent === 'Load newest messages')!;
+      await act(async () => newestButton.click());
+      expect(onMessages.mock.calls.at(-1)?.[2]).toEqual(newest.messages);
+      expect(container.textContent).toContain('Load older messages');
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('shows first-load failure as an error and waits for explicit retry', async () => {
     const client = { getThreadPage: rs.fn<() => Promise<ThreadPage>>()
       .mockRejectedValueOnce(new Error('Connection lost'))

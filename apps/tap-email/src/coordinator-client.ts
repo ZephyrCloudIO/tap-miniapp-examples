@@ -280,6 +280,9 @@ export interface MailboxLoadProgress extends MailboxPage {
 }
 
 export interface MailboxLoadOptions {
+  /** Streaming consumers persist each page and do not retain a second mailbox. */
+  readonly collect?: boolean;
+  readonly signal?: AbortSignal;
   /** Resume after the last page that was durably merged into the device replica. */
   readonly startCursor?: string | null;
   /** Called once for every bounded page, before the following request begins. */
@@ -484,9 +487,12 @@ export function createCoordinatorClient(
       let accounts: MailboxSnapshot['accounts'] = [];
       let cursor: string | null = options.startCursor ?? null;
       let pageCount = 0;
+      let loadedThreadCount = 0;
 
       while (true) {
+        options.signal?.throwIfAborted();
         const page = await this.getMailboxPage(cursor);
+        options.signal?.throwIfAborted();
         pageCount += 1;
         if (accounts.length === 0) accounts = page.mailbox.accounts;
         let addedThreads = 0;
@@ -494,18 +500,20 @@ export function createCoordinatorClient(
           const key = `${thread.accountId}\u0000${thread.threadId}`;
           if (seenThreadKeys.has(key)) continue;
           seenThreadKeys.add(key);
-          threads.push(thread);
+          if (options.collect !== false) threads.push(thread);
           addedThreads += 1;
         }
 
+        loadedThreadCount += addedThreads;
         const complete = page.nextCursor === null;
         await options.onPage?.({
           ...page,
-          loadedThreadCount: threads.length,
+          loadedThreadCount,
           pageCount,
           complete,
         });
 
+        options.signal?.throwIfAborted();
         if (complete) {
           return { schemaVersion: 1, accounts, threads };
         }
@@ -521,6 +529,12 @@ export function createCoordinatorClient(
           );
         }
         seenCursors.add(page.nextCursor);
+        if (options.collect === false) {
+          // Keep only the prior page's identities and a bounded cycle detector.
+          seenThreadKeys.clear();
+          for (const thread of page.mailbox.threads) seenThreadKeys.add(`${thread.accountId}\u0000${thread.threadId}`);
+          if (seenCursors.size > 32) seenCursors.delete(seenCursors.values().next().value!);
+        }
         cursor = page.nextCursor;
       }
     },
