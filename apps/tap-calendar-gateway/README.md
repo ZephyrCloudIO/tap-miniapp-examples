@@ -271,7 +271,14 @@ tools are:
 - `find_available_slots`: proposes slots only when every requested calendar has complete, fresh cache proof.
 - `draft_meeting`: creates an unpersisted draft only when the same authoritative-cache check passes.
 
-MCP never returns attendee identities, locations, linked TAP content, or provider event titles under this generic local permission, even if a caller supplies an `includeDetails` argument. Event lists are capped at 200 items and draft conflicts at 50; truncation is explicit.
+The legacy `/mcp` route never returns attendee identities, locations, linked TAP content, or provider event titles under this generic local permission, even if a caller supplies an `includeDetails` argument. Event lists are capped at 200 items and draft conflicts at 50; truncation is explicit.
+
+The separate OAuth-protected `/mcp/live` route supports individual event details,
+direct creation, and aggregate analytics with explicit account scopes and live
+workspace-membership checks. It uses D1 grants and configuration from migration
+`0020_calendar_live_mcp.sql` and the `OAUTH_KV` namespace. The OAuth wrapper retains
+all existing HTTP routes and scheduled work. See [deployment, consent, tool
+semantics, and tests](../../docs/calendar-live-mcp.md) before rollout.
 
 ## One-time adoption of pre-principal local data
 

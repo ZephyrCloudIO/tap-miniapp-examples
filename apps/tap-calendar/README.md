@@ -215,7 +215,7 @@ matrix includes seeded positive, empty-first-run, and storage-denied profiles.
 - `workflow-host` exposes `./workflow-host/catalog` and embeds the referenced
   JSON Schema assets.
 
-Each MCP entry exports only `mcpServer`. The general server exposes
+Each package-runtime MCP entry exports only `mcpServer`. The general server exposes
 `list_events`, `find_available_slots`, and `draft_meeting`; the separate
 least-privilege server exposes only `summarize_day`. Every tool requires a trusted host
 user and reads only that user's
@@ -232,11 +232,23 @@ local date. It returns no event, attendee, calendar, or linked-TAP identifiers,
 and suppresses totals when cache coverage is partial, stale, or unverified;
 Calendar time is not proof of attendance or productive activity. A daily-briefing
 consumer should be granted only the aggregate server. `draft_meeting` reports advisory cache conflicts and
-staleness, but still returns only a draft: all scheduling paths require a final
-live gateway commit and explicit human confirmation before anything is booked.
-The server stays in the package-runtime boundary; it is not configured as a
-remote MCP server until TAP can supply an authenticated production workspace
-identity for that boundary.
+staleness, but still returns only a draft.
+
+The separate `calendar-live-tools` contribution connects to the gateway's
+OAuth-protected `/mcp/live` endpoint. It exposes live calendar/event reads,
+individual event details, conflict-based slot finding, direct event creation,
+Event Type definitions, date-filtered calendar analytics, and lifetime Event
+Type funnel analytics. Direct creation requires a reusable `calendar.write`
+account grant and the host's selected-specialist `calendar.manage` permission;
+it does not require a new human approval for every event. The existing provider
+commit engine performs live conflicts, destination authorization, idempotent
+insertion, and recovery. Provider credentials remain in the gateway.
+
+In Automations, account owners review a short-lived connection code, choose
+read/analytics/write scopes, and can revoke access. Calendar synchronizes only
+Event Type configuration and Conflict Calendar IDs; live tools do not depend
+on the mounted UI's event mirror. See [live MCP setup and semantics](../../docs/calendar-live-mcp.md)
+for deployment requirements, analytics definitions, and validation limits.
 
 The workflow catalog exports the requested camel-case functions
 `normalizeBookingCreated`, `normalizeBookingCancelled`, `draftWorkBlock`, and

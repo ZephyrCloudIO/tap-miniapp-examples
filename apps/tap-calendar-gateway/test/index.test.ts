@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import worker, {
+import {
   createCalendarGatewayWorker,
   createGatewayPublicBookingManagementProvider,
   createGatewayPublicBookingProvider,
@@ -10,6 +10,7 @@ import worker, {
   normalizeMicrosoftCalendarPageUrl,
 } from "../src/index";
 import { publicBookingProviderOperationId } from "../src/public-booking-create";
+const worker = createCalendarGatewayWorker();
 
 const origin = "http://localhost:3000";
 const workspace = "workspace-local-test";
@@ -429,8 +430,8 @@ describe("TAP Calendar local gateway", () => {
         background.push(promise);
       },
     } as unknown as ExecutionContext);
-    expect(background).toHaveLength(5);
-    await expect(Promise.all(background)).resolves.toHaveLength(5);
+    expect(background).toHaveLength(6);
+    await expect(Promise.all(background)).resolves.toHaveLength(6);
   });
 
   it("persists an empty-install connection and every discovered calendar in D1", async () => {
