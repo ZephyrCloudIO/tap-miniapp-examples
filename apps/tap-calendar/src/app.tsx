@@ -1,3 +1,5 @@
+import { normalizePublicBookingDetails, publicBookingDescription } from "./public-booking-details";
+import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-booking-fields";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
 import { applyPublicBookingAnalytics, publicBookingPageMetrics, publicBookingConversion, type PublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
@@ -299,6 +301,7 @@ type RefreshMeetingProviderConnections = () => Promise<
 type RequireCalendarManage = () => Promise<void>;
 
 interface ProviderBookingReservationInput {
+  readonly description?: string;
   readonly actionId: CalendarAuthorityAction;
   readonly idempotencyKey: string;
   readonly destinationCalendarId: string;
@@ -308,7 +311,7 @@ interface ProviderBookingReservationInput {
   readonly conflictTimeMin?: string;
   readonly conflictTimeMax?: string;
   readonly bookingKind: "meeting" | "approval-hold" | "work-block";
-  readonly location?: MeetingLocation;
+  readonly location?: MeetingLocation | null;
   readonly attendees?: readonly CalendarAttendee[];
   readonly expiresAt?: string;
   readonly reconciliation: ProviderBookingReconciliation;
@@ -1160,7 +1163,7 @@ const openZoomAuthorization = async (
 };
 
 const providerLocationConfiguration = (
-  location: MeetingLocation | undefined,
+  location: MeetingLocation | null | undefined,
   bookingKind: ProviderBookingReservationInput["bookingKind"],
 ): {
   readonly location?: string;
@@ -1176,10 +1179,10 @@ const providerLocationConfiguration = (
 };
 
 const providerLocationError = (
-  location: MeetingLocation | undefined,
+  location: MeetingLocation | null | undefined,
   zoomConnected: boolean,
 ): string | null => {
-  if (location === undefined || location === "google-meet") return null;
+  if (location == null || location === "google-meet") return null;
   if (location === "zoom") {
     return zoomConnected ? null : "Connect Zoom in Settings before scheduling a Zoom meeting.";
   }
@@ -1293,7 +1296,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState<string | null>(null);
   const [workBlockOpen, setWorkBlockOpen] = useState(false);
   const [connectionTarget, setConnectionTarget] = useState<CalendarConnectionTarget | null>(null);
   const [calendarRemovalTarget, setCalendarRemovalTarget] = useState<ConnectedCalendar | null>(null);
@@ -1613,6 +1616,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       conflictCalendarIds,
       idempotencyKey: input.idempotencyKey,
       title: input.title,
+      ...(input.description ? { description: input.description } : {}),
       start: input.start,
       end: input.end,
       conflictTimeMin: input.conflictTimeMin ?? input.start,
@@ -2467,7 +2471,9 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       await finishProviderBookingReconciliation(input.id, reserved.booking);
       announce(bookingRequestId
         ? "Meeting request saved with a provider Tentative Hold."
-        : "Meeting committed to the provider calendar.");
+        : input.attendees.length === 0
+          ? "Time blocked on your calendar."
+          : "Meeting committed to the provider calendar.");
       providerEventCache.refresh();
       return { error: null, retrySameAttempt: false };
     }
@@ -2900,7 +2906,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           </div>
           <div className="header-actions">
             <button className="secondary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setWorkBlockOpen(true)}><SquareCheckBig /> Block task</button>
-            <button className="primary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setScheduleOpen(true)}><Plus /> Schedule</button>
+            <button className="primary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setScheduleStart("")}><Plus /> Schedule</button>
             <button className="avatar-button" type="button" aria-label="Open profile menu" disabled title="Profile actions are provided by the TAP host."><CircleUserRound /></button>
           </div>
         </header>
@@ -2931,7 +2937,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
                   .finally(() => setOptimisticActiveView(null));
               }}
               onSelectEvent={setSelectedEventId}
-              onSchedule={() => setScheduleOpen(true)}
+              onSchedule={start => setScheduleStart(start ?? "")}
               onAddAccount={() => setConnectionTarget({ kind: "account" })}
             />
           ) : null}
@@ -3010,16 +3016,17 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       {selectedEvent ? (
         <EventDrawer event={selectedEvent} state={displayState} onClose={() => setSelectedEventId(null)} />
       ) : null}
-      {scheduleOpen ? (
+      {scheduleStart !== null ? (
         <ScheduleDialog
           state={state}
           principalAccess={providerPrincipalAccess}
           zoomConnected={zoomConnected}
-          onClose={() => setScheduleOpen(false)}
+          initialStart={scheduleStart}
+          onClose={() => setScheduleStart(null)}
           onSubmit={async input => {
             const result = await submitScheduledMeeting(input);
             if (!result.error) {
-              setScheduleOpen(false);
+              setScheduleStart(null);
             }
             return result;
           }}
@@ -3419,7 +3426,7 @@ function CalendarScreen({
   readonly saving: boolean;
   readonly onSetView: (view: CalendarView) => void;
   readonly onSelectEvent: (eventId: string) => void;
-  readonly onSchedule: () => void;
+  readonly onSchedule: (start?: string) => void;
   readonly onAddAccount: () => void;
 }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -3543,7 +3550,7 @@ function CalendarScreen({
         </div>
       ) : <div className="calendar-surface">
         <div className="calendar-board-gesture-surface" ref={surfaceRef}>
-          <CalendarBoard state={state} anchorDate={anchorDate} onSelectEvent={onSelectEvent} />
+          <CalendarBoard state={state} anchorDate={anchorDate} onSelectEvent={onSelectEvent} onSelectSlot={onSchedule} />
         </div>
         <aside className="next-up-panel">
           <header><span><Activity /> Next up</span><small>{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "short", day: "numeric" }).format(parseCalendarDate(anchorDate))}</small></header>
@@ -3557,7 +3564,7 @@ function CalendarScreen({
           {canSchedule ? <div className="focus-suggestion">
             <Sparkles />
             <div><strong>Protect time for focused work</strong><small>Create a meeting or Work Block on your Destination Calendar.</small></div>
-            <button type="button" onClick={onSchedule}>Schedule</button>
+            <button type="button" onClick={() => onSchedule()}>Schedule</button>
           </div> : null}
         </aside>
       </div>}
@@ -5898,6 +5905,7 @@ function ScheduleMeetingEditor({
   principalAccess,
   zoomConnected,
   mode,
+  initialStart = "",
   roster = { status: "unavailable", participants: [] },
   onCancel,
   onSubmit,
@@ -5907,6 +5915,7 @@ function ScheduleMeetingEditor({
   readonly principalAccess: ProviderPrincipalAccessState;
   readonly zoomConnected: boolean;
   readonly mode: "workspace" | "channel";
+  readonly initialStart?: string;
   readonly roster?: ChannelParticipantRoster;
   readonly onCancel?: () => void;
   readonly onSubmit: SubmitScheduledMeeting;
@@ -5919,15 +5928,11 @@ function ScheduleMeetingEditor({
     readonly requestedAt: string;
   } | null>(null);
   const [title, setTitle] = useState("");
-  const [attendeeDrafts, setAttendeeDrafts] = useState<readonly AttendeeDraft[]>(
-    () => mode === "workspace"
-      ? [{ key: createEntityId("attendee"), name: "", email: "", required: true }]
-      : [],
-  );
+  const [attendeeDrafts, setAttendeeDrafts] = useState<readonly AttendeeDraft[]>([]);
   const [selectedParticipantIds, setSelectedParticipantIds] =
     useState<ReadonlySet<string>>(() => new Set());
-  const [location, setLocation] = useState<MeetingLocation>("google-meet");
-  const [slot, setSlot] = useState("");
+  const [location, setLocation] = useState<MeetingLocation | null>(mode === "channel" ? "google-meet" : null);
+  const [slot, setSlot] = useState(initialStart);
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [approvalRequired, setApprovalRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -5961,12 +5966,13 @@ function ScheduleMeetingEditor({
     }
   }
   const attendees = [...attendeesByEmail.values()];
-  const compatibility = validateGuestCompatibility(location, attendees);
+  const compatibility = location ? validateGuestCompatibility(location, attendees) : null;
+  const personalEvent = mode === "workspace" && attendees.length === 0 && attendeeDrafts.length === 0;
   const destination = principalWritableDestination(state, principalAccess);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting) return;
-    if (attendees.length === 0) {
+    if (mode === "channel" && attendees.length === 0) {
       setError("Select at least one attendee.");
       return;
     }
@@ -5974,6 +5980,11 @@ function ScheduleMeetingEditor({
     setSubmitting(true);
     setError(null);
     const start = new Date(slot);
+    if (!Number.isFinite(start.getTime())) {
+      setError("Choose a valid start time.");
+      setSubmitting(false);
+      return;
+    }
     const draft = {
       title: title.trim(),
       calendarId: destination.id,
@@ -5981,7 +5992,7 @@ function ScheduleMeetingEditor({
       end: new Date(start.getTime() + durationMinutes * 60_000).toISOString(),
       location,
       attendees,
-      approvalRequired,
+      approvalRequired: !personalEvent && approvalRequired,
     };
     const canonical = JSON.stringify(draft);
     const attempt = bookingAttemptRef.current?.canonical === canonical
@@ -6002,7 +6013,7 @@ function ScheduleMeetingEditor({
       setError(result.error);
       if (!result.error) {
         bookingAttemptRef.current = null;
-        onSuccess?.({ title: draft.title, approvalRequired });
+        onSuccess?.({ title: draft.title, approvalRequired: draft.approvalRequired });
       }
     } finally {
       setSubmitting(false);
@@ -6035,10 +6046,11 @@ function ScheduleMeetingEditor({
         {error || compatibility ? <div className="dialog-warning" role={error ? "alert" : "status"}><AlertTriangle /><span>{error ?? compatibility}</span></div> : null}
         <FieldGroup className="calendar-form-fields">
           <Field>
-            <FieldLabel htmlFor="meeting-title">Meeting title</FieldLabel>
+            <FieldLabel htmlFor="meeting-title">{mode === "workspace" ? "Event title" : "Meeting title"}</FieldLabel>
             <Input
               id="meeting-title"
               name="meeting-title"
+              data-modal-initial-focus={mode === "workspace" ? true : undefined}
               autoComplete="off"
               value={title}
               required
@@ -6083,7 +6095,7 @@ function ScheduleMeetingEditor({
         ) : null}
         {attendeeDrafts.length > 0 ? (
           <fieldset className="attendee-editor">
-            <legend>{mode === "channel" ? "External guests" : "Attendees"}</legend>
+            <legend>{mode === "channel" ? "External guests" : "Guests (optional)"}</legend>
             {attendeeDrafts.map((attendee, index) => {
               const nameId = `attendee-name-${attendee.key}`;
               const emailId = `attendee-email-${attendee.key}`;
@@ -6113,8 +6125,7 @@ function ScheduleMeetingEditor({
                     />
                   </Field>
                   <span className="attendee-account-type">External guest</span>
-                  {mode === "channel" || attendeeDrafts.length > 1 ? (
-                    <Button
+                  <Button
                       type="button"
                       className="attendee-remove-button"
                       variant="ghost"
@@ -6123,8 +6134,7 @@ function ScheduleMeetingEditor({
                       onClick={() => setAttendeeDrafts(current => current.filter(item => item.key !== attendee.key))}
                     >
                       <X aria-hidden="true" />
-                    </Button>
-                  ) : null}
+                  </Button>
                 </div>
               );
             })}
@@ -6139,6 +6149,7 @@ function ScheduleMeetingEditor({
           <Plus data-icon="inline-start" />
           Add external guest
         </Button>
+        {mode === "workspace" ? <p className="participant-picker-note">Guests are optional. With no guests, this event blocks time on your calendar.</p> : null}
         <FieldGroup className="calendar-form-fields">
           <div className="form-grid date-duration-grid">
             <Field>
@@ -6166,6 +6177,11 @@ function ScheduleMeetingEditor({
                 <NativeSelectOption value="45">45 minutes</NativeSelectOption>
                 <NativeSelectOption value="60">1 hour</NativeSelectOption>
                 <NativeSelectOption value="90">90 minutes</NativeSelectOption>
+                {mode === "workspace" ? <>
+                  <NativeSelectOption value="120">2 hours</NativeSelectOption>
+                  <NativeSelectOption value="240">4 hours</NativeSelectOption>
+                  <NativeSelectOption value="480">8 hours</NativeSelectOption>
+                </> : null}
               </NativeSelect>
             </Field>
           </div>
@@ -6174,35 +6190,37 @@ function ScheduleMeetingEditor({
             <NativeSelect
               id="schedule-location"
               name="schedule-location"
-              value={location}
-              onChange={event => setLocation(event.currentTarget.value as MeetingLocation)}
+              value={location ?? "none"}
+              onChange={event => setLocation(event.currentTarget.value === "none" ? null : event.currentTarget.value as MeetingLocation)}
             >
+              {mode === "workspace" ? <NativeSelectOption value="none">No video call</NativeSelectOption> : null}
               <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
               {zoomConnected ? <NativeSelectOption value="zoom">Zoom</NativeSelectOption> : null}
             </NativeSelect>
-            <FieldDescription>{meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
+            <FieldDescription>{location === null ? "This event marks you as busy. Add a video call if you need one." : meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
           </Field>
         </FieldGroup>
-        <label className="approval-check"><input type="checkbox" checked={approvalRequired} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require approval</strong><small>Creates an expiring Tentative Booking Hold for approval.</small></span></label>
-        <div className="mutual-slot-summary"><CheckCircle2 /><span><strong>{attendees.length > 0 ? "Ready to review" : "Add attendees"}</strong><small>{attendees.length} {attendees.length === 1 ? "attendee" : "attendees"} · {durationMinutes} minutes · {destination.name}</small></span></div>
+        {!personalEvent ? <label className="approval-check"><input type="checkbox" checked={approvalRequired} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require approval</strong><small>Creates an expiring Tentative Booking Hold for approval.</small></span></label> : null}
+        <div className="mutual-slot-summary"><CheckCircle2 /><span><strong>{personalEvent ? "Block your calendar" : attendees.length > 0 ? "Ready to review" : "Add attendees"}</strong><small>{personalEvent ? "Just you · Busy" : `${attendees.length} ${attendees.length === 1 ? "attendee" : "attendees"}`} · {durationMinutes} minutes · {destination.name}</small></span></div>
         <div className="dialog-actions">
           {onCancel ? <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>Cancel</Button> : null}
-          <Button type="submit" disabled={submitting || attendees.length === 0 || !title.trim() || !slot}>
-            {approvalRequired ? "Send request" : "Schedule meeting"}
+          <Button type="submit" disabled={submitting || (mode === "channel" && attendees.length === 0) || !title.trim() || !slot}>
+            {submitting ? "Saving…" : personalEvent ? "Save event" : approvalRequired ? "Send request" : "Schedule meeting"}
           </Button>
         </div>
       </form>
   );
 }
 
-function ScheduleDialog({ state, principalAccess, zoomConnected, onClose, onSubmit }: { readonly state: CalendarState; readonly principalAccess: ProviderPrincipalAccessState; readonly zoomConnected: boolean; readonly onClose: () => void; readonly onSubmit: SubmitScheduledMeeting }) {
+export function ScheduleDialog({ state, principalAccess, zoomConnected, initialStart, onClose, onSubmit }: { readonly state: CalendarState; readonly principalAccess: ProviderPrincipalAccessState; readonly zoomConnected: boolean; readonly initialStart: string; readonly onClose: () => void; readonly onSubmit: SubmitScheduledMeeting }) {
   return (
-    <Modal title="Schedule a meeting" description="Invite several people and choose when and where to meet." onClose={onClose}>
+    <Modal title="Create an event" description="Block time for yourself or invite people to a meeting." onClose={onClose}>
       <ScheduleMeetingEditor
         state={state}
         principalAccess={principalAccess}
         zoomConnected={zoomConnected}
         mode="workspace"
+        initialStart={initialStart}
         onCancel={onClose}
         onSubmit={onSubmit}
       />
@@ -6921,6 +6939,8 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [additionalGuests, setAdditionalGuests] = useState<{ id: string; email: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const bookingAttemptRef = useRef<{
@@ -7118,6 +7138,13 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       setStep("slot");
       return;
     }
+    let details;
+    try {
+      details = normalizePublicBookingDetails({ notes, additionalGuests: additionalGuests.map(guest => guest.email.trim()).filter(Boolean) }, email);
+    } catch (reason) {
+      setError((reason as Error).message);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     if (!profile.published || !eventType.active) {
@@ -7154,6 +7181,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       location: eventType.location,
       guestName: name.trim(),
       guestEmail: email.trim().toLowerCase(),
+      ...details,
     });
     const attempt = bookingAttemptRef.current?.canonical === canonical
       ? bookingAttemptRef.current
@@ -7172,7 +7200,12 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       kind: "external",
       required: true,
     };
+    const attendees: CalendarAttendee[] = [attendee, ...(details.additionalGuests ?? []).map((guestEmail, index) => ({
+      id: `${bookingAttemptId}-guest-${index + 1}`, name: guestEmail, email: guestEmail,
+      kind: "external" as const, required: true,
+    }))];
     const reserved = await onReserveBooking({
+      description: publicBookingDescription(eventType.description, name.trim(), details.notes),
       actionId: CALENDAR_PUBLISH_ACTION,
       idempotencyKey: bookingAttemptId,
       destinationCalendarId: eventType.destinationCalendarId,
@@ -7183,7 +7216,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       conflictTimeMax,
       bookingKind: eventType.approvalRequired ? "approval-hold" : "meeting",
       location: eventType.location,
-      attendees: [attendee],
+      attendees,
       reconciliation: {
         kind: "public-booking",
         title: eventType.title,
@@ -7191,7 +7224,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
         start: selectedSlot,
         end,
         location: eventType.location,
-        attendees: [attendee],
+        attendees,
         approvalRequired: eventType.approvalRequired,
         eventTypeId: eventType.id,
         requestedAt,
@@ -7232,7 +7265,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
           start: selectedSlot,
           end,
           location: eventType.location,
-          attendees: [attendee],
+          attendees,
           approvalRequired,
           eventTypeId: eventType.id,
           requestedAt,
@@ -7286,7 +7319,6 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
                 <li><Video aria-hidden="true" /><span>{meetingLocationNames[eventType.location]}</span></li>
                 {eventType.approvalRequired ? <li><ShieldCheck aria-hidden="true" /><span>Host approval required</span></li> : null}
               </ul>
-              <div className="public-booking-note"><CircleUserRound aria-hidden="true" /><span>No TAP account is required to book.</span></div>
             </aside>
             <section className="public-booking-main">
               {step === "date" ? (
@@ -7400,7 +7432,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
               ) : (
                 <form className="public-details public-booking-details" onSubmit={submit}>
                   <button type="button" className="public-booking-back" onClick={() => setStep("slot")}><ArrowLeft aria-hidden="true" /> Choose another time</button>
-                  <header className="public-booking-step-header"><span className="eyebrow">Your details</span><h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2><p>We use this information only for this booking and its notifications.</p></header>
+                  <header className="public-booking-step-header"><span className="eyebrow">Your details</span><h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2><p>Your details are shared with the host to arrange this meeting.</p></header>
                   <div className="public-booking-selected-time"><CalendarCheck2 aria-hidden="true" /><span><strong>{selectedSlot ? viewerDateTimeFormatter.format(new Date(selectedSlot)) : ""}</strong><small>{eventType.durationMinutes} minutes · {meetingLocationNames[eventType.location]}</small></span></div>
                   {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
                   <FieldGroup className="public-booking-fields">
@@ -7413,7 +7445,9 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
                       <Input id="public-booking-email" name="email" type="email" autoComplete="email" spellCheck={false} value={email} required disabled={submitting} onChange={event => setEmail(event.currentTarget.value)} />
                       <FieldDescription>No email verification step is required.</FieldDescription>
                     </Field>
+                    <PublicBookingExtraFields notes={notes} additionalGuests={additionalGuests} disabled={submitting} onNotesChange={setNotes} onGuestsChange={setAdditionalGuests} />
                   </FieldGroup>
+                  <PublicBookingPrivacyNotice />
                   <div className="public-booking-actions"><Button type="submit" size="lg" disabled={submitting || !selectedSlotIsAvailable}>{submitting ? "Reserving…" : eventType.approvalRequired ? "Request meeting" : "Confirm booking"}</Button></div>
                 </form>
               )}
@@ -7421,9 +7455,9 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
           </div>
         )}
         <footer className="public-footer public-booking-footer">
-          <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by TAP — visit The AI Platform homepage (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>TAP</strong></a>
+          <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by The AI Platform (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>The AI Platform</strong></a>
           <nav className="public-booking-footer-links" aria-label="Booking page links">
-            <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy</a>
+            <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
             <span aria-hidden="true">·</span>
             <a href="mailto:abuse@theaiplatform.app">Report abuse</a>
           </nav>

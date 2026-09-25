@@ -52,7 +52,7 @@ Unpublishing remains possible after a host leaves or disables participation.
 
 Deployment order:
 
-1. Apply all D1 migrations, including `0018`, before deploying this gateway.
+1. Apply all D1 migrations, including `0019`, before deploying this gateway.
 2. Deploy the gateway and public site, and publish the rebuilt Calendar miniapp.
 3. Verify the production Authz RPC includes `checkWorkspacePrincipalActions`.
    Google OAuth now also requests `calendar.events.freebusy`; reconnect accounts
@@ -63,6 +63,23 @@ Deployment order:
 
 No production migration, deployment, namespace claim, or host enrollment is
 performed by building or running the test suite.
+
+## Booking notes and additional guests
+
+The public booking POST accepts optional `notes` (up to 2,000 characters) and
+`additionalGuests` (up to 10 email addresses). Addresses are normalized and
+deduplicated against the primary guest. Both fields are captured in the original
+booking attempt and included in its request hash, so retries cannot change the
+notes or invitees of an existing booking. Empty fields preserve legacy hashes.
+Notes are escaped before being included in the calendar event description;
+additional guests receive calendar invitations through the existing provider
+flow, including approval, reschedule, and cancellation updates. The secure
+management link continues to go only to the primary guest.
+
+Apply `0019_public_booking_details.sql` before deploying the gateway, then deploy
+the public site and rebuilt Calendar miniapp. The gateway remains compatible
+with existing clients that omit the new fields. The form and organizer preview
+share the same inputs, privacy-policy notice, and validation limits.
 
 ## Booking analytics
 

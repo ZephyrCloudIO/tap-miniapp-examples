@@ -1,3 +1,5 @@
+import type { PublicBookingDetails } from "../../tap-calendar/src/public-booking-details";
+
 export const PUBLIC_PAGE_SCHEMA_VERSION = "tap.calendar.public-page.v1" as const;
 export const PUBLIC_PROFILE_SCHEMA_VERSION = "tap.calendar.public-profile.v1" as const;
 export const PUBLIC_AVAILABILITY_SCHEMA_VERSION = "tap.calendar.public-availability.v1" as const;
@@ -77,7 +79,7 @@ export interface PublicBookingAvailability {
   readonly dates: readonly PublicBookingDate[];
 }
 
-export interface PublicBookingRequest {
+export interface PublicBookingRequest extends PublicBookingDetails {
   readonly visitId?: string;
   readonly schemaVersion: typeof PUBLIC_BOOKING_SCHEMA_VERSION;
   readonly requestId: string;

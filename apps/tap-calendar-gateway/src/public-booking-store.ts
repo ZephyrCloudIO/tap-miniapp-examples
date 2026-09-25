@@ -1,4 +1,5 @@
 import { PUBLIC_VISIT_ID_PATTERN } from "./public-booking-analytics";
+import { normalizePublicBookingDetails } from "../../tap-calendar/src/public-booking-details";
 import type {
   PublicBookingAttempt,
   PublicBookingAttemptClaim,
@@ -20,6 +21,7 @@ const ISO_INSTANT_MAX_LENGTH = 40;
 type Clock = () => number;
 
 interface AttemptRow extends Record<string, unknown> {
+  readonly details_json: string;
   readonly idempotency_key: string;
   readonly request_hash: string;
   readonly provider_operation_id: string;
@@ -212,6 +214,7 @@ const claimScope = (input: PublicBookingAttemptClaim): void => {
 const attemptRow = (value: unknown): AttemptRow | null => {
   if (
     !isRecord(value) ||
+    typeof value.details_json !== "string" ||
     typeof value.idempotency_key !== "string" ||
     typeof value.request_hash !== "string" ||
     typeof value.provider_operation_id !== "string" ||
@@ -230,6 +233,7 @@ const attemptRow = (value: unknown): AttemptRow | null => {
   }
   return {
     ...value,
+    details_json: value.details_json,
     idempotency_key: value.idempotency_key,
     request_hash: value.request_hash,
     provider_operation_id: value.provider_operation_id,
@@ -304,6 +308,18 @@ const parseStoredResponse = (value: string | null): StoredPublicBookingResult | 
   }
 };
 
+const storedDetails = (row: AttemptRow) => {
+  try {
+    const value: unknown = JSON.parse(row.details_json);
+    if (!isRecord(value)) throw new Error("Invalid details.");
+    const details = normalizePublicBookingDetails(value, row.guest_email);
+    if (JSON.stringify(details) !== row.details_json) throw new Error("Invalid details.");
+    return details;
+  } catch {
+    throw new PublicBookingStoreError("corrupt_booking_attempt", "The stored booking details are invalid.");
+  }
+};
+
 const toAttempt = (row: AttemptRow, managementUrl: string | null): PublicBookingAttempt => {
   if (
     !BOOKING_REFERENCE_PATTERN.test(row.booking_reference) ||
@@ -341,6 +357,7 @@ const toAttempt = (row: AttemptRow, managementUrl: string | null): PublicBooking
     providerOperationId: row.provider_operation_id,
     bookingReference: row.booking_reference,
     guest: { name: row.guest_name, email: row.guest_email },
+    ...storedDetails(row),
     approvalExpiresAt: row.approval_expires_at,
     state: row.state as PublicBookingAttempt["state"],
     response: response === null || managementUrl === null
@@ -357,7 +374,8 @@ const sameClaim = (row: AttemptRow, input: PublicBookingAttemptClaim): boolean =
   row.start_at === input.startsAt &&
   row.end_at === input.endsAt &&
   row.guest_name === input.guest.name &&
-  row.guest_email === input.guest.email;
+  row.guest_email === input.guest.email &&
+  row.details_json === JSON.stringify(normalizePublicBookingDetails(input, input.guest.email));
 
 export interface D1PublicBookingAttemptStoreOptions {
   readonly managementSecret: string;
@@ -385,6 +403,7 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
 
   async claim(input: PublicBookingAttemptClaim): Promise<PublicBookingAttemptClaimResult> {
     claimScope(input);
+    const detailsJson = JSON.stringify(normalizePublicBookingDetails(input, input.guest.email));
     const now = canonicalNow(this.#now);
     const bookingReference = this.#bookingReference();
     if (!BOOKING_REFERENCE_PATTERN.test(bookingReference)) {
@@ -402,11 +421,11 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
         `INSERT OR IGNORE INTO public_booking_attempts (
            workspace_id, principal_id, idempotency_key, request_hash,
            provider_operation_id, booking_reference, revision_id, start_at,
-           end_at, guest_name, guest_email, approval_expires_at, state,
+           end_at, guest_name, guest_email, details_json, approval_expires_at, state,
            response_json, rejection_code, last_error_code,
            created_at, updated_at, visit_id
          )
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 'pending', NULL, NULL, NULL, ?, ?, ?
           WHERE NOT EXISTS (
             SELECT 1
@@ -426,6 +445,7 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
         input.endsAt,
         input.guest.name,
         input.guest.email,
+        detailsJson,
         input.approvalExpiresAt,
         now,
         now,
@@ -447,7 +467,7 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
              WHERE workspace_id = ? AND principal_id = ? AND idempotency_key = ?
                AND request_hash = ? AND provider_operation_id = ?
                AND revision_id = ? AND start_at = ? AND end_at = ?
-               AND guest_name = ? AND guest_email = ?
+               AND guest_name = ? AND guest_email = ? AND details_json = ?
           )`,
       ).bind(
         input.scope.workspace,
@@ -465,11 +485,12 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
         input.endsAt,
         input.guest.name,
         input.guest.email,
+        detailsJson,
       ),
       this.#database.prepare(
         `SELECT idempotency_key, request_hash, provider_operation_id,
                 booking_reference, revision_id, start_at, end_at,
-                guest_name, guest_email, approval_expires_at, state,
+                guest_name, guest_email, details_json, approval_expires_at, state,
                 response_json, rejection_code
            FROM public_booking_attempts
           WHERE workspace_id = ? AND principal_id = ? AND idempotency_key = ?`,
@@ -657,7 +678,7 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
     return this.#database.prepare(
       `SELECT idempotency_key, request_hash, provider_operation_id,
               booking_reference, revision_id, start_at, end_at,
-              guest_name, guest_email, approval_expires_at, state,
+              guest_name, guest_email, details_json, approval_expires_at, state,
               response_json, rejection_code
          FROM public_booking_attempts
         WHERE workspace_id = ? AND principal_id = ? AND idempotency_key = ?`,

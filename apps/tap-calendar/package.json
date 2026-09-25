@@ -47,6 +47,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "happy-dom": "^20.14.5",
     "moment-timezone": "0.6.3",
     "playwright": "^1.61.0",
     "typescript": "^6.0.3"

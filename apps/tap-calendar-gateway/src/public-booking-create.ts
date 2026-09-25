@@ -1,4 +1,5 @@
 import { PUBLIC_VISIT_ID_PATTERN } from "./public-booking-analytics";
+import { publicBookingDescription, normalizePublicBookingDetails, type PublicBookingDetails } from "../../tap-calendar/src/public-booking-details";
 import {
   publicSlotSatisfiesPublishedSchedule,
   type PublicSlotTokenClaims,
@@ -14,7 +15,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const MANAGEMENT_TOKEN_PATTERN = /^tapm_v1_[A-Za-z0-9_-]{16,512}$/u;
 const BOOKING_REFERENCE_PATTERN = /^[A-Za-z0-9_-]{12,255}$/u;
 
-export interface ParsedPublicBookingRequest {
+export interface ParsedPublicBookingRequest extends PublicBookingDetails {
   readonly visitId?: string;
   readonly schemaVersion: typeof PUBLIC_BOOKING_SCHEMA_VERSION;
   readonly requestId: string;
@@ -46,7 +47,7 @@ export interface PublicBookingGuestInput {
   readonly email: string;
 }
 
-export interface PublicBookingCreateInput {
+export interface PublicBookingCreateInput extends PublicBookingDetails {
   readonly visitId?: string;
   readonly requestId: string;
   readonly guest: PublicBookingGuestInput;
@@ -77,7 +78,7 @@ export interface PublicBookingSerializationBoundary {
   runExclusive<T>(coordinationKey: string, operation: () => Promise<T>): Promise<T>;
 }
 
-export interface PublicBookingAttempt {
+export interface PublicBookingAttempt extends PublicBookingDetails {
   readonly idempotencyKey: string;
   readonly requestHash: string;
   readonly providerOperationId: string;
@@ -91,7 +92,7 @@ export interface PublicBookingAttempt {
   readonly rejectionCode: "slot_conflict" | null;
 }
 
-export interface PublicBookingAttemptClaim {
+export interface PublicBookingAttemptClaim extends PublicBookingDetails {
   readonly visitId?: string;
   readonly scope: PublicBookingCoordinationScope;
   readonly idempotencyKey: string;
@@ -230,6 +231,7 @@ export interface PublicBookingProvider {
     readonly guest: PublicBookingGuestInput;
     readonly bookingKind: "meeting" | "approval-hold";
     readonly hostEmails?: readonly string[];
+    readonly additionalGuests?: readonly string[];
     readonly conferenceProvider: "none" | "google-meet" | "zoom";
     /** Required and stable for approval holds; null for ordinary meetings. */
     readonly expiresAt: string | null;
@@ -301,7 +303,11 @@ const exactKeys = (value: Readonly<Record<string, unknown>>, expected: readonly 
 export function parsePublicBookingRequest(value: unknown): ParsedPublicBookingRequest {
   if (
     !isRecord(value) ||
-    !exactKeys(value, ["schemaVersion", "requestId", "slotToken", "guest", "turnstileToken", ...(Object.hasOwn(value, "visitId") ? ["visitId"] : [])]) ||
+    !exactKeys(value, ["schemaVersion", "requestId", "slotToken", "guest", "turnstileToken",
+      ...("notes" in value ? ["notes"] : []),
+      ...("additionalGuests" in value ? ["additionalGuests"] : []),
+      ...(Object.hasOwn(value, "visitId") ? ["visitId"] : []),
+    ]) ||
     (value.visitId !== undefined && (typeof value.visitId !== "string" || !PUBLIC_VISIT_ID_PATTERN.test(value.visitId))) ||
     value.schemaVersion !== PUBLIC_BOOKING_SCHEMA_VERSION ||
     typeof value.requestId !== "string" ||
@@ -327,6 +333,7 @@ export function parsePublicBookingRequest(value: unknown): ParsedPublicBookingRe
     ...(typeof value.visitId === "string" ? { visitId: value.visitId.toLowerCase() } : {}),
     slotToken: value.slotToken,
     guest: normalizedGuest({ name: value.guest.name, email: value.guest.email }),
+    ...normalizedDetails(value, value.guest.email),
     turnstileToken: value.turnstileToken,
   };
 }
@@ -408,12 +415,23 @@ const normalizedGuest = (value: PublicBookingGuestInput): PublicBookingGuestInpu
   return { name, email };
 };
 
+const normalizedDetails = (
+  input: { readonly notes?: unknown; readonly additionalGuests?: unknown },
+  primaryEmail: string,
+): PublicBookingDetails => {
+  try {
+    return normalizePublicBookingDetails(input, primaryEmail);
+  } catch (error) {
+    throw new PublicBookingCreateError(400, "invalid_booking_request", (error as Error).message);
+  }
+};
+
 /**
  * Canonical business-request hash. Short-lived proof and Turnstile tokens are
  * deliberately excluded so the same request ID can safely recover with fresh
  * security tokens after an ambiguous network result.
  */
-export async function publicBookingRequestHash(input: {
+export async function publicBookingRequestHash(input: PublicBookingDetails & {
   readonly page: ResolvedPublishedPublicBookingPage;
   readonly slotClaims: PublicSlotTokenClaims;
   readonly guest: PublicBookingGuestInput;
@@ -427,6 +445,7 @@ export async function publicBookingRequestHash(input: {
     startsAt: canonicalInstant(input.slotClaims.start, "The selected start time"),
     endsAt: canonicalInstant(input.slotClaims.end, "The selected end time"),
     guest,
+    ...normalizedDetails(input, guest.email),
     destinationCalendarId: input.page.privateSnapshot.destinationCalendarId,
     conflictCalendarIds,
     approvalRequired: input.page.publicSnapshot.approvalRequired,
@@ -499,6 +518,8 @@ const validAttempt = (
     attempt.providerOperationId === claim.providerOperationId &&
     attempt.guest.name === claim.guest.name &&
     attempt.guest.email === claim.guest.email &&
+    JSON.stringify(normalizedDetails(attempt, attempt.guest.email)) ===
+      JSON.stringify(normalizedDetails(claim, claim.guest.email)) &&
     validApprovalExpiry &&
     BOOKING_REFERENCE_PATTERN.test(attempt.bookingReference);
 };
@@ -715,6 +736,7 @@ export async function createPublicBooking(
     }
     managementBase(dependencies.managementOrigin);
     const guest = normalizedGuest(input.guest);
+    const details = normalizedDetails(input, guest.email);
     validateTurnstile(input.turnstile, dependencies, now);
 
     const startsAt = canonicalInstant(input.slotProof.claims.start, "The selected start time");
@@ -795,6 +817,7 @@ export async function createPublicBooking(
       page: current,
       slotClaims: input.slotProof.claims,
       guest,
+      ...details,
     });
     const providerOperationId = await publicBookingProviderOperationId(
       scope,
@@ -815,6 +838,7 @@ export async function createPublicBooking(
       endsAt,
       revisionId: current.revisionId,
       guest,
+      ...details,
       approvalExpiresAt,
     };
     let claimed: PublicBookingAttemptClaimResult;
@@ -967,9 +991,10 @@ export async function createPublicBooking(
         conflictStart,
         conflictEnd,
         title: current.publicSnapshot.title,
-        description: current.publicSnapshot.description,
+        description: publicBookingDescription(current.publicSnapshot.description, attempt.guest.name, attempt.notes),
         location: current.privateSnapshot.location,
         guest: attempt.guest,
+        ...(attempt.additionalGuests ? { additionalGuests: attempt.additionalGuests } : {}),
         bookingKind: current.publicSnapshot.approvalRequired ? "approval-hold" : "meeting",
         ...(current.privateSnapshot.collectiveHosts ? { hostEmails: current.privateSnapshot.collectiveHosts.slice(1).map(host => host.email) } : {}),
         conferenceProvider: current.publicSnapshot.approvalRequired

@@ -3,7 +3,7 @@ import {
   Link2,
   Users,
 } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   allCalendars,
   visibleEvents,
@@ -28,6 +28,10 @@ interface WeekDay {
 }
 
 const hours = Array.from({ length: 24 }, (_, index) => index);
+const slotMinutes = Array.from({ length: 48 }, (_, index) => index * 30);
+
+const slotStart = (day: string, minute: number): string =>
+  `${day}T${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -87,9 +91,10 @@ interface CalendarBoardProps {
   readonly state: CalendarState;
   readonly anchorDate: string;
   readonly onSelectEvent: (eventId: string) => void;
+  readonly onSelectSlot: (start: string) => void;
 }
 
-export function CalendarBoard({ state, anchorDate, onSelectEvent }: CalendarBoardProps) {
+export function CalendarBoard({ state, anchorDate, onSelectEvent, onSelectSlot }: CalendarBoardProps) {
   const events = useMemo(() => visibleEvents(state), [state]);
   const colors = useMemo(
     () => new Map(allCalendars(state).map(calendar => [calendar.id, calendar.color])),
@@ -98,7 +103,7 @@ export function CalendarBoard({ state, anchorDate, onSelectEvent }: CalendarBoar
 
   if (state.activeView === "month") {
     return (
-      <MonthView anchorDate={anchorDate} events={events} colors={colors} onSelectEvent={onSelectEvent} />
+      <MonthView anchorDate={anchorDate} events={events} colors={colors} onSelectEvent={onSelectEvent} onSelectSlot={onSelectSlot} />
     );
   }
   if (state.activeView === "agenda") {
@@ -116,6 +121,7 @@ export function CalendarBoard({ state, anchorDate, onSelectEvent }: CalendarBoar
       events={events}
       colors={colors}
       onSelectEvent={onSelectEvent}
+      onSelectSlot={onSelectSlot}
     />
   );
 }
@@ -126,14 +132,17 @@ function TimeGrid({
   events,
   colors,
   onSelectEvent,
+  onSelectSlot,
 }: {
   readonly view: Extract<CalendarView, "day" | "work-week" | "week">;
   readonly anchorDate: string;
   readonly events: readonly CalendarEvent[];
   readonly colors: ReadonlyMap<string, string>;
   readonly onSelectEvent: (eventId: string) => void;
+  readonly onSelectSlot: (start: string) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const [focusedMinute, setFocusedMinute] = useState(9 * 60);
   const days: readonly WeekDay[] =
     view === "day"
       ? weekDays(anchorDate, 1, true)
@@ -195,9 +204,32 @@ function TimeGrid({
         <div className="day-columns" role="row">
           {days.map(day => (
             <div className="day-column" role="gridcell" key={day.key}>
-              {hours.map(hour => (
-                <span className="hour-line" key={hour} aria-hidden="true" />
-              ))}
+              {slotMinutes.map(minute => {
+                const start = slotStart(day.key, minute);
+                const label = `Schedule on ${fullDateFormatter.format(new Date(start))} at ${formatTime(start)}`;
+                return (
+                  <button
+                    className="calendar-time-slot"
+                    type="button"
+                    key={minute}
+                    aria-label={label}
+                    title={label}
+                    tabIndex={minute === focusedMinute ? 0 : -1}
+                    onFocus={() => setFocusedMinute(minute)}
+                    onClick={() => onSelectSlot(start)}
+                    onKeyDown={event => {
+                      const nextMinute = event.key === "ArrowDown" ? Math.min(1410, minute + 30)
+                        : event.key === "ArrowUp" ? Math.max(0, minute - 30)
+                          : event.key === "Home" ? 0
+                            : event.key === "End" ? 1410 : null;
+                      if (nextMinute === null) return;
+                      event.preventDefault();
+                      event.currentTarget.parentElement
+                        ?.querySelectorAll<HTMLButtonElement>(".calendar-time-slot")[nextMinute / 30]?.focus();
+                    }}
+                  />
+                );
+              })}
               {events
                 .filter(event => event.allDay !== true && eventDate(event) === day.key)
                 .map(event => {
@@ -292,11 +324,13 @@ function MonthView({
   events,
   colors,
   onSelectEvent,
+  onSelectSlot,
 }: {
   readonly anchorDate: string;
   readonly events: readonly CalendarEvent[];
   readonly colors: ReadonlyMap<string, string>;
   readonly onSelectEvent: (eventId: string) => void;
+  readonly onSelectSlot: (start: string) => void;
 }) {
   const anchor = parseDateKey(anchorDate);
   const firstOfMonth = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1, 12));
@@ -332,6 +366,12 @@ function MonthView({
             role="gridcell"
             key={cell.key}
           >
+            <button
+              className="month-create-event"
+              type="button"
+              aria-label={`Schedule on ${fullDateFormatter.format(new Date(`${cell.key}T09:00`))}`}
+              onClick={() => onSelectSlot(slotStart(cell.key, 9 * 60))}
+            />
             <span className="month-number">{cell.day}</span>
             {events
               .filter(event => eventDate(event) === cell.key)

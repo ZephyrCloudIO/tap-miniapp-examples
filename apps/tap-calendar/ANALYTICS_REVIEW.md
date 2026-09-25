@@ -159,5 +159,16 @@ they now use Rstest and pass in the complete organizer suite.
 - Production publishing guard passed against the deployed gateway, tracker,
   and organizer artifact. Organizer 0.2.1 is hosted at
   `https://zackary-chapple-16831-tap-calendar-tap-miniapp-ex-185e8392b-ze.zephyrcloud.app/`.
-- Existing package `tap_pkg_1_hksgns5c1ySs2NZHQhzF1w` was selected for the registry
-  update; installed organizer verification is still in progress.
+- Published and installed release `tap_rel_1_Ipu1RLo39WVK5VUdhwrpRg` of existing
+  package `tap_pkg_1_hksgns5c1ySs2NZHQhzF1w`, preserving installation
+  `9b181273-a37f-4582-a4fe-5283aa6ad877` and the existing booking profile.
+- The installed dashboard and Insights both display 11 current confirmations,
+  12 lifetime confirmations, 1 cancellation, 1 view, and 1 start. Insights shows
+  all outcome counts, coverage time, and the explicit historical-traffic gap.
+  Matched conversion correctly shows 0/1; historical bookings are excluded from
+  this new visit cohort.
+- Integrated concurrently merged main changes (#78 and #79), retaining both
+  booking details and first-claim visit attribution. All three typechecks and
+  the combined suites pass: organizer 273, public 44, gateway 194 tests.
+  The verified production artifact is the analytics release built before those
+  unrelated main changes; their deployment is not claimed by this review.
