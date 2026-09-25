@@ -37,6 +37,18 @@ import {
 const now = '2026-08-18T15:30:00.000Z';
 
 describe('TAP Email domain', () => {
+  it('accepts paged conversation history beyond 1,000 messages', () => {
+    const state = previewMailState();
+    const thread = state.threads[0]!;
+    expect(isMailboxSnapshot({
+      schemaVersion: 1,
+      accounts: state.accounts,
+      threads: [{ ...thread, messages: Array.from({ length: 1_001 }, (_, index) => ({
+        ...thread.messages[0]!, messageId: `message_${index}`,
+      })) }],
+    })).toBe(true);
+  });
+
   it('accepts future provider accounts without changing account-scoped semantics', () => {
     const state = previewMailState();
     expect(isMailboxSnapshot({

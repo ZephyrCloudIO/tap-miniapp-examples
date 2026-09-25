@@ -75,6 +75,7 @@ import {
   visibleThreads,
   type EmailAccount,
   type EmailAttachment,
+  type EmailMessage,
   type EmailThread,
   type MailPreferences,
   type RecoverableImmediateSend,
@@ -224,12 +225,12 @@ function saveSessionAttachment(identity: AttachmentCacheIdentity, bytes: Uint8Ar
   }
 }
 import {
-  ThreadMessageList,
   type ContextualAttachmentLoader,
   type ContextualAttachmentSaver,
   type ContextualRemoteImageLoader,
   type MessageExpansionRequest,
 } from './thread-messages';
+import { PagedThreadMessages } from './paged-thread-messages';
 import { MailSyncButton } from './sync-button';
 import { ScheduledSendList } from './scheduled-send-list';
 import { OutboxList } from './outbox-list';
@@ -739,7 +740,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [googleAuthorizationUrl, setGoogleAuthorizationUrl] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [dispatchTick, setDispatchTick] = useState(0);
-  const [hydrationRetryTick, setHydrationRetryTick] = useState(0);
   const [chord, setChord] = useState<'g' | null>(null);
   const chordRef = useRef<'g' | null>(null);
   const chordTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -755,13 +755,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const commandPersistenceBarrier = useRef(new CommandPersistenceBarrier());
   const submittedCommands = useRef(new Set<string>());
   const commandDispatchQueues = useRef(new Map<string, Promise<void>>());
-  const loadedThreadRevisions = useRef(new Map<string, string>());
-  const threadHydrationInFlight = useRef(new Map<string, string>());
-  const threadHydrationFailures = useRef(new Map<
-    string,
-    { readonly attempts: number; readonly revision: string }
-  >());
-  const hydrationRetryTimer = useRef<number | null>(null);
   const mailboxSyncRef = useRef<MailboxSync | null>(null);
   const mailboxCheckpointWriter = useRef(new MailboxCheckpointWriter());
   const refreshMailboxInFlight = useRef<Promise<void> | null>(null);
@@ -1144,9 +1137,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   useEffect(
     () => () => {
-      if (hydrationRetryTimer.current !== null) {
-        window.clearTimeout(hydrationRetryTimer.current);
-      }
       void store.close().catch(() => undefined);
       const pendingActivity = activityCommitQueue.current;
       void pendingActivity
@@ -1762,60 +1752,16 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     return () => window.clearInterval(interval);
   }, [coordinatorNetworkReady, hydrated, initialLoadSettled, preview, requestFreshMail, state.accounts.length]);
 
-  useEffect(() => {
-    if (preview || !initialLoadSettled || !coordinatorNetworkReady || !thread) return;
-    const key = emailThreadKey(thread);
-    const requestedRevision = thread.providerRevision;
-    if (loadedThreadRevisions.current.get(key) === requestedRevision) return;
-    if (threadHydrationInFlight.current.get(key) === requestedRevision) return;
-    const client = coordinatorRef.current;
-    if (!client) return;
-    threadHydrationInFlight.current.set(key, requestedRevision);
-    void client.getThread(thread.accountId, thread.threadId)
-      .then(messages => {
-        if (threadHydrationInFlight.current.get(key) !== requestedRevision) return;
-        threadHydrationInFlight.current.delete(key);
-        threadHydrationFailures.current.delete(key);
-        loadedThreadRevisions.current.set(key, requestedRevision);
-        setState(current => {
-          const currentThread = current.threads.find(item =>
-            item.accountId === thread.accountId && item.threadId === thread.threadId
-          );
-          // Ignore detail returned for a revision that was superseded while
-          // this request was in flight. The effect will fetch the new revision.
-          return currentThread?.providerRevision === requestedRevision
-            ? mergeThreadMessages(current, thread.accountId, thread.threadId, messages)
-            : current;
-        });
-      })
-      .catch(() => {
-        if (threadHydrationInFlight.current.get(key) !== requestedRevision) return;
-        threadHydrationInFlight.current.delete(key);
-        if (loadedThreadRevisions.current.get(key) === requestedRevision) {
-          loadedThreadRevisions.current.delete(key);
-        }
-        const previousFailure = threadHydrationFailures.current.get(key);
-        const attempts = previousFailure?.revision === requestedRevision
-          ? previousFailure.attempts + 1
-          : 1;
-        threadHydrationFailures.current.set(key, {
-          attempts,
-          revision: requestedRevision,
-        });
-        if (attempts <= 2 && hydrationRetryTimer.current === null) {
-          hydrationRetryTimer.current = window.setTimeout(() => {
-            hydrationRetryTimer.current = null;
-            setHydrationRetryTick(value => value + 1);
-          }, attempts * 750);
-        }
-      });
-  }, [
-    coordinatorNetworkReady,
-    hydrationRetryTick,
-    initialLoadSettled,
-    preview,
-    thread,
-  ]);
+  const receiveThreadMessages = useCallback((
+    accountId: string, threadId: string, messages: readonly EmailMessage[], expectedRevision: string,
+  ) => {
+    setState(current => {
+      const target = current.threads.find(item => item.accountId === accountId && item.threadId === threadId);
+      return target?.providerRevision === expectedRevision
+        ? mergeThreadMessages(current, accountId, threadId, messages)
+        : current;
+    });
+  }, []);
 
   useEffect(() => {
     if (preview || !hydrated || !initialLoadSettled || !coordinatorNetworkReady) return;
@@ -2935,7 +2881,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               </header>
               <div className="reader-workspace">
                 <div className="message-body">
-                  <ThreadMessageList
+                  <PagedThreadMessages
+                    client={!preview && initialLoadSettled && coordinatorNetworkReady ? coordinatorRef.current : null}
+                    providerRevision={thread.providerRevision}
+                    onMessages={receiveThreadMessages}
                     accountId={thread.accountId}
                     appTheme={appTheme}
                     attachmentExportSupported={attachmentFiles !== null}
