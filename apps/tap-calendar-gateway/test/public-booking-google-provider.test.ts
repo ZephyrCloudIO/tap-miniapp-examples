@@ -44,6 +44,8 @@ describe("public Google booking provider adapter", () => {
       description: "Discuss the deployment.",
       location: "google-meet",
       guest: { name: "Guest Person", email: "guest@example.com" },
+      hostEmails: ["host@example.com"],
+      additionalGuests: ["host@example.com", "team@example.com"],
       bookingKind: "approval-hold",
       conferenceProvider: "none",
       expiresAt: "2026-08-21T12:00:00.000Z",
@@ -64,7 +66,7 @@ describe("public Google booking provider adapter", () => {
       description: "Discuss the deployment.",
       location: "google-meet",
       bookingKind: "approval-hold",
-      attendeeEmails: ["guest@example.com"],
+      attendeeEmails: ["host@example.com", "guest@example.com", "team@example.com"],
       conferenceProvider: "none",
       expiresAt: "2026-08-21T12:00:00.000Z",
     });

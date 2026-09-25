@@ -445,6 +445,8 @@ interface CacheSyncOutcome {
 }
 
 const MAX_BODY_BYTES = 256 * 1024;
+// Room for the host description plus HTML-escaped guest notes and attribution.
+const MAX_BOOKING_DESCRIPTION_LENGTH = 16_000;
 const MAX_PROVIDER_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MAX_PROVIDER_PAGES = 100;
 const MAX_EVENT_PROVIDER_PAGES = 20;
@@ -1448,6 +1450,8 @@ async function createPublishedPublicBooking(
     const result = await createPublicBooking(resolved, {
       requestId: parsed.requestId,
       guest: parsed.guest,
+      ...(parsed.notes ? { notes: parsed.notes } : {}),
+      ...(parsed.additionalGuests ? { additionalGuests: parsed.additionalGuests } : {}),
       slotProof: { token: parsed.slotToken, claims },
       turnstile,
     }, {
@@ -5827,7 +5831,7 @@ function providerBookingCommitInput(
     destinationCalendarId,
     idempotencyKey: identifier(body.idempotencyKey, "idempotencyKey"),
     title: requiredText(body.title, "title", 255),
-    description: optionalCommitText(body.description, "description", 4_000),
+    description: optionalCommitText(body.description, "description", MAX_BOOKING_DESCRIPTION_LENGTH),
     location: optionalCommitText(body.location, "location", 1_024),
     bookingKind: body.bookingKind,
     attendeeEmails,
@@ -8572,7 +8576,7 @@ function providerBookingResolutionInput(
     idempotencyKey: identifier(body.idempotencyKey, "idempotencyKey"),
     decision: body.decision,
     title: optionalCommitText(body.title, "title", 255),
-    description: optionalCommitText(body.description, "description", 4_000),
+    description: optionalCommitText(body.description, "description", MAX_BOOKING_DESCRIPTION_LENGTH),
     location: optionalCommitText(body.location, "location", 1_024),
     attendeeEmails,
     attendeeEmailsProvided: body.attendeeEmails !== undefined,
