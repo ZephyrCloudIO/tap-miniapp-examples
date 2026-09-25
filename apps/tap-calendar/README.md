@@ -272,12 +272,12 @@ confirmation semantics for older organizer packages during upgrades.
 #### Production rollout
 
 Run all three applications' tests/typechecks and build their production artifacts.
-The current release needs migrations 0017, 0018 (the existing collective-booking
-schema), and 0019. Apply migrations before the gateway; deploy the public app
+The current release needs all migrations through 0019, including 0016 (Zoom),
+0017 (traffic), and 0018 (collective bookings). Apply migrations before the gateway; deploy the public app
 before publishing the organizer package:
 
 ```sh
-pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
+CLOUDFLARE_ACCOUNT_ID=b848db7e2edd56dee8ffcc39c18612a5 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
 pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
 pnpm --filter @tap-examples/tap-calendar-public deploy:production
 pnpm --filter @tap-examples/tap-calendar build:miniapp:production

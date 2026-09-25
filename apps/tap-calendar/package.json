@@ -11,7 +11,7 @@
     "publish": "tap-miniapp publish",
     "publish:production": "node scripts/verify-production-analytics.mjs dist && tap-miniapp publish --from dist",
     "verify:production": "node scripts/verify-production-analytics.mjs dist",
-    "test:release": "node --test scripts/verify-production-analytics.test.mjs",
+    "test:release": "rstest run scripts/verify-production-analytics.test.mjs",
     "build:watch": "rslib build --watch",
     "build:watch:local": "TAP_CALENDAR_GATEWAY_URL=http://127.0.0.1:8787 rslib build --watch",
     "build:preview": "rsbuild build",

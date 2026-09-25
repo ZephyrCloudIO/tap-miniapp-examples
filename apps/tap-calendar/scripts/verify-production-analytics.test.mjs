@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from '@rstest/core';
 import assert from 'node:assert/strict';
 import { verifyProductionAnalytics } from './verify-production-analytics.mjs';
 const ready = { ready: true, schemaVersion: 'tap.calendar.public-booking-analytics.v2',
