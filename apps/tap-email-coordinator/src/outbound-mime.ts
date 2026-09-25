@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { isTapEmailReferralUrl } from './referral-url';
 
 const maximumMimeBytes = 32 * 1_024 * 1_024;
 const footerLabel = 'Sent with TAP Email on The AI Platform';
@@ -183,7 +184,7 @@ function decorate(part: Part, url: string, depth = 0, inAlternative = false): bo
 }
 
 export function addSentWithFooter(raw: string, url: string): string {
-  if (!/^https:\/\/theaiplatform\.app\/refer\/[a-f0-9]{32}\?/u.test(url) || url.length > 2_048) {
+  if (!isTapEmailReferralUrl(url)) {
     throw new OutboundMimeError('Invalid referral URL.');
   }
   if (raw.length > Math.ceil(maximumMimeBytes * 4 / 3) || !/^[A-Za-z0-9_-]+={0,2}$/u.test(raw)) {

@@ -50,6 +50,8 @@ Credentials are neither stored with commands nor forwarded to the public link.
 Migration `0013_sender_attribution.sql` adds an audited profile/user crosswalk
 and server-owned command attribution. Each accepted command gets a globally
 unique publisher idempotency key. Duplicate requests cannot change attribution;
+command acceptance and attribution are committed in the same D1 transaction,
+so a failed attribution write cannot leave dispatchable work behind.
 scheduled dispatch copies the original key and context atomically with its
 outbox record. Reconciliation uses the original context and cached referral URL.
 The stored canonical IDs are backend metadata, never URL parameters.
@@ -104,6 +106,10 @@ repeat decoration, authoritative Gmail edits, reply threading, binary attachment
 inline images, attached email, invalid MIME, Directory identity failures,
 profile crosswalk conflicts, changed command intent, delayed dispatch, restart,
 publisher outage retries, and explicit uncertain-send reconciliation. The
+named Worker RPC binding is also exercised against a local publisher fixture;
+URL validation rejects identity overrides and noncanonical campaign parameters.
+Introspection outages remain distinct from denied actions and cannot redirect
+the authenticated request to a different endpoint. The
 published SDK transport test checks the captured context is forwarded. Builds
 cover preview, desktop, QuickJS, package integrity, and the production Worker.
 

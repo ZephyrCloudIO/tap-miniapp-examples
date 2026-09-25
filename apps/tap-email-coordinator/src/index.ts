@@ -53,7 +53,8 @@ import { coordinatorReadiness } from './readiness';
 import {
   bindSenderProfile,
   referralPublisher,
-  acceptSenderAttribution,
+  senderAttributionStatement,
+  assertSenderAttribution,
   copyScheduledAttribution,
   referralForSend,
   verifySenderContext,
@@ -595,7 +596,7 @@ async function submitCommand(
     id: command.commandId,
     kind: command.kind,
   });
-  const result = await env.DB.prepare(
+  const insertCommand = env.DB.prepare(
     `INSERT OR IGNORE INTO mail_commands
        (profile_id, account_id, command_id, idempotency_key, kind, thread_id,
         expected_provider_revision, payload_json, payload_ciphertext, state, dispatch_pending,
@@ -614,14 +615,20 @@ async function submitCommand(
       command.createdAt,
       now,
       now,
-    )
-    .run();
+    );
+  // Queue scanners must never observe an accepted command without its verified
+  // attribution. Match the new ciphertext so a conflicting replay cannot bind
+  // attribution to a previously accepted command.
+  const [result] = await env.DB.batch([
+    insertCommand,
+    ...(sender ? [senderAttributionStatement(env, identity, command.commandId, sender, now, payloadCiphertext)] : []),
+  ]);
   const stored =
     (await commandRow(env, identity, command.commandId)) ??
     (await commandRowByIdempotencyKey(env, identity, command.idempotencyKey));
   if (!stored) throw new ApiError(500, 'command_store_failed', 'Command was not stored.');
 
-  const inserted = Number(result.meta.changes ?? 0) === 1;
+  const inserted = Number(result?.meta.changes ?? 0) === 1;
   let storedPayloadJson = '';
   try {
     storedPayloadJson = JSON.stringify(await openStoredPayload(
@@ -650,7 +657,7 @@ async function submitCommand(
       'The command identity is already bound to different intent.',
     );
   }
-  if (sender) await acceptSenderAttribution(env, identity, command.commandId, sender, now);
+  if (sender) await assertSenderAttribution(env, identity, command.commandId, sender);
   if (inserted) {
     await recordAudit(
       env,

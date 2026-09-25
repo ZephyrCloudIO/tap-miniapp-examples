@@ -4,6 +4,7 @@ import {
 } from '@tap-examples/tap-email-protocol';
 import { AccessError, type ProfileIdentity } from './auth';
 import { readBoundedJson } from './google';
+import { isTapEmailReferralUrl } from './referral-url';
 
 // Public Directory Connect API. The same bearer has already passed the
 // coordinator's audience/action introspection; never accept a guest mapping.
@@ -91,20 +92,33 @@ export async function bindSenderProfile(
   }
 }
 
-export async function acceptSenderAttribution(
+/** Batch with command insertion: only the newly inserted ciphertext can acquire attribution. */
+export function senderAttributionStatement(
   env: Env,
   identity: ProfileIdentity,
   commandId: string,
   sender: MailSenderContext,
   now: string,
-): Promise<void> {
-  await env.DB.prepare(
+  payloadCiphertext: string,
+): D1PreparedStatement {
+  return env.DB.prepare(
     `INSERT OR IGNORE INTO mail_command_attributions
       (profile_id, command_id, accepted_command_id, user_id, workspace_id, accepted_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).bind(identity.profileId, commandId, crypto.randomUUID(), sender.userId, sender.workspaceId, now).run();
+     SELECT profile_id, command_id, ?, ?, ?, ? FROM mail_commands
+      WHERE profile_id = ? AND command_id = ? AND payload_ciphertext = ?`,
+  ).bind(crypto.randomUUID(), sender.userId, sender.workspaceId, now,
+    identity.profileId, commandId, payloadCiphertext);
+}
+
+export async function assertSenderAttribution(
+  env: Env,
+  identity: ProfileIdentity,
+  commandId: string,
+  sender: MailSenderContext,
+): Promise<void> {
   const stored = await attributionRow(env, identity.profileId, commandId);
-  if (!stored || stored.user_id !== sender.userId || stored.workspace_id !== sender.workspaceId) {
+  if (!stored) throw new AccessError(503, 'attribution_not_ready', 'Verified command attribution is not ready.');
+  if (stored.user_id !== sender.userId || stored.workspace_id !== sender.workspaceId) {
     throw new AccessError(409, 'attribution_conflict', 'This command already belongs to different sender context.');
   }
 }
@@ -156,18 +170,22 @@ export async function referralForSend(
   if (!row || row.user_id !== expected.userId || row.workspace_id !== expected.workspaceId) {
     throw new AccessError(503, 'attribution_not_ready', 'Verified command attribution is not ready.');
   }
-  if (row.referral_url) return row.referral_url;
-  const published = await publisher.publishTapEmailLink({
-    acceptedCommandId: row.accepted_command_id,
-    referrerUserId: row.user_id,
-    referrerWorkspaceId: row.workspace_id,
-  });
-  const url = new URL(published.url);
-  if (url.origin !== 'https://theaiplatform.app' || !/^\/refer\/[a-f0-9]{32}$/u.test(url.pathname) ||
-      url.username || url.password || url.hash ||
-      typeof published.referralId !== 'string' || !published.referralId || published.referralId.length > 256 ||
-      url.searchParams.get('utm_source') !== 'tap_email' || url.searchParams.get('utm_medium') !== 'email' ||
-      url.searchParams.get('utm_campaign') !== 'sent_with' || url.searchParams.get('utm_content') !== 'signature') {
+  if (row.referral_url) {
+    if (!isTapEmailReferralUrl(row.referral_url)) throw new AccessError(502, 'referral_invalid', 'The stored referral link is invalid.');
+    return row.referral_url;
+  }
+  let published: Awaited<ReturnType<WebsiteReferralPublisher['publishTapEmailLink']>>;
+  try {
+    published = await publisher.publishTapEmailLink({
+      acceptedCommandId: row.accepted_command_id,
+      referrerUserId: row.user_id,
+      referrerWorkspaceId: row.workspace_id,
+    });
+  } catch {
+    throw new AccessError(503, 'referral_unavailable', 'The website referral service is unavailable.');
+  }
+  if (!published || !isTapEmailReferralUrl(published.url) ||
+      typeof published.referralId !== 'string' || !published.referralId || published.referralId.length > 256) {
     throw new AccessError(502, 'referral_invalid', 'The website returned an invalid referral link.');
   }
   await env.DB.prepare(
@@ -176,6 +194,7 @@ export async function referralForSend(
   ).bind(published.referralId, published.url, profileId, commandId).run();
   const stored = await attributionRow(env, profileId, commandId);
   if (!stored?.referral_url) throw new AccessError(503, 'attribution_not_ready', 'Referral persistence did not complete.');
+  if (!isTapEmailReferralUrl(stored.referral_url)) throw new AccessError(502, 'referral_invalid', 'The stored referral link is invalid.');
   return stored.referral_url;
 }
 

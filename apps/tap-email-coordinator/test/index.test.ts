@@ -124,6 +124,46 @@ beforeEach(async () => {
 });
 
 describe('TAP Email coordinator command outbox', () => {
+  it('rolls back command acceptance when its attribution write fails', async () => {
+    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_a' };
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity, verifySender: async () => expectedContext, now: () => new Date(now),
+    });
+    await env.DB.prepare(`CREATE TRIGGER fail_attribution BEFORE INSERT ON mail_command_attributions
+      BEGIN SELECT RAISE(ABORT, 'simulated attribution storage failure'); END`).run();
+    try {
+      const response = await worker.fetch(submit(command({ kind: 'send_draft', payload: {
+        draftKey: 'atomic_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext,
+      } })), env);
+      expect(response.status).toBe(500);
+      expect(await env.DB.prepare('SELECT command_id FROM mail_commands').first()).toBeNull();
+      expect(await env.DB.prepare('SELECT command_id FROM mail_command_attributions').first()).toBeNull();
+    } finally {
+      await env.DB.prepare('DROP TRIGGER fail_attribution').run();
+    }
+  });
+
+  it('publishes through the configured named Worker RPC using only stored attribution', async () => {
+    const expectedContext = { userId: 'rpc_user', workspaceId: 'rpc_workspace' };
+    const urls: string[] = [];
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity, verifySender: async () => expectedContext, now: () => new Date(now),
+      provider: { async execute(scope) {
+        urls.push(scope.referralUrl!);
+        return { outcome: 'acknowledged', providerRevision: null };
+      } },
+    });
+    expect((await worker.fetch(submit(command({ kind: 'send_draft', payload: {
+      draftKey: 'rpc_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext,
+    } })), env)).status).toBe(202);
+    await worker.queue(batch(fakeMessage({ profileId: 'profile_1', accountId: 'google_personal', commandId: 'cmd_1' }).message), env);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/^https:\/\/theaiplatform\.app\/refer\/[a-f0-9]{32}\?/u);
+    expect(urls[0]).not.toContain('rpc_user');
+    expect(await env.DB.prepare('SELECT referral_url FROM mail_command_attributions').first())
+      .toEqual({ referral_url: urls[0] });
+  });
+
   it('rejects missing context, denied membership, and attempts to change accepted attribution', async () => {
     const payload = { draftKey: 'identity_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi' };
     const production = { ...env, ALLOW_DEV_IDENTITY: 'false' };
