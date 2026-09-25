@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "jose": "6.2.3"
+    "@cloudflare/workers-oauth-provider": "0.10.1",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.20.1",
+    "jose": "6.2.3",
+    "zod": "4.4.3"
   },
   "scripts": {
     "build": "wrangler deploy --dry-run --env=\"\" --outdir dist",

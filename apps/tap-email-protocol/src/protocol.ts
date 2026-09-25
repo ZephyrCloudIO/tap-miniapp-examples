@@ -766,3 +766,15 @@ const commandKinds = new Set<MailCommandKind>([
   'create_reminder',
   'cancel_reminder',
 ]);
+
+// A valid message can expand to 6 MB when both 500k-character alternatives
+// contain JSON-escaped control characters. Pages normally target 2 MiB, but
+// allow one such message up to the shared transport ceiling without truncation.
+export const MAXIMUM_THREAD_RESPONSE_BYTES = 8 * 1_024 * 1_024;
+export const TARGET_THREAD_PAGE_BYTES = 2 * 1_024 * 1_024;
+export const MAXIMUM_THREAD_PAGE_MESSAGES = 20;
+export const MAXIMUM_THREAD_CURSOR_LENGTH = 4_096;
+
+export function serializedUtf8Bytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}

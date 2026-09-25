@@ -1133,3 +1133,19 @@ p { text-wrap: pretty; }
 .shared-booking-panel small { color: var(--muted-foreground); overflow-wrap: anywhere; }
 .shared-booking-error { color: #ad2828; }
 .shared-booking-actions { justify-content: flex-start; }
+
+.booking-metric-breakdown { display: flex; flex-wrap: wrap; gap: 1rem 2rem; color: var(--muted-foreground); font-size: 0.85rem; }
+.booking-metric-breakdown span { display: flex; align-items: baseline; gap: 0.5rem; }
+.booking-metric-breakdown strong { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.booking-metric-breakdown.compact { margin: 0 0 1rem; font-size: 0.75rem; }
+
+.calendar-mcp-panel { padding: 24px; }
+.calendar-mcp-panel > p { margin: 12px 0; font-size: 14px; line-height: 1.5; }
+.calendar-mcp-panel .schedule-form { max-width: 480px; margin: 20px 0; }
+.calendar-mcp-consent { border: 1px solid var(--border, #555); border-radius: 12px; padding: 20px; margin: 20px 0; }
+.calendar-mcp-consent fieldset { padding: 12px; border: 0; }
+.calendar-mcp-permission { display: flex; align-items: flex-start; gap: 12px; margin: 14px 0; }
+.calendar-mcp-permission input { margin-top: 4px; }
+.calendar-mcp-grant { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 16px 0; }
+.calendar-mcp-grant ul { padding-left: 20px; }
+@media (max-width: 640px) { .calendar-mcp-grant { align-items: flex-start; flex-direction: column; } }

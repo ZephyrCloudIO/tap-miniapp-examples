@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { defineConfig } from '@rslib/core';
 import { pluginReact } from '@rsbuild/plugin-react';
+import { emailBuild, archiveSourceMaps } from './diagnostic-build';
 import {
   tapLib,
   tapLifecycleTarget,
@@ -60,7 +61,7 @@ const library = lifecycleBuild
 library.output = {
   ...library.output,
   assetPrefix: target === 'desktop' ? 'auto' : '',
-  sourceMap: false,
+  sourceMap: { js: 'hidden-source-map', css: false },
   minify: true,
 };
 
@@ -91,11 +92,12 @@ if (target === 'desktop') {
 export default defineConfig({
   source: {
     define: {
+      __TAP_EMAIL_BUILD__: JSON.stringify(emailBuild),
       __TAP_EMAIL_COORDINATOR_ORIGIN__: JSON.stringify(
         process.env.TAP_EMAIL_COORDINATOR_ORIGIN ?? '',
       ),
     },
   },
-  plugins: target === 'desktop' ? [pluginReact()] : [],
+  plugins: [...(target === 'desktop' ? [pluginReact()] : []), archiveSourceMaps(target)],
   lib: [library],
 });

@@ -3,7 +3,9 @@
 Implemented against tap-miniapp-examples main `06537e2` and the merged upstream
 [PR #11059](https://github.com/ZephyrCloudIO/ze-agency-tauri/pull/11059), commit
 `cd5f220cbb6650d8a72bbd676f5ef87b3ed1fbe6`. SDK `0.19.0` is published to npm and
-pinned in TAP Email; the declared native host minimum is `2.24.0`.
+pinned in TAP Email; the declared native host minimum is `2.24.0`. The final
+branch includes main `1452be1`, including bounded mailbox persistence and its
+migrations; attribution uses the next available migration, 0015.
 [Issue #11055](https://github.com/ZephyrCloudIO/ze-agency-tauri/issues/11055)
 tracks the remaining live integration and rollout work.
 
@@ -47,12 +49,12 @@ and binds the authenticated profile to that canonical user. Profile IDs are not
 assumed to equal user IDs. A conflicting profile/user crosswalk is rejected.
 Credentials are neither stored with commands nor forwarded to the public link.
 
-Migration `0013_sender_attribution.sql` adds an audited profile/user crosswalk
+Migration `0015_sender_attribution.sql` adds an audited profile/user crosswalk
 and server-owned command attribution. Each accepted command gets a globally
 unique publisher idempotency key. Duplicate requests cannot change attribution;
 command acceptance and attribution are committed in the same D1 transaction,
 so a failed attribution write cannot leave dispatchable work behind.
-scheduled dispatch copies the original key and context atomically with its
+Scheduled dispatch copies the original key and context atomically with its
 outbox record. Reconciliation uses the original context and cached referral URL.
 The stored canonical IDs are backend metadata, never URL parameters.
 
@@ -115,7 +117,7 @@ cover preview, desktop, QuickJS, package integrity, and the production Worker.
 
 Before production activation:
 
-1. Apply coordinator migration 0013. Deploy the website referral service and its
+1. Apply coordinator migration 0015. Deploy the website referral service and its
    D1 migrations/PostHog configuration through its existing Website workflow,
    then deploy the coordinator with the named Service Binding.
 2. Verify the configured introspection endpoint and Directory APIs using the

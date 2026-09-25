@@ -37,6 +37,7 @@ import {
   storedMessageRichBody,
   syncGoogleMailbox,
   threadSnapshot,
+  ThreadPageError,
 } from './mailbox';
 import {
   beginGoogleOAuth,
@@ -2174,7 +2175,12 @@ export function createTapEmailCoordinator(
         if (request.method === 'POST' && url.pathname === '/v1/accounts/google/connect') {
           return json(await beginGoogleOAuth(env, identity, now()), 200, cors);
         }
-        if (request.method === 'GET' && url.pathname === '/v1/mailbox') {
+        if (request.method === 'GET' && (url.pathname === '/v1/mailbox' || url.pathname === '/v1/mailbox/changes')) {
+          const afterValues = url.searchParams.getAll('after');
+          const changes = url.pathname === '/v1/mailbox/changes';
+          if (changes && (afterValues.length !== 1 || !/^(0|[1-9]\d*)$/u.test(afterValues[0]!) || url.searchParams.has('cursor'))) {
+            throw new ApiError(400, 'invalid_mailbox_cursor', 'A change revision is required.');
+          }
           const limitValues = url.searchParams.getAll('limit');
           const cursorValues = url.searchParams.getAll('cursor');
           if (limitValues.length > 1 || cursorValues.length > 1) {
@@ -2193,6 +2199,7 @@ export function createTapEmailCoordinator(
             );
           }
           const page = await mailboxPage(env, identity.profileId, {
+            ...(changes ? { afterRevision: Number(afterValues[0]) } : {}),
             ...(rawLimit === undefined ? {} : { limit: Number(rawLimit) }),
             ...(cursorValues[0] === undefined ? {} : { cursor: cursorValues[0] }),
           });
@@ -2370,7 +2377,7 @@ export function createTapEmailCoordinator(
           if (!isSafeMailIdentifier(accountId) || !isSafeMailIdentifier(threadId)) {
             throw new ApiError(400, 'invalid_thread', 'The Gmail thread identity is invalid.');
           }
-          const snapshot = await threadSnapshot(env, identity.profileId, accountId, threadId, now());
+          const snapshot = await threadSnapshot(env, identity.profileId, accountId, threadId, now(), url.searchParams.get('cursor') ?? undefined);
           if (!snapshot) throw new ApiError(404, 'thread_not_found', 'The Gmail thread was not found.');
           return json({ thread: snapshot }, 200, cors);
         }
@@ -2428,6 +2435,7 @@ export function createTapEmailCoordinator(
           error instanceof GoogleApiError ||
           error instanceof AttachmentContentError ||
           error instanceof MailboxPageError ||
+          error instanceof ThreadPageError ||
           error instanceof RemoteImageProxyError ||
           error instanceof OutboundAttachmentError
             ? error
@@ -2439,6 +2447,7 @@ export function createTapEmailCoordinator(
           !(error instanceof GoogleApiError) &&
           !(error instanceof AttachmentContentError) &&
           !(error instanceof MailboxPageError) &&
+          !(error instanceof ThreadPageError) &&
           !(error instanceof RemoteImageProxyError) &&
           !(error instanceof OutboundAttachmentError)
         ) {

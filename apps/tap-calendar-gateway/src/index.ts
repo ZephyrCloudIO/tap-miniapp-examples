@@ -1,3 +1,10 @@
+import OAuthProvider, { type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import { createMcpHandler } from "agents/mcp/server";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { CALENDAR_MCP_SCOPES, type CalendarMcpScope } from "../../tap-calendar/src/mcp-contract";
+import { createCalendarLiveMcpServer, type CalendarLivePort } from "./calendar-live-mcp";
+import { approveCalendarMcpAuthorization, calendarMcpOAuthRoute, reviewCalendarMcpAuthorization } from "./calendar-mcp-oauth";
+import { CalendarMcpError, listMcpGrants, loadMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "./calendar-mcp-store";
 import type { CollectiveHost } from "./collective-types";
 import {
   CollectiveBookingError, assertHostsCurrent, bookedHosts, hostBusyIntervals, listHosts,
@@ -12,7 +19,7 @@ import {
   unpublishPublicBookingProfile,
 } from "./public-booking-publication";
 import { loadPublicBookingBusyIntervals } from "./public-booking-busy";
-import { loadPublicBookingAnalytics, parsePublicBookingFunnelEvent, recordPublicBookingFunnelEvent } from "./public-booking-analytics";
+import { PUBLIC_BOOKING_ANALYTICS_SCHEMA, legacyPublicBookingAnalytics, loadPublicBookingAnalytics, parsePublicBookingFunnelEvent, recordPublicBookingFunnelEvent } from "./public-booking-analytics";
 import {
   enforcePublicBookingRateLimit,
   PublicBookingRateLimitError,
@@ -125,6 +132,7 @@ type CalendarRole = "owner" | "writer" | "reader" | "free-busy";
 type ConnectionStatus = "pending" | "connected" | "attention" | "read-only";
 
 interface CalendarGatewayEnv extends Env {
+  readonly OAUTH_PROVIDER?: OAuthHelpers;
   readonly LOCAL_DEVELOPMENT?: string;
   readonly LEGACY_OWNER_PRINCIPAL_ID?: string;
   readonly TOKEN_ENCRYPTION_KEY?: string;
@@ -1204,6 +1212,7 @@ async function reconcilePublicApprovalResolution(
 }
 
 async function getPublishedPublicBookingPage(
+  request: Request,
   route: NonNullable<ReturnType<typeof parsePublicBookingPagePath>>,
   env: CalendarGatewayEnv,
 ): Promise<Response> {
@@ -1214,6 +1223,15 @@ async function getPublishedPublicBookingPage(
       route.eventTypeSlug,
     );
     if (resolved.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
+    const visitId = new URL(request.url).searchParams.get("visitId");
+    if (visitId !== null) {
+      const event = parsePublicBookingFunnelEvent({ visitId, stage: "views" });
+      if (!event) throw new ApiError(400, "invalid_public_request", "This visit ID is invalid.");
+      await enforcePublicBookingRateLimit({ limiter: env.PUBLIC_AVAILABILITY_RATE_LIMITER,
+        localDevelopment: env.LOCAL_DEVELOPMENT === "true", request,
+        resource: `analytics:${route.profileSlug}/${route.eventTypeSlug}` });
+      await recordPublicBookingFunnelEvent(env.CALENDAR_DB, resolved.pageId, event);
+    }
     return json(projectPublicBookingPage(resolved, {
       baseUrl: publicBookingBaseUrl(env),
       turnstileSiteKey: requiredPublicBookingConfiguration(
@@ -1449,6 +1467,7 @@ async function createPublishedPublicBooking(
     };
     const result = await createPublicBooking(resolved, {
       requestId: parsed.requestId,
+      ...(parsed.visitId ? { visitId: parsed.visitId } : {}),
       guest: parsed.guest,
       ...(parsed.notes ? { notes: parsed.notes } : {}),
       ...(parsed.additionalGuests ? { additionalGuests: parsed.additionalGuests } : {}),
@@ -10173,6 +10192,28 @@ async function route(
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
   }
+  if (request.method === "GET" && path === "/health/booking-analytics") {
+    const coverage = await env.CALENDAR_DB.withSession("first-primary").prepare(
+      "SELECT traffic_since, conversion_since FROM public_booking_analytics_coverage WHERE id = 1",
+    ).first<{ traffic_since: string; conversion_since: string }>();
+    if (!coverage) throw new ApiError(503, "analytics_unavailable", "Booking analytics is not initialized.");
+    return json({ schemaVersion: PUBLIC_BOOKING_ANALYTICS_SCHEMA, ready: true,
+      trafficSince: coverage.traffic_since, conversionSince: coverage.conversion_since });
+  }
+  const oauthResponse = await calendarMcpOAuthRoute(request, env);
+  if (oauthResponse) return oauthResponse;
+  if (path.startsWith("/v1/mcp/")) {
+    const owner = await principalScope(request, env);
+    if (request.method === "POST" && path === "/v1/mcp/configuration") return json(await saveMcpConfiguration(env.CALENDAR_DB, owner, await readJson(request)));
+    if (request.method === "GET" && path === "/v1/mcp/grants") return json(await listMcpGrants(env.CALENDAR_DB, owner));
+    if (request.method === "DELETE" && /^\/v1\/mcp\/grants\/[0-9a-f-]{36}$/u.test(path)) return json(await revokeMcpGrant(env.CALENDAR_DB, owner, path.split("/").at(-1)!));
+    if (request.method === "POST" && path === "/v1/mcp/authorizations/review") return json(await reviewCalendarMcpAuthorization(env, (await readJson(request)).code));
+    if (request.method === "POST" && path === "/v1/mcp/authorizations/approve") {
+      await loadMcpConfiguration(env.CALENDAR_DB, owner);
+      return json(await approveCalendarMcpAuthorization(env, owner, await readJson(request)));
+    }
+    throw new ApiError(404, "route_not_found", "Unknown specialist connection route.");
+  }
   if (request.method === "GET" && path === "/health") {
     return json({
       ok: true,
@@ -10217,14 +10258,14 @@ async function route(
     return trackPublishedPublicBookingFunnel(request, publicBookingRoute, env);
   }
   if (request.method === "GET" && publicBookingRoute?.resource === "page") {
-    if (url.search) {
+    if ([...url.searchParams.keys()].some(key => key !== "visitId") || url.searchParams.getAll("visitId").length > 1) {
       throw new ApiError(
         400,
         "invalid_public_request",
         "This public booking request is invalid.",
       );
     }
-    return getPublishedPublicBookingPage(publicBookingRoute, env);
+    return getPublishedPublicBookingPage(request, publicBookingRoute, env);
   }
   if (request.method === "GET" && publicBookingRoute?.resource === "availability") {
     return getPublishedPublicBookingAvailability(
@@ -10261,9 +10302,10 @@ async function route(
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
   }
-  if (request.method === "GET" && path === "/v1/publications/analytics") {
+  if (request.method === "GET" && (path === "/v1/publications/analytics" || path === "/v2/publications/analytics")) {
     const scope = await principalScope(request, env);
-    return json(await loadPublicBookingAnalytics(env.CALENDAR_DB, scope));
+    const snapshot = await loadPublicBookingAnalytics(env.CALENDAR_DB, scope);
+    return json(path.startsWith("/v1/") ? legacyPublicBookingAnalytics(snapshot) : snapshot);
   }
   if (request.method === "POST" && path === "/v1/publications/profiles/unpublish") {
     return unpublishBookingProfile(request, env);
@@ -10429,7 +10471,7 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
       } catch (error) {
         const apiError = String(error).includes("calendar_shared_bookings_active")
           ? new ApiError(409, "calendar_shared_bookings_active", "Active shared bookings use this calendar. Cancel or finish those meetings before removing it.")
-          : error instanceof CollectiveBookingError || error instanceof OrganizerAuthError || error instanceof PublicBookingPublicationError
+          : error instanceof CalendarMcpError || error instanceof CollectiveBookingError || error instanceof OrganizerAuthError || error instanceof PublicBookingPublicationError
           ? new ApiError(error.status, error.code, error.message)
           : error instanceof ApiError
           ? error
@@ -10453,6 +10495,7 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
         ["public booking email reconciliation", reconcilePublicBookingEmailNotices(env)],
         ["public booking email delivery", deliverPublicBookingEmails(env)],
         ["calendar cache repair", repairCalendarCaches(env, providerFetch)],
+        ["expired specialist consent cleanup", env.CALENDAR_DB.prepare("DELETE FROM calendar_mcp_authorizations WHERE expires_at < ?").bind(new Date().toISOString()).run().then(() => undefined)],
       ];
       for (const [name, operation] of jobs) {
         executionContext.waitUntil(operation.catch(error => {
@@ -10465,4 +10508,75 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
   } satisfies ExportedHandler<CalendarGatewayEnv>;
 }
 
-export default createCalendarGatewayWorker();
+export function calendarLivePort(env: CalendarGatewayEnv, providerFetch: ProviderFetch = fetch): CalendarLivePort {
+  return {
+    async calendars(owner) {
+      const rows = await env.CALENDAR_DB.prepare(`SELECT calendars.id, calendars.name, calendars.role, calendars.writable,
+          connections.provider, connections.status FROM provider_calendars AS calendars
+        JOIN calendar_connections AS connections ON connections.id = calendars.connection_id
+        WHERE connections.workspace_id = ? AND connections.principal_id = ? ORDER BY calendars.name, calendars.id`)
+        .bind(owner.workspace, owner.principal).all<{ id: string; name: string; role: string; writable: number; provider: string; status: string }>();
+      return rows.results.map(row => ({ ...row, writable: row.writable === 1 }));
+    },
+    events: (owner, range) => queryLiveEventsForScope(owner, eventQueryInput({ ...range }), env, providerFetch),
+    eventId: (calendarId, providerEventId) => googleEventId("event", calendarId, providerEventId),
+    providerEventId(event) {
+      if (!event.id.startsWith("google-event.")) return null;
+      try {
+        const identity: unknown = JSON.parse(new TextDecoder().decode(fromBase64(event.id.slice("google-event.".length))));
+        return Array.isArray(identity) && identity.length === 2 && identity[0] === event.calendarId && typeof identity[1] === "string" ? identity[1] : null;
+      } catch { return null; }
+    },
+    async create(owner, args, authorize) {
+      try {
+        const input = providerBookingCommitInput(args);
+        const identity = await organizerProviderBookingIdentity(owner, input);
+        const response = await commitGoogleBookingForScope(owner, input, identity, env, providerFetch, authorize);
+        const result = await response.json<Record<string, unknown>>();
+        if (!response.ok) throw new CalendarMcpError(response.status, String(result.error ?? "booking_failed"), String(result.message ?? "The event could not be created."));
+        return result;
+      } catch (error) {
+        if (error instanceof ApiError) throw new CalendarMcpError(error.status, error.code, error.message);
+        throw error;
+      }
+    },
+  };
+}
+
+export class CalendarLiveMcpEntrypoint extends WorkerEntrypoint<CalendarGatewayEnv, CalendarMcpProps> {
+  override async fetch(request: Request): Promise<Response> {
+    const authorize = async (scope?: CalendarMcpScope) => {
+      const props = await requireMcpGrant(this.env.CALENDAR_DB, this.ctx.props, scope);
+      if (!await authorizeWorkspacePrincipal(this.env as unknown as OrganizerAuthEnv, props.workspace, props.principal, "workspace:read")) {
+        throw new CalendarMcpError(403, "calendar_membership_required", "The connected account no longer has access to this workspace.");
+      }
+    };
+    try {
+      await authorize();
+      const props = this.ctx.props;
+      return await createMcpHandler(() => createCalendarLiveMcpServer(this.env.CALENDAR_DB, props, calendarLivePort(this.env), authorize), {
+        route: "/mcp/live", authContext: { props: { ...props } }, legacy: "stateless",
+      }).fetch(request);
+    } catch (error) {
+      return json({ error: error instanceof CalendarMcpError ? error.code : "calendar_authorization_unavailable", message: error instanceof CalendarMcpError ? error.message : "Calendar authorization is unavailable." }, error instanceof CalendarMcpError ? error.status : 503);
+    }
+  }
+}
+
+const calendarWorker = createCalendarGatewayWorker();
+const calendarOAuth = (resource: string) => new OAuthProvider<CalendarGatewayEnv>({
+  apiRoute: "/mcp/live", apiHandler: CalendarLiveMcpEntrypoint, defaultHandler: calendarWorker,
+  authorizeEndpoint: "/oauth/authorize", tokenEndpoint: "/oauth/token", clientRegistrationEndpoint: "/oauth/register",
+  clientIdMetadataDocumentEnabled: true,
+  scopesSupported: [...CALENDAR_MCP_SCOPES],
+  resourceMetadata: { resource, scopes_supported: [...CALENDAR_MCP_SCOPES], bearer_methods_supported: ["header"], resource_name: "TAP Calendar" },
+  tokenExchangeCallback: options => ({ accessTokenProps: { ...options.props, scopes: options.requestedScope } }),
+  accessTokenTTL: 3600, refreshTokenTTL: 2592000,
+});
+export default {
+  fetch(request: Request, env: CalendarGatewayEnv, context: ExecutionContext) {
+    const origin = env.PUBLIC_BASE_URL || new URL(request.url).origin;
+    return calendarOAuth(`${origin.replace(/\/+$/u, "")}/mcp/live`).fetch(request, env, context);
+  },
+  scheduled: calendarWorker.scheduled,
+} satisfies ExportedHandler<CalendarGatewayEnv>;

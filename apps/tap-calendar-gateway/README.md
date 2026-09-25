@@ -83,16 +83,29 @@ share the same inputs, privacy-policy notice, and validation limits.
 
 ## Booking analytics
 
-`GET /v1/publications/analytics` returns totals scoped to the authenticated
-organizer's canonical workspace and user. Booking counts come from committed
-attempts across all page revisions, with approval outcomes retained after
-provider cleanup. The anonymous
-`POST /api/public/pages/{profileSlug}/{eventTypeSlug}/analytics` accepts only a
-UUID visit ID and `views`, `slotViews`, or `starts` stage. It is rate-limited and
-cannot write requests or confirmations. Migration `0017_public_booking_analytics.sql`
-adds the deduplicated visit ledger and booking lookup index. Apply it before
-deploying this version. Earlier booking counts are available immediately;
-earlier visitor activity was not collected.
+`GET /v2/publications/analytics` returns authenticated individual-page totals for
+one canonical workspace/user, plus generation and tracking coverage timestamps.
+`confirmed` is current confirmed status; `lifetimeConfirmed` retains confirmation
+history after cancellation/provider cleanup. `cancelled`, `pending`, `declined`,
+and `expired` are separate. Conversion uses distinct confirmed visits and views
+from the same coverage period, never historical booking counts divided by new
+traffic. The v1 endpoint retains its original lifetime semantics for old clients.
+
+Migration 0017 adds the anonymous visit ledger. Migration 0019 adds first-claim
+visit attribution, durable first-confirmation history, transactional visit repair
+for verified submissions, and explicit coverage metadata. It backfills lifetime
+confirmation evidence from the existing booking, approval, and notification
+records without inventing historical visitor activity. Apply migrations before
+deploying. The public `GET /health/booking-analytics` reports only schema readiness
+and coverage, never private metrics or identities.
+
+`POST /api/public/pages/{profileSlug}/{eventTypeSlug}/analytics` accepts only a v4
+UUID visit ID and a `views`, `slotViews`, or `starts` stage. Later stages imply
+earlier ones; retries are idempotent. Guests cannot write booking counts. The
+optional booking-request `visitId` is captured by the first durable claim and
+cannot be reassigned on retry. Attribution contains no guest details or IPs.
+
+See the Calendar README's production rollout sequence and release guard.
 
 ## Start it locally
 
@@ -258,7 +271,14 @@ tools are:
 - `find_available_slots`: proposes slots only when every requested calendar has complete, fresh cache proof.
 - `draft_meeting`: creates an unpersisted draft only when the same authoritative-cache check passes.
 
-MCP never returns attendee identities, locations, linked TAP content, or provider event titles under this generic local permission, even if a caller supplies an `includeDetails` argument. Event lists are capped at 200 items and draft conflicts at 50; truncation is explicit.
+The legacy `/mcp` route never returns attendee identities, locations, linked TAP content, or provider event titles under this generic local permission, even if a caller supplies an `includeDetails` argument. Event lists are capped at 200 items and draft conflicts at 50; truncation is explicit.
+
+The separate OAuth-protected `/mcp/live` route supports individual event details,
+direct creation, and aggregate analytics with explicit account scopes and live
+workspace-membership checks. It uses D1 grants and configuration from migration
+`0020_calendar_live_mcp.sql` and the `OAUTH_KV` namespace. The OAuth wrapper retains
+all existing HTTP routes and scheduled work. See [deployment, consent, tool
+semantics, and tests](../../docs/calendar-live-mcp.md) before rollout.
 
 ## One-time adoption of pre-principal local data
 

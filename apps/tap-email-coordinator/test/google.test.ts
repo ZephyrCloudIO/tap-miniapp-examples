@@ -264,6 +264,16 @@ describe('Google attachment reads', () => {
 });
 
 describe('Google provider writes', () => {
+  it('refuses cached provider credentials after the account is deactivated', async () => {
+    await env.DB.prepare(`UPDATE google_accounts SET connection_state = 'reauthorization_required'
+      WHERE profile_id = ? AND account_id = ?`).bind(scope.profileId, scope.accountId).run();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(accessTokenFor(env, scope, now)).rejects.toMatchObject({
+      code: 'google_connection_required',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('decorates authoritative Gmail draft edits only in the final send request', async () => {
     const url = `https://theaiplatform.app/refer/${'c'.repeat(32)}?utm_source=tap_email&utm_medium=email&utm_campaign=sent_with&utm_content=signature`;
     let savedRaw = '';

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import worker from "../src/index";
+import { createCalendarGatewayWorker } from "../src/index";
+const worker = createCalendarGatewayWorker();
 
 const now = "2026-08-16T18:00:00.000Z";
 const workspace = "workspace-public-route";

@@ -1,3 +1,4 @@
+import { useFunnelTracking } from "./use-funnel-tracking";
 import {
   Button,
   Field,
@@ -34,7 +35,6 @@ import { TimeZoneCombobox } from "../../tap-calendar/src/time-zone-combobox";
 import { isSupportedTimeZone } from "../../tap-calendar/src/time-zone";
 import {
   createPublicBooking,
-  trackPublicBookingFunnel,
   loadPublicAvailability,
   loadPublicBookingPage,
   loadPublicBookingProfile,
@@ -133,6 +133,7 @@ export function PublicBookingApp() {
 }
 
 function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
+  const [visitId] = useState(() => crypto.randomUUID());
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState<PublicBookingPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,7 +149,7 @@ function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
     const abort = new AbortController();
     setLoading(true);
     setError(null);
-    void loadPublicBookingPage(route.profileSlug, route.eventTypeSlug, abort.signal)
+    void loadPublicBookingPage(route.profileSlug, route.eventTypeSlug, abort.signal, visitId)
       .then(next => {
         setPage(next);
         globalThis.document.title = `${next.eventType.title} with ${next.profile.displayName} · TAP Calendar`;
@@ -162,7 +163,7 @@ function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [attempt, route]);
+  }, [attempt, route, visitId]);
 
   useEffect(() => page ? setCanonicalUrl(page.canonicalUrl) : undefined, [page]);
 
@@ -178,6 +179,7 @@ function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
   }
   return (
     <BookingExperience
+      visitId={visitId}
       route={route}
       page={page}
       onPublishedPageChanged={reloadPublishedPage}
@@ -307,12 +309,12 @@ function PublicPageState({ title, message, loading = false, action }: {
   );
 }
 
-function BookingExperience({ route, page, onPublishedPageChanged }: {
+function BookingExperience({ route, page, visitId, onPublishedPageChanged }: {
+  readonly visitId: string;
   readonly route: PublicPageRoute;
   readonly page: PublicBookingPage;
   readonly onPublishedPageChanged: () => void;
 }) {
-  const [visitId] = useState(() => crypto.randomUUID());
   const [policyNow] = useState(() => Date.now());
   const [viewerTimeZone, setViewerTimeZone] = useState(() => {
     const detected = detectedTimeZone();
@@ -325,15 +327,7 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [step, setStep] = useState<"date" | "slot" | "details" | "success">("date");
-  useEffect(() => {
-    if (step === "success") return;
-    void trackPublicBookingFunnel({
-      profileSlug: route.profileSlug,
-      eventTypeSlug: route.eventTypeSlug,
-      visitId,
-      stage: step === "details" ? "starts" : step === "slot" ? "slotViews" : "views",
-    }).catch(() => undefined); // Analytics must never block a guest's booking.
-  }, [route.profileSlug, route.eventTypeSlug, visitId, step]);
+  useFunnelTracking(route.profileSlug, route.eventTypeSlug, visitId, step);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicBookingSlot | null>(null);
   const [name, setName] = useState("");
@@ -527,6 +521,7 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
         request: {
           schemaVersion: PUBLIC_BOOKING_SCHEMA_VERSION,
           requestId,
+          visitId,
           slotToken: selectedSlot.token,
           guest: {
             name: name.trim(),

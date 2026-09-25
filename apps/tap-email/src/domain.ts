@@ -142,6 +142,8 @@ export interface ThreadAttentionCorrectionRecord {
 }
 
 export interface MailPreferences {
+  readonly htmlEnabled?: boolean;
+  readonly scriptsEnabled?: boolean;
   readonly imagePolicyVersion?: 1;
   readonly imagesEnabled: boolean;
   readonly trackingPixelsEnabled: boolean;
@@ -214,6 +216,8 @@ export interface MailState {
 }
 
 export const defaultPreferences: MailPreferences = {
+  htmlEnabled: true,
+  scriptsEnabled: true,
   imagePolicyVersion: 1,
   imagesEnabled: true,
   trackingPixelsEnabled: false,
@@ -225,12 +229,13 @@ export const defaultPreferences: MailPreferences = {
 export function normalizeMailPreferences(
   preferences: MailPreferences,
 ): MailPreferences {
-  if (preferences.imagePolicyVersion === 1) return preferences;
   return {
     ...preferences,
+    htmlEnabled: preferences.htmlEnabled ?? true,
+    scriptsEnabled: preferences.scriptsEnabled ?? true,
     imagePolicyVersion: 1,
-    imagesEnabled: true,
-    trackingPixelsEnabled: false,
+    imagesEnabled: preferences.imagePolicyVersion === 1 ? preferences.imagesEnabled : true,
+    trackingPixelsEnabled: preferences.imagePolicyVersion === 1 ? preferences.trackingPixelsEnabled : false,
   };
 }
 
@@ -638,7 +643,6 @@ export function isEmailThread(value: unknown): value is EmailThread {
     value.labels.length <= 100 &&
     value.labels.every(label => isBoundedString(label, 256)) &&
     Array.isArray(value.messages) &&
-    value.messages.length <= 1_000 &&
     value.messages.every(isEmailMessage) &&
     isReminder(value.reminder) &&
     isThreadAttentionCorrection(value.attentionCorrection)
@@ -673,6 +677,8 @@ export function isMailboxSnapshot(value: unknown): value is MailboxSnapshot {
 export function isMailPreferences(value: unknown): value is MailPreferences {
   if (!isRecord(value)) return false;
   return (
+    (value.htmlEnabled === undefined || typeof value.htmlEnabled === 'boolean') &&
+    (value.scriptsEnabled === undefined || typeof value.scriptsEnabled === 'boolean') &&
     (value.imagePolicyVersion === undefined || value.imagePolicyVersion === 1) &&
     typeof value.imagesEnabled === 'boolean' &&
     typeof value.trackingPixelsEnabled === 'boolean' &&
@@ -1663,8 +1669,8 @@ export function mergeMailboxSnapshot(
 
 /**
  * Merges one bounded provider page without interpreting absence from that page
- * as provider deletion. Only a completed traversal may replace the full
- * provider projection through `mergeMailboxSnapshot`.
+ * as provider deletion. Only a complete, consistent reconciliation may replace
+ * the full provider projection through `mergeMailboxSnapshot`.
  */
 export function mergeMailboxPage(
   state: MailState,

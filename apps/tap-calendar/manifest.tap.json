@@ -9,8 +9,8 @@
     "slug": "tap-calendar"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.2.0",
-    "version": "0.2.0",
+    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.0",
+    "version": "0.3.0",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -522,6 +522,309 @@
       }
     },
     {
+      "kind": "mcp.server",
+      "id": "calendar-live-tools",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-11-25",
+        "implementation": {
+          "type": "streamable-http",
+          "url": "https://calendar-api.theaiplatform.app/mcp/live",
+          "authentication": "oauth"
+        },
+        "oauth": {
+          "resource": "https://calendar-api.theaiplatform.app/mcp/live",
+          "scopes": [
+            "calendar.read",
+            "calendar.analytics",
+            "calendar.write"
+          ],
+          "credentialScope": "workspace-member"
+        },
+        "consumerPolicy": {
+          "contributionIds": [],
+          "externalConsumers": [
+            "selected-specialists"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-list-calendars",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "list_calendars",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-list-events",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "list_events",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-get-event",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "get_event",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-find-available-slots",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "find_available_slots",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-create-event",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.manage"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "create_event",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-list-event-types",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "list_event_types",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-calendar-analytics",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "calendar_analytics",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "calendar-live-event-type-analytics",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "calendar-live-tools",
+        "toolName": "event_type_analytics",
+        "timeoutMs": 60000,
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://calendar-api.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "kind": "miniapp",
       "id": "tap-calendar-app",
       "apiVersion": 1,
@@ -530,6 +833,15 @@
           "tap-calendar",
           "tap-calendar-channel-scheduler",
           "calendar-tools",
+          "calendar-live-tools",
+          "calendar-live-list-calendars",
+          "calendar-live-list-events",
+          "calendar-live-get-event",
+          "calendar-live-find-available-slots",
+          "calendar-live-create-event",
+          "calendar-live-list-event-types",
+          "calendar-live-calendar-analytics",
+          "calendar-live-event-type-analytics",
           "calendar-list-events",
           "calendar-daily-summary",
           "calendar-summarize-day",

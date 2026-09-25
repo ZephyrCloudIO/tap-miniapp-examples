@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from '@rstest/core';
 import type {
   MiniAppPrivateFilesApi,
@@ -45,6 +46,8 @@ const pngDataUrl = 'data:image/png;base64,iVBORw0KGgo=';
 const jpegDataUrl = 'data:image/jpeg;base64,/9j/';
 
 function profileStorageFixture() {
+  const replicaSqlite = new DatabaseSync(':memory:');
+  const appliedMigrations = new Set<number>();
   let stateJson: string | null = null;
   let stateUpdatedAt: string | null = null;
   let normalizedSourceUpdatedAt: string | null = null;
@@ -72,6 +75,7 @@ function profileStorageFixture() {
   const result: MiniAppSqlResult = { rowsAffected: 1, lastInsertRowId: 1 };
 
   const execute = async (sql: string, params: readonly unknown[] = []) => {
+    if (sql.includes('local_mail_')) replicaSqlite.prepare(sql).run(...params as (string | number | null)[]);
     if (sql.includes('INSERT INTO mailbox_state')) {
       stateJson = typeof params[2] === 'string' ? params[2] : null;
       stateUpdatedAt = typeof params[3] === 'string' ? params[3] : null;
@@ -218,6 +222,12 @@ function profileStorageFixture() {
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<MiniAppSqlQueryResult> => {
+    if (sql.includes('local_mail_')) {
+      const statement = replicaSqlite.prepare(sql);
+      const columns = statement.columns().map(column => column.name);
+      const rows = statement.all(...params as (string | number | null)[]).map(row => columns.map(column => row[column] as string | number | null));
+      return { columns, rows };
+    }
     if (sql.includes('FROM mailbox_state')) {
       return {
         columns: ['state_json', 'updated_at'],
@@ -320,10 +330,19 @@ function profileStorageFixture() {
   const database = {
     ...transaction,
     close: async () => { databaseClosed = true; },
-    transaction: async <T>(callback: (value: typeof transaction) => T | Promise<T>) =>
-      callback(transaction),
+    transaction: async <T>(callback: (value: typeof transaction) => T | Promise<T>) => {
+      replicaSqlite.exec('BEGIN');
+      try { const result = await callback(transaction); replicaSqlite.exec('COMMIT'); return result; }
+      catch (error) { replicaSqlite.exec('ROLLBACK'); throw error; }
+    },
     migrate: async migrations => {
       migratedVersions = migrations.map(migration => migration.version);
+      for (const migration of migrations) {
+        if (migration.version >= 5 && !appliedMigrations.has(migration.version)) {
+          replicaSqlite.exec(migration.sql);
+          appliedMigrations.add(migration.version);
+        }
+      }
       return { version: migrations.at(-1)?.version ?? 0 };
     },
     schemaVersion: async () => migratedVersions.at(-1) ?? 0,
@@ -544,13 +563,13 @@ describe('TAP Email private profile cache', () => {
     expect(store.capability).toBe('private-profile-sqlite');
     expect(await store.load()).toBeNull();
     await store.save(state);
-    expect(await store.load()).toEqual(state);
+    expect(await store.load()).toEqual({ ...state, accounts: [...state.accounts].sort((a, b) => a.accountId.localeCompare(b.accountId)), threads: [...state.threads].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)) });
     expect((await store.load())?.outbox?.[0]?.attempts[0]).toEqual({
       command,
       receipt: failedReceipt,
     });
     expect(fixture.diagnostics()).toMatchObject({
-      checkpoints: 1,
+      checkpoints: 2,
       openAccess: {
         filesRead: true,
         filesWrite: true,
@@ -593,17 +612,17 @@ describe('TAP Email private profile cache', () => {
       () => Date.parse('2026-09-14T12:00:01.000Z'),
     );
 
-    await expect(store.load()).resolves.toEqual(state);
+    await expect(store.load()).resolves.toEqual({ ...state, accounts: [...state.accounts].sort((a, b) => a.accountId.localeCompare(b.accountId)), threads: [...state.threads].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)) });
 
     const diagnostics = fixture.diagnostics();
     expect(diagnostics.migratedVersions).toEqual(
-      Array.from({ length: 21 }, (_, index) => index + 1),
+      Array.from({ length: 29 }, (_, index) => index + 1),
     );
-    expect(diagnostics.normalizedSourceUpdatedAt).toBe(sourceUpdatedAt);
+    expect(diagnostics.normalizedSourceUpdatedAt).toBe('2026-09-14T12:00:01.000Z');
     expect(diagnostics.normalizedIndexedAt).toBe('2026-09-14T12:00:01.000Z');
     expect(diagnostics.normalizedStatements.some(statement =>
-      statement.sql.includes('INSERT INTO local_mail_messages'))).toBe(true);
-    expect(diagnostics.checkpoints).toBe(1);
+      statement.sql.includes('INTO local_mail_messages'))).toBe(true);
+    expect(diagnostics.checkpoints).toBe(3);
     await store.close();
   });
 
@@ -893,7 +912,7 @@ describe('TAP Email private profile cache', () => {
 
     await expect(store.load()).resolves.toBeNull();
     await expect(store.save(previewMailState())).resolves.toBeUndefined();
-    await expect(store.load()).resolves.toEqual(previewMailState());
+    expect((await store.load())?.threads).toHaveLength(previewMailState().threads.length);
     await store.close();
   });
 

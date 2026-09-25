@@ -1,3 +1,4 @@
+import type { CalendarMcpConfiguration, CalendarMcpConsent, CalendarMcpGrant, CalendarMcpScope } from "./mcp-contract";
 import type { WorkspaceBookings, SharedHostInput, WorkspaceBookingProfileInput } from "./workspace-bookings";
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk/sdk";
 import { isPublicBookingAnalytics, type PublicBookingAnalytics } from "./public-booking-analytics";
@@ -889,6 +890,11 @@ export function createTapCalendarGatewayTransport(
 }
 
 export interface CalendarGatewayClient {
+  saveMcpConfiguration(sourceRevision: number, configuration: CalendarMcpConfiguration): Promise<void>;
+  reviewMcpAuthorization(code: string): Promise<CalendarMcpConsent>;
+  approveMcpAuthorization(code: string, scopes: readonly CalendarMcpScope[]): Promise<void>;
+  listMcpGrants(): Promise<readonly CalendarMcpGrant[]>;
+  revokeMcpGrant(grantId: string): Promise<void>;
   readonly baseUrl: string;
   readonly principalId: string;
   workspaceBookings(): Promise<WorkspaceBookings>;
@@ -1185,6 +1191,11 @@ export function createCalendarGatewayClient(input: {
   return {
     baseUrl,
     principalId,
+    async saveMcpConfiguration(sourceRevision, configuration) { await request("POST", "/v1/mcp/configuration", { sourceRevision, configuration }); },
+    async reviewMcpAuthorization(code) { return request<CalendarMcpConsent>("POST", "/v1/mcp/authorizations/review", { code }); },
+    async approveMcpAuthorization(code, scopes) { await request("POST", "/v1/mcp/authorizations/approve", { code, scopes }); },
+    async listMcpGrants() { return (await request<{ grants: readonly CalendarMcpGrant[] }>("GET", "/v1/mcp/grants")).grants; },
+    async revokeMcpGrant(grantId) { await request("DELETE", `/v1/mcp/grants/${encodeURIComponent(grantId)}`); },
     async workspaceBookings() {
       return request<WorkspaceBookings>("GET", "/v1/workspace-bookings");
     },
@@ -1209,7 +1220,7 @@ export function createCalendarGatewayClient(input: {
       return result;
     },
     async publicBookingAnalytics() {
-      const result = await request<unknown>("GET", "/v1/publications/analytics");
+      const result = await request<unknown>("GET", "/v2/publications/analytics");
       if (!isPublicBookingAnalytics(result)) {
         throw new CalendarGatewayError(502, "gateway_response_invalid",
           "The Calendar gateway returned invalid booking analytics.");

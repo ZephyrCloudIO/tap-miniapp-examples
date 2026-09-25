@@ -4,7 +4,8 @@
   "account_id": "b848db7e2edd56dee8ffcc39c18612a5",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-14",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   "workers_dev": false,
   "preview_urls": false,
   "vars": {
@@ -50,7 +51,9 @@
   },
   "env": {
     "production": {
+      "account_id": "b848db7e2edd56dee8ffcc39c18612a5",
       "name": "tap-calendar-gateway-production",
+      "kv_namespaces": [{ "binding": "OAUTH_KV" }],
       "workers_dev": false,
       "preview_urls": false,
       "routes": [

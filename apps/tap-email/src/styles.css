@@ -55,6 +55,33 @@
 * { box-sizing: border-box; }
 
 html, body, #root { margin: 0; min-height: 100%; height: 100%; }
+.email-react-root { height: 100%; min-height: 100%; }
+.email-recovery {
+  max-width: 760px;
+  margin: auto;
+  padding: 48px 24px;
+  color: var(--mail-text);
+}
+.email-recovery p { color: var(--mail-muted); overflow-wrap: anywhere; }
+.email-recovery button {
+  margin: 8px 12px 16px 0;
+  padding: 10px 16px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-panel-raised);
+  cursor: pointer;
+}
+.email-recovery summary { cursor: pointer; margin-bottom: 12px; }
+.email-recovery textarea {
+  width: 100%;
+  height: 280px;
+  padding: 12px;
+  color: var(--mail-text);
+  background: var(--mail-input);
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  font: 12px ui-monospace, monospace;
+}
 button, input, textarea, select { font: inherit; }
 button { color: inherit; touch-action: manipulation; }
 button:disabled { cursor: not-allowed; opacity: .45; }
@@ -425,6 +452,14 @@ kbd {
 .message-pane.has-reply-sidecar .reader-workspace { grid-template-columns: minmax(360px, 1fr) minmax(340px, 420px); }
 .message-body { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 14px clamp(18px, 2.3vw, 30px) 22px; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
 .thread-message { width: min(100%, 940px); margin-inline: auto; border: 1px solid transparent; border-radius: 9px; }
+.thread-page-controls { width: min(100%, 940px); margin: 0 auto 8px; color: var(--mail-muted); font-size: 12px; }
+.thread-page-controls:empty { display: none; }
+.thread-page-controls p { margin: 6px 0; }
+.thread-page-controls [role="alert"] { color: var(--mail-danger); }
+.thread-page-controls button { padding: 7px 12px; border: 1px solid var(--mail-border); border-radius: 7px; background: var(--mail-panel-soft); color: var(--mail-text); cursor: pointer; font: inherit; }
+.thread-page-controls button:hover { background: var(--mail-hover); }
+.thread-page-controls button:focus-visible { outline: 2px solid var(--mail-focus-border); outline-offset: 2px; }
+.thread-page-controls button:disabled { opacity: .6; cursor: wait; }
 .thread-message + .thread-message { margin-top: 3px; }
 .thread-message.is-expanded { margin-block: 4px; border-color: var(--mail-border-soft); background: var(--mail-panel-soft); box-shadow: inset 3px 0 var(--mail-accent); }
 .thread-message-toggle { width: 100%; min-width: 0; min-height: 45px; display: grid; grid-template-columns: minmax(80px, 138px) minmax(0, 1fr) auto 18px; align-items: center; gap: 13px; border: 0; border-radius: 8px; outline: 0; background: transparent; color: var(--mail-muted); padding: 9px 11px; cursor: pointer; text-align: left; font: inherit; }
@@ -799,3 +834,8 @@ kbd {
   .sync-button.is-syncing .sync-status-icon { animation: none; border-right-color: currentColor; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+
+.thread-column:has(.mail-history-pagination) .thread-list { height: calc(100% - 122px); }
+.mail-history-pagination { height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-top: 1px solid var(--mail-border); color: var(--mail-muted); font-size: 11px; }
+.mail-history-pagination button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
+.mail-history-pagination button:disabled { opacity: .4; cursor: default; }

@@ -21,6 +21,7 @@ dist/
 .tap-package/
 tap-package/
 .tap-receipts/
+.tap-diagnostics/
 .scratch/
 dist-production/
 worker-dist/

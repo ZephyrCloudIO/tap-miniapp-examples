@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@rstest/core';
 import {
   composeMessage,
+  defaultPreferences,
+  isMailPreferences,
   cancelScheduledMessage,
   correctThreadAttention,
   emailThreadKey,
@@ -35,6 +37,18 @@ import {
 const now = '2026-08-18T15:30:00.000Z';
 
 describe('TAP Email domain', () => {
+  it('accepts paged conversation history beyond 1,000 messages', () => {
+    const state = previewMailState();
+    const thread = state.threads[0]!;
+    expect(isMailboxSnapshot({
+      schemaVersion: 1,
+      accounts: state.accounts,
+      threads: [{ ...thread, messages: Array.from({ length: 1_001 }, (_, index) => ({
+        ...thread.messages[0]!, messageId: `message_${index}`,
+      })) }],
+    })).toBe(true);
+  });
+
   it('accepts future provider accounts without changing account-scoped semantics', () => {
     const state = previewMailState();
     expect(isMailboxSnapshot({
@@ -914,6 +928,16 @@ describe('TAP Email domain', () => {
       { ...state.preferences, notificationsConfigured: true, notificationAccountIds: [] },
       'google_personal',
     )).toBe(false);
+  });
+
+  it('defaults HTML and scripts on while preserving saved opt-outs and legacy preferences', () => {
+    expect(defaultPreferences).toMatchObject({ htmlEnabled: true, scriptsEnabled: true });
+    const legacy = { ...defaultPreferences, htmlEnabled: undefined, scriptsEnabled: undefined };
+    expect(isMailPreferences(legacy)).toBe(true);
+    expect(normalizeMailPreferences(legacy)).toMatchObject({ htmlEnabled: true, scriptsEnabled: true });
+    expect(normalizeMailPreferences({ ...legacy, htmlEnabled: false, scriptsEnabled: false }))
+      .toMatchObject({ htmlEnabled: false, scriptsEnabled: false });
+    expect(isMailPreferences({ ...legacy, scriptsEnabled: 'false' })).toBe(false);
   });
 
   it('migrates the former hard-coded image setting to proxied images with trackers off', () => {

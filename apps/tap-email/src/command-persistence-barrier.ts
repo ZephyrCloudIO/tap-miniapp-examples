@@ -22,8 +22,8 @@ export type CommandPersistenceReadiness =
 type CommandState = Pick<MailState, 'commands'>;
 
 /**
- * Gates provider mutations on a successful local snapshot containing the exact
- * command ID. A terminal receipt can then be replayed against that cached
+ * Gates provider mutations on a committed journal containing the exact
+ * serialized command. A terminal receipt can then be replayed against that cached
  * pending command if the app exits before its settled Outbox state is saved.
  */
 export class CommandPersistenceBarrier {
@@ -70,6 +70,10 @@ export class CommandPersistenceBarrier {
 
   #remember(commands: readonly MailCommand[]): boolean {
     let released = false;
+    const currentIds = new Set(commands.map(command => command.commandId));
+    for (const id of this.#persistedCommands.keys()) {
+      if (!currentIds.has(id)) this.#persistedCommands.delete(id);
+    }
     for (const command of commands) {
       const serialized = JSON.stringify(command);
       if (this.#persistedCommands.get(command.commandId) !== serialized) {

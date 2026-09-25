@@ -201,8 +201,10 @@ export async function accessTokenFor(
   const row = await env.DB.prepare(
     `SELECT refresh_token_ciphertext, access_token_ciphertext,
             access_token_expires_at
-       FROM google_credentials
-      WHERE profile_id = ? AND account_id = ?`,
+       FROM google_credentials AS credentials
+       JOIN google_accounts AS accounts USING (profile_id, account_id)
+      WHERE credentials.profile_id = ? AND credentials.account_id = ?
+        AND accounts.connection_state = 'active'`,
   )
     .bind(scope.profileId, scope.accountId)
     .first<CredentialRow>();
