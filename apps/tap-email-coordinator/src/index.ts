@@ -2127,7 +2127,12 @@ export function createTapEmailCoordinator(
         if (request.method === 'POST' && url.pathname === '/v1/accounts/google/connect') {
           return json(await beginGoogleOAuth(env, identity, now()), 200, cors);
         }
-        if (request.method === 'GET' && url.pathname === '/v1/mailbox') {
+        if (request.method === 'GET' && (url.pathname === '/v1/mailbox' || url.pathname === '/v1/mailbox/changes')) {
+          const afterValues = url.searchParams.getAll('after');
+          const changes = url.pathname === '/v1/mailbox/changes';
+          if (changes && (afterValues.length !== 1 || !/^(0|[1-9]\d*)$/u.test(afterValues[0]!) || url.searchParams.has('cursor'))) {
+            throw new ApiError(400, 'invalid_mailbox_cursor', 'A change revision is required.');
+          }
           const limitValues = url.searchParams.getAll('limit');
           const cursorValues = url.searchParams.getAll('cursor');
           if (limitValues.length > 1 || cursorValues.length > 1) {
@@ -2146,6 +2151,7 @@ export function createTapEmailCoordinator(
             );
           }
           const page = await mailboxPage(env, identity.profileId, {
+            ...(changes ? { afterRevision: Number(afterValues[0]) } : {}),
             ...(rawLimit === undefined ? {} : { limit: Number(rawLimit) }),
             ...(cursorValues[0] === undefined ? {} : { cursor: cursorValues[0] }),
           });
