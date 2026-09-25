@@ -205,7 +205,10 @@ p { text-wrap: pretty; }
 .time-labels span { transform: translateY(-6px); padding-right: 8px; color: var(--muted-foreground); font-size: 7px; text-align: right; }
 .day-columns { display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); min-width: 0; }
 .day-column { position: relative; min-width: 0; border-right: 1px solid var(--border); }
-.hour-line { display: block; height: var(--calendar-hour-height); border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); }
+.calendar-time-slot { display: block; width: 100%; height: calc(var(--calendar-hour-height) / 2); border: 0; background: transparent; padding: 0; cursor: pointer; }
+.calendar-time-slot:nth-child(odd) { border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); }
+.calendar-time-slot:hover, .calendar-time-slot:focus-visible { background: color-mix(in srgb, var(--calendar-accent) 10%, transparent); }
+.calendar-time-slot:focus-visible { position: relative; z-index: 3; outline: 2px solid var(--calendar-accent); outline-offset: -2px; }
 .calendar-event { position: absolute; z-index: 2; right: 4px; left: 4px; display: flex; min-height: 30px; flex-direction: column; align-items: flex-start; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 6px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 5px 6px; color: var(--foreground); text-align: left; cursor: pointer; }
 .calendar-event:hover { z-index: 4; filter: brightness(.98); box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent); }
 .calendar-event strong { max-width: 100%; overflow: hidden; font-size: 9px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
@@ -251,11 +254,14 @@ p { text-wrap: pretty; }
 .month-weekdays { position: sticky; z-index: 3; top: 0; display: grid; min-width: 840px; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); background: var(--card); }
 .month-weekdays span { padding: 10px; color: var(--muted-foreground); font-size: 8px; font-weight: 750; text-align: center; text-transform: uppercase; }
 .month-cells { display: grid; min-width: 840px; min-height: 740px; grid-template-columns: repeat(7, 1fr); grid-template-rows: repeat(6, 1fr); }
-.month-cell { min-width: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px; }
+.month-cell { position: relative; min-width: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px; }
 .month-cell.outside { background: color-mix(in srgb, var(--muted) 38%, var(--card)); color: var(--muted-foreground); }
-.month-number { display: grid; width: 22px; height: 22px; margin: 0 auto 4px; place-items: center; border-radius: 7px; font-size: 9px; }
+.month-number { position: relative; pointer-events: none; display: grid; width: 22px; height: 22px; margin: 0 auto 4px; place-items: center; border-radius: 7px; font-size: 9px; }
 .month-cell.today .month-number { background: var(--calendar-accent); color: white; font-weight: 800; }
-.month-cell button { display: block; width: 100%; overflow: hidden; margin: 2px 0; border: 0; border-left: 2px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 12%, var(--card)); padding: 4px 5px; font-size: 7px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.month-cell button { position: relative; display: block; width: 100%; overflow: hidden; margin: 2px 0; border: 0; border-left: 2px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 12%, var(--card)); padding: 4px 5px; font-size: 7px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.month-cell .month-create-event { position: absolute; inset: 0; height: 100%; margin: 0; border: 0; border-radius: 0; background: transparent; padding: 0; }
+.month-create-event:hover, .month-create-event:focus-visible { background: color-mix(in srgb, var(--calendar-accent) 8%, transparent); }
+.month-create-event:focus-visible { outline: 2px solid var(--calendar-accent); outline-offset: -2px; }
 .month-cell button span { color: var(--muted-foreground); }
 .team-view { height: 100%; overflow: auto; padding: 24px; background: color-mix(in srgb, var(--muted) 25%, var(--card)); }
 .team-roster-empty { display: grid; min-height: 100%; place-content: center; justify-items: center; gap: 8px; color: var(--muted-foreground); text-align: center; }

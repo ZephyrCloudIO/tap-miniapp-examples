@@ -60,7 +60,7 @@ export interface ProviderBookingScheduleReconciliation {
   readonly calendarId: string;
   readonly start: string;
   readonly end: string;
-  readonly location: MeetingLocation;
+  readonly location: MeetingLocation | null;
   readonly attendees: readonly CalendarAttendee[];
   readonly approvalRequired: boolean;
   readonly eventTypeId?: string;
@@ -552,7 +552,7 @@ const normalizeReconciliation = (
   if (value.kind !== "schedule-meeting" && value.kind !== "public-booking") {
     throw new ProviderBookingOutboxInvariantError("The local reconciliation kind is invalid.");
   }
-  if (!meetingLocations.has(value.location as MeetingLocation)) {
+  if (value.location !== null && !meetingLocations.has(value.location as MeetingLocation)) {
     throw new ProviderBookingOutboxInvariantError("The reconciliation meeting location is invalid.");
   }
   if (!Array.isArray(value.attendees) || value.attendees.length > MAX_ATTENDEES) {
@@ -575,7 +575,7 @@ const normalizeReconciliation = (
     calendarId,
     start,
     end,
-    location: value.location as MeetingLocation,
+    location: value.location as MeetingLocation | null,
     attendees: value.attendees.map(normalizeAttendee),
     approvalRequired: value.approvalRequired,
     ...(eventTypeId !== undefined ? { eventTypeId } : {}),
@@ -656,7 +656,7 @@ const assertPreparationMatches = (
   }
   if (
     conferenceProvider !== "none" ||
-    request.location !== providerMeetingLocationNames[reconciliation.location]
+    request.location !== (reconciliation.location === null ? undefined : providerMeetingLocationNames[reconciliation.location])
   ) {
     throw new ProviderBookingOutboxInvariantError(
       "The provider location does not match local reconciliation.",

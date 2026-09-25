@@ -300,7 +300,8 @@ export interface ScheduleMeetingInput {
   readonly calendarId: string;
   readonly start: string;
   readonly end: string;
-  readonly location: MeetingLocation;
+  /** Null creates a calendar event without a location or video conference. */
+  readonly location: MeetingLocation | null;
   readonly attendees: readonly CalendarAttendee[];
   readonly approvalRequired: boolean;
   /** Stable gateway hold/idempotency key; the Event ID may be provider-normalized. */
@@ -1781,6 +1782,7 @@ export function scheduleMeeting(
     status,
     location: input.location,
     attendees: input.attendees,
+    busy: true,
     ...(input.providerHtmlLink ? { providerHtmlLink: input.providerHtmlLink } : {}),
     ...(input.providerJoinUrl ? { providerJoinUrl: input.providerJoinUrl } : {}),
   };
@@ -1792,7 +1794,7 @@ export function scheduleMeeting(
     title: input.approvalRequired
       ? "Meeting approval requested"
       : "Meeting scheduled",
-    summary: `${externalGuest?.name ?? "Channel participants"} · ${input.title.trim()}`,
+    summary: `${externalGuest?.name ?? (input.attendees.length === 0 ? "Just you" : "Channel participants")} · ${input.title.trim()}`,
     ...(bookingRequestId ? { bookingRequestId } : {}),
     redacted: false,
   };
