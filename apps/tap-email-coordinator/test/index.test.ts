@@ -10,6 +10,7 @@ import {
 import { createTapEmailCoordinator } from '../src/index';
 import type { GoogleProviderPort } from '../src/provider';
 import { sealSecret } from '../src/crypto';
+import { AccessError } from '../src/auth';
 
 const now = '2026-08-18T15:30:00.000Z';
 const identity = async () => ({ profileId: 'profile_1' });
@@ -97,6 +98,8 @@ async function seedThread(threadId = 'gmail_thread_1'): Promise<void> {
 
 beforeEach(async () => {
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM mail_command_attributions'),
+    env.DB.prepare('DELETE FROM mail_profile_users'),
     env.DB.prepare('DELETE FROM coordinator_audit'),
     env.DB.prepare('DELETE FROM provider_events'),
     env.DB.prepare('DELETE FROM tap_reminders'),
@@ -121,6 +124,157 @@ beforeEach(async () => {
 });
 
 describe('TAP Email coordinator command outbox', () => {
+  it('rolls back command acceptance when its attribution write fails', async () => {
+    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_a' };
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity, verifySender: async () => expectedContext, now: () => new Date(now),
+    });
+    await env.DB.prepare(`CREATE TRIGGER fail_attribution BEFORE INSERT ON mail_command_attributions
+      BEGIN SELECT RAISE(ABORT, 'simulated attribution storage failure'); END`).run();
+    try {
+      const response = await worker.fetch(submit(command({ kind: 'send_draft', payload: {
+        draftKey: 'atomic_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext,
+      } })), env);
+      expect(response.status).toBe(500);
+      expect(await env.DB.prepare('SELECT command_id FROM mail_commands').first()).toBeNull();
+      expect(await env.DB.prepare('SELECT command_id FROM mail_command_attributions').first()).toBeNull();
+    } finally {
+      await env.DB.prepare('DROP TRIGGER fail_attribution').run();
+    }
+  });
+
+  it('publishes through the configured named Worker RPC using only stored attribution', async () => {
+    const expectedContext = { userId: 'rpc_user', workspaceId: 'rpc_workspace' };
+    const urls: string[] = [];
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity, verifySender: async () => expectedContext, now: () => new Date(now),
+      provider: { async execute(scope) {
+        urls.push(scope.referralUrl!);
+        return { outcome: 'acknowledged', providerRevision: null };
+      } },
+    });
+    expect((await worker.fetch(submit(command({ kind: 'send_draft', payload: {
+      draftKey: 'rpc_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext,
+    } })), env)).status).toBe(202);
+    await worker.queue(batch(fakeMessage({ profileId: 'profile_1', accountId: 'google_personal', commandId: 'cmd_1' }).message), env);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/^https:\/\/theaiplatform\.app\/refer\/[a-f0-9]{32}\?/u);
+    expect(urls[0]).not.toContain('rpc_user');
+    expect(await env.DB.prepare('SELECT referral_url FROM mail_command_attributions').first())
+      .toEqual({ referral_url: urls[0] });
+  });
+
+  it('rejects missing context, denied membership, and attempts to change accepted attribution', async () => {
+    const payload = { draftKey: 'identity_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi' };
+    const production = { ...env, ALLOW_DEV_IDENTITY: 'false' };
+    const worker = createTapEmailCoordinator({ verifyAccess: identity, verifySender: async (_req, _env, _identity, expected) => expected, now: () => new Date(now) });
+    const missing = await worker.fetch(submit(command({ kind: 'send_draft', payload })), production);
+    expect(missing.status).toBe(400);
+    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_a' };
+    const send = command({ kind: 'send_draft', payload: { ...payload, expectedContext } });
+    const denied = createTapEmailCoordinator({
+      verifyAccess: identity,
+      verifySender: async () => { throw new AccessError(403, 'workspace_denied', 'Denied'); },
+      now: () => new Date(now),
+    });
+    expect((await denied.fetch(submit(send), production)).status).toBe(403);
+    expect(await env.DB.prepare('SELECT command_id FROM mail_commands').first()).toBeNull();
+    expect((await worker.fetch(submit(send), production)).status).toBe(202);
+    expect((await worker.fetch(submit({ ...send, payload: {
+      ...payload, expectedContext: { ...expectedContext, workspaceId: 'workspace_b' },
+    } }), production)).status).toBe(409);
+    expect(await env.DB.prepare('SELECT user_id, workspace_id FROM mail_command_attributions').first())
+      .toEqual({ user_id: 'user_1', workspace_id: 'workspace_a' });
+  });
+
+  it('keeps verified attribution across schedule dispatch, restart, and uncertain-send reconciliation', async () => {
+    const expectedContext = { userId: 'canonical_user', workspaceId: 'workspace_a' };
+    const url = `https://theaiplatform.app/refer/${'a'.repeat(32)}?utm_source=tap_email&utm_medium=email&utm_campaign=sent_with&utm_content=signature`;
+    const published: unknown[] = [];
+    const sends: unknown[] = [];
+    const dependencies = {
+      verifyAccess: identity,
+      verifySender: async () => expectedContext,
+      referralPublisher: {
+        async publishTapEmailLink(input: unknown) {
+          published.push(input);
+          return { referralId: 'referral_1', url };
+        },
+      },
+      provider: {
+        async execute(scope: import('../src/provider').ProviderScope, value: MailCommand) {
+          if (value.kind === 'schedule_send') {
+            expect(scope.referralUrl).toBeUndefined();
+            return { outcome: 'acknowledged' as const, providerRevision: null };
+          }
+          sends.push({ scope, value });
+          return sends.length === 1
+            ? { outcome: 'uncertain' as const, errorCode: 'gmail_send_outcome_unknown' }
+            : { outcome: 'acknowledged' as const, providerRevision: null };
+        },
+      },
+      now: () => new Date(now),
+    };
+    const schedule = command({ kind: 'schedule_send', createdAt: '2026-08-18T15:28:00.000Z', payload: {
+      draftKey: 'attributed_draft', draftRevision: 1, to: 'person@example.com',
+      subject: 'Later', bodyText: 'Signature', expectedContext,
+      scheduledFor: '2026-08-18T15:29:00.000Z', cancelIfReply: false,
+    } });
+    const worker = createTapEmailCoordinator(dependencies);
+    expect((await worker.fetch(submit(schedule), env)).status).toBe(202);
+    expect((await worker.fetch(submit(schedule), env)).status).toBe(200);
+    const accepted = await env.DB.prepare('SELECT accepted_command_id FROM mail_command_attributions WHERE command_id = ?')
+      .bind(schedule.commandId).first<{ accepted_command_id: string }>();
+    await worker.queue(batch(fakeMessage({ profileId: 'profile_1', accountId: 'google_personal', commandId: schedule.commandId }).message), env);
+    expect(published).toHaveLength(0);
+    await worker.scheduled(createScheduledController({ cron: '*/5 * * * *' }), env);
+    const dispatched = await env.DB.prepare('SELECT dispatch_command_id FROM scheduled_sends WHERE schedule_command_id = ?')
+      .bind(schedule.commandId).first<{ dispatch_command_id: string }>();
+    const commandId = dispatched!.dispatch_command_id;
+    const restarted = createTapEmailCoordinator(dependencies);
+    await restarted.queue(batch(fakeMessage({ profileId: 'profile_1', accountId: 'google_personal', commandId }).message), env);
+    // Queue replay must not blindly resend an uncertain outcome.
+    await restarted.queue(batch(fakeMessage({ profileId: 'profile_1', accountId: 'google_personal', commandId }).message), env);
+    expect(sends).toHaveLength(1);
+    const reconciliation = await restarted.fetch(new Request(`https://coordinator.example/v1/commands/${commandId}/reconcile`, { method: 'POST' }), env);
+    expect(reconciliation.status).toBe(200);
+    expect(published).toEqual([{
+      acceptedCommandId: accepted!.accepted_command_id,
+      referrerUserId: expectedContext.userId, referrerWorkspaceId: expectedContext.workspaceId,
+    }]);
+    expect(sends).toHaveLength(2);
+    for (const sent of sends) expect(sent).toMatchObject({
+      scope: { referralUrl: url }, value: { payload: { expectedContext } },
+    });
+  });
+
+  it('holds delivery when referral publishing fails and retries with the same verified identity', async () => {
+    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_1' };
+    const inputs: unknown[] = [];
+    let sends = 0;
+    let clock = new Date(now);
+    const worker = createTapEmailCoordinator({
+      verifyAccess: identity, verifySender: async () => expectedContext, now: () => clock,
+      referralPublisher: { async publishTapEmailLink(input) {
+        inputs.push(input);
+        if (inputs.length === 1) throw new Error('temporary outage');
+        return { referralId: 'referral_1', url: `https://theaiplatform.app/refer/${'b'.repeat(32)}?utm_source=tap_email&utm_medium=email&utm_campaign=sent_with&utm_content=signature` };
+      } },
+      provider: { async execute() { sends += 1; return { outcome: 'acknowledged', providerRevision: null }; } },
+    });
+    expect((await worker.fetch(submit(command({ kind: 'send_draft', payload: {
+      draftKey: 'outage_draft', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext,
+    } })), env)).status).toBe(202);
+    const queue = () => batch(fakeMessage({ profileId: 'profile_1', accountId: 'google_personal', commandId: 'cmd_1' }).message);
+    await worker.queue(queue(), env);
+    expect(sends).toBe(0);
+    clock = new Date('2026-08-18T15:35:00.000Z');
+    await worker.queue(queue(), env);
+    expect(sends).toBe(1);
+    expect(inputs).toHaveLength(2);
+    expect(inputs[0]).toEqual(inputs[1]);
+  });
+
   it('persists stable intent before acknowledging the command', async () => {
     const worker = createTapEmailCoordinator({
       verifyAccess: identity,

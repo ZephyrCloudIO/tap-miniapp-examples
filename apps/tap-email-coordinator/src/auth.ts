@@ -103,6 +103,7 @@ export const verifyPlatformSession: AccessVerifier = async (
         audience: tapEmailSessionAudience,
         requiredAction,
       }),
+      redirect: 'error',
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -111,6 +112,9 @@ export const verifyPlatformSession: AccessVerifier = async (
       'introspection_unavailable',
       'Session introspection did not complete.',
     );
+  }
+  if (response.status === 429 || response.status >= 500) {
+    throw new AccessError(503, 'introspection_unavailable', 'Session introspection is temporarily unavailable.');
   }
   if (!response.ok) {
     throw new AccessError(403, 'session_denied', 'The TAP session is not authorized.');

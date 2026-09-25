@@ -10,9 +10,21 @@ afterEach(() => {
 });
 
 describe('platform session verification', () => {
+  it.each([429, 500, 503])('distinguishes authority unavailability from denial for HTTP %i', async status => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status }));
+    await expect(verifyPlatformSession(
+      new Request('https://coordinator.example/v1/commands', {
+        method: 'POST', headers: { Authorization: 'Bearer session-token' },
+      }),
+      { ...env, TAP_INTROSPECTION_URL: 'https://identity.example/introspect' },
+      'tap-email.manage',
+    )).rejects.toMatchObject({ status: 503, code: 'introspection_unavailable' });
+  });
+
   it('turns introspection transport failures into a bounded service error', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       expect(init?.signal).toBeInstanceOf(AbortSignal);
+      expect(init?.redirect).toBe('error');
       throw new DOMException('Timed out', 'TimeoutError');
     });
     const testEnv = Object.create(env) as Env;

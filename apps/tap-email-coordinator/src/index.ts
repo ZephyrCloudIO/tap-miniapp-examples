@@ -21,6 +21,7 @@ import {
 import {
   type GoogleProviderPort,
   type ProviderExecutionResult,
+  type ProviderScope,
 } from './provider';
 import { createGoogleProvider, GoogleApiError } from './google';
 import {
@@ -50,6 +51,17 @@ import {
   type SyncQueueMessage,
 } from './sync-events';
 import { coordinatorReadiness } from './readiness';
+import {
+  bindSenderProfile,
+  referralPublisher,
+  senderAttributionStatement,
+  assertSenderAttribution,
+  copyScheduledAttribution,
+  referralForSend,
+  verifySenderContext,
+  type SenderVerifier,
+  type WebsiteReferralPublisher,
+} from './sender-attribution';
 import {
   proxyRemoteImages,
   remoteImageUrlsAllowedByHtml,
@@ -117,6 +129,8 @@ interface CommandRow {
 interface CoordinatorDependencies {
   readonly verifyAccess?: AccessVerifier;
   readonly provider?: GoogleProviderPort;
+  readonly verifySender?: SenderVerifier;
+  readonly referralPublisher?: WebsiteReferralPublisher;
   readonly loadRemoteImages?: RemoteImageBatchLoader;
   readonly syncMailbox?: (
     env: Env,
@@ -531,6 +545,7 @@ async function submitCommand(
   env: Env,
   identity: ProfileIdentity,
   now: string,
+  verifySender: SenderVerifier,
 ): Promise<Response> {
   const value = await readBoundedJson(request);
   if (!isMailCommand(value)) {
@@ -564,6 +579,16 @@ async function submitCommand(
     );
   }
 
+  const expected = isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined;
+  const sender = expected ? await verifySender(request, env, identity, expected) : null;
+  if (sender) await bindSenderProfile(env, identity, sender, now);
+  // New sends must carry their captured identity; accepted legacy commands can
+  // still reconcile under their original durable intent.
+  const developmentIdentity = env.ALLOW_DEV_IDENTITY === 'true' && !env.TAP_INTROSPECTION_URL;
+  if ((command.kind === 'send_draft' || command.kind === 'schedule_send') && !expected && !developmentIdentity) {
+    throw new ApiError(400, 'sender_context_required', 'Update TAP Email and send from an active workspace.');
+  }
+
   const payloadJson = JSON.stringify(command.payload);
   const payloadCiphertext = await sealStoredPayload(env, command.payload, {
     table: 'mail_commands',
@@ -572,7 +597,7 @@ async function submitCommand(
     id: command.commandId,
     kind: command.kind,
   });
-  const result = await env.DB.prepare(
+  const insertCommand = env.DB.prepare(
     `INSERT OR IGNORE INTO mail_commands
        (profile_id, account_id, command_id, idempotency_key, kind, thread_id,
         expected_provider_revision, payload_json, payload_ciphertext, state, dispatch_pending,
@@ -591,14 +616,20 @@ async function submitCommand(
       command.createdAt,
       now,
       now,
-    )
-    .run();
+    );
+  // Queue scanners must never observe an accepted command without its verified
+  // attribution. Match the new ciphertext so a conflicting replay cannot bind
+  // attribution to a previously accepted command.
+  const [result] = await env.DB.batch([
+    insertCommand,
+    ...(sender ? [senderAttributionStatement(env, identity, command.commandId, sender, now, payloadCiphertext)] : []),
+  ]);
   const stored =
     (await commandRow(env, identity, command.commandId)) ??
     (await commandRowByIdempotencyKey(env, identity, command.idempotencyKey));
   if (!stored) throw new ApiError(500, 'command_store_failed', 'Command was not stored.');
 
-  const inserted = Number(result.meta.changes ?? 0) === 1;
+  const inserted = Number(result?.meta.changes ?? 0) === 1;
   let storedPayloadJson = '';
   try {
     storedPayloadJson = JSON.stringify(await openStoredPayload(
@@ -627,6 +658,7 @@ async function submitCommand(
       'The command identity is already bound to different intent.',
     );
   }
+  if (sender) await assertSenderAttribution(env, identity, command.commandId, sender);
   if (inserted) {
     await recordAudit(
       env,
@@ -940,6 +972,7 @@ async function applyProviderResult(
         ...(payload.bcc === undefined ? {} : { bcc: payload.bcc }),
         subject: payload.subject,
         bodyText: payload.bodyText,
+        ...(payload.expectedContext ? { expectedContext: payload.expectedContext } : {}),
         ...(payload.replyToMessageId === undefined
           ? {}
           : { replyToMessageId: payload.replyToMessageId }),
@@ -1281,6 +1314,7 @@ async function processQueueMessage(
   env: Env,
   provider: GoogleProviderPort,
   now: string,
+  publisher: WebsiteReferralPublisher | undefined,
 ): Promise<void> {
   const identity = { profileId: message.body.profileId };
   const existing = await commandRow(env, identity, message.body.commandId);
@@ -1328,7 +1362,7 @@ async function processQueueMessage(
   }
   let heldDraftKey: string | null = null;
   try {
-    const scope = { profileId: leased.profile_id, accountId: leased.account_id };
+    let scope: ProviderScope = { profileId: leased.profile_id, accountId: leased.account_id };
     const command = await decodeCommand(env, leased);
     const draftKey = providerDraftMutationKey(command);
     if (draftKey) {
@@ -1352,6 +1386,10 @@ async function processQueueMessage(
         return;
       }
       heldDraftKey = draftKey;
+    }
+    if (command.kind === 'send_draft' && isMailDraftPayload(command.payload) && command.payload.expectedContext) {
+      if (!publisher) throw new AccessError(503, 'referral_unavailable', 'The website referral service is unavailable.');
+      scope = { ...scope, referralUrl: await referralForSend(env, publisher, leased.profile_id, leased.command_id, command.payload.expectedContext) };
     }
     const result =
       (await executeCancelScheduledSend(env, leased, command, now)) ??
@@ -1379,7 +1417,9 @@ async function processQueueMessage(
     const disposition = await applyProviderResult(
       env,
       leased,
-      { outcome: 'retryable', errorCode: 'provider_transport_error' },
+      error instanceof AccessError
+        ? { outcome: error.status >= 500 ? 'retryable' : 'failed', errorCode: error.code }
+        : { outcome: 'retryable', errorCode: 'provider_transport_error' },
       now,
       leaseToken,
     );
@@ -1406,6 +1446,7 @@ async function reconcileUncertainSend(
   commandId: string,
   provider: GoogleProviderPort,
   now: string,
+  publisher: WebsiteReferralPublisher | undefined,
 ): Promise<MailCommandReceipt> {
   const existing = await commandRow(env, identity, commandId);
   if (!existing) {
@@ -1512,8 +1553,13 @@ async function reconcileUncertainSend(
     heldDraftKey = draftKey;
     let result: ProviderExecutionResult;
     try {
+      const expected = isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined;
+      if (expected && !publisher) throw new AccessError(503, 'referral_unavailable', 'The website referral service is unavailable.');
+      const referralUrl = expected && publisher
+        ? await referralForSend(env, publisher, leased.profile_id, leased.command_id, expected)
+        : undefined;
       result = await provider.execute(
-        { profileId: leased.profile_id, accountId: leased.account_id },
+        { profileId: leased.profile_id, accountId: leased.account_id, ...(referralUrl ? { referralUrl } : {}) },
         command,
       );
     } catch {
@@ -1834,6 +1880,7 @@ async function dispatchScheduledSends(
                 error_code = NULL, updated_at = ?
           WHERE profile_id = ? AND schedule_command_id = ? AND state = 'pending'`,
       ).bind(dispatchCommandId, now, row.profile_id, row.schedule_command_id),
+      copyScheduledAttribution(env, row.profile_id, row.schedule_command_id, dispatchCommandId),
     ]);
     if (Number(inserted[1]?.meta.changes ?? 0) !== 1) continue;
     try {
@@ -2335,7 +2382,7 @@ export function createTapEmailCoordinator(
           return json({ thread: snapshot }, 200, cors);
         }
         if (request.method === 'POST' && url.pathname === '/v1/commands') {
-          const response = await submitCommand(request, env, identity, now().toISOString());
+          const response = await submitCommand(request, env, identity, now().toISOString(), dependencies.verifySender ?? verifySenderContext);
           const headers = new Headers(response.headers);
           for (const [key, value] of Object.entries(cors)) headers.set(key, String(value));
           return new Response(response.body, { status: response.status, headers });
@@ -2355,6 +2402,13 @@ export function createTapEmailCoordinator(
           if (!isSafeMailIdentifier(commandId)) {
             throw new ApiError(400, 'invalid_command', 'The command identity is invalid.');
           }
+          const original = await commandRow(env, identity, commandId);
+          if (original) {
+            const decoded = await decodeCommand(env, original);
+            if (isMailDraftPayload(decoded.payload) && decoded.payload.expectedContext) {
+              await (dependencies.verifySender ?? verifySenderContext)(request, env, identity, decoded.payload.expectedContext);
+            }
+          }
           const provider = dependencies.provider ?? createGoogleProvider(env, now);
           const reconciled = await reconcileUncertainSend(
             env,
@@ -2362,6 +2416,7 @@ export function createTapEmailCoordinator(
             commandId,
             provider,
             now().toISOString(),
+            dependencies.referralPublisher ?? referralPublisher(env.WEBSITE_REFERRALS),
           );
           return json({ receipt: reconciled }, 200, cors);
         }
@@ -2425,6 +2480,7 @@ export function createTapEmailCoordinator(
             env,
             provider,
             now().toISOString(),
+            dependencies.referralPublisher ?? referralPublisher(env.WEBSITE_REFERRALS),
           );
         } else {
           console.error(JSON.stringify({ message: 'invalid coordinator queue message discarded' }));

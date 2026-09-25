@@ -10,6 +10,7 @@ import type {
   MailCommand,
   MailCommandReceipt,
   MailDraftAttachment,
+  MailDraftPayload,
   ScheduledSendSummary,
 } from '@tap-examples/tap-email-protocol';
 import {
@@ -19,6 +20,7 @@ import {
   serializedUtf8Bytes,
   isAccountCoverage,
   isMailCommandReceipt,
+  isMailDraftPayload,
   isMailDraftAttachment,
   isScheduledSendSummary,
   isSafeMailIdentifier,
@@ -230,6 +232,7 @@ async function call(
   input: MiniAppHttpRequestInput,
   responseBodyLimitBytes = 262_144,
   origin = coordinatorOrigin,
+  expectedContext?: MailDraftPayload['expectedContext'],
 ): Promise<unknown> {
   const localDevelopment = isLoopbackCoordinator(origin);
   const response = await transport.request(
@@ -246,7 +249,7 @@ async function call(
       responseBodyLimitBytes,
       timeoutMs: 30_000,
     },
-    localDevelopment ? undefined : { credentialRef: 'platform-session' },
+    localDevelopment ? undefined : { credentialRef: 'platform-session', ...(expectedContext ? { expectedContext } : {}) },
   );
   const body = asRecord(parseResponse(response));
   if (response.status < 200 || response.status >= 300) {
@@ -831,6 +834,7 @@ export function createCoordinatorClient(
           },
           262_144,
           origin,
+          isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined,
         ),
       );
       if (
@@ -863,7 +867,7 @@ export function createCoordinatorClient(
       }
       return body.receipt;
     },
-    async reconcileCommand(commandId: string): Promise<MailCommandReceipt> {
+    async reconcileCommand(commandId: string, expectedContext?: MailDraftPayload['expectedContext']): Promise<MailCommandReceipt> {
       const body = asRecord(
         await call(
           resolved,
@@ -873,6 +877,7 @@ export function createCoordinatorClient(
           },
           262_144,
           origin,
+          expectedContext,
         ),
       );
       if (!isMailCommandReceipt(body.receipt) || body.receipt.commandId !== commandId) {

@@ -1,3 +1,4 @@
+import PostalMime from 'postal-mime';
 import { env } from 'cloudflare:workers';
 import { TAP_EMAIL_PROTOCOL_VERSION, type MailCommand } from '@tap-examples/tap-email-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -263,6 +264,68 @@ describe('Google attachment reads', () => {
 });
 
 describe('Google provider writes', () => {
+  it('refuses cached provider credentials after the account is deactivated', async () => {
+    await env.DB.prepare(`UPDATE google_accounts SET connection_state = 'reauthorization_required'
+      WHERE profile_id = ? AND account_id = ?`).bind(scope.profileId, scope.accountId).run();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(accessTokenFor(env, scope, now)).rejects.toMatchObject({
+      code: 'google_connection_required',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('decorates authoritative Gmail draft edits only in the final send request', async () => {
+    const url = `https://theaiplatform.app/refer/${'c'.repeat(32)}?utm_source=tap_email&utm_medium=email&utm_campaign=sent_with&utm_content=signature`;
+    let savedRaw = '';
+    let finalRaw = '';
+    let sent = false;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const target = new URL(String(input));
+      if (target.pathname.endsWith('/messages')) return Response.json({});
+      if (target.pathname.endsWith('/drafts') && init?.method !== 'POST') return Response.json({});
+      if (target.pathname.endsWith('/drafts') && init?.method === 'POST') {
+        savedRaw = JSON.parse(String(init.body)).message.raw;
+        expect((await PostalMime.parse(decodeBase64Url(savedRaw, 100_000))).html).not.toContain('Sent with TAP Email');
+        return Response.json({ id: 'edited_draft' });
+      }
+      if (target.pathname.endsWith('/drafts/edited_draft')) {
+        expect(target.searchParams.get('format')).toBe('raw');
+        const mime = [
+          'To: edited@example.com', 'Subject: Edited in Gmail',
+          'Message-ID: <draft_edited@tap-email.local>', 'In-Reply-To: <original@example.com>',
+          'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="edited"', '',
+          '--edited', 'Content-Type: text/html; charset=UTF-8', '', '<p>Gmail edit</p><p>My signature</p>',
+          '--edited', 'Content-Type: application/octet-stream',
+          'Content-Disposition: attachment; filename="binary.dat"', 'Content-Transfer-Encoding: base64', '', 'AID/',
+          '--edited--', '',
+        ].join('\r\n');
+        return Response.json({ id: 'edited_draft', message: { raw: btoa(mime).replaceAll('+', '-').replaceAll('/', '_'), threadId: 'authoritative_thread' } });
+      }
+      if (target.pathname.endsWith('/drafts/send')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.id).toBe('edited_draft');
+        expect(body.message.threadId).toBe('authoritative_thread');
+        finalRaw = body.message.raw;
+        sent = true;
+        return Response.json({ id: 'sent_edited', historyId: 'history_edited' });
+      }
+      throw new Error(`Unexpected Google request: ${target}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const payload = { draftKey: 'draft_edited', draftRevision: 1, to: 'old@example.com', subject: 'Old', bodyText: 'Local body' };
+    await expect(provider.execute(scope, command({ kind: 'save_draft', payload }))).resolves.toMatchObject({ outcome: 'acknowledged' });
+    await expect(provider.execute({ ...scope, referralUrl: url }, command({ kind: 'send_draft', commandId: 'send_edited', payload })))
+      .resolves.toMatchObject({ outcome: 'acknowledged' });
+    expect(sent).toBe(true);
+    const parsed = await PostalMime.parse(decodeBase64Url(finalRaw, 100_000));
+    expect(parsed.subject).toBe('Edited in Gmail');
+    expect(parsed.inReplyTo).toBe('<original@example.com>');
+    expect(parsed.html).toContain('My signature</p><div data-tap-sent-with');
+    expect(parsed.html).toContain('The AI Platform</a>');
+    expect(parsed.html).not.toContain('Local body');
+    expect(new Uint8Array(parsed.attachments[0]!.content as ArrayBuffer)).toEqual(Uint8Array.from([0, 128, 255]));
+  });
+
   it('maps Done to an idempotent INBOX label removal', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
@@ -343,7 +406,10 @@ describe('Google provider writes', () => {
         const mime = decodeBase64Url(body.message.raw, 100_000);
         expect(mime).toContain('Message-ID: <draft_reply_1@tap-email.local>');
         expect(mime).toContain(`X-TAP-Draft-Revision: ${writes}`);
-        expect(mime).toContain(writes === 1 ? 'First version' : 'Second version');
+        const parsed = await PostalMime.parse(mime);
+        expect(parsed.text).toContain(writes === 1 ? 'First version' : 'Second version');
+        expect(parsed.html).toContain(writes === 1 ? 'First version' : 'Second version');
+        expect(parsed.html).not.toContain('Sent with TAP Email');
         return Response.json({
           id: 'draft_1',
           message: { historyId: `history_${writes}` },
@@ -564,7 +630,7 @@ describe('Google provider writes', () => {
         const mime = decodeBase64Url(body.message.raw, 100_000);
         expect(mime).toContain('Message-ID: <draft_send@tap-email.local>');
         expect(mime).toContain('To: maya@example.com');
-        expect(mime).toContain('Ship it.');
+        expect((await PostalMime.parse(mime)).html).toContain('Ship it.');
         return Response.json({ id: 'draft_1' });
       }
       if (url.pathname === '/gmail/v1/users/me/drafts/send') {
