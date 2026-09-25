@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { sealSecret } from '../src/crypto';
 import { createTapEmailCoordinator } from '../src/index';
+import { AccessError } from '../src/auth';
 import {
   createTapEmailLiveMcpHandler,
   type EmailMcpPrincipal,
@@ -136,6 +137,8 @@ async function seedMailbox(): Promise<void> {
 
 beforeEach(async () => {
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM email_mcp_credentials'),
+    env.DB.prepare('DELETE FROM mail_profile_users'),
     env.DB.prepare('DELETE FROM coordinator_audit'),
     env.DB.prepare('DELETE FROM provider_events'),
     env.DB.prepare('DELETE FROM tap_reminders'),
@@ -169,11 +172,11 @@ describe('TAP Email live MCP', () => {
     });
     request.headers.set('Authorization', 'Bearer platform-session');
     const response = await worker.fetch(request, env);
-    expect(response.status).toBe(404);
-    expect(accessChecks).toBe(1);
+    expect(response.status).toBe(401);
+    expect(accessChecks).toBe(0);
   });
 
-  it('enforces content scope inside the dormant server', async () => {
+  it('enforces content scope inside the authenticated server', async () => {
     const metadataOnly: EmailMcpPrincipal = {
       ...profile,
       audience: 'tap-email-mcp',
@@ -191,7 +194,7 @@ describe('TAP Email live MCP', () => {
     expect(JSON.stringify(content)).toContain('permission_denied');
   });
 
-  it('advertises the bounded read surface without mutation tools', async () => {
+  it('advertises bounded read and receipt-backed draft/send tools', async () => {
     const response = await mcpCall({
       jsonrpc: '2.0',
       id: 1,
@@ -205,8 +208,9 @@ describe('TAP Email live MCP', () => {
       'get_email_thread',
       'read_email_messages',
       'get_email_command_receipt',
+      'save_email_draft',
+      'send_email',
     ]);
-    expect(tools.map(tool => tool.name).join(' ')).not.toMatch(/send|archive|trash|commit/u);
   });
 
   it('lists only the authenticated profile account catalog', async () => {
@@ -487,7 +491,7 @@ describe('TAP Email live MCP', () => {
     const oversized = await handler.fetch(new Request('https://coordinator.example/mcp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: 'x'.repeat(65_537),
+      body: 'x'.repeat(524_289),
     }));
     expect(oversized.status).toBe(413);
     expect(oversized.headers.get('Cache-Control')).toBe('no-store');
@@ -507,5 +511,137 @@ describe('TAP Email live MCP', () => {
     await expect(tooMany.json()).resolves.toMatchObject({
       error: { message: expect.stringContaining('too many') },
     });
+  });
+});
+
+describe('live MCP connection and delivery', () => {
+  const sender = { userId: 'user_1', workspaceId: 'workspace_1' };
+  const verifySender = async () => sender;
+  async function connect(worker: ReturnType<typeof createTapEmailCoordinator>, allowWrites = false) {
+    const response = await worker.fetch(new Request('https://coordinator.example/v1/mcp/credential', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allowWrites, ...(allowWrites ? { expectedContext: sender } : {}) }),
+    }), env);
+    expect(response.status).toBe(201);
+    return await response.json() as { token: string; expiresAt: string };
+  }
+  async function invoke(worker: ReturnType<typeof createTapEmailCoordinator>, token: string, name: string, args: object = {}) {
+    const request = mcpRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
+    request.headers.set('X-TAP-Email-MCP-Token', token);
+    const response = await worker.fetch(request, env);
+    if (response.status !== 200) return { status: response.status, result: null };
+    const text = await response.text();
+    const data = response.headers.get('Content-Type')?.includes('text/event-stream')
+      ? text.split('\n').find(line => line.startsWith('data: '))!.slice(6) : text;
+    return { status: response.status, result: JSON.parse(data).result as { isError?: boolean; structuredContent?: { receipt?: { state: string }; duplicate?: boolean } } };
+  }
+  const draft = { accountId: 'account_work', commandId: 'chloe_send_1', createdAt: observedAt, draftKey: 'draft_chloe', draftRevision: 1, to: 'recipient@example.test', subject: 'Requested message', bodyText: 'Hello from Chloe.' };
+
+  it('requires explicit write scope, stores only a hash, rotates, expires, and revokes credentials', async () => {
+    const worker = createTapEmailCoordinator({ verifyAccess: async () => profile, verifySender, now: () => new Date(observedAt) });
+    const first = await connect(worker);
+    const accountResult = await invoke(worker, first.token, 'list_email_accounts');
+    expect(accountResult.result?.isError).not.toBe(true);
+    expect(JSON.stringify(accountResult.result)).not.toContain('other@example.com');
+    expect((await invoke(worker, first.token, 'send_email', draft)).result?.isError).toBe(true);
+    const stored = await env.DB.prepare('SELECT * FROM email_mcp_credentials WHERE profile_id = ?').bind(profile.profileId).first();
+    expect(JSON.stringify(stored)).not.toContain(first.token);
+    const second = await connect(worker, true);
+    expect((await invoke(worker, first.token, 'list_email_accounts')).status).toBe(401);
+    const later = createTapEmailCoordinator({ now: () => new Date(second.expiresAt) });
+    expect((await invoke(later, second.token, 'list_email_accounts')).status).toBe(401);
+    await worker.fetch(new Request('https://coordinator.example/v1/mcp/credential', { method: 'DELETE' }), env);
+    expect((await invoke(worker, second.token, 'list_email_accounts')).status).toBe(401);
+  });
+
+  it('finds, reads, sends once, and exposes a content-free activity receipt', async () => {
+    let providerCalls = 0;
+    const referrals: object[] = [];
+    const worker = createTapEmailCoordinator({
+      verifyAccess: async () => profile, verifySender, now: () => new Date(observedAt),
+      referralPublisher: { publishTapEmailLink: async input => {
+        referrals.push(input);
+        return { referralId: 'ref_mcp_1', url: `https://theaiplatform.app/refer/${'a'.repeat(32)}?utm_source=tap_email&utm_medium=email&utm_campaign=sent_with&utm_content=signature` };
+      } },
+      provider: { execute: async () => { providerCalls += 1; return { outcome: 'acknowledged', providerRevision: 'sent_revision' }; } },
+    });
+    const { token } = await connect(worker, true);
+    expect((await invoke(worker, token, 'search_email_threads', { accountIds: ['account_work'], text: 'launch' })).result?.isError).not.toBe(true);
+    expect((await invoke(worker, token, 'read_email_messages', { accountId: 'account_work', threadId: 'thread_launch', messageIds: ['message_launch'] })).result?.isError).not.toBe(true);
+    const sent = await invoke(worker, token, 'send_email', draft);
+    expect(sent.result?.structuredContent?.receipt?.state).toBe('accepted');
+    const attribution = await env.DB.prepare('SELECT user_id, workspace_id FROM mail_command_attributions WHERE profile_id = ? AND command_id = ?')
+      .bind(profile.profileId, draft.commandId).first();
+    expect(attribution).toEqual({ user_id: sender.userId, workspace_id: sender.workspaceId });
+    expect((await invoke(worker, token, 'send_email', { ...draft, expectedContext: { userId: 'other', workspaceId: 'other' } })).result?.isError).toBe(true);
+    expect((await invoke(worker, token, 'send_email', draft)).result?.structuredContent?.duplicate).toBe(true);
+    expect((await invoke(worker, token, 'send_email', { ...draft, bodyText: 'Changed intent' })).result?.isError).toBe(true);
+    const body = { kind: 'command' as const, profileId: profile.profileId, accountId: draft.accountId, commandId: draft.commandId };
+    const message: Message<typeof body> = { id: 'mcp_queue_1', timestamp: new Date(observedAt), body, attempts: 1, ack() {}, retry() {} };
+    const batch = { queue: 'tap-email-commands', messages: [message], metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } }, ackAll() {}, retryAll() {} };
+    await worker.queue(batch, env);
+    await worker.queue(batch, env);
+    expect(providerCalls).toBe(1);
+    expect(referrals).toEqual([expect.objectContaining({ referrerUserId: sender.userId, referrerWorkspaceId: sender.workspaceId })]);
+    expect((await invoke(worker, token, 'get_email_command_receipt', { accountId: draft.accountId, commandId: draft.commandId })).result?.structuredContent?.receipt?.state).toBe('applied');
+    const activity = await worker.fetch(new Request('https://coordinator.example/v1/activity/receipts?after=2026-09-01T00%3A00%3A00.000Z'), env);
+    expect(activity.status).toBe(200);
+    const activityBody = await activity.json() as { items: { commandId: string; receipt: { state: string } }[]; views: { viewId: string; occurredAt: string }[] };
+    expect(activityBody.views).toHaveLength(1);
+    expect(Object.keys(activityBody.views[0]!).sort()).toEqual(['occurredAt', 'viewId']);
+    expect(activityBody.items.find(item => item.commandId === draft.commandId)?.receipt.state).toBe('applied');
+    for (const privateText of [draft.to, draft.subject, draft.bodyText, 'other@example.com']) expect(JSON.stringify(activityBody)).not.toContain(privateText);
+  });
+
+  it('requires verified sender context before issuing a write credential', async () => {
+    const worker = createTapEmailCoordinator({
+      verifyAccess: async () => profile, now: () => new Date(observedAt),
+      verifySender: async () => { throw new AccessError(403, 'sender_context_mismatch', 'Sender changed.'); },
+    });
+    for (const [body, status] of [
+      [{ allowWrites: true }, 400],
+      [{ allowWrites: true, expectedContext: sender }, 403],
+    ] as const) {
+      const response = await worker.fetch(new Request('https://coordinator.example/v1/mcp/credential', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }), env);
+      expect(response.status).toBe(status);
+    }
+    expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM email_mcp_credentials').first('count')).toBe(0);
+  });
+
+  it('paginates activity at identical timestamps without crossing profiles', async () => {
+    await env.DB.batch(Array.from({ length: 25 }, (_, index) => env.DB.prepare(
+      `INSERT INTO mail_commands (profile_id, account_id, command_id, idempotency_key, kind,
+        thread_id, payload_json, state, dispatch_pending, client_created_at, created_at, updated_at, provider_acknowledged_at)
+       VALUES (?, 'account_work', ?, ?, 'archive', 'thread_launch', '{}', 'applied', 0, ?, ?, ?, ?)`,
+    ).bind(index === 24 ? 'profile_2' : 'profile_1', `activity_${index}`, `activity_key_${index}`, observedAt, observedAt, observedAt, observedAt)));
+    const worker = createTapEmailCoordinator({ verifyAccess: async () => profile, now: () => new Date(observedAt) });
+    let cursor: { after: string; afterId: string } | null = { after: '2026-09-01T00:00:00.000Z', afterId: '' };
+    const ids: string[] = [];
+    let pages = 0;
+    while (cursor) {
+      const response = await worker.fetch(new Request(`https://coordinator.example/v1/activity/receipts?${new URLSearchParams(cursor)}`), env);
+      const body = await response.json() as {
+        items: { commandId: string }[];
+        next: { after: string; afterId: string } | null;
+      };
+      expect(response.status).toBe(200);
+      expect(body.items.length).toBeLessThanOrEqual(20);
+      ids.push(...body.items.map(item => item.commandId));
+      cursor = body.next;
+      if (++pages > 3) throw new Error('Activity cursor did not progress.');
+    }
+    expect(ids.filter(id => id.startsWith('activity_'))).toHaveLength(24);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).not.toContain('activity_24');
+  });
+
+  it('does not let an MCP token mint credentials or bypass platform REST authorization', async () => {
+    const worker = createTapEmailCoordinator({ now: () => new Date(observedAt) });
+    const response = await worker.fetch(new Request('https://coordinator.example/v1/mcp/credential', {
+      method: 'POST', headers: { 'X-TAP-Email-MCP-Token': `temcp_${'a'.repeat(64)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ allowWrites: true }),
+    }), env);
+    expect(response.status).toBe(401);
   });
 });

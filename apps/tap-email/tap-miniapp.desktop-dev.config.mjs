@@ -18,7 +18,8 @@ const excludedContributionIds = new Set(
     .filter(
       contribution =>
         contribution.kind === 'mcp.server' || contribution.kind === 'mcp.tool' ||
-        contribution.kind === 'specialist',
+        contribution.kind === 'specialist' || contribution.kind === 'activity.source' ||
+        contribution.kind === 'agent.skill',
     )
     .map(contribution => contribution.id),
 );

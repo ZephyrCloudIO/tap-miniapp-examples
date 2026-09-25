@@ -21,6 +21,7 @@ import {
   isAccountCoverage,
   isMailCommandReceipt,
   isMailDraftPayload,
+  isMailActivityReceipt,
   isMailDraftAttachment,
   isScheduledSendSummary,
   isSafeMailIdentifier,
@@ -399,6 +400,31 @@ function decodeAttachmentBody(response: MiniAppHttpResponse, attachment: EmailAt
   return Uint8Array.from(decoded, character => character.charCodeAt(0));
 }
 
+interface ActivityCursor { readonly after: string; readonly afterId: string }
+function parseActivityCursor(value: unknown): ActivityCursor | null {
+  if (value === null) return null;
+  const next = asRecord(value);
+  if (typeof next.after !== 'string' || !Number.isFinite(Date.parse(next.after)) || !isSafeMailIdentifier(next.afterId)) {
+    throw new CoordinatorError(502, 'invalid_response', 'Email activity cursor is malformed.');
+  }
+  return { after: next.after, afterId: next.afterId };
+}
+
+export interface EmailToolAccess {
+  readonly connected: boolean;
+  readonly scopes: readonly string[];
+  readonly expiresAt: string | null;
+}
+function parseEmailToolAccess(value: unknown): EmailToolAccess {
+  const body = asRecord(value);
+  if (typeof body.connected !== 'boolean' || !Array.isArray(body.scopes) ||
+    !body.scopes.every(scope => typeof scope === 'string') ||
+    !(body.expiresAt === null || (typeof body.expiresAt === 'string' && Number.isFinite(Date.parse(body.expiresAt))))) {
+    throw new CoordinatorError(502, 'invalid_response', 'Email tool access response is malformed.');
+  }
+  return { connected: body.connected, scopes: body.scopes, expiresAt: body.expiresAt };
+}
+
 export function createCoordinatorClient(
   transport?: CoordinatorTransport,
   origin = coordinatorOrigin,
@@ -412,6 +438,42 @@ export function createCoordinatorClient(
     );
   }
   return {
+    async getActivityReceipts(cursor: ActivityCursor, viewCursor: ActivityCursor = cursor) {
+      const query = new URLSearchParams({ ...cursor, viewAfter: viewCursor.after, viewAfterId: viewCursor.afterId }).toString();
+      const body = asRecord(await call(resolved, { method: 'GET', url: `${origin}/v1/activity/receipts?${query}` }, 524_288, origin));
+      if (!Array.isArray(body.items) || body.items.length > 20 || !body.items.every(isMailActivityReceipt) ||
+        typeof body.observedAt !== 'string' || !Number.isFinite(Date.parse(body.observedAt)) ||
+        !Array.isArray(body.views) || body.views.length > 20) {
+        throw new CoordinatorError(502, 'invalid_response', 'Email activity receipts are malformed.');
+      }
+      const views = body.views.map(value => {
+        const view = asRecord(value);
+        if (Object.keys(view).length !== 2 || !isSafeMailIdentifier(view.viewId) ||
+          typeof view.occurredAt !== 'string' || !Number.isFinite(Date.parse(view.occurredAt))) {
+          throw new CoordinatorError(502, 'invalid_response', 'Email view activity is malformed.');
+        }
+        return { viewId: view.viewId, occurredAt: view.occurredAt };
+      });
+      return { items: body.items, views, observedAt: body.observedAt,
+        next: parseActivityCursor(body.next), viewsNext: parseActivityCursor(body.viewsNext) };
+    },
+    async getEmailToolAccess() {
+      return parseEmailToolAccess(await call(resolved, { method: 'GET', url: `${origin}/v1/mcp/credential` }, 8_192, origin));
+    },
+    async createEmailToolAccess(allowWrites: boolean, expectedContext?: MailDraftPayload['expectedContext']) {
+      const value = asRecord(await call(resolved, {
+        method: 'POST', url: `${origin}/v1/mcp/credential`,
+        headers: [{ name: 'Content-Type', value: 'application/json' }],
+        body: JSON.stringify({ allowWrites, ...(allowWrites && expectedContext ? { expectedContext } : {}) }),
+      }, 8_192, origin, allowWrites ? expectedContext : undefined));
+      if (typeof value.token !== 'string' || !/^temcp_[a-f0-9]{64}$/u.test(value.token)) {
+        throw new CoordinatorError(502, 'invalid_response', 'Email tool credential is malformed.');
+      }
+      return { ...parseEmailToolAccess({ ...value, connected: true }), token: value.token };
+    },
+    async revokeEmailToolAccess() {
+      await call(resolved, { method: 'DELETE', url: `${origin}/v1/mcp/credential` }, 8_192, origin);
+    },
     async beginGoogleConnection(): Promise<string> {
       const body = asRecord(
         await call(

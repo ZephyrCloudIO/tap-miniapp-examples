@@ -1,5 +1,6 @@
 import type {
   MailCommand,
+  MailActivityReceipt,
   MailCommandKind,
   MailCommandReceipt,
 } from '@tap-examples/tap-email-protocol';
@@ -9,6 +10,8 @@ export const EMAIL_ACTIVITY_RETENTION_DAYS = 90;
 export const EMAIL_ACTIVITY_PROJECTION_LIMIT = 2_048;
 
 export const emailActivityActions = [
+  'thread_viewed',
+  'draft_created',
   'thread_archived',
   'thread_read',
   'thread_marked_unread',
@@ -33,7 +36,9 @@ export type EmailActivityOutcome =
   | 'cancelled';
 export type EmailActivityTimeSource =
   | 'provider_acknowledged_at'
-  | 'coordinator_accepted_at';
+  | 'coordinator_accepted_at'
+  | 'ui_observed_at'
+  | 'mcp_observed_at';
 
 /**
  * Private, installation-local deduplication record. The command idempotency
@@ -66,16 +71,14 @@ export interface EmailActivityProjection {
     readonly trackingStartedAt: string | null;
     readonly retainedAfter: string | null;
     readonly availableFrom: string | null;
+    readonly availableThrough?: string;
     readonly truncated: boolean;
     readonly warnings: readonly string[];
   };
 }
 
-// Background draft saves still flow through the command pipeline so provider
-// durability and receipt handling remain unchanged. This process-local marker
-// lets that pipeline return its usual projection-shaped result without opening
-// the private ledger or publishing a synthetic public projection. A WeakSet is
-// deliberate: the marker cannot leak into JSON or the shared storage value.
+// Receipts that cannot establish a durable draft are bookkeeping no-ops.
+// The marker stays process-local and never enters shared storage.
 const noOpEmailActivityProjections = new WeakSet<EmailActivityProjection>();
 
 export interface EmailActivitySummaryRequest {
@@ -135,6 +138,8 @@ const terminalOutcomeSet = new Set<string>([
 const timeSourceSet = new Set<string>([
   'provider_acknowledged_at',
   'coordinator_accepted_at',
+  'ui_observed_at',
+  'mcp_observed_at',
 ]);
 const projectionKeys = new Set(['schemaVersion', 'generatedAt', 'entries', 'coverage']);
 const projectionEntryKeys = new Set([
@@ -149,6 +154,7 @@ const projectionCoverageKeys = new Set([
   'trackingStartedAt',
   'retainedAfter',
   'availableFrom',
+  'availableThrough',
   'truncated',
   'warnings',
 ]);
@@ -215,10 +221,7 @@ function actionForCommand(command: MailCommand): EmailActivityAction | null {
       : 'message_sent';
   }
   if (command.kind === 'save_draft') {
-    // Provider-draft autosave is a background durability mechanism, not a
-    // user-authored activity. Counting every revision would turn typing pauses
-    // into dozens of fake actions in Chloe's daily summary.
-    return null;
+    return 'draft_created';
   }
   const actions: Readonly<Record<Exclude<MailCommandKind, 'send_draft' | 'save_draft'>, EmailActivityAction>> = {
     archive: 'thread_archived',
@@ -265,9 +268,15 @@ export function localActivityRecordFromReceipt(
 
   const action = actionForCommand(command);
   if (action === null) return null;
+  // Count the first durable draft once, regardless of autosave revision.
+  // Failed autosaves do not prove that a draft was created.
+  if (command.kind === 'save_draft' && (receipt.state !== 'applied' ||
+    typeof command.payload.draftKey !== 'string' || !command.payload.draftKey)) return null;
 
   return {
-    idempotencyKey: receipt.idempotencyKey,
+    idempotencyKey: command.kind === 'save_draft'
+      ? JSON.stringify(['draft-created', command.accountId, command.payload.draftKey])
+      : receipt.idempotencyKey,
     action,
     outcome: receipt.state as EmailActivityOutcome,
     occurredAt: normalizedTimestamp(
@@ -315,7 +324,6 @@ export function incompleteEmailActivityProjection(
     generatedAt: normalizedTimestamp(generatedAt),
     coverage: {
       ...projection.coverage,
-      source: 'unavailable',
       warnings: [...new Set([...projection.coverage.warnings, warning])].slice(0, 16),
     },
   };
@@ -326,7 +334,7 @@ export function noOpEmailActivityProjection(
 ): EmailActivityProjection {
   const projection = unavailableEmailActivityProjection(
     generatedAt,
-    'Provider draft autosave is intentionally excluded from email activity.',
+    'This receipt does not establish a tracked activity.',
   );
   noOpEmailActivityProjections.add(projection);
   return projection;
@@ -377,6 +385,7 @@ export function isEmailActivityProjection(
       validTimestamp(boundedCoverage.retainedAfter)) &&
     (boundedCoverage.availableFrom === null ||
       validTimestamp(boundedCoverage.availableFrom)) &&
+    (boundedCoverage.availableThrough === undefined || validTimestamp(boundedCoverage.availableThrough)) &&
     typeof boundedCoverage.truncated === 'boolean' &&
     Array.isArray(boundedCoverage.warnings) &&
     boundedCoverage.warnings.length <= 16 &&
@@ -456,6 +465,10 @@ export function summarizeEmailActivity(
 
   const warnings = [...projection.coverage.warnings];
   const availableFrom = projection.coverage.availableFrom;
+  const availableThrough = new Date(Math.min(
+    Date.parse(projection.coverage.availableThrough ?? projection.generatedAt),
+    Date.parse(projection.generatedAt),
+  )).toISOString();
   if (projection.coverage.source === 'unavailable') {
     if (!warnings.some(warning => warning.includes('unavailable'))) {
       warnings.push('Email activity storage is unavailable for this installation.');
@@ -463,7 +476,7 @@ export function summarizeEmailActivity(
   } else if (availableFrom && start < Date.parse(availableFrom)) {
     warnings.push('The requested range begins before retained email activity coverage.');
   }
-  if (end > Date.parse(projection.generatedAt)) {
+  if (end > Date.parse(availableThrough)) {
     warnings.push('The requested range extends beyond the latest activity projection.');
   }
   if (projection.coverage.truncated) {
@@ -481,7 +494,7 @@ export function summarizeEmailActivity(
     projection.coverage.warnings.length === 0 &&
     availableFrom !== null &&
     start >= Date.parse(availableFrom) &&
-    end <= Date.parse(projection.generatedAt);
+    end <= Date.parse(availableThrough);
 
   return {
     schemaVersion: EMAIL_ACTIVITY_SCHEMA_VERSION,
@@ -505,10 +518,21 @@ export function summarizeEmailActivity(
       source: projection.coverage.source,
       trackingStartedAt: projection.coverage.trackingStartedAt,
       availableFrom,
-      availableThrough: projection.generatedAt,
+      availableThrough,
       retainedAfter: projection.coverage.retainedAfter,
       projectionTruncated: projection.coverage.truncated,
       warnings: deduplicatedWarnings,
     },
+  };
+}
+
+/** Reconstruct only the fields the receipt classifier needs; no mail content is loaded. */
+export function activityCommandFromReceipt(item: MailActivityReceipt): MailCommand {
+  return {
+    v: 1, commandId: item.commandId, idempotencyKey: item.receipt.idempotencyKey,
+    accountId: item.accountId, threadId: item.threadId, kind: item.kind,
+    createdAt: item.receipt.acceptedAt, expectedProviderRevision: null,
+    payload: { ...(item.draftKey ? { draftKey: item.draftKey } : {}),
+      ...(item.isReply ? { replyToMessageId: 'reply' } : {}) },
   };
 }

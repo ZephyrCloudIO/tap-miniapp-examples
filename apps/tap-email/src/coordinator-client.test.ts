@@ -33,6 +33,27 @@ function mailboxThread(
 }
 
 describe('TAP Email coordinator client', () => {
+  it('pins credential creation to the verified sending context in both body and host request', async () => {
+    const sender = { userId: 'user_1', workspaceId: 'workspace_1' };
+    let calls = 0;
+    const transport: CoordinatorTransport = {
+      request(input, options) {
+        calls += 1;
+        expect(input.url).toBe(`${coordinatorOrigin}/v1/mcp/credential`);
+        expect(JSON.parse(input.body as string)).toEqual({ allowWrites: true, expectedContext: sender });
+        expect(options).toEqual({ credentialRef: 'platform-session', expectedContext: sender });
+        return {
+          finalUrl: input.url, status: 201, statusText: 'Created', headers: [],
+          bodyText: JSON.stringify({ token: `temcp_${'a'.repeat(64)}`, scopes: ['email.metadata.read', 'email.content.read', 'email.write'], expiresAt: '2026-10-24T00:00:00.000Z' }),
+          bodyBase64: null, bodyKind: 'text', bodyTruncated: false,
+          sizeBytes: 512, elapsedMs: 1, contentType: 'application/json',
+        };
+      },
+    };
+    expect((await createCoordinatorClient(transport).createEmailToolAccess(true, sender)).connected).toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it('loads every cursor-paginated mailbox page before replacing the local snapshot', async () => {
     const urls: string[] = [];
     const transport: CoordinatorTransport = {

@@ -27,7 +27,7 @@ describe('email activity projection publication', () => {
     let sets = 0;
     const storage: Pick<MiniAppStorageApi, 'get' | 'set'> = {
       get: async address => {
-        expect(address).toEqual(activityAddress);
+        expect(address).toEqual(activityAddress('user_1'));
         return { revision, value };
       },
       set: async options => {
@@ -45,6 +45,7 @@ describe('email activity projection publication', () => {
 
     await publishEmailActivityProjection(
       projection('2026-09-14T01:00:00.000Z'),
+      'user_1',
       storage,
     );
 
@@ -69,6 +70,7 @@ describe('email activity projection publication', () => {
 
     await publishEmailActivityProjection(
       projection('2026-09-14T01:00:00.000Z'),
+      'user_1',
       storage,
     );
 
@@ -99,7 +101,7 @@ describe('email activity projection publication', () => {
       },
     };
 
-    await publishEmailActivityProjection(next, storage);
+    await publishEmailActivityProjection(next, 'user_1', storage);
 
     expect(sets).toBe(1);
     expect((value as { entries?: readonly unknown[] }).entries).toHaveLength(1);

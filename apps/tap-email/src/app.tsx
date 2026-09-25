@@ -1,3 +1,5 @@
+import { activityCommandFromReceipt } from './activity';
+import { EmailToolAccessPanel } from './email-tool-access-panel';
 import { boundMailWindow, type MailWindowCursor } from './bounded-mail-replica';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
@@ -143,6 +145,7 @@ import { commitActivityBeforeSettlement } from './activity-commit';
 import { CommandPersistenceBarrier } from './command-persistence-barrier';
 import {
   incompleteEmailActivityProjection,
+  isNoOpEmailActivityProjection,
   unavailableEmailActivityProjection,
   type EmailActivityProjection,
 } from './activity';
@@ -623,8 +626,10 @@ function ShortcutDialog({ onClose }: { readonly onClose: () => void }) {
   );
 }
 
-function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWipe }: {
+function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWipe, preview, senderContext }: {
   readonly accounts: readonly EmailAccount[];
+  readonly preview: boolean;
+  readonly senderContext?: { readonly userId: string; readonly workspaceId: string };
   readonly preferences: MailPreferences;
   readonly store: LocalMailStore;
   readonly onChange: (preferences: MailPreferences) => void;
@@ -692,6 +697,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
         {accounts.length === 0 ? <div className="settings-empty">Connect Google to configure account notifications.</div> : null}
         <div className="settings-note">Rich HTML stays in an isolated frame. Images are validated through the coordinator, then cached privately on this device for repeat opens; message scripts cannot access TAP or other messages. Remote scripts, form submissions, and direct sender requests remain blocked.</div>
         <div className="settings-note">Meaning search embeds and indexes mail with an installed local model in private profile zvec storage. Email content is not sent to a remote embedding service.</div>
+        {!preview ? <EmailToolAccessPanel senderContext={senderContext} /> : null}
         <StoragePrivacyPanel accounts={accounts} onWipe={onWipe} store={store} />
         <div className="settings-note">Shortcut remapping will move to the host keybinding registry when the SDK capability lands.</div>
       </DialogContent>
@@ -773,6 +779,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   });
   const remoteImageLoadQueue = useRef<Promise<unknown>>(Promise.resolve());
   const activityCommitQueue = useRef<Promise<void>>(Promise.resolve());
+  const activitySyncPending = useRef(true);
+  const activitySyncThrough = useRef<string | null>(null);
   const activitySettlementActive = useRef(true);
   const activityReconciliationsPending = useRef(new Set<string>());
   const queuedDraftRevisions = useRef(new Map<string, number>());
@@ -807,14 +815,22 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             'One or more committed email actions are awaiting private activity reconciliation.',
           );
         }
-        await publishEmailActivityProjection(projection);
+        if (isNoOpEmailActivityProjection(projection)) return;
+        if (activitySyncThrough.current) {
+          projection = { ...projection, coverage: { ...projection.coverage, availableThrough: activitySyncThrough.current } };
+        }
+        if (activitySyncPending.current || activityReconciliationsPending.current.size > 0) {
+          projection = incompleteEmailActivityProjection(projection, projection.generatedAt, 'Email activity reconciliation is incomplete.');
+        }
+        if (!surfaceContext?.userId) throw new Error('Email activity requires a signed-in user.');
+        await publishEmailActivityProjection(projection, surfaceContext.userId);
         if (operationFailure && propagateOperationFailure) {
           throw operationFailure;
         }
       });
     activityCommitQueue.current = task.then(() => undefined, () => undefined);
     return task;
-  }, []);
+  }, [surfaceContext?.userId]);
 
   const recordCommittedEmailActivity = useCallback((
     command: MailCommand,
@@ -1369,6 +1385,21 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     ? rows.find(item => emailThreadKey(item) === state.selectedThreadKey) ?? rows[0] ?? null
     : selectedThread(state);
   const currentThreadKey = thread ? emailThreadKey(thread) : null;
+  const viewedThread = useRef<string | null>(null);
+  useEffect(() => {
+    const key = currentThreadKey;
+    if (!hydrated || preview || !key) {
+      viewedThread.current = null;
+      return;
+    }
+    if (viewedThread.current === key) return;
+    viewedThread.current = key;
+    const viewId = idFactory();
+    const at = new Date().toISOString();
+    void enqueueActivityProjection(() => activityLedger.recordView(viewId, at), true)
+      .catch(() => setActivityError('Email view activity could not be saved.'));
+  }, [activityLedger, enqueueActivityProjection, hydrated, idFactory, preview, currentThreadKey]);
+
   const activeReplyDraft = currentThreadKey ? replyDrafts[currentThreadKey] ?? null : null;
   const poppedReplyDraft = poppedReplyKey ? replyDrafts[poppedReplyKey] ?? null : null;
   const selectedThreadAccountId = thread?.accountId ?? null;
@@ -1638,6 +1669,33 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     return refresh;
   }, [surfaceContext, createMailboxSync]);
 
+  const activityCursor = useRef({ after: new Date(Date.now() - 90 * 86_400_000).toISOString(), afterId: '' });
+  const activityViewCursor = useRef(activityCursor.current);
+  const reconcileActivity = useCallback(async () => {
+    const client = coordinatorRef.current;
+    if (!client) return;
+    // Bound each sync turn. Large histories continue from the cursor on the next tick.
+    for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
+      const page = await client.getActivityReceipts(activityCursor.current, activityViewCursor.current);
+      const more = page.next !== null || page.viewsNext !== null;
+      await enqueueActivityProjection(async () => {
+        for (const item of page.items) await activityLedger.record(activityCommandFromReceipt(item), item.receipt);
+        for (const view of page.views) await activityLedger.recordView(`mcp:${view.viewId}`, view.occurredAt, 'mcp_observed_at');
+        const projection = await activityLedger.snapshot();
+        activitySyncPending.current = more;
+        if (!more) activitySyncThrough.current = page.observedAt;
+        if (!more && activityReconciliationsPending.current.size === 0) setActivityError('');
+        return more ? incompleteEmailActivityProjection(projection, projection.generatedAt, 'Email activity history is still synchronizing.') : projection;
+      }, true);
+      activityCursor.current = page.next ?? {
+        // Overlap the high-water timestamp so same-millisecond updates cannot be skipped.
+        after: new Date(Date.parse(page.observedAt) - 1_000).toISOString(), afterId: '',
+      };
+      activityViewCursor.current = page.viewsNext ?? { after: new Date(Date.parse(page.observedAt) - 1_000).toISOString(), afterId: '' };
+      if (!more) return;
+    }
+  }, [activityLedger, enqueueActivityProjection]);
+
   const requestFreshMail = useCallback((): Promise<void> => {
     const existingSync = syncInFlight.current;
     if (existingSync) return existingSync;
@@ -1654,6 +1712,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         // The lightweight refresh remains useful and is now non-destructive.
         if (queued.some(Boolean)) await wait(1_200);
         await refreshMailbox();
+        await reconcileActivity().catch(async () => {
+          activitySyncPending.current = true;
+          setActivityError('Email activity synchronization will retry.');
+          await enqueueActivityProjection(async () => incompleteEmailActivityProjection(await activityLedger.snapshot(), new Date().toISOString()));
+        });
       } finally {
         setSyncing(false);
       }
@@ -1669,7 +1732,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       },
     );
     return sync;
-  }, [refreshMailbox]);
+  }, [refreshMailbox, reconcileActivity, enqueueActivityProjection, activityLedger]);
 
   const retryDeviceCache = useCallback(async (): Promise<void> => {
     try {
@@ -3152,6 +3215,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       ) : null}
       {overlay === 'settings' ? (
         <SettingsDialog
+          preview={preview}
+          senderContext={surfaceContext?.userId && surfaceContext.workspaceId
+            ? { userId: surfaceContext.userId, workspaceId: surfaceContext.workspaceId } : undefined}
           accounts={state.accounts}
           preferences={state.preferences}
           store={store}

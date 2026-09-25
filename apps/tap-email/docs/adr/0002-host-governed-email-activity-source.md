@@ -2,9 +2,7 @@
 
 ## Status
 
-Accepted; activation waits for the SDK and host `activity.source` and
-`activity_get` contracts tracked in
-[ze-agency-tauri#10771](https://github.com/ZephyrCloudIO/ze-agency-tauri/issues/10771)
+Implemented with SDK 0.19.0 and host >=2.20.0. See [ADR 0005](0005-sdk-019-activity-and-email-tools.md) for activation, user-scoped storage, and added activity coverage.
 
 ## Date
 

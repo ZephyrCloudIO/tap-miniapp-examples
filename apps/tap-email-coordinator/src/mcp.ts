@@ -1,3 +1,5 @@
+import { sha256Base64Url } from './crypto';
+import type { MailCommand, MailSenderContext } from '@tap-examples/tap-email-protocol';
 import { McpServer } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
 import { z } from 'zod';
@@ -12,19 +14,19 @@ const safeIdentifier = z.string()
   .max(256)
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:@/-]{0,255}$/u);
 const instant = z.iso.datetime({ offset: true });
-const maximumMcpRequestBytes = 65_536;
+const maximumMcpRequestBytes = 524_288;
 const maximumJsonRpcBatchSize = 20;
 
-export type EmailMcpScope = 'email.metadata.read' | 'email.content.read';
+export type EmailMcpScope = 'email.metadata.read' | 'email.content.read' | 'email.write';
 
 /**
- * Identity proven by the eventual remote-MCP authorization boundary.
+ * Identity proven by the scoped, revocable remote-MCP credential.
  *
- * A platform session that contains only a profile ID is deliberately not
- * sufficient: the coordinator must receive and verify an MCP audience and
- * explicit data scopes before this server is mounted on an HTTP route.
+ * Ordinary platform sessions are never accepted as MCP credentials. The
+ * authenticated owner explicitly enables metadata/content reads and optionally writes.
  */
 export interface EmailMcpPrincipal extends ProfileIdentity {
+  readonly senderContext?: MailSenderContext;
   readonly audience: 'tap-email-mcp';
   readonly scopes: readonly EmailMcpScope[];
 }
@@ -204,6 +206,7 @@ export function createTapEmailLiveMcpServer(
   env: Env,
   principal: EmailMcpPrincipal,
   now: () => Date = () => new Date(),
+  submit?: (command: MailCommand) => Promise<object>,
 ): McpServer {
   const server = new McpServer({ name: 'TAP Email Live', version: '0.1.0' });
   const mail = createCoordinatorMailReadPort(env, principal.profileId, now);
@@ -385,6 +388,51 @@ export function createTapEmailLiveMcpServer(
     ),
   );
 
+  const draftInput = {
+    accountId: safeIdentifier,
+    commandId: safeIdentifier.describe('Stable unique command ID. Reuse the exact ID and arguments on retries.'),
+    createdAt: instant.describe('Fixed creation time for this intent. Preserve on retries.'),
+    draftKey: safeIdentifier,
+    draftRevision: z.number().int().min(1),
+    threadId: safeIdentifier.nullable().default(null),
+    replyToMessageId: z.string().min(1).max(998).optional(),
+    to: z.string().min(1).max(2_000),
+    cc: z.string().max(2_000).optional(),
+    bcc: z.string().max(2_000).optional(),
+    subject: z.string().max(998),
+    bodyText: z.string().max(40_000),
+  };
+  for (const [toolName, kind] of [['save_email_draft', 'save_draft'], ['send_email', 'send_draft']] as const) {
+    server.registerTool(toolName, {
+      title: kind === 'send_draft' ? 'Send Email' : 'Save Email Draft',
+      description: kind === 'send_draft'
+        ? 'Send the exact email the user requested from an explicit connected account. Reuse all arguments on retry; never invent a new command ID after an uncertain result. Returns a queued receipt, not proof of delivery. Check get_email_command_receipt until terminal.'
+        : 'Save a provider draft in an explicit connected account. Reuse draftKey across revisions and all arguments on retry. Does not send mail.',
+      inputSchema: z.strictObject(draftInput),
+      annotations: { readOnlyHint: false, destructiveHint: kind === 'send_draft', idempotentHint: true, openWorldHint: true },
+    }, input => runScopedTool(env, principal, 'email.write', {
+      operation: `mcp.${toolName}`, accountId: input.accountId, objectId: input.commandId,
+    }, now, async () => {
+      if (!submit) throw new McpMailError('unavailable', 'Email command submission is unavailable.');
+      if (!principal.senderContext) throw new McpMailError('permission_denied', 'Reconnect Email write access from a verified workspace.');
+      if (input.replyToMessageId && !input.threadId) throw new McpMailError('invalid_request', 'A reply requires its account-scoped thread.');
+      if (input.threadId) await mail.getThread({ accountId: input.accountId, threadId: input.threadId });
+      return submit({
+        v: 1, commandId: input.commandId, idempotencyKey: `mcp:${await sha256Base64Url(JSON.stringify([input.accountId, input.commandId]))}`,
+        accountId: input.accountId, threadId: input.threadId, kind, createdAt: input.createdAt,
+        expectedProviderRevision: null,
+        payload: {
+          draftKey: input.draftKey, draftRevision: input.draftRevision, to: input.to,
+          subject: input.subject, bodyText: input.bodyText,
+          expectedContext: principal.senderContext,
+          ...(input.cc !== undefined ? { cc: input.cc } : {}),
+          ...(input.bcc !== undefined ? { bcc: input.bcc } : {}),
+          ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+        },
+      });
+    }));
+  }
+
   return server;
 }
 
@@ -392,9 +440,10 @@ export function createTapEmailLiveMcpHandler(
   env: Env,
   principal: EmailMcpPrincipal,
   now: () => Date = () => new Date(),
+  submit?: (command: MailCommand) => Promise<object>,
 ) {
   const handler = createMcpHandler(
-    () => createTapEmailLiveMcpServer(env, principal, now),
+    () => createTapEmailLiveMcpServer(env, principal, now, submit),
     { route: '/mcp', legacy: 'stateless' },
   );
   return {
