@@ -52,6 +52,7 @@ const library = lifecycleBuild
               library: { type: 'module' },
               dts: false,
               exposes: {
+                './activity/tap-email-committed-actions': './src/activity-source.ts',
                 './mcp/tap-email-mcp': './src/mcp.ts',
               },
             },
@@ -61,6 +62,9 @@ const library = lifecycleBuild
 library.output = {
   ...library.output,
   assetPrefix: target === 'desktop' ? 'auto' : '',
+  // SDK 0.19 does not automatically inventory mcp.tool schema references.
+  // Emit them into the desktop target so its signed lock includes the exact bytes.
+  copy: target === 'desktop' ? [{ from: './schemas', to: 'targets/desktop/schemas' }] : [],
   sourceMap: { js: 'hidden-source-map', css: false },
   minify: true,
 };

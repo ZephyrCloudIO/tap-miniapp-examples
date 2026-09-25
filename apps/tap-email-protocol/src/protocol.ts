@@ -778,3 +778,24 @@ export const MAXIMUM_THREAD_CURSOR_LENGTH = 4_096;
 export function serializedUtf8Bytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
+
+/** Private activity reconciliation, never a message-content or executable-command API. */
+export interface MailActivityReceipt {
+  readonly commandId: string;
+  readonly accountId: string;
+  readonly threadId: string | null;
+  readonly kind: MailCommandKind;
+  readonly draftKey: string | null;
+  readonly isReply: boolean;
+  readonly receipt: MailCommandReceipt;
+}
+export function isMailActivityReceipt(value: unknown): value is MailActivityReceipt {
+  if (!isRecord(value)) return false;
+  return Object.keys(value).every(key => ['commandId', 'accountId', 'threadId', 'kind', 'draftKey', 'isReply', 'receipt'].includes(key)) &&
+    isSafeMailIdentifier(value.commandId) && isSafeMailIdentifier(value.accountId) &&
+    (value.threadId === null || isSafeMailIdentifier(value.threadId)) &&
+    commandKinds.has(value.kind as MailCommandKind) &&
+    (value.draftKey === null || isSafeMailIdentifier(value.draftKey)) && typeof value.isReply === 'boolean' &&
+    isMailCommandReceipt(value.receipt) && value.receipt.commandId === value.commandId &&
+    value.receipt.accountId === value.accountId && ['applied', 'failed', 'uncertain', 'cancelled'].includes(value.receipt.state);
+}

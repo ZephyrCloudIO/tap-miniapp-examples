@@ -6,15 +6,22 @@
     "name": "TAP Email",
     "slug": "tap-email",
     "description": "Keyboard-first unified email with coverage-aware Operational Zero.",
-    "categories": ["communication", "productivity"],
-    "iconAssets": ["assets/tap-email.svg"],
+    "categories": [
+      "communication",
+      "productivity"
+    ],
+    "iconAssets": [
+      "assets/tap-email.svg"
+    ],
     "assets": [
       {
         "role": "app-icon",
         "mediaType": "image/svg+xml",
         "path": "assets/tap-email.svg",
         "integrity": "pending",
-        "sizes": ["any"],
+        "sizes": [
+          "any"
+        ],
         "theme": "any"
       }
     ]
@@ -34,8 +41,14 @@
       "assetLockIntegrity": "pending",
       "libraryType": "module",
       "exposes": {
-        "./tap/lifecycle": { "integrity": "pending", "runtime": "webview" },
-        "./ui/desktop": { "integrity": "pending", "runtime": "webview" }
+        "./tap/lifecycle": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./ui/desktop": {
+          "integrity": "pending",
+          "runtime": "webview"
+        }
       }
     },
     "quickjs": {
@@ -48,17 +61,519 @@
       "assetLockIntegrity": "pending",
       "libraryType": "module",
       "exposes": {
-        "./mcp/tap-email-mcp": { "integrity": "pending", "runtime": "quickjs" }
+        "./mcp/tap-email-mcp": {
+          "integrity": "pending",
+          "runtime": "quickjs"
+        },
+        "./activity/tap-email-committed-actions": {
+          "integrity": "pending",
+          "runtime": "quickjs"
+        }
       }
     }
   },
   "contributions": [
     {
+      "kind": "activity.source",
+      "id": "tap-email-committed-actions",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": {
+          "expose": "./activity/tap-email-committed-actions",
+          "runtime": "quickjs"
+        }
+      },
+      "authorization": {
+        "allOf": [
+          "tap-email.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "name": "Email activity",
+        "description": "Email actions and views recorded on this installation. Counts only; partial when history is incomplete.",
+        "activityTypes": [
+          {
+            "id": "thread-archived",
+            "name": "Archived conversations",
+            "description": "Archived conversations. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "thread-read",
+            "name": "Conversations marked read",
+            "description": "Conversations marked read. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "thread-marked-unread",
+            "name": "Conversations marked unread",
+            "description": "Conversations marked unread. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "thread-starred",
+            "name": "Starred conversations",
+            "description": "Starred conversations. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "thread-unstarred",
+            "name": "Unstarred conversations",
+            "description": "Unstarred conversations. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "thread-trashed",
+            "name": "Deleted conversations (moved to trash)",
+            "description": "Deleted conversations (moved to trash). Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "labels-applied",
+            "name": "Labels applied",
+            "description": "Labels applied. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "draft-saved",
+            "name": "Legacy draft saves",
+            "description": "Legacy draft saves. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "message-sent",
+            "name": "Emails sent",
+            "description": "Emails sent. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "reply-sent",
+            "name": "Replies sent",
+            "description": "Replies sent. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "send-scheduled",
+            "name": "Scheduled sends",
+            "description": "Scheduled sends. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "scheduled-send-cancelled",
+            "name": "Cancelled scheduled sends",
+            "description": "Cancelled scheduled sends. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "reminder-created",
+            "name": "Reminders set",
+            "description": "Reminders set. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "reminder-cancelled",
+            "name": "Cancelled reminders",
+            "description": "Cancelled reminders. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "thread-viewed",
+            "name": "Viewed conversations",
+            "description": "Viewed conversations. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          },
+          {
+            "id": "draft-created",
+            "name": "Drafts created",
+            "description": "Drafts created. Counts actions, not active minutes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "applied",
+                "name": "Applied",
+                "description": "Successfully completed actions."
+              },
+              {
+                "id": "failed",
+                "name": "Failed",
+                "description": "Actions that failed."
+              },
+              {
+                "id": "uncertain",
+                "name": "Uncertain",
+                "description": "Actions awaiting authoritative reconciliation."
+              },
+              {
+                "id": "cancelled",
+                "name": "Cancelled",
+                "description": "Actions cancelled before completion."
+              }
+            ]
+          }
+        ],
+        "supportedScopes": [
+          "self"
+        ],
+        "specialistAccess": [
+          "chloe",
+          "tap-email-specialist"
+        ],
+        "storageReads": [
+          {
+            "namespace": "tap-email",
+            "keyTemplate": "users/{userId}/activity/v1"
+          }
+        ]
+      }
+    },
+    {
       "kind": "ui.surface",
       "id": "tap-email",
       "apiVersion": 1,
       "targets": {
-        "desktop": { "expose": "./ui/desktop", "runtime": "webview" }
+        "desktop": {
+          "expose": "./ui/desktop",
+          "runtime": "webview"
+        }
       },
       "publishes": [
         "tap-email.surface.mounted",
@@ -66,7 +581,9 @@
         "tap-email.context.changed"
       ],
       "authorization": {
-        "allOf": ["tap-email.view"],
+        "allOf": [
+          "tap-email.view"
+        ],
         "onDemand": [
           "tap-email.manage",
           "network.request",
@@ -94,18 +611,29 @@
           "workflows.runs.read"
         ],
         "effects": [
-          { "kind": "storage", "resources": ["tap-email"] },
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          },
           {
             "kind": "external-network",
-            "resources": ["https://tap-email-coordinator.theaiplatform.app"]
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
           },
           {
             "kind": "credentials",
-            "resources": ["http"]
+            "resources": [
+              "http"
+            ]
           },
           {
             "kind": "external-navigation",
-            "resources": ["https://accounts.google.com"]
+            "resources": [
+              "https://accounts.google.com"
+            ]
           },
           {
             "kind": "host-api",
@@ -119,8 +647,21 @@
               "tap.workflow-runs:read"
             ]
           },
-          { "kind": "user-notification", "resources": ["os"] },
-          { "kind": "user-file", "resources": ["pick-open", "read", "pick-save", "overwrite"] }
+          {
+            "kind": "user-notification",
+            "resources": [
+              "os"
+            ]
+          },
+          {
+            "kind": "user-file",
+            "resources": [
+              "pick-open",
+              "read",
+              "pick-save",
+              "overwrite"
+            ]
+          }
         ]
       },
       "lifecycleScope": "mount",
@@ -131,7 +672,9 @@
         "scope": "workspace",
         "instancePolicy": "per-workspace",
         "persistence": "retained",
-        "iconAssets": ["assets/tap-email.svg"]
+        "iconAssets": [
+          "assets/tap-email.svg"
+        ]
       }
     },
     {
@@ -139,14 +682,18 @@
       "id": "tap-email-email-this",
       "apiVersion": 1,
       "targets": {
-        "desktop": { "runtime": "host-declarative" }
+        "desktop": {
+          "runtime": "host-declarative"
+        }
       },
       "authorization": {
-        "allOf": ["artifacts.read"]
+        "allOf": [
+          "artifacts.read"
+        ]
       },
       "lifecycleScope": "installation",
       "options": {
-        "label": "Email this…",
+        "label": "Email this\u2026",
         "description": "Resolve this TAP item into a new email draft for review.",
         "contexts": [
           "channel-message",
@@ -165,7 +712,9 @@
       "id": "tap-email-specialist",
       "apiVersion": 1,
       "targets": {
-        "desktop": { "runtime": "host-declarative" }
+        "desktop": {
+          "runtime": "host-declarative"
+        }
       },
       "authorization": {
         "allOf": [
@@ -183,19 +732,39 @@
       "id": "tap-email-mcp",
       "apiVersion": 1,
       "targets": {
-        "quickjs": { "expose": "./mcp/tap-email-mcp", "runtime": "quickjs" }
+        "quickjs": {
+          "expose": "./mcp/tap-email-mcp",
+          "runtime": "quickjs"
+        }
       },
       "authorization": {
-        "allOf": ["tap-email.view"],
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+        "allOf": [
+          "tap-email.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ]
       },
       "lifecycleScope": "contribution",
       "options": {
         "protocolVersion": "2025-11-25",
-        "implementation": { "type": "package-runtime" },
+        "implementation": {
+          "type": "package-runtime"
+        },
         "consumerPolicy": {
-          "contributionIds": ["tap-email-specialist"],
-          "externalConsumers": ["selected-specialists"]
+          "contributionIds": [
+            "tap-email-specialist"
+          ],
+          "externalConsumers": [
+            "selected-specialists",
+            "chat",
+            "platform"
+          ]
         }
       }
     },
@@ -204,17 +773,36 @@
       "id": "tap-email-mailbox-summary",
       "apiVersion": 1,
       "authorization": {
-        "allOf": ["tap-email.view"],
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+        "allOf": [
+          "tap-email.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ]
       },
       "lifecycleScope": "contribution",
       "options": {
         "serverContributionId": "tap-email-mcp",
         "toolName": "get_mailbox_summary",
         "timeoutMs": 1000,
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ],
         "storageReads": [
-          { "namespace": "tap-email", "keyTemplate": "operational/v1" }
+          {
+            "namespace": "tap-email",
+            "keyTemplate": "operational/v1"
+          }
         ]
       }
     },
@@ -223,17 +811,36 @@
       "id": "tap-email-active-context",
       "apiVersion": 1,
       "authorization": {
-        "allOf": ["tap-email.view"],
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+        "allOf": [
+          "tap-email.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ]
       },
       "lifecycleScope": "contribution",
       "options": {
         "serverContributionId": "tap-email-mcp",
         "toolName": "get_active_email_context",
         "timeoutMs": 1000,
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ],
         "storageReads": [
-          { "namespace": "tap-email", "keyTemplate": "operational/v1" }
+          {
+            "namespace": "tap-email",
+            "keyTemplate": "operational/v1"
+          }
         ]
       }
     },
@@ -242,17 +849,36 @@
       "id": "tap-email-activity-summary",
       "apiVersion": 1,
       "authorization": {
-        "allOf": ["tap-email.view"],
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }]
+        "allOf": [
+          "tap-email.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ]
       },
       "lifecycleScope": "contribution",
       "options": {
         "serverContributionId": "tap-email-mcp",
         "toolName": "get_email_activity_summary",
         "timeoutMs": 1000,
-        "effects": [{ "kind": "storage", "resources": ["tap-email"] }],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-email"
+            ]
+          }
+        ],
         "storageReads": [
-          { "namespace": "tap-email", "keyTemplate": "activity/v1" }
+          {
+            "namespace": "tap-email",
+            "keyTemplate": "users/{userId}/activity/v1"
+          }
         ]
       }
     },
@@ -261,14 +887,20 @@
       "id": "email-operations",
       "apiVersion": 1,
       "targets": {
-        "desktop": { "runtime": "host-declarative" }
+        "desktop": {
+          "runtime": "host-declarative"
+        }
       },
       "authorization": {
-        "allOf": ["tap-email.view"]
+        "allOf": [
+          "tap-email.view"
+        ]
       },
       "lifecycleScope": "installation",
       "options": {
-        "files": ["SKILL.md"]
+        "files": [
+          "SKILL.md"
+        ]
       }
     },
     {
@@ -284,7 +916,16 @@
           "tap-email-active-context",
           "tap-email-activity-summary",
           "tap-email-email-this",
-          "email-operations"
+          "email-operations",
+          "tap-email-committed-actions",
+          "tap-email-live-mcp",
+          "tap-email-list-accounts",
+          "tap-email-search-threads",
+          "tap-email-get-thread",
+          "tap-email-read-messages",
+          "tap-email-get-command-receipt",
+          "tap-email-save-draft",
+          "tap-email-send"
         ]
       }
     },
@@ -297,9 +938,16 @@
           {
             "id": "tap-email.view",
             "resource": "tap.tap-email:view",
-            "scopes": ["user", "workspace"],
-            "directActors": ["human"],
-            "delegatedActors": ["specialist"],
+            "scopes": [
+              "user",
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
             "autonomyCeiling": "listen",
             "consent": "none",
             "risk": "read"
@@ -307,8 +955,13 @@
           {
             "id": "tap-email.manage",
             "resource": "tap.tap-email:manage",
-            "scopes": ["user", "workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "user",
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -317,9 +970,17 @@
           {
             "id": "tap-email.specialist",
             "resource": "tap.specialist:tap-email-specialist",
-            "scopes": ["user", "workspace", "channel"],
-            "directActors": ["human"],
-            "delegatedActors": ["specialist"],
+            "scopes": [
+              "user",
+              "workspace",
+              "channel"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
             "autonomyCeiling": "plan",
             "consent": "reusable",
             "risk": "write"
@@ -327,8 +988,13 @@
           {
             "id": "network.request",
             "resource": "tap.network:request",
-            "scopes": ["user", "workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "user",
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -337,8 +1003,12 @@
           {
             "id": "credentials.use",
             "resource": "tap.credentials:use",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -347,8 +1017,12 @@
           {
             "id": "storage.profile.files.read",
             "resource": "profile-storage-files",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "reusable",
@@ -357,8 +1031,12 @@
           {
             "id": "storage.profile.files.write",
             "resource": "profile-storage-files",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -367,8 +1045,12 @@
           {
             "id": "storage.profile.sqlite",
             "resource": "profile-storage-sqlite",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -377,8 +1059,12 @@
           {
             "id": "storage.profile.zvec",
             "resource": "profile-storage-zvec",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -387,8 +1073,12 @@
           {
             "id": "embeddings.models.read",
             "resource": "local-embedding-models",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "reusable",
@@ -397,8 +1087,12 @@
           {
             "id": "embeddings.compute",
             "resource": "local-embedding-compute",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -407,8 +1101,12 @@
           {
             "id": "chat.compose",
             "resource": "tap.chat:send-text",
-            "scopes": ["conversation"],
-            "directActors": ["human"],
+            "scopes": [
+              "conversation"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -417,8 +1115,12 @@
           {
             "id": "task.write",
             "resource": "tap.task:write",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -427,8 +1129,12 @@
           {
             "id": "artifacts.read",
             "resource": "artifact",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "none",
@@ -437,8 +1143,12 @@
           {
             "id": "channels.list",
             "resource": "tap.channels:list",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "reusable",
@@ -447,8 +1157,12 @@
           {
             "id": "channels.create",
             "resource": "tap.channels:create",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -457,8 +1171,13 @@
           {
             "id": "channels.send-message",
             "resource": "tap.channels:send-message",
-            "scopes": ["workspace", "channel"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace",
+              "channel"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -467,8 +1186,13 @@
           {
             "id": "channels.manage-specialists",
             "resource": "tap.channels:manage-specialists",
-            "scopes": ["workspace", "channel"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace",
+              "channel"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -477,8 +1201,13 @@
           {
             "id": "specialists.invoke",
             "resource": "tap.specialists:invoke",
-            "scopes": ["workspace", "channel"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace",
+              "channel"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -487,8 +1216,12 @@
           {
             "id": "notifications.show",
             "resource": "os",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -497,8 +1230,12 @@
           {
             "id": "navigation.open-external",
             "resource": "external-navigation",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -507,8 +1244,12 @@
           {
             "id": "files.pick-open",
             "resource": "user-file-picker",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -517,8 +1258,12 @@
           {
             "id": "files.read",
             "resource": "user-selected-files",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "reusable",
@@ -527,8 +1272,12 @@
           {
             "id": "files.pick-save",
             "resource": "user-file-picker",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -537,8 +1286,12 @@
           {
             "id": "files.overwrite",
             "resource": "user-selected-files",
-            "scopes": ["user"],
-            "directActors": ["human"],
+            "scopes": [
+              "user"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -547,8 +1300,12 @@
           {
             "id": "workflows.list",
             "resource": "tap.workflows:list",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "none",
@@ -557,8 +1314,12 @@
           {
             "id": "workflows.invoke",
             "resource": "tap.workflows:invoke",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "do",
             "consent": "reusable",
@@ -567,19 +1328,79 @@
           {
             "id": "workflows.runs.read",
             "resource": "tap.workflow-runs:read",
-            "scopes": ["workspace"],
-            "directActors": ["human"],
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
             "delegatedActors": [],
             "autonomyCeiling": "listen",
             "consent": "none",
             "risk": "read"
+          },
+          {
+            "id": "email.metadata.read",
+            "resource": "tap.email.metadata.read",
+            "scopes": [
+              "user",
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "email.content.read",
+            "resource": "tap.email.content.read",
+            "scopes": [
+              "user",
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "email.write",
+            "resource": "tap.email.write",
+            "scopes": [
+              "user",
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [
+              "specialist"
+            ],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
           }
         ],
         "levels": [
           {
             "id": "email-reader",
-            "actions": ["tap-email.view"],
-            "assignableTo": ["human", "specialist"]
+            "actions": [
+              "tap-email.view"
+            ],
+            "assignableTo": [
+              "human",
+              "specialist"
+            ]
           },
           {
             "id": "email-owner",
@@ -611,13 +1432,307 @@
               "files.overwrite",
               "workflows.list",
               "workflows.invoke",
-              "workflows.runs.read"
+              "workflows.runs.read",
+              "email.metadata.read",
+              "email.content.read",
+              "email.write"
             ],
-            "assignableTo": ["human"]
+            "assignableTo": [
+              "human"
+            ]
           }
         ],
         "roleRecommendations": [
-          { "actor": "human", "workspaceRole": "member", "level": "email-owner" }
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "email-owner"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.server",
+      "id": "tap-email-live-mcp",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "runtime": "host-declarative"
+        }
+      },
+      "authorization": {
+        "allOf": [
+          "tap-email.view"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          },
+          {
+            "kind": "credentials",
+            "resources": [
+              "http"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "protocolVersion": "2025-11-25",
+        "implementation": {
+          "type": "streamable-http",
+          "url": "https://tap-email-coordinator.theaiplatform.app/mcp",
+          "authentication": "header-credentials",
+          "credentialRequirements": [
+            {
+              "id": "tap-email-access-token",
+              "header": "X-TAP-Email-MCP-Token"
+            }
+          ]
+        },
+        "consumerPolicy": {
+          "contributionIds": [
+            "tap-email-specialist"
+          ],
+          "externalConsumers": [
+            "selected-specialists",
+            "chat",
+            "platform"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-list-accounts",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.metadata.read"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "list_email_accounts",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/list-email-accounts.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-search-threads",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.metadata.read"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "search_email_threads",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/search-email-threads.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-get-thread",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.metadata.read"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "get_email_thread",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/get-email-thread.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-read-messages",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.content.read"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "read_email_messages",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/read-email-messages.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-get-command-receipt",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.metadata.read"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "get_email_command_receipt",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/get-email-command-receipt.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-save-draft",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.write"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "save_email_draft",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/save-email-draft.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp.tool",
+      "id": "tap-email-send",
+      "apiVersion": 1,
+      "authorization": {
+        "allOf": [
+          "email.write"
+        ],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "contribution",
+      "options": {
+        "serverContributionId": "tap-email-live-mcp",
+        "toolName": "send_email",
+        "timeoutMs": 30000,
+        "inputSchema": "targets/desktop/schemas/mcp/send-email.input.json",
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": [
+              "https://tap-email-coordinator.theaiplatform.app"
+            ]
+          }
         ]
       }
     }

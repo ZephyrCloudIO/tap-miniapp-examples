@@ -35,12 +35,14 @@ const emailOperationsSkillUrl = new URL(
   '../skills/email-operations/0.2.0/SKILL.md',
   import.meta.url,
 );
-const stagedLiveMcpInputSchemaNames = [
+const liveMcpInputSchemaNames = [
   'list-email-accounts.input.json',
   'search-email-threads.input.json',
   'get-email-thread.input.json',
   'read-email-messages.input.json',
   'get-email-command-receipt.input.json',
+  'send-email.input.json',
+  'save-email-draft.input.json',
 ];
 // SDK authoring consumes a build manifest. The lifecycle emits the
 // generation-2 exact-byte source descriptor into .tap-package; package and
@@ -83,7 +85,7 @@ for (const id of ['tap-email-mailbox-summary', 'tap-email-active-context']) {
 }
 assert.deepEqual(
   contribution('mcp.tool', 'tap-email-activity-summary').options.storageReads,
-  [{ namespace: 'tap-email', keyTemplate: 'activity/v1' }],
+  [{ namespace: 'tap-email', keyTemplate: 'users/{userId}/activity/v1' }],
 );
 
 const emailOperationsSkill = contribution('agent.skill', 'email-operations');
@@ -99,20 +101,22 @@ for (const toolName of [
 ]) {
   assert.match(skillSource, new RegExp(`^\\s*- ${toolName}$`, 'mu'));
 }
-for (const unavailableToolName of [
+for (const liveToolName of [
   'list_email_accounts',
   'search_email_threads',
   'get_email_thread',
   'read_email_messages',
   'get_email_command_receipt',
+  'send_email',
+  'save_email_draft',
 ]) {
-  assert.doesNotMatch(
+  assert.match(
     skillSource,
-    new RegExp(`^\\s*- ${unavailableToolName}$`, 'mu'),
+    new RegExp(`^\\s*- ${liveToolName}$`, 'mu'),
   );
 }
 
-for (const schemaName of stagedLiveMcpInputSchemaNames) {
+for (const schemaName of liveMcpInputSchemaNames) {
   const schemaUrl = new URL(`../schemas/mcp/${schemaName}`, import.meta.url);
   assert.ok(
     fs.existsSync(schemaUrl),
@@ -173,23 +177,24 @@ assert.deepEqual(emailThisAction.options.launch, {
   kind: 'ui.surface',
   contributionId: 'tap-email',
 });
-for (const unavailableContributionId of [
-  'tap-email-live-mcp',
-  'tap-email-list-accounts',
-  'tap-email-search-threads',
-  'tap-email-get-thread',
-  'tap-email-read-messages',
-  'tap-email-get-command-receipt',
-]) {
-  assert.equal(
-    contribution(
-      unavailableContributionId === 'tap-email-live-mcp' ? 'mcp.server' : 'mcp.tool',
-      unavailableContributionId,
-    ),
-    undefined,
-    `${unavailableContributionId} must remain unregistered until supported scoped auth is available.`,
-  );
+const liveServer = contribution('mcp.server', 'tap-email-live-mcp');
+assert.equal(liveServer.options.implementation.authentication, 'header-credentials');
+assert.deepEqual(liveServer.options.implementation.credentialRequirements, [
+  { id: 'tap-email-access-token', header: 'X-TAP-Email-MCP-Token' },
+]);
+assert.ok(liveServer.options.consumerPolicy.externalConsumers.includes('chat'));
+assert.ok(liveServer.options.consumerPolicy.externalConsumers.includes('platform'));
+for (const tool of manifest.contributions.filter(c => c.kind === 'mcp.tool' && c.options.serverContributionId === liveServer.id)) {
+  assert.ok(tool.options.inputSchema);
+  assert.ok(fs.existsSync(new URL(`../${tool.options.inputSchema.replace('targets/desktop/', '')}`, import.meta.url)));
+  assert.ok(miniapp.options.contributionIds.includes(tool.id));
 }
+const activitySource = contribution('activity.source', 'tap-email-committed-actions');
+assert.ok(activitySource);
+assert.deepEqual(activitySource.options.supportedScopes, ['self']);
+assert.ok(activitySource.options.specialistAccess.includes('chloe'));
+assert.deepEqual(activitySource.options.storageReads, [{ namespace: 'tap-email', keyTemplate: 'users/{userId}/activity/v1' }]);
+assert.ok(miniapp.options.contributionIds.includes(activitySource.id));
 
 const permissionCatalog = contribution(
   'permission.catalog',

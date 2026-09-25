@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:@/-]{0,255}$"
+    },
+    "commandId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:@/-]{0,255}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "draftKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:@/-]{0,255}$"
+    },
+    "draftRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "threadId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:@/-]{0,255}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "replyToMessageId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 998
+    },
+    "to": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "cc": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "bcc": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "subject": {
+      "type": "string",
+      "maxLength": 998
+    },
+    "bodyText": {
+      "type": "string",
+      "maxLength": 40000
+    }
+  },
+  "required": [
+    "accountId",
+    "commandId",
+    "createdAt",
+    "draftKey",
+    "draftRevision",
+    "to",
+    "subject",
+    "bodyText"
+  ],
+  "additionalProperties": false
+}

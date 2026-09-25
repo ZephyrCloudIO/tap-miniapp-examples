@@ -298,36 +298,23 @@ background TAP send-permission recheck tracked in upstream #11055. Current
 execution checks the connected Gmail account but does not recheck revoked TAP
 workspace/action grants. See [implementation and rollout notes](../../research/tap-email-sent-with-attribution.md).
 
-## Platform MCP staging
+## Platform MCP
 
-`src/mcp.ts` and `src/mcp-mail.ts` contain the tested, read-only MCP substrate
-for account discovery, structured thread search, thread metadata, exact bounded
-plaintext reads, and command receipts. It is intentionally not mounted by the
-Worker and is not declared as a hosted package MCP server yet.
+`src/mcp.ts` and `src/mcp-mail.ts` expose the authenticated live Email MCP.
+It includes account listing, coverage-aware metadata search, exact plaintext reads,
+provider draft saves, sends through the existing command queue, and receipt lookup.
+SDK 0.19 packages register this server and its signed input schemas.
 
-The transport calls the shared, profile-bound `MailReadPort`; the current D1
-adapter maps Google-backed rows to extensible provider keys and provider-neutral
-coverage revisions. Future provider adapters retain the same account-scoped port
-instead of adding provider-specific tool schemas.
+The `/mcp` route accepts only the scoped, expiring token created in TAP Email
+settings, supplied through TAP's host-held `tap-email-access-token` credential.
+Ordinary platform sessions cannot access MCP. The authenticated platform session
+can create, inspect, or revoke its own credential at `/v1/mcp/credential`; token
+creation/revocation requires `tap-email.manage`. MCP tokens cannot use that route.
+Write-enabled tokens also capture the Session/Directory-verified sending user and
+workspace at creation; sends preserve that attribution and the existing referral pipeline.
 
-The ordinary TAP platform session currently proves a profile but does not
-attest an MCP audience or metadata/content scopes. Mount the server only after
-the host supplies a remotely verifiable `tap-email-mcp` principal with explicit
-`email.metadata.read` and `email.content.read` grants. The five hosted-tool input
-schemas are already staged and source-validated in
-[`../tap-email/schemas/mcp`](../tap-email/schemas/mcp). They remain outside the
-current signed artifact because no active contribution references them;
-activation must add manifest tool contributions that reference and therefore
-sign those assets. Do not forward the platform session as a package MCP header
-credential or add an unlisted `/mcp` route.
-
-## Attachments
-
-Mailbox and thread snapshots contain bounded attachment metadata only. The
-provider locator stays encrypted in D1, and attachment bytes are fetched only
-after an authenticated request to
-`GET /v1/accounts/:accountId/threads/:threadId/messages/:messageId/attachments/:resourceId`.
-The complete tuple is authorized before Gmail is contacted. Responses are
-private, non-cacheable, exact-size binary bodies capped at 8 MiB; the desktop
-app places successful downloads in its integrity-checked private profile cache
-and exports them only through the host-owned Save picker.
+Apply migration `0016_mcp_credentials.sql` before deploying this version. The
+`/v1/activity/receipts` route supplies bounded, profile-scoped command receipts to
+Email's local activity ledger without returning mail content. Draft payloads are
+read one at a time to bound memory. See [ADR 0005](../tap-email/docs/adr/0005-sdk-019-activity-and-email-tools.md)
+for release, host connection, permissions, and activity coverage details.
