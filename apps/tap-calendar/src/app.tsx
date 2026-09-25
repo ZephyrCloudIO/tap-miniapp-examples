@@ -1,5 +1,7 @@
 import { normalizePublicBookingDetails, publicBookingDescription } from "./public-booking-details";
 import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-booking-fields";
+
+import { CalendarMcpPanel, useCalendarMcpSync } from "./calendar-mcp-panel";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
 import { applyPublicBookingAnalytics, publicBookingPageMetrics, publicBookingConversion, type PublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
@@ -1394,6 +1396,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       transport,
     });
   }, [calendarPrincipalId, context, preview]);
+  const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview);
   const bookingAnalytics = usePublicBookingAnalytics(
     calendarGateway, !preview && state !== null && section === "booking-pages",
   );
@@ -2993,7 +2996,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
               onDeclineBooking={requestId => resolveBookingApproval(requestId, "decline")}
             />
           ) : null}
-          {section === "automations" ? <AutomationsScreen state={state} /> : null}
+          {section === "automations" ? <AutomationsScreen state={state} specialistPanel={<CalendarMcpPanel gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
           {section === "settings" ? (
             <SettingsScreen
               state={state}
@@ -3335,7 +3338,7 @@ function RailContext({ section, state, snapshot, analyticsAvailable }: { readonl
     ],
     automations: [
       { label: "Workflow nodes", value: String(state.workflowNodes.length), icon: <Workflow /> },
-      { label: "Specialist tools", value: "3", icon: <Bot /> },
+      { label: "Live specialist tools", value: "8", icon: <Bot /> },
     ],
     settings: [
       { label: "Connections", value: String(state.accounts.length), icon: <Cloud /> },
@@ -5095,12 +5098,21 @@ function AddNotificationChannelDialog({
   );
 }
 
-function AutomationsScreen({ state }: { readonly state: CalendarState }) {
+function AutomationsScreen({ state, specialistPanel }: { readonly state: CalendarState; readonly specialistPanel: ReactNode }) {
   return (
     <div className="content-stack">
+      {specialistPanel}
       <section className="automation-hero panel"><div><span className="automation-icon"><Workflow /></span><div><span className="eyebrow">TAP Workflow Builder</span><h2>Build on calendar events and actions</h2><p>The package contributes pure, schema-bound nodes today. Durable event triggers will connect through the Zephyr Calendar gateway rather than pretending the mounted miniapp is a background service.</p></div></div><button type="button" className="primary-button" disabled title="The TAP SDK does not expose a workflow-builder navigation action."><ExternalLink /> Host opens Workflow Builder</button></section>
       <section><div className="section-heading"><div><span className="eyebrow">Node library</span><h2>Calendar workflow nodes</h2><p>Drag these into customer-owned TAP workflows.</p></div><span className="status-chip status-pending">Gateway bridge required for triggers</span></div><div className="node-grid">{state.workflowNodes.map(node => <article className="node-card panel" key={node.id}><span className={`node-kind ${node.kind}`}>{node.kind === "trigger" ? <Zap /> : <GitBranch />}</span><div><span>{node.kind}</span><h3>{node.name}</h3><p>{node.description}</p><code>{node.id}</code></div></article>)}</div></section>
-      <section><div className="section-heading"><div><span className="eyebrow">Specialist surface</span><h2>MCP calendar tools</h2><p>Read-only and draft-only tools keep specialists useful without granting a direct customer API.</p></div><span className="status-chip status-confirmed"><ShieldCheck /> Human-governed</span></div><div className="tool-grid"><ToolCard name="list_events" description="Lists a bounded, permission-safe view of visible upcoming calendar items." output="Event summaries · no provider credentials" /><ToolCard name="summarize_day" description="Adds privacy-safe meeting and focused-work totals to daily summaries." output="Aggregate minutes · no event details" /><ToolCard name="find_available_slots" description="Computes candidate times from named availability and fresh Conflict Calendars." output="Ranked ISO time ranges" /><ToolCard name="draft_meeting" description="Prepares a meeting draft for a human to review in TAP Calendar." output="Draft only · never books" /></div></section>
+      <section><div className="section-heading"><div><span className="eyebrow">Specialist surface</span><h2>Live MCP calendar tools</h2><p>Connect an account above and select these tools for Chloe in TAP.</p></div><span className="status-chip status-pending">Account and specialist grants required</span></div><div className="tool-grid">
+        <ToolCard name="list_calendars · list_events" description="Read connected calendars and current event details directly from the provider." output="Live reads · scoped to your account" />
+        <ToolCard name="get_event" description="Inspect one event, including its recorded booking Event Type." output="Individual details · privacy rules apply" />
+        <ToolCard name="find_available_slots" description="Check free intervals against live calendars and your configured Conflict Calendars." output="Conflicts rechecked when creating" />
+        <ToolCard name="create_event" description="Create meetings and Work Blocks directly with granted write access." output="Real bookings · retry-safe creation" />
+        <ToolCard name="list_event_types" description="Understand configured Event Types, their duration, and approval settings." output="Published types and drafts" />
+        <ToolCard name="calendar_analytics" description="Compare counts and scheduled minutes across calendars, kinds, or one booking Event Type." output="Date-filtered totals · no attendance inference" />
+        <ToolCard name="event_type_analytics" description="Read booking-page views, requests, and confirmations for all Event Types or one type." output="Lifetime funnel activity" />
+      </div><p>The separate local Calendar tools read the app’s saved snapshot and prepare drafts. Use Calendar live tools for current information and event creation.</p></section>
       <section className="slash-command panel"><span className="command-mark">↗</span><div><span className="eyebrow">Channel scheduling</span><h2>Mini Apps → Schedule</h2><p>The channel app opens a dedicated scheduler with trusted TAP members when the host exposes its participant roster. Manual external guests remain available when the roster capability is unavailable.</p></div><span className="status-chip status-confirmed">Available</span></section>
     </div>
   );
@@ -7538,7 +7550,7 @@ function MetricCard({ icon, label, value, detail, tone, actionLabel, onAction }:
 }
 
 function ToolCard({ name, description, output }: { readonly name: string; readonly description: string; readonly output: string }) {
-  return <article className="tool-card panel"><header><span><Bot /></span><code>{name}</code><span className="status-chip status-confirmed">Available</span></header><p>{description}</p><footer><ShieldCheck /><span>{output}</span></footer></article>;
+  return <article className="tool-card panel"><header><span><Bot /></span><code>{name}</code><span className="status-chip status-pending">Requires grant</span></header><p>{description}</p><footer><ShieldCheck /><span>{output}</span></footer></article>;
 }
 
 function MoonIcon() {

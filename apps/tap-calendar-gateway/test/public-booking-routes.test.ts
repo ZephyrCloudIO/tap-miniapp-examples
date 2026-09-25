@@ -2,7 +2,10 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCalendarGatewayWorker,
+  calendarLivePort,
 } from "../src/index";
+import { createCalendarLiveTools } from "../src/calendar-live-mcp";
+import { requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "../src/calendar-mcp-store";
 import { D1PublicBookingEmailOutbox } from "../src/public-booking-email";
 import { verifyPublicSlotToken } from "../src/public-booking-read";
 
@@ -313,6 +316,29 @@ describe("anonymous public booking reads", () => {
     return { calendarId: calendarId!, revisionId: receipt.publication.pages[0]!.revisionId };
   };
 
+  it("creates and reads a real provider event through the specialist port, replays once, and rejects conflicts and revoked grants", async () => {
+    const { calendarId } = await connectAndPublish();
+    const props: CalendarMcpProps = { workspace, principal, grantId: crypto.randomUUID(), scopes: ["calendar.read", "calendar.analytics", "calendar.write"] };
+    await env.CALENDAR_DB.prepare("INSERT INTO calendar_mcp_grants (id, workspace_id, principal_id, client_name, scopes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(props.grantId, workspace, principal, "Chloe", JSON.stringify(props.scopes), new Date().toISOString()).run();
+    await saveMcpConfiguration(env.CALENDAR_DB, props, { sourceRevision: 1, configuration: { conflictCalendarIds: [calendarId], eventTypes: [] } });
+    const tools = createCalendarLiveTools(env.CALENDAR_DB, props, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async scope => { await requireMcpGrant(env.CALENDAR_DB, props, scope); });
+    const input = { idempotencyKey: crypto.randomUUID(), destinationCalendarId: calendarId, title: "Chloe meeting", start: "2026-08-18T15:00:00Z", end: "2026-08-18T15:30:00Z", attendeeEmails: ["guest@example.com"] };
+    const result = await tools.call("create_event", input);
+    expect(result).toMatchObject({ booking: { event: { title: "Chloe meeting" } }, idempotentReplay: false });
+    expect(providerInsertCalls).toBe(1);
+    expect(await tools.call("create_event", input)).toMatchObject({ idempotentReplay: true });
+    expect(providerInsertCalls).toBe(1);
+    await expect(tools.call("create_event", { ...input, title: "Changed intent" })).rejects.toMatchObject({ code: "idempotency_key_reused" });
+    await expect(tools.call("create_event", { ...input, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "slot_conflict" });
+    const range = { timeMin: "2026-08-18T00:00:00Z", timeMax: "2026-08-19T00:00:00Z", calendarIds: [calendarId] };
+    expect(await tools.call("list_events", range)).toMatchObject({ events: [{ title: "Chloe meeting", attendees: [{ email: "guest@example.com" }], eventType: null }] });
+    expect(await tools.call("calendar_analytics", range)).toMatchObject({ totals: { eventCount: 1, scheduledMinutes: 30 }, byEventType: [{ eventType: null, eventCount: 1 }] });
+    await revokeMcpGrant(env.CALENDAR_DB, props, props.grantId);
+    await expect(tools.call("create_event", { ...input, idempotencyKey: crypto.randomUUID(), start: "2026-08-18T17:00:00Z", end: "2026-08-18T17:30:00Z" })).rejects.toMatchObject({ code: "calendar_grant_revoked" });
+    expect(providerInsertCalls).toBe(1);
+  });
+
   it("records anonymous funnel stages once per visit without allowing forged booking counts", async () => {
     await connectAndPublish();
     const path = "/api/public/pages/public-owner/30min/analytics";
@@ -447,6 +473,12 @@ describe("anonymous public booking reads", () => {
     expect(await current.json()).toMatchObject({ totals: {
       requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1,
     } });
+    const specialist: CalendarMcpProps = { workspace, principal, grantId: "test-status-analytics", scopes: ["calendar.analytics"] };
+    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { sourceRevision: 3, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+    const tools = createCalendarLiveTools(env.CALENDAR_DB, specialist, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async () => {});
+    const expected = { requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1 };
+    expect(await tools.call("event_type_analytics", {})).toMatchObject({ totals: expected, trafficSince: expect.any(String), conversionSince: expect.any(String), generatedAt: expect.any(String) });
+    expect(await tools.call("event_type_analytics", { profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ totals: expected, eventTypes: [{ analytics: expected }] });
   });
 
   it("keeps conversion cohorts and confirmation history correct across cancellation and cleanup", async () => {
@@ -803,6 +835,18 @@ describe("anonymous public booking reads", () => {
     expect(changedDetails.status).toBe(409);
     expect(await changedDetails.json()).toMatchObject({ error: "idempotency_key_reused" });
     expect(providerInsertCalls).toBe(1);
+
+    // The specialist surface uses the same immutable booking identity for
+    // individual details, date-filtered scheduled time, and lifetime funnels.
+    const specialist: CalendarMcpProps = { workspace, principal, grantId: "test-public-analytics", scopes: ["calendar.read", "calendar.analytics"] };
+    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { sourceRevision: 2, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+    const tools = createCalendarLiveTools(env.CALENDAR_DB, specialist, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async () => {});
+    const providerCalendarId = await env.CALENDAR_DB.prepare("SELECT id FROM provider_calendars WHERE connection_id = ?").bind(connectionId).first<string>("id");
+    const query = { timeMin: slot!.start, timeMax: slot!.end, calendarIds: [providerCalendarId!] };
+    expect(await tools.call("calendar_analytics", { ...query, profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ totals: { eventCount: 1, scheduledMinutes: 30 }, byEventType: [{ eventType: { profileId: "profile-public-read", eventTypeId: "event-public-read" }, eventCount: 1 }] });
+    const specialistDetails = await tools.call("list_events", query);
+    expect(specialistDetails).toMatchObject({ events: [{ eventType: { profileId: "profile-public-read", eventTypeId: "event-public-read" } }] });
+    expect(await tools.call("event_type_analytics", { profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ period: "lifetime", totals: { requests: 1, confirmed: 1 } });
 
     turnstileAccepted = false;
     const rejected = await worker.fetch(publicRequest(path, {

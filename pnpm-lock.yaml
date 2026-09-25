@@ -498,9 +498,21 @@ importers:
 
   apps/tap-calendar-gateway:
     dependencies:
+      '@cloudflare/workers-oauth-provider':
+        specifier: 0.10.1
+        version: 0.10.1
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      agents:
+        specifier: 0.20.1
+        version: 0.20.1(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260911.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.3.0)(rolldown@1.2.8)(vite@8.3.0(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))(zod@4.4.3)
       jose:
         specifier: 6.2.3
         version: 6.2.3
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.21.3
