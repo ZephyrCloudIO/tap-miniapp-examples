@@ -42,12 +42,19 @@ interface AccountRow {
 export interface MailboxPageOptions {
   readonly cursor?: string;
   readonly limit?: number;
+  readonly afterRevision?: number;
 }
 
 export type MailboxPageResult = Readonly<Record<string, unknown>> & {
   readonly mailbox: Readonly<Record<string, unknown>>;
   readonly pageInfo: {
     readonly nextCursor: string | null;
+    readonly revision: number;
+  };
+  readonly changes?: {
+    readonly nextRevision: number;
+    readonly hasMore: boolean;
+    readonly deletedThreads: readonly { readonly accountId: string; readonly threadId: string }[];
   };
 };
 
@@ -1528,48 +1535,36 @@ export async function mailboxPage(
   const pageSize = mailboxPageSize(options.limit);
   const cursor = mailboxCursor(options.cursor);
   const pageClause = mailboxPageClause(cursor);
-  const accounts = await env.DB.prepare(
-    `SELECT profile_id, account_id, email_address, display_name, accent,
+  const after = options.afterRevision;
+  if (after !== undefined && (!Number.isSafeInteger(after) || after < 0 || options.cursor !== undefined)) {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The change revision is malformed.');
+  }
+  const changeSelection = `SELECT * FROM mailbox_changes
+    WHERE profile_id = ? AND revision > ? ORDER BY revision LIMIT ?`;
+  const selection = after === undefined
+    ? `SELECT t.* FROM mail_threads t WHERE t.profile_id = ? ${pageClause}
+       ORDER BY t.received_at DESC, t.account_id, t.thread_id LIMIT ?`
+    : `SELECT t.* FROM mail_threads t JOIN (${changeSelection}) c
+         ON c.profile_id = t.profile_id AND c.account_id = t.account_id
+        AND c.thread_id = t.thread_id WHERE c.deleted = 0`;
+  const bindings = (limit: number) => after === undefined
+    ? mailboxPageBindings(profileId, cursor, limit)
+    : [profileId, after, limit];
+  // D1 batch is a transaction: keys, previews, tombstones and the watermark
+  // describe the same committed database state, even during provider writes.
+  const results = await env.DB.batch([
+    env.DB.prepare("SELECT COALESCE(MAX(seq), 0) AS revision FROM sqlite_sequence WHERE name = 'mailbox_changes'"),
+    env.DB.prepare(`SELECT profile_id, account_id, email_address, display_name, accent,
             coverage_state, newest_history_id, backfill_complete_through,
             unresolved_failures, updated_at, backfill_page_token
        FROM google_accounts
       WHERE profile_id = ? AND connection_state != 'revoked'
-      ORDER BY created_at`,
-  )
-    .bind(profileId)
-    .all<AccountRow>();
-  const threadResults = await env.DB.prepare(
-    `SELECT t.profile_id, t.account_id, t.thread_id, t.history_id, t.subject,
-            t.snippet, t.participants_json, t.received_at, t.unread, t.starred,
-            t.important, t.in_inbox, t.needs_response, t.waiting_on_others,
-            t.label_ids_json
-       FROM mail_threads t
-      WHERE t.profile_id = ?
-        ${pageClause}
-      ORDER BY t.received_at DESC, t.account_id, t.thread_id
-      LIMIT ?`,
-  )
-    .bind(...mailboxPageBindings(profileId, cursor, pageSize + 1))
-    .all<MailboxThreadRow>();
-  const threads = threadResults.results.slice(0, pageSize);
-  const lastThread = threads.at(-1);
-  const nextCursor = threadResults.results.length > pageSize && lastThread
-    ? encodedMailboxCursor({
-        v: 1,
-        receivedAt: lastThread.received_at,
-        accountId: lastThread.account_id,
-        threadId: lastThread.thread_id,
-      })
-    : null;
-  const [messages, attachments, reminders] = await Promise.all([
+      ORDER BY created_at`).bind(profileId),
+    env.DB.prepare(`WITH selected_threads AS (${selection}) SELECT t.*
+      FROM selected_threads t`).bind(...bindings(after === undefined ? pageSize + 1 : pageSize)),
     env.DB.prepare(
       `WITH selected_threads AS (
-         SELECT t.profile_id, t.account_id, t.thread_id
-           FROM mail_threads t
-          WHERE t.profile_id = ?
-            ${pageClause}
-          ORDER BY t.received_at DESC, t.account_id, t.thread_id
-          LIMIT ?
+         ${selection}
        )
        SELECT m.account_id, m.thread_id, m.message_id, m.internet_message_id,
               m.sender_json, m.recipients_json, m.sent_at, m.ordinal
@@ -1584,24 +1579,10 @@ export async function mailboxPage(
                AND last_message.thread_id = m.thread_id
           )
         ORDER BY m.account_id, m.thread_id, m.ordinal`,
-    ).bind(...mailboxPageBindings(profileId, cursor, pageSize)).all<{
-      account_id: string;
-      thread_id: string;
-      message_id: string;
-      internet_message_id: string | null;
-      sender_json: string;
-      recipients_json: string;
-      sent_at: string;
-      ordinal: number;
-    }>(),
+    ).bind(...bindings(pageSize)),
     env.DB.prepare(
       `WITH selected_threads AS (
-         SELECT t.profile_id, t.account_id, t.thread_id
-           FROM mail_threads t
-          WHERE t.profile_id = ?
-            ${pageClause}
-          ORDER BY t.received_at DESC, t.account_id, t.thread_id
-          LIMIT ?
+         ${selection}
        ), latest_messages AS (
          SELECT m.profile_id, m.account_id, m.thread_id, m.message_id
            FROM mail_messages m
@@ -1623,20 +1604,43 @@ export async function mailboxPage(
            ON m.profile_id = a.profile_id AND m.account_id = a.account_id
           AND m.thread_id = a.thread_id AND m.message_id = a.message_id
         ORDER BY a.account_id, a.thread_id, a.message_id, a.gmail_part_path`,
-    ).bind(...mailboxPageBindings(profileId, cursor, pageSize)).all<StoredAttachmentRow>(),
+    ).bind(...bindings(pageSize)),
     env.DB.prepare(
-      `SELECT account_id, reminder_id, thread_id, due_at, condition, created_at
-         FROM tap_reminders
-        WHERE profile_id = ? AND state IN ('pending', 'due')`,
-    ).bind(profileId).all<{
-      account_id: string;
-      reminder_id: string;
-      thread_id: string;
-      due_at: string;
-      condition: 'if_no_reply' | 'regardless';
-      created_at: string;
-    }>(),
+      `WITH selected_threads AS (${selection})
+       SELECT r.account_id, r.reminder_id, r.thread_id, r.due_at, r.condition, r.created_at
+         FROM tap_reminders r JOIN selected_threads t
+           ON t.profile_id = r.profile_id AND t.account_id = r.account_id AND t.thread_id = r.thread_id
+        WHERE r.state IN ('pending', 'due')`,
+    ).bind(...bindings(pageSize)),
+    env.DB.prepare(changeSelection).bind(profileId, after ?? 0, after === undefined ? 0 : pageSize + 1),
   ]);
+  const watermark = results[0]! as D1Result<{ revision: number }>;
+  const revision = watermark.results[0]!.revision;
+  if (after !== undefined && after > revision) {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The change revision is ahead of the mailbox.');
+  }
+  const accounts = results[1]! as D1Result<AccountRow>;
+  const threadResults = results[2]! as D1Result<MailboxThreadRow>;
+  const messages = results[3]! as D1Result<{
+    account_id: string; thread_id: string; message_id: string; internet_message_id: string | null;
+    sender_json: string; recipients_json: string; sent_at: string; ordinal: number;
+  }>;
+  const attachments = results[4]! as D1Result<StoredAttachmentRow>;
+  const reminders = results[5]! as D1Result<{
+    account_id: string; reminder_id: string; thread_id: string; due_at: string;
+    condition: 'if_no_reply' | 'regardless'; created_at: string;
+  }>;
+  const changes = results[6]!.results as Array<{
+    revision: number; account_id: string; thread_id: string; deleted: number;
+  }>;
+  const threads = threadResults.results.slice(0, pageSize);
+  const lastThread = threads.at(-1);
+  const nextCursor = after === undefined && threadResults.results.length > pageSize && lastThread
+    ? encodedMailboxCursor({ v: 1, receivedAt: lastThread.received_at,
+        accountId: lastThread.account_id, threadId: lastThread.thread_id })
+    : null;
+  const hasMore = changes.length > pageSize;
+  const changePage = changes.slice(0, pageSize);
   // Mailbox pages carry metadata only. Message bodies are fetched through the
   // exact account/thread endpoint when the user opens a conversation.
   const messagePreviews = messages.results.map(message => ({
@@ -1728,7 +1732,15 @@ export async function mailboxPage(
         };
       }),
     },
-    pageInfo: { nextCursor },
+    pageInfo: { nextCursor, revision },
+    ...(after === undefined ? {} : {
+      changes: {
+        nextRevision: hasMore ? changePage.at(-1)!.revision : revision,
+        hasMore,
+        deletedThreads: changePage.filter(change => change.deleted === 1 && change.thread_id !== '')
+          .map(change => ({ accountId: change.account_id, threadId: change.thread_id })),
+      },
+    }),
   };
 }
 

@@ -1528,6 +1528,29 @@ describe('TAP Email coordinator command outbox', () => {
     expect(second.pageInfo.nextCursor).toBeNull();
   });
 
+  it('serves authenticated change tombstones and rejects malformed revisions', async () => {
+    await seedThread('gmail_thread_1');
+    const actions: string[] = [];
+    const worker = createTapEmailCoordinator({ verifyAccess: async (_request, _env, action) => {
+      actions.push(action);
+      return identity();
+    } });
+    const head = await worker.fetch(new Request('https://coordinator.example/v1/mailbox'), env);
+    const { pageInfo } = await head.json<{ pageInfo: { revision: number } }>();
+    await env.DB.prepare(`DELETE FROM mail_threads WHERE profile_id = 'profile_1'
+      AND account_id = 'google_personal' AND thread_id = 'gmail_thread_1'`).run();
+    const delta = await worker.fetch(new Request(`https://coordinator.example/v1/mailbox/changes?after=${pageInfo.revision}`), env);
+    expect(delta.status).toBe(200);
+    expect(await delta.json()).toMatchObject({ mailbox: { threads: [] }, changes: {
+      hasMore: false, deletedThreads: [{ accountId: 'google_personal', threadId: 'gmail_thread_1' }],
+    } });
+    expect(actions).toEqual(['tap-email.view', 'tap-email.view']);
+    for (const query of ['', 'after=-1', 'after=1.5', 'after=0&after=1', 'after=0&cursor=x', 'after=9007199254740992']) {
+      const result = await worker.fetch(new Request(`https://coordinator.example/v1/mailbox/changes?${query}`), env);
+      expect(result.status).toBe(400);
+    }
+  });
+
   it('rejects malformed mailbox pagination without querying another profile', async () => {
     const worker = createTapEmailCoordinator({ verifyAccess: identity });
     const cursorResponse = await worker.fetch(
