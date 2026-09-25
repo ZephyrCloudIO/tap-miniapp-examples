@@ -1,3 +1,5 @@
+import { normalizePublicBookingDetails, publicBookingDescription } from "./public-booking-details";
+import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-booking-fields";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
 import { applyPublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
@@ -299,6 +301,7 @@ type RefreshMeetingProviderConnections = () => Promise<
 type RequireCalendarManage = () => Promise<void>;
 
 interface ProviderBookingReservationInput {
+  readonly description?: string;
   readonly actionId: CalendarAuthorityAction;
   readonly idempotencyKey: string;
   readonly destinationCalendarId: string;
@@ -1613,6 +1616,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       conflictCalendarIds,
       idempotencyKey: input.idempotencyKey,
       title: input.title,
+      ...(input.description ? { description: input.description } : {}),
       start: input.start,
       end: input.end,
       conflictTimeMin: input.conflictTimeMin ?? input.start,
@@ -6919,6 +6923,8 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [additionalGuests, setAdditionalGuests] = useState<{ id: string; email: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const bookingAttemptRef = useRef<{
@@ -7116,6 +7122,13 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       setStep("slot");
       return;
     }
+    let details;
+    try {
+      details = normalizePublicBookingDetails({ notes, additionalGuests: additionalGuests.map(guest => guest.email.trim()).filter(Boolean) }, email);
+    } catch (reason) {
+      setError((reason as Error).message);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     if (!profile.published || !eventType.active) {
@@ -7152,6 +7165,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       location: eventType.location,
       guestName: name.trim(),
       guestEmail: email.trim().toLowerCase(),
+      ...details,
     });
     const attempt = bookingAttemptRef.current?.canonical === canonical
       ? bookingAttemptRef.current
@@ -7170,7 +7184,12 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       kind: "external",
       required: true,
     };
+    const attendees: CalendarAttendee[] = [attendee, ...(details.additionalGuests ?? []).map((guestEmail, index) => ({
+      id: `${bookingAttemptId}-guest-${index + 1}`, name: guestEmail, email: guestEmail,
+      kind: "external" as const, required: true,
+    }))];
     const reserved = await onReserveBooking({
+      description: publicBookingDescription(eventType.description, name.trim(), details.notes),
       actionId: CALENDAR_PUBLISH_ACTION,
       idempotencyKey: bookingAttemptId,
       destinationCalendarId: eventType.destinationCalendarId,
@@ -7181,7 +7200,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       conflictTimeMax,
       bookingKind: eventType.approvalRequired ? "approval-hold" : "meeting",
       location: eventType.location,
-      attendees: [attendee],
+      attendees,
       reconciliation: {
         kind: "public-booking",
         title: eventType.title,
@@ -7189,7 +7208,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
         start: selectedSlot,
         end,
         location: eventType.location,
-        attendees: [attendee],
+        attendees,
         approvalRequired: eventType.approvalRequired,
         eventTypeId: eventType.id,
         requestedAt,
@@ -7230,7 +7249,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
           start: selectedSlot,
           end,
           location: eventType.location,
-          attendees: [attendee],
+          attendees,
           approvalRequired,
           eventTypeId: eventType.id,
           requestedAt,
@@ -7284,7 +7303,6 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
                 <li><Video aria-hidden="true" /><span>{meetingLocationNames[eventType.location]}</span></li>
                 {eventType.approvalRequired ? <li><ShieldCheck aria-hidden="true" /><span>Host approval required</span></li> : null}
               </ul>
-              <div className="public-booking-note"><CircleUserRound aria-hidden="true" /><span>No TAP account is required to book.</span></div>
             </aside>
             <section className="public-booking-main">
               {step === "date" ? (
@@ -7398,7 +7416,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
               ) : (
                 <form className="public-details public-booking-details" onSubmit={submit}>
                   <button type="button" className="public-booking-back" onClick={() => setStep("slot")}><ArrowLeft aria-hidden="true" /> Choose another time</button>
-                  <header className="public-booking-step-header"><span className="eyebrow">Your details</span><h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2><p>We use this information only for this booking and its notifications.</p></header>
+                  <header className="public-booking-step-header"><span className="eyebrow">Your details</span><h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2><p>Your details are shared with the host to arrange this meeting.</p></header>
                   <div className="public-booking-selected-time"><CalendarCheck2 aria-hidden="true" /><span><strong>{selectedSlot ? viewerDateTimeFormatter.format(new Date(selectedSlot)) : ""}</strong><small>{eventType.durationMinutes} minutes · {meetingLocationNames[eventType.location]}</small></span></div>
                   {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
                   <FieldGroup className="public-booking-fields">
@@ -7411,7 +7429,9 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
                       <Input id="public-booking-email" name="email" type="email" autoComplete="email" spellCheck={false} value={email} required disabled={submitting} onChange={event => setEmail(event.currentTarget.value)} />
                       <FieldDescription>No email verification step is required.</FieldDescription>
                     </Field>
+                    <PublicBookingExtraFields notes={notes} additionalGuests={additionalGuests} disabled={submitting} onNotesChange={setNotes} onGuestsChange={setAdditionalGuests} />
                   </FieldGroup>
+                  <PublicBookingPrivacyNotice />
                   <div className="public-booking-actions"><Button type="submit" size="lg" disabled={submitting || !selectedSlotIsAvailable}>{submitting ? "Reserving…" : eventType.approvalRequired ? "Request meeting" : "Confirm booking"}</Button></div>
                 </form>
               )}
@@ -7419,9 +7439,9 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
           </div>
         )}
         <footer className="public-footer public-booking-footer">
-          <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by TAP — visit The AI Platform homepage (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>TAP</strong></a>
+          <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by The AI Platform (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>The AI Platform</strong></a>
           <nav className="public-booking-footer-links" aria-label="Booking page links">
-            <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy</a>
+            <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
             <span aria-hidden="true">·</span>
             <a href="mailto:abuse@theaiplatform.app">Report abuse</a>
           </nav>

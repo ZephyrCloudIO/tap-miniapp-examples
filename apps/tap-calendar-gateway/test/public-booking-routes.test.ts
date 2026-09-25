@@ -606,7 +606,7 @@ describe("anonymous public booking reads", () => {
     }
   });
 
-  it("creates one real provider booking, replays it idempotently, and stores only the management-token hash", async () => {
+  it.each(["Discuss <launch> & next steps.\nBring questions.", "&".repeat(2_000)])("persists booking details and retries without another provider write (case %#)", async notes => {
     const { revisionId } = await connectAndPublish();
     const availabilityPath = "/api/public/pages/public-owner/30min/availability" +
       `?month=2026-08-01&timeZone=America%2FNew_York&pageRevision=${encodeURIComponent(revisionId)}`;
@@ -632,6 +632,8 @@ describe("anonymous public booking reads", () => {
         name: "  Guest   Person  ",
         email: "Guest@example.com",
       },
+      notes,
+      additionalGuests: [" TEAM@example.com ", "team@example.com", "guest@example.com"],
       turnstileToken: "turnstile-public-booking-test",
     };
     const path = "/api/public/pages/public-owner/30min/bookings";
@@ -663,6 +665,16 @@ describe("anonymous public booking reads", () => {
     expect(result.managementUrl).toMatch(/^https:\/\/cal\.with-tap\.ai\/manage#tapm_v1_[A-Za-z0-9_-]+$/u);
     expect(JSON.stringify(result)).not.toMatch(/workspace-public-read|principal-public-read|public-read@example\.com/u);
     expect(providerInsertCalls).toBe(1);
+    expect([...providerEvents.values()][0]).toMatchObject({
+      attendees: [{ email: "guest@example.com" }, { email: "team@example.com" }],
+      description: expect.stringContaining(notes.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")),
+    });
+    const details = await env.CALENDAR_DB.prepare(
+      "SELECT details_json FROM public_booking_attempts WHERE booking_reference = ?",
+    ).bind(result.bookingReference).first<string>("details_json");
+    expect(JSON.parse(details!)).toEqual({
+      notes, additionalGuests: ["team@example.com"],
+    });
 
     const managementToken = new URL(result.managementUrl).pathname.split("/").at(-1)!;
     const credential = await env.CALENDAR_DB.prepare(
@@ -699,6 +711,13 @@ describe("anonymous public booking reads", () => {
       sourceProfileId: "profile-public-read", sourceEventTypeId: "event-public-read",
       analytics: { views: 0, slotViews: 0, starts: 0, requests: 1, confirmed: 1 },
     }] });
+
+    const changedDetails = await worker.fetch(publicRequest(path, {
+      method: "POST", json: { ...body, notes: "Different agenda" },
+    }), workerEnv());
+    expect(changedDetails.status).toBe(409);
+    expect(await changedDetails.json()).toMatchObject({ error: "idempotency_key_reused" });
+    expect(providerInsertCalls).toBe(1);
 
     turnstileAccepted = false;
     const rejected = await worker.fetch(publicRequest(path, {

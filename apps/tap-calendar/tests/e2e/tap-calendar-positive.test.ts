@@ -117,11 +117,11 @@ test("renders a month-first public booking page powered by TAP", async ({
   ).toBeVisible();
   await expect(bookingPage.getByRole("navigation", { name: "Booking month" })).toBeVisible();
   await expect(bookingPage.getByRole("combobox", { name: "Viewer time zone" })).toBeVisible();
-  const poweredByTap = bookingPage.getByRole("link", { name: /Powered by TAP/u });
+  const poweredByTap = bookingPage.getByRole("link", { name: /Powered by The AI Platform/u });
   await expect(poweredByTap).toBeVisible();
   await expect(poweredByTap).toHaveAttribute("href", "https://theaiplatform.app/");
   await expect(poweredByTap).toHaveAttribute("target", "_blank");
-  const privacy = bookingPage.getByRole("link", { name: "Privacy", exact: true });
+  const privacy = bookingPage.getByRole("link", { name: "Privacy Policy", exact: true });
   await expect(privacy).toHaveAttribute("href", "https://theaiplatform.app/privacy");
   await expect(privacy).toHaveAttribute("target", "_blank");
   await expect(bookingPage.getByRole("link", { name: "Report abuse", exact: true })).toHaveAttribute("href", "mailto:abuse@theaiplatform.app");
@@ -138,6 +138,12 @@ test("renders a month-first public booking page powered by TAP", async ({
   await expect(continueButton).toHaveCSS("border-radius", "8px");
 
   await continueButton.click();
+  await bookingPage.getByLabel("Additional notes").fill("Discuss the launch plan.");
+  await bookingPage.getByRole("button", { name: "Add guests", exact: true }).click();
+  await bookingPage.getByLabel("Guest 1 email").fill("teammate@example.com");
+  await bookingPage.getByRole("button", { name: "Remove guest 1", exact: true }).click();
+  await expect(bookingPage.getByLabel("Guest 1 email")).toHaveCount(0);
+  await expect(bookingPage.getByLabel("Additional notes")).toHaveValue("Discuss the launch plan.");
   const confirmButton = bookingPage.getByRole("button", { name: "Confirm booking", exact: true });
   await expect(confirmButton).toHaveCSS("background-color", "rgb(103, 88, 232)");
   await expect(confirmButton).toHaveCSS("color", "rgb(255, 255, 255)");
