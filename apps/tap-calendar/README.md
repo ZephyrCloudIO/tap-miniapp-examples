@@ -249,25 +249,67 @@ not advertise native or durable triggers.
 
 ### Booking analytics
 
-The Booking Pages screen reads owner-scoped totals from
-`GET /v1/publications/analytics` on open, every minute while visible and online,
-on focus/network recovery, and on **Refresh analytics**. Failures retain the last
-loaded totals with an error; an initial failure shows unavailable counters.
-Server totals are a read projection and do not update publication drafts or
-include organizer preview activity.
+The Booking Pages dashboard reads authenticated, owner-scoped totals from
+`GET /v2/publications/analytics`. It refreshes on open, every minute while visible
+and online, on focus/reconnection, and on **Refresh analytics**. The response
+includes its generation time and traffic/conversion coverage dates. Initial
+failures display unavailable counters; later failures retain the last successful
+snapshot with its timestamp and an error. Organizer preview counts never replace
+public totals. Server totals include archived/unpublished pages even if a local
+draft is missing.
 
-Requests count committed public booking attempts. Confirmations count bookings
-that were confirmed automatically or subsequently approved, including historical
-bookings across publication revisions and after cancellation. Retries and
-reschedules do not add bookings. The public page separately records views, slot
-views, and starts once per ephemeral page visit, without guest details, cookies,
-or fingerprinting. These stages begin when tracking is deployed; old traffic
-cannot be reconstructed, so the live UI does not calculate a historical
-conversion rate from mismatched totals.
+- **Views:** one per anonymous booking-page visit. Reloading creates a new visit;
+  returning to earlier steps or refreshing a changed publication does not.
+- **Starts:** visits that reached the guest-details form after selecting a slot.
+  Slot views count visits that reached the available-times list.
+- **Confirmed bookings:** accepted public bookings whose current status is
+  confirmed, including past meetings, excluding cancelled/pending/declined/expired
+  bookings. This is not an upcoming-meetings count.
+- **Lifetime confirmations:** bookings confirmed at least once, including later
+  cancellations. Approval history is durable independently of provider/email
+  records. Cancellations, awaiting approval, declines, and expirations are separate.
+- **Accepted requests:** committed public booking attempts, including pending
+  approval and later terminal outcomes. Failed/uncertain provider attempts are
+  excluded. Retries and reschedules never create another accepted request.
+- **Conversion:** distinct visits that produced a confirmed booking divided by
+  visits within the same attribution coverage period. A visit converts at most
+  once; later cancellation does not erase a historical conversion. Historical
+  bookings without visit attribution are excluded from both sides of conversion.
 
-Roll out gateway migration `0017_public_booking_analytics.sql` before deploying
-the gateway, public page, and updated miniapp package. No booking-data backfill
-or provider writes are required: existing booking totals are queried directly.
+The public app uses an in-memory UUID, no cookies or fingerprinting. Transient
+tracking failures retry with that same UUID, and reconnect/visibility changes
+retry undelivered stages. Verified booking submissions store visit attribution
+atomically and repair missing earlier stages. Legacy clients can still book
+without a visit ID. Pre-tracking traffic cannot be reconstructed from bookings
+and is explicitly labelled unavailable. The v1 endpoint preserves lifetime
+confirmation semantics for older organizer packages during upgrades.
+
+#### Production rollout
+
+Run all three applications' tests/typechecks and build their production artifacts.
+The current release needs all migrations through 0019, including 0016 (Zoom),
+0017 (traffic), and 0018 (collective bookings). Apply migrations before the gateway; deploy the public app
+before publishing the organizer package:
+
+```sh
+CLOUDFLARE_ACCOUNT_ID=b848db7e2edd56dee8ffcc39c18612a5 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
+pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
+pnpm --filter @tap-examples/tap-calendar-public deploy:production
+pnpm --filter @tap-examples/tap-calendar build:miniapp:production
+pnpm --filter @tap-examples/tap-calendar publish:production
+```
+
+`publish:production` refuses to publish until the live gateway readiness endpoint
+confirms v2 and its migration, the served public app contains tracking, and the
+built organizer package contains v2 and the production gateway. It makes no
+analytics writes. `test:release` tests the guard. Upgrade the existing marketplace
+installation to the published release; preserve its package and installation
+identity so organizer settings and booking profiles remain intact.
+
+Verify that the installed organizer displays current and lifetime counts matching
+the server ledger, then exercise a public visit through the details step. Do not
+send a real booking/email merely to test analytics; the gateway integration suite
+covers confirmed, pending, approved, cancelled, and retried provider outcomes.
 
 ### Public URLs
 

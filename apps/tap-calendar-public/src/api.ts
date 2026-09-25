@@ -87,10 +87,14 @@ export async function trackPublicBookingFunnel(options: {
   readonly visitId: string;
   readonly stage: "views" | "slotViews" | "starts";
 }): Promise<void> {
-  await requestJson(`${publicPagePath(options.profileSlug, options.eventTypeSlug)}/analytics`, {
+  const result = await requestJson<{ recorded?: boolean }>(`${publicPagePath(options.profileSlug, options.eventTypeSlug)}/analytics`, {
     method: "POST",
     body: JSON.stringify({ visitId: options.visitId, stage: options.stage }),
     keepalive: true,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (result?.recorded !== true) throw new PublicCalendarApiError("Booking analytics were not acknowledged.", {
+    code: "analytics_response_invalid", status: 502, retryable: true,
   });
 }
 
@@ -115,9 +119,10 @@ export function loadPublicBookingPage(
   profileSlug: string,
   eventTypeSlug: string,
   signal?: AbortSignal,
+  visitId?: string,
 ): Promise<PublicBookingPage> {
   return requestJson<unknown>(
-    publicPagePath(profileSlug, eventTypeSlug),
+    `${publicPagePath(profileSlug, eventTypeSlug)}${visitId ? `?visitId=${encodeURIComponent(visitId)}` : ""}`,
     signal ? { signal } : undefined,
   ).then(value => {
     if (isPublicBookingPage(value, profileSlug, eventTypeSlug)) return value;

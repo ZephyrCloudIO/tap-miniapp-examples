@@ -1209,7 +1209,7 @@ export function createCalendarGatewayClient(input: {
       return result;
     },
     async publicBookingAnalytics() {
-      const result = await request<unknown>("GET", "/v1/publications/analytics");
+      const result = await request<unknown>("GET", "/v2/publications/analytics");
       if (!isPublicBookingAnalytics(result)) {
         throw new CalendarGatewayError(502, "gateway_response_invalid",
           "The Calendar gateway returned invalid booking analytics.");

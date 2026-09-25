@@ -242,6 +242,7 @@ describe("anonymous public booking reads", () => {
     providerInsertCalls = 0;
     providerEvents.clear();
     await env.CALENDAR_DB.batch([
+      env.CALENDAR_DB.prepare("UPDATE public_booking_analytics_coverage SET traffic_since = ?, conversion_since = ?").bind(new Date(testNow).toISOString(), new Date(testNow).toISOString()),
       env.CALENDAR_DB.prepare("DELETE FROM public_booking_email_outbox"),
       env.CALENDAR_DB.prepare("DELETE FROM public_booking_management_mutations"),
       env.CALENDAR_DB.prepare("DELETE FROM public_booking_management_credentials"),
@@ -316,6 +317,14 @@ describe("anonymous public booking reads", () => {
     await connectAndPublish();
     const path = "/api/public/pages/public-owner/30min/analytics";
     const visitId = "450414f6-93ca-42df-88a7-7d9d0cb8a925";
+    // Successful page loading records its visit independently of the beacon.
+    const page = await worker.fetch(publicRequest(`/api/public/pages/public-owner/30min?visitId=${visitId}`), workerEnv());
+    expect(page.status).toBe(200);
+    for (const suffix of ["?visitId=invalid", `?visitId=${visitId}&visitId=${visitId}`, `?visitId=${visitId}&owner=spoofed`]) {
+      expect((await worker.fetch(publicRequest(`/api/public/pages/public-owner/30min${suffix}`), workerEnv())).status).toBe(400);
+    }
+    const initial = await worker.fetch(organizerRequest("/v2/publications/analytics"), workerEnv());
+    expect(await initial.json()).toMatchObject({ totals: { views: 1, starts: 0 } });
     for (const stage of ["starts", "views", "slotViews", "starts"]) {
       const response = await worker.fetch(publicRequest(path, {
         method: "POST", json: { visitId, stage },
@@ -360,6 +369,18 @@ describe("anonymous public booking reads", () => {
     }
     const spoofed = await worker.fetch(organizerRequest(path), { ...workerEnv(), LOCAL_DEVELOPMENT: "false" });
     expect(spoofed.status).toBe(401);
+  });
+
+  it("requires organizer identity for v2 analytics and reports no other owner's data", async () => {
+    await connectAndPublish();
+    expect((await worker.fetch(publicRequest("/v2/publications/analytics"), workerEnv())).status).toBe(401);
+    const other = new Request("https://calendar-api.theaiplatform.app/v2/publications/analytics", {
+      headers: { Origin: organizerOrigin, "X-TAP-Workspace-Id": workspace, "X-TAP-Principal-Id": "other-user" },
+    });
+    const response = await worker.fetch(other, workerEnv());
+    expect(await response.json()).toMatchObject({ pages: [], totals: { confirmed: 0, views: 0 } });
+    const readiness = await worker.fetch(publicRequest("/health/booking-analytics"), workerEnv());
+    expect(await readiness.json()).toMatchObject({ ready: true, schemaVersion: "tap.calendar.public-booking-analytics.v2" });
   });
 
   it("aggregates historical revisions and counts confirmed and approved bookings separately from pending attempts", async () => {
@@ -422,6 +443,57 @@ describe("anonymous public booking reads", () => {
       sourceProfileId: "profile-public-read", sourceEventTypeId: "event-public-read",
       analytics: { views: 0, slotViews: 0, starts: 0, requests: 4, confirmed: 2 },
     }] });
+    const current = await worker.fetch(organizerRequest("/v2/publications/analytics"), workerEnv());
+    expect(await current.json()).toMatchObject({ totals: {
+      requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1,
+    } });
+  });
+
+  it("keeps conversion cohorts and confirmation history correct across cancellation and cleanup", async () => {
+    const { revisionId } = await connectAndPublish();
+    const now = new Date(testNow).toISOString();
+    const visit = "450414f6-93ca-42df-88a7-7d9d0cb8a925";
+    // An earlier un-attributed view must not dilute the new conversion cohort.
+    await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_funnel_visits
+      (page_id, visit_id, slot_viewed, started, created_at)
+      SELECT page_id, ?, 0, 0, '2026-08-15T12:00:00.000Z' FROM public_booking_page_revisions WHERE id = ?`)
+      .bind("460414f6-93ca-42df-88a7-7d9d0cb8a925", revisionId).run();
+    for (const id of ["approved", "automatic", "legacy"]) {
+      await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_attempts (
+        workspace_id, principal_id, idempotency_key, request_hash, provider_operation_id,
+        booking_reference, revision_id, start_at, end_at, guest_name, guest_email,
+        state, response_json, created_at, updated_at, visit_id
+      ) VALUES (?, ?, ?, 'request-hash-123456', ?, ?, ?, ?, ?, 'Guest', 'guest@example.com',
+        'committed', ?, ?, ?, ?)`).bind(workspace, principal, `cohort-attempt-${id}`, `cohort-operation-${id}`,
+        `cohort-reference-${id}`, revisionId, now, "2026-08-17T12:30:00.000Z",
+        JSON.stringify({ status: id === "approved" ? "pending" : "confirmed" }), now, now,
+        id === "legacy" ? null : visit).run();
+    }
+    await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_management_credentials (
+      booking_reference, workspace_id, principal_id, token_hash, page_id, revision_id,
+      provider_booking_id, provider_operation_id, start_at, end_at, guest_name,
+      guest_email, status, booking_status, created_at, updated_at
+    ) SELECT 'cohort-reference-approved', ?, ?, ?, page_id, id, 'approved-event',
+      'cohort-operation-approved', ?, ?, 'Guest', 'guest@example.com', 'active', 'pending', ?, ?
+      FROM public_booking_page_revisions WHERE id = ?`).bind(
+      workspace, principal, "a".repeat(43), now, "2026-08-17T12:30:00.000Z", now, now, revisionId,
+    ).run();
+    await env.CALENDAR_DB.prepare(`UPDATE public_booking_management_credentials
+      SET booking_status = 'confirmed' WHERE booking_reference = 'cohort-reference-approved'`).run();
+    await env.CALENDAR_DB.prepare(`UPDATE public_booking_management_credentials
+      SET booking_status = 'cancelled', status = 'cancelled' WHERE booking_reference = 'cohort-reference-approved'`).run();
+    // No provider commit or email notice is required to remember this approval.
+    const response = await worker.fetch(organizerRequest("/v2/publications/analytics"), workerEnv());
+    expect(await response.json()).toMatchObject({ totals: {
+      views: 2, starts: 1, slotViews: 1, requests: 3, confirmed: 2, lifetimeConfirmed: 3,
+      cancelled: 1, conversionViews: 1, convertedVisits: 1,
+    } });
+    // Later writes must not replace the original confirmation timestamp.
+    await env.CALENDAR_DB.prepare(`UPDATE public_booking_attempts SET updated_at = ?
+      WHERE booking_reference = 'cohort-reference-automatic'`).bind("2026-08-18T12:00:00.000Z").run();
+    const history = await env.CALENDAR_DB.prepare(`SELECT first_confirmed_at FROM public_booking_attempts
+      WHERE booking_reference = 'cohort-reference-approved'`).first<string>("first_confirmed_at");
+    expect(history).toBe(now);
   });
 
   it("returns the exact guest-safe Booking Profile root without organizer authentication", async () => {
@@ -627,6 +699,7 @@ describe("anonymous public booking reads", () => {
     const body = {
       schemaVersion: "tap.calendar.public-booking.v1",
       requestId: "e3ffdb18-f66b-4d68-b96a-7907461a78f4",
+      visitId: "450414f6-93ca-42df-88a7-7d9d0cb8a925",
       slotToken: slot!.token,
       guest: {
         name: "  Guest   Person  ",
@@ -709,9 +782,21 @@ describe("anonymous public booking reads", () => {
     expect(analytics.status).toBe(200);
     expect(await analytics.json()).toEqual({ pages: [{
       sourceProfileId: "profile-public-read", sourceEventTypeId: "event-public-read",
-      analytics: { views: 0, slotViews: 0, starts: 0, requests: 1, confirmed: 1 },
+      analytics: { views: 1, slotViews: 1, starts: 1, requests: 1, confirmed: 1 },
     }] });
 
+    // Missing browser analytics is repaired by the verified submission, and
+    // replaying with a different visit ID cannot steal attribution.
+    const changedVisit = await worker.fetch(publicRequest(path, {
+      method: "POST", json: { ...body, visitId: "460414f6-93ca-42df-88a7-7d9d0cb8a925" },
+    }), workerEnv());
+    expect(changedVisit.status).toBe(201);
+    const v2 = await worker.fetch(organizerRequest("/v2/publications/analytics"), workerEnv());
+    expect(await v2.json()).toMatchObject({
+      schemaVersion: "tap.calendar.public-booking-analytics.v2",
+      totals: { views: 1, slotViews: 1, starts: 1, confirmed: 1, lifetimeConfirmed: 1,
+        cancelled: 0, requests: 1, conversionViews: 1, convertedVisits: 1 },
+    });
     const changedDetails = await worker.fetch(publicRequest(path, {
       method: "POST", json: { ...body, notes: "Different agenda" },
     }), workerEnv());

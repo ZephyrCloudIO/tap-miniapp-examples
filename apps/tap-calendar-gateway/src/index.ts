@@ -12,7 +12,7 @@ import {
   unpublishPublicBookingProfile,
 } from "./public-booking-publication";
 import { loadPublicBookingBusyIntervals } from "./public-booking-busy";
-import { loadPublicBookingAnalytics, parsePublicBookingFunnelEvent, recordPublicBookingFunnelEvent } from "./public-booking-analytics";
+import { PUBLIC_BOOKING_ANALYTICS_SCHEMA, legacyPublicBookingAnalytics, loadPublicBookingAnalytics, parsePublicBookingFunnelEvent, recordPublicBookingFunnelEvent } from "./public-booking-analytics";
 import {
   enforcePublicBookingRateLimit,
   PublicBookingRateLimitError,
@@ -1204,6 +1204,7 @@ async function reconcilePublicApprovalResolution(
 }
 
 async function getPublishedPublicBookingPage(
+  request: Request,
   route: NonNullable<ReturnType<typeof parsePublicBookingPagePath>>,
   env: CalendarGatewayEnv,
 ): Promise<Response> {
@@ -1214,6 +1215,15 @@ async function getPublishedPublicBookingPage(
       route.eventTypeSlug,
     );
     if (resolved.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
+    const visitId = new URL(request.url).searchParams.get("visitId");
+    if (visitId !== null) {
+      const event = parsePublicBookingFunnelEvent({ visitId, stage: "views" });
+      if (!event) throw new ApiError(400, "invalid_public_request", "This visit ID is invalid.");
+      await enforcePublicBookingRateLimit({ limiter: env.PUBLIC_AVAILABILITY_RATE_LIMITER,
+        localDevelopment: env.LOCAL_DEVELOPMENT === "true", request,
+        resource: `analytics:${route.profileSlug}/${route.eventTypeSlug}` });
+      await recordPublicBookingFunnelEvent(env.CALENDAR_DB, resolved.pageId, event);
+    }
     return json(projectPublicBookingPage(resolved, {
       baseUrl: publicBookingBaseUrl(env),
       turnstileSiteKey: requiredPublicBookingConfiguration(
@@ -1449,6 +1459,7 @@ async function createPublishedPublicBooking(
     };
     const result = await createPublicBooking(resolved, {
       requestId: parsed.requestId,
+      ...(parsed.visitId ? { visitId: parsed.visitId } : {}),
       guest: parsed.guest,
       ...(parsed.notes ? { notes: parsed.notes } : {}),
       ...(parsed.additionalGuests ? { additionalGuests: parsed.additionalGuests } : {}),
@@ -10173,6 +10184,14 @@ async function route(
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
   }
+  if (request.method === "GET" && path === "/health/booking-analytics") {
+    const coverage = await env.CALENDAR_DB.withSession("first-primary").prepare(
+      "SELECT traffic_since, conversion_since FROM public_booking_analytics_coverage WHERE id = 1",
+    ).first<{ traffic_since: string; conversion_since: string }>();
+    if (!coverage) throw new ApiError(503, "analytics_unavailable", "Booking analytics is not initialized.");
+    return json({ schemaVersion: PUBLIC_BOOKING_ANALYTICS_SCHEMA, ready: true,
+      trafficSince: coverage.traffic_since, conversionSince: coverage.conversion_since });
+  }
   if (request.method === "GET" && path === "/health") {
     return json({
       ok: true,
@@ -10217,14 +10236,14 @@ async function route(
     return trackPublishedPublicBookingFunnel(request, publicBookingRoute, env);
   }
   if (request.method === "GET" && publicBookingRoute?.resource === "page") {
-    if (url.search) {
+    if ([...url.searchParams.keys()].some(key => key !== "visitId") || url.searchParams.getAll("visitId").length > 1) {
       throw new ApiError(
         400,
         "invalid_public_request",
         "This public booking request is invalid.",
       );
     }
-    return getPublishedPublicBookingPage(publicBookingRoute, env);
+    return getPublishedPublicBookingPage(request, publicBookingRoute, env);
   }
   if (request.method === "GET" && publicBookingRoute?.resource === "availability") {
     return getPublishedPublicBookingAvailability(
@@ -10261,9 +10280,10 @@ async function route(
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
   }
-  if (request.method === "GET" && path === "/v1/publications/analytics") {
+  if (request.method === "GET" && (path === "/v1/publications/analytics" || path === "/v2/publications/analytics")) {
     const scope = await principalScope(request, env);
-    return json(await loadPublicBookingAnalytics(env.CALENDAR_DB, scope));
+    const snapshot = await loadPublicBookingAnalytics(env.CALENDAR_DB, scope);
+    return json(path.startsWith("/v1/") ? legacyPublicBookingAnalytics(snapshot) : snapshot);
   }
   if (request.method === "POST" && path === "/v1/publications/profiles/unpublish") {
     return unpublishBookingProfile(request, env);
