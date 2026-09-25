@@ -12,6 +12,7 @@ import {
   type MailCommandReceipt,
   type MailDraftAttachment,
   type MailDraftPayload,
+  type MailSenderContext,
   type MailSchedulePayload,
   type MailboxSummary,
   type ReminderCondition,
@@ -1431,6 +1432,7 @@ export function composeMessage(
     readonly bcc?: string;
     readonly attachments?: readonly MailDraftAttachment[];
     readonly sendAfter?: string;
+    readonly expectedContext?: MailSenderContext;
   },
 ): MailState {
   if (!state.accounts.some(account => account.accountId === accountId)) return state;
@@ -1462,6 +1464,7 @@ export function composeMessage(
         ? { attachments: draftIdentity.attachments }
         : {}),
       ...(draftIdentity?.sendAfter ? { sendAfter: draftIdentity.sendAfter } : {}),
+      ...(draftIdentity?.expectedContext ? { expectedContext: draftIdentity.expectedContext } : {}),
     },
   };
   return {

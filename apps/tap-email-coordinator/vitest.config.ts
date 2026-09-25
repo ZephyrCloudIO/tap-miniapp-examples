@@ -10,6 +10,7 @@ export default defineConfig({
     cloudflareTest(async () => ({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
+        serviceBindings: { WEBSITE_REFERRALS: async () => new Response(null, { status: 503 }) },
         bindings: {
           GOOGLE_CLIENT_ID: 'test-google-client.apps.googleusercontent.com',
           GOOGLE_CLIENT_SECRET: 'test-google-client-secret',

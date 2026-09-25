@@ -106,10 +106,21 @@ export interface MailDraftAttachment {
   readonly sha256Base64Url: string;
 }
 
+/** Captured identity intent, never an authorization claim. */
+export interface MailSenderContext {
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export function isMailSenderContext(value: unknown): value is MailSenderContext {
+  return isRecord(value) && isSafeMailIdentifier(value.userId) &&
+    isSafeMailIdentifier(value.workspaceId);
+}
+
 /**
- * Reviewable plain-text draft content shared by UI, coordinator, provider, and
- * future workflow/tool callers. `draftKey` is TAP-owned and stable across
- * autosave revisions; provider draft identifiers never cross this boundary.
+ * Reviewable text authored by UI and workflow callers; the provider renders
+ * HTML for delivery. `draftKey` stays stable across autosave revisions.
+ * Provider draft identifiers never cross this boundary.
  */
 export interface MailDraftPayload extends Readonly<Record<string, unknown>> {
   readonly draftKey: string;
@@ -119,6 +130,8 @@ export interface MailDraftPayload extends Readonly<Record<string, unknown>> {
   readonly bcc?: string;
   readonly subject: string;
   readonly bodyText: string;
+  /** Captured send intent; independently verified by the coordinator. */
+  readonly expectedContext?: MailSenderContext;
   readonly replyToMessageId?: string;
   readonly attachments?: readonly MailDraftAttachment[];
   /** Client-held undo-send deadline. This is not a scheduled-send policy. */
@@ -512,6 +525,7 @@ export function isMailDraftPayload(value: unknown): value is MailDraftPayload {
     (value.bcc === undefined || isSafeHeaderString(value.bcc, 2_000)) &&
     isSafeHeaderString(value.subject, 998) &&
     isBoundedString(value.bodyText, 500_000) &&
+    (value.expectedContext === undefined || isMailSenderContext(value.expectedContext)) &&
     (value.replyToMessageId === undefined ||
       isSafeHeaderString(value.replyToMessageId, 998, false)) &&
     (value.sendAfter === undefined || isIsoDate(value.sendAfter)) &&

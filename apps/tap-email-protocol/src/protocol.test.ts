@@ -68,6 +68,10 @@ describe('TAP Email protocol', () => {
       replyToMessageId: '<message-1@example.com>',
     };
     expect(isMailDraftPayload(payload)).toBe(true);
+    expect(isMailDraftPayload({ ...payload, expectedContext: { userId: 'user_1', workspaceId: 'workspace_a' } })).toBe(true);
+    for (const expectedContext of [null, {}, { userId: 'user_1' }, { userId: 'user_1', workspaceId: '' }, { userId: 'user\n1', workspaceId: 'workspace_a' }]) {
+      expect(isMailDraftPayload({ ...payload, expectedContext })).toBe(false);
+    }
     expect(isMailDraftPayload({
       ...payload,
       sendAfter: '2026-08-18T12:00:05.000Z',

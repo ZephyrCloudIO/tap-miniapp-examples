@@ -218,6 +218,30 @@ expire automatically; their R2 chunks and D1 metadata are deleted after a
 confirmed provider send. An uncertain send keeps them available for exact
 provider-draft reconciliation.
 
+## HTML and referral attribution
+
+TAP drafts default to preferred HTML with a plain-text MIME alternative. The
+generated `Sent with TAP Email on The AI Platform` footer is added only to the
+final send. Reused Gmail drafts retain provider-side edits and attachments.
+
+New production send/schedule commands require the SDK 0.19 `expectedContext`.
+Session/action verification plus authenticated Directory lookups establish the
+canonical sender/workspace. Migration 0013 stores the profile/user binding and
+immutable command attribution. Apply it before deploying this coordinator.
+
+The `WEBSITE_REFERRALS` Service Binding targets the website's named
+`WebsiteReferralsPublisher` entrypoint. It must be deployed in the same account:
+`tap-website-referrals-production` in production, `tap-website-referrals-dev`
+locally. Returned links are persisted before sending and reused on retries.
+Website owns `/refer/:token`, redirects, and `tap_email_referral_clicked` PostHog
+events; this coordinator does not generate click events on send. Referral
+unavailability leaves sends pending for retry.
+
+Production rollout still needs deployed session/Directory verification and the
+background TAP send-permission recheck tracked in upstream #11055. Current
+execution checks the connected Gmail account but does not recheck revoked TAP
+workspace/action grants. See [implementation and rollout notes](../../research/tap-email-sent-with-attribution.md).
+
 ## Platform MCP staging
 
 `src/mcp.ts` and `src/mcp-mail.ts` contain the tested, read-only MCP substrate

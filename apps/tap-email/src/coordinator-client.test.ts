@@ -286,7 +286,8 @@ describe('TAP Email coordinator client', () => {
     expect(requests).toBe(2);
   });
 
-  it('submits a stable account-scoped command with the platform session', async () => {
+  it('submits captured sender intent as both durable payload and host context precondition', async () => {
+    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_a' };
     const calls: unknown[] = [];
     const transport: CoordinatorTransport = {
       request(input, options) {
@@ -326,10 +327,10 @@ describe('TAP Email coordinator client', () => {
         idempotencyKey: 'tap-email:acct_1:cmd_1',
         accountId: 'acct_1',
         threadId: 'thread_1',
-        kind: 'archive',
+        kind: 'send_draft',
         createdAt: '2026-08-18T15:30:00.000Z',
         expectedProviderRevision: 'history_1',
-        payload: {},
+        payload: { draftKey: 'draft_1', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext },
       }),
     ).resolves.toMatchObject({ duplicate: false });
     expect(calls).toEqual([
@@ -338,7 +339,7 @@ describe('TAP Email coordinator client', () => {
           method: 'POST',
           url: `${coordinatorOrigin}/v1/commands`,
         }),
-        options: { credentialRef: 'platform-session' },
+        options: { credentialRef: 'platform-session', expectedContext },
       }),
     ]);
   });

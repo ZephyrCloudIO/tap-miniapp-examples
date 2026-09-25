@@ -10,7 +10,7 @@ importers:
     devDependencies:
       '@zephyrcloudio/miniapp-zephyr-publisher':
         specifier: 2.20.0
-        version: 2.20.0(@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
+        version: 2.20.0(@theaiplatform/miniapp-sdk@0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
@@ -567,8 +567,8 @@ importers:
         specifier: workspace:*
         version: link:../tap-email-protocol
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.16.0
-        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.19.0
+        version: 0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       dompurify:
         specifier: ^3.4.15
         version: 3.4.15
@@ -643,6 +643,9 @@ importers:
       '@types/node':
         specifier: 26.1.1
         version: 26.1.1
+      postal-mime:
+        specifier: 3.0.0
+        version: 3.0.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -2972,6 +2975,46 @@ packages:
       react-dom:
         optional: true
 
+  '@theaiplatform/miniapp-sdk@0.19.0':
+    resolution: {integrity: sha512-tEUm61lrp5JGUpBmf5fF0y86ZbNK9Y/gBwRqArUbJC/h9N0K5Lg3SzPwlYZRXAes/NVZuiICBwkoQEYRjfWK9w==}
+    engines: {node: '>=20'}
+    hasBin: true
+    peerDependencies:
+      '@module-federation/rsbuild-plugin': 2.8.1
+      '@module-federation/runtime-tools': 2.8.1
+      '@rsbuild/core': '>=2 <3'
+      '@rslib/core': '>=0.21 <1'
+      '@rstest/core': 0.11.5
+      '@rstest/playwright': 0.11.5
+      '@tanstack/react-query': '>=5 <6'
+      '@tanstack/react-router': '>=1 <2'
+      playwright: '>=1.61 <2'
+      react: '>=19 <20'
+      react-dom: '>=19 <20'
+    peerDependenciesMeta:
+      '@module-federation/rsbuild-plugin':
+        optional: true
+      '@module-federation/runtime-tools':
+        optional: true
+      '@rsbuild/core':
+        optional: true
+      '@rslib/core':
+        optional: true
+      '@rstest/core':
+        optional: true
+      '@rstest/playwright':
+        optional: true
+      '@tanstack/react-query':
+        optional: true
+      '@tanstack/react-router':
+        optional: true
+      playwright:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
   '@toon-format/toon@0.9.0':
     resolution: {integrity: sha512-BaMhGh1+/z8ceDrF2xL9Drd42hijbUJlivm/1goPR26RgCYsqlMkHbg48hx9a5UjZC7oZqxWPJ6ju5qvALi6Ag==}
 
@@ -4470,6 +4513,9 @@ packages:
     resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
     engines: {node: '>=20'}
     hasBin: true
+
+  postal-mime@3.0.0:
+    resolution: {integrity: sha512-Z4a9ar2Bv3YpK3IXag+Yda30k7bMZfpRuUGyqtHnZ2pjHG8Bl62EhZIk4n1dzv00gfzP9g+94e9kd8+XmjVWLA==}
 
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
@@ -7248,6 +7294,53 @@ snapshots:
       - '@types/react-dom'
       - supports-color
 
+  '@theaiplatform/miniapp-sdk@0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-alert-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-checkbox': 1.3.11(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-collapsible': 1.1.20(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-label': 2.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-progress': 1.1.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-radio-group': 1.4.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-scroll-area': 1.2.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-select': 2.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-separator': 1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slider': 1.4.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tabs': 1.1.21(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-toggle': 1.1.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-toggle-group': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tooltip': 1.2.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      ajv: 8.20.0
+      ajv-draft-04: 1.0.0(ajv@8.20.0)
+      chokidar: 4.0.3
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      jiti: 2.7.0
+      jsonc-parser: 3.3.1
+      lucide-react: 1.45.0(react@19.3.0)
+      react-resizable-panels: 4.12.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      remark-gemoji: 8.0.0
+      saxes: 6.0.0
+      streamdown: 2.6.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      use-stick-to-bottom: 1.1.6(react@19.3.0)
+      zod: 4.6.4
+    optionalDependencies:
+      '@module-federation/rsbuild-plugin': 2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3)
+      '@module-federation/runtime-tools': 2.8.1
+      '@rsbuild/core': 2.2.5(@module-federation/runtime-tools@2.8.1)
+      '@rslib/core': 0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3)
+      '@rstest/core': 0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1)
+      '@rstest/playwright': 0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0)
+      playwright: 1.63.0
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - supports-color
+
   '@toon-format/toon@0.9.0': {}
 
   '@toon-format/toon@4.1.1': {}
@@ -7498,9 +7591,9 @@ snapshots:
   '@xtuc/long@4.2.2':
     optional: true
 
-  '@zephyrcloudio/miniapp-zephyr-publisher@2.20.0(@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
+  '@zephyrcloudio/miniapp-zephyr-publisher@2.20.0(@theaiplatform/miniapp-sdk@0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
     dependencies:
-      '@theaiplatform/miniapp-sdk': 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@theaiplatform/miniapp-sdk': 0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       zephyr-agent: 1.2.4
     transitivePeerDependencies:
       - supports-color
@@ -8968,6 +9061,8 @@ snapshots:
   playwright@1.63.0:
     dependencies:
       playwright-core: 1.63.0
+
+  postal-mime@3.0.0: {}
 
   postcss@8.5.28:
     dependencies:

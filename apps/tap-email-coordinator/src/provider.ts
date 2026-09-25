@@ -3,6 +3,8 @@ import type { MailCommand } from '@tap-examples/tap-email-protocol';
 export interface ProviderScope {
   readonly profileId: string;
   readonly accountId: string;
+  /** Server-resolved website link, supplied only for an accepted send. */
+  readonly referralUrl?: string;
 }
 
 export type ProviderExecutionResult =

@@ -13,10 +13,13 @@ const schema = JSON.parse(
 const manifest = JSON.parse(
   fs.readFileSync(new URL('../manifest.tap.json', import.meta.url), 'utf8'),
 );
+const packageJson = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
 const validate = new Ajv2020({
   allErrors: true,
   strict: false,
-  formats: { uint8: true, uint16: true, uint64: true, uri: true },
+  formats: { uint8: true, uint16: true, uint32: true, uint64: true, uri: true },
 }).compile(schema);
 
 if (!validate(manifest)) {
@@ -39,17 +42,17 @@ const stagedLiveMcpInputSchemaNames = [
   'read-email-messages.input.json',
   'get-email-command-receipt.input.json',
 ];
-// SDK 0.15 authoring consumes a build manifest. The lifecycle emits the
+// SDK authoring consumes a build manifest. The lifecycle emits the
 // generation-2 exact-byte source descriptor into .tap-package; package and
 // release identity are minted only after import and must not be authored here.
 assert.equal(manifest.buildSchemaVersion, 2);
-assert.equal(manifest.versionLabel, '0.1.0');
+assert.equal(manifest.versionLabel, packageJson.version);
 assert.equal(manifest.presentation.slug, 'tap-email');
 assert.equal('descriptorVersion' in manifest, false);
 assert.equal('package' in manifest, false);
 assert.equal('release' in manifest, false);
 assert.equal('lifecycle' in manifest, false);
-assert.equal(manifest.compatibility.tapSdk, '0.15.0');
+assert.equal(manifest.compatibility.tapSdk, '0.19.0');
 assert.ok(manifest.targets?.desktop, 'The desktop package target is required.');
 assert.ok(manifest.targets?.quickjs, 'The QuickJS package target is required.');
 assert.deepEqual(manifest.runtimePolicy, {
