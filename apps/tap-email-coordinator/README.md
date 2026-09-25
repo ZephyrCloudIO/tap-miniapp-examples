@@ -88,7 +88,7 @@ attachment metadata are preserved. Oversized provider threads retain all message
 identities and fetch older bodies on demand. Failed body reads return actionable
 errors rather than successful empty messages.
 
-Apply migration `0013_conversation_history.sql` before deploying this coordinator,
+Apply migration `0014_conversation_history.sql` before deploying this coordinator,
 then release the matching email client. The migration marks previously cached
 conversations for refresh on their next read because earlier versions may have
 discarded messages beyond the newest 20. The new client requires explicit page
@@ -195,6 +195,42 @@ with `GET /v1/mailbox?cursor=<opaque cursor>`. An optional `limit` from 1 throug
 100 may be supplied. Pages use `(received_at, account_id, thread_id)` keyset
 ordering, so equal timestamps and multiple connected accounts remain stable
 without relying on Gmail-specific identifiers in the client.
+
+Every page is additive and includes a `pageInfo.revision` watermark. Connection
+polls use the same page merge. Head refresh runs independently of historical
+loading, including when a device resumes a saved history cursor. A completed
+timestamp-ordered traversal alone is **not** proof that absent rows were deleted:
+provider writes can move rows between those pages.
+
+`GET /v1/mailbox/changes?after=0` bootstraps a complete reconciliation. Each
+response includes `mailbox`, `pageInfo.revision`, and `changes` containing
+`nextRevision`, `hasMore`, and account-scoped `deletedThreads`. Follow
+`nextRevision` until `hasMore` is false; subsequent polls start from that revision.
+The same optional `limit` bounds the number of change identities to 100. Account
+metadata markers consume slots even when no thread is returned. Accounts are a
+complete list on every response. Rows, previews, tombstones, and the watermark
+are read together in a [D1 batch transaction](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch).
+
+Migration `0013_mailbox_changes.sql` seeds existing threads and records projection
+writes in the same transaction as their source rows. The stream retains the
+latest revision of each identity and durable deletion tombstones; it does not
+expire cursors or discard tombstones. Repeated changes move an identity forward
+in revision order, so replay catches mutations during traversal. Only a finished
+bootstrap may remove unseen cached rows, and it preserves rows received from a
+newer concurrent head response. Per-identity revision guards prevent late history
+pages from reverting metadata or restoring deleted threads. Local commands and
+their optimistic intents remain separate from the provider projection.
+
+Change cursors are session-only: interruption retries the last applied revision,
+and app restart replays from zero. This costs one bounded traversal per startup
+but prevents a durable cursor from skipping rows after a failed cache save. A
+future durable delta checkpoint must commit rows and cursor together. Historical
+page checkpoints capture the corresponding React state and serialize the row
+save before the cursor save; a failed save leaves the prior checkpoint intact.
+
+Rollout order: apply migration 0013, deploy the coordinator, then publish the
+miniapp. The new client rejects unversioned coordinator pages and retains its
+device cache. Older clients can continue reading the existing page endpoint.
 
 ## Provider-visible drafts and scheduled delivery
 

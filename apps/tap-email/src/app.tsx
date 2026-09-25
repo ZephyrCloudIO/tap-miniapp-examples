@@ -50,8 +50,6 @@ import {
   mailSplitThreadCount,
   markDone,
   markThreadRead,
-  mergeMailboxPage,
-  mergeMailboxSnapshot,
   mergeThreadMessages,
   moveSelection,
   normalizeMailPreferences,
@@ -152,6 +150,7 @@ import {
   type LocalMailStore,
   type MailboxPageProgress,
 } from './local-store';
+import { MailboxCheckpointWriter, MailboxSync } from './mailbox-sync';
 import { mailStateWithoutAccount } from './local-replica';
 import { StoragePrivacyPanel } from './storage-privacy-panel';
 import { persistProviderVisibleMailMergeDrafts } from './email-workflows';
@@ -756,7 +755,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const commandPersistenceBarrier = useRef(new CommandPersistenceBarrier());
   const submittedCommands = useRef(new Set<string>());
   const commandDispatchQueues = useRef(new Map<string, Promise<void>>());
-  const initialMailboxLoadInFlight = useRef(false);
+  const mailboxSyncRef = useRef<MailboxSync | null>(null);
+  const mailboxCheckpointWriter = useRef(new MailboxCheckpointWriter());
   const refreshMailboxInFlight = useRef<Promise<void> | null>(null);
   const syncInFlight = useRef<Promise<void> | null>(null);
   const observedNotifications = useRef(new Set<string>());
@@ -770,7 +770,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const activitySettlementActive = useRef(true);
   const activityReconciliationsPending = useRef(new Set<string>());
   const queuedDraftRevisions = useRef(new Map<string, number>());
-  const mailboxPageProgressPending = useRef<MailboxPageProgress | null | undefined>(undefined);
+  const [mailboxPageProgress, setMailboxPageProgress] = useState<MailboxPageProgress | null | undefined>(undefined);
   const semanticIndexRef = useRef<Promise<EmailSemanticIndex> | null>(null);
   const idFactory = useCallback(
     () => surfaceContext?.entropy.randomUUID() ?? crypto.randomUUID(),
@@ -962,6 +962,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     let active = true;
     let cachedMailAvailable = false;
     let pendingMailboxRequest: DelayedPendingRequest<void> | null = null;
+    let mailboxSync: MailboxSync | null = null;
     setCoordinatorNetworkReady(false);
     setInitialMailboxRequestPending(false);
     void (async () => {
@@ -1016,73 +1017,33 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           const client = createCoordinatorClient();
           coordinatorRef.current = client;
           const startCursor = cached.mail ? savedProgress?.nextCursor ?? null : null;
-          let firstPageSettled = false;
-          let resolveFirstPage!: () => void;
-          let rejectFirstPage!: (error: unknown) => void;
-          const firstPage = new Promise<void>((resolve, reject) => {
-            resolveFirstPage = resolve;
-            rejectFirstPage = reject;
-          });
-          pendingMailboxRequest = watchForDelayedPendingRequest(
-            firstPage,
-            pending => {
-              if (active) setInitialMailboxRequestPending(pending);
-            },
-          );
-          initialMailboxLoadInFlight.current = true;
+          const sync = new MailboxSync(client, setState);
+          mailboxSync = sync;
+          mailboxSyncRef.current = sync;
           diagnostics?.breadcrumb('mailbox.requested');
-          const remoteRequest = client.getMailbox({
-            startCursor,
-            onPage: progress => {
-              if (!active) return;
-              diagnostics?.breadcrumb('mailbox.page');
-              setCoordinatorNetworkReady(true);
-              mailboxPageProgressPending.current = progress.nextCursor
-                ? {
-                    nextCursor: progress.nextCursor,
-                    pagesLoaded: (savedProgress?.pagesLoaded ?? 0) + progress.pageCount,
-                    threadsLoaded: (savedProgress?.threadsLoaded ?? 0) + progress.loadedThreadCount,
-                    updatedAt: new Date().toISOString(),
-                  }
-                : null;
-              setState(current => ({
-                ...mergeMailboxPage(current, progress.mailbox),
-                preferences: current.preferences,
-              }));
-              setMailboxError('');
-              if (!firstPageSettled) {
-                firstPageSettled = true;
-                resolveFirstPage();
-              }
-            },
+          const remoteRequest = sync.refreshHead().then(page => {
+            if (!active) return;
+            diagnostics?.breadcrumb('mailbox.page');
+            setCoordinatorNetworkReady(true);
+            setMailboxError('');
+            const historyCursor = startCursor ?? page.nextCursor;
+            setMailboxPageProgress(historyCursor ? {
+              nextCursor: historyCursor,
+              pagesLoaded: savedProgress?.pagesLoaded ?? 1,
+              threadsLoaded: savedProgress?.threadsLoaded ?? page.mailbox.threads.length,
+              updatedAt: new Date().toISOString(),
+            } : null);
+            // Current mail never waits for a resumed historical cursor.
+            void sync.loadHistory(historyCursor, setMailboxPageProgress).catch(error => {
+              if (active) setMailboxError(`Older cloud history will resume from the device checkpoint: ${String(error)}`);
+            });
+            void sync.reconcile().catch(error => {
+              if (active) setMailboxError(`Mailbox reconciliation will retry: ${String(error)}`);
+            });
           });
-          void remoteRequest.then(
-            mailbox => {
-              initialMailboxLoadInFlight.current = false;
-              if (!active) return;
-              diagnostics?.breadcrumb('mailbox.loaded');
-              if (startCursor === null) {
-                setState(current => ({
-                  ...mergeMailboxSnapshot(current, mailbox),
-                  preferences: current.preferences,
-                }));
-              }
-              mailboxPageProgressPending.current = null;
-              setMailboxError('');
-            },
-            error => {
-              diagnostics?.breadcrumb('mailbox.failed');
-              initialMailboxLoadInFlight.current = false;
-              if (!firstPageSettled) {
-                firstPageSettled = true;
-                rejectFirstPage(error);
-              } else if (active) {
-                setMailboxError(
-                  `Loaded recent mail; older cloud history will resume from the device checkpoint: ${String(error)}`,
-                );
-              }
-            },
-          );
+          pendingMailboxRequest = watchForDelayedPendingRequest(remoteRequest, pending => {
+            if (active) setInitialMailboxRequestPending(pending);
+          });
           await pendingMailboxRequest.result;
           if (!active) return;
           setCacheError(
@@ -1110,6 +1071,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     return () => {
       active = false;
       pendingMailboxRequest?.cancel();
+      mailboxSync?.dispose();
+      if (mailboxSyncRef.current === mailboxSync) mailboxSyncRef.current = null;
     };
   }, [preview, store, surfaceContext, diagnostics]);
 
@@ -1122,22 +1085,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       return;
     }
     const timer = window.setTimeout(() => {
-      void store.save(state).then(
-        async () => {
-          const released = commandPersistenceBarrier.current
-            .releaseAfterSuccessfulSave(state, store.capability);
-          const progress = mailboxPageProgressPending.current;
-          if (progress === null) {
-            await store.clearMailboxPageProgress();
-            mailboxPageProgressPending.current = undefined;
-          } else if (progress !== undefined) {
-            await store.saveMailboxPageProgress(progress);
-            if (mailboxPageProgressPending.current === progress) {
-              mailboxPageProgressPending.current = undefined;
-            }
-          }
+      void mailboxCheckpointWriter.current.save(store, state, mailboxPageProgress, () => {
+        const released = commandPersistenceBarrier.current
+          .releaseAfterSuccessfulSave(state, store.capability);
+        if (released) setDispatchTick(value => value + 1);
+      }).then(
+        () => {
           setCacheError('');
-          if (released) setDispatchTick(value => value + 1);
         },
         error => {
           if (store.capability === 'private-profile-sqlite') {
@@ -1165,7 +1119,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       );
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [hydrated, state, store]);
+  }, [hydrated, state, store, mailboxPageProgress]);
 
   useEffect(() => {
     activitySettlementActive.current = true;
@@ -1579,10 +1533,14 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       await waitForHostAuthority(surfaceContext);
       const client = coordinatorRef.current ?? createCoordinatorClient();
       coordinatorRef.current = client;
-      const { mailbox } = await client.getMailboxPage();
+      const sync = mailboxSyncRef.current ?? new MailboxSync(client, setState);
+      mailboxSyncRef.current = sync;
+      await sync.refreshHead();
       setCoordinatorNetworkReady(true);
-      setState(current => mergeMailboxPage(current, mailbox));
       setMailboxError('');
+      void sync.reconcile().catch(error => {
+        setMailboxError(`Mailbox reconciliation will retry: ${String(error)}`);
+      });
     })();
 
     refreshMailboxInFlight.current = refresh;
@@ -1616,7 +1574,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         // A throttled request means there is no new queue work to wait for.
         // The lightweight refresh remains useful and is now non-destructive.
         if (queued.some(Boolean)) await wait(1_200);
-        if (initialMailboxLoadInFlight.current) return;
         await refreshMailbox();
       } finally {
         setSyncing(false);
@@ -1753,10 +1710,17 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         const existing = new Set(stateRef.current.accounts.map(account => account.accountId));
         for (let attempt = 0; attempt < 45; attempt += 1) {
           await wait(2_000);
-          const mailbox = (await client.getMailboxPage()).mailbox;
-          if (mailbox.accounts.some(account => !existing.has(account.accountId))) {
+          const page = await client.getMailboxPage();
+          if (page.mailbox.accounts.some(account => !existing.has(account.accountId))) {
             setGoogleAuthorizationUrl(null);
-            setState(current => mergeMailboxSnapshot(current, mailbox));
+            const sync = mailboxSyncRef.current ?? new MailboxSync(client, setState);
+            mailboxSyncRef.current = sync;
+            sync.applyPage(page);
+            // The durable stream includes all newly connected account rows,
+            // including older rows outside this connection polling page.
+            void sync.reconcile().then(() => sync.reconcile()).catch(error => {
+              setMailboxError(`Mailbox reconciliation will retry: ${String(error)}`);
+            });
             flash('Google connected · newest mail is arriving');
             return;
           }

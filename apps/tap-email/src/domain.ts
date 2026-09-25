@@ -1666,8 +1666,8 @@ export function mergeMailboxSnapshot(
 
 /**
  * Merges one bounded provider page without interpreting absence from that page
- * as provider deletion. Only a completed traversal may replace the full
- * provider projection through `mergeMailboxSnapshot`.
+ * as provider deletion. Only a complete, consistent reconciliation may replace
+ * the full provider projection through `mergeMailboxSnapshot`.
  */
 export function mergeMailboxPage(
   state: MailState,

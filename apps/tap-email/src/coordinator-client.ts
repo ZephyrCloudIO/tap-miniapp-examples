@@ -262,6 +262,15 @@ async function call(
 export interface MailboxPage {
   readonly mailbox: MailboxSnapshot;
   readonly nextCursor: string | null;
+  /** Absent only on older coordinators; never use an unversioned page to reconcile. */
+  readonly revision?: number;
+}
+
+export interface MailboxChanges extends MailboxPage {
+  readonly revision: number;
+  readonly nextRevision: number;
+  readonly hasMore: boolean;
+  readonly deletedThreads: readonly { readonly accountId: string; readonly threadId: string }[];
 }
 
 export interface MailboxLoadProgress extends MailboxPage {
@@ -297,7 +306,11 @@ function mailboxPage(value: unknown): MailboxPage {
   ) {
     throw new CoordinatorError(502, 'invalid_response', 'Mailbox page cursor is malformed.');
   }
-  return { mailbox, nextCursor };
+  const revision = pageInfo.revision;
+  if (revision !== undefined && (!Number.isSafeInteger(revision) || Number(revision) < 0)) {
+    throw new CoordinatorError(502, 'invalid_response', 'Mailbox revision is malformed.');
+  }
+  return { mailbox, nextCursor, ...(revision === undefined ? {} : { revision: Number(revision) }) };
 }
 
 function remoteImages(value: unknown, requestedUrls: ReadonlySet<string>): Readonly<Record<string, string>> {
@@ -430,6 +443,39 @@ export function createCoordinatorClient(
           origin,
         ),
       );
+    },
+    async getMailboxChanges(afterRevision: number): Promise<MailboxChanges> {
+      if (!Number.isSafeInteger(afterRevision) || afterRevision < 0) {
+        throw new CoordinatorError(400, 'invalid_mailbox_cursor', 'Mailbox revision is malformed.');
+      }
+      const body = asRecord(await call(resolved, {
+        method: 'GET', url: `${origin}/v1/mailbox/changes?after=${afterRevision}`,
+      }, 2_097_152, origin));
+      const page = mailboxPage(body);
+      const changes = asRecord(body.changes);
+      if (
+        page.revision === undefined || page.nextCursor !== null ||
+        !Number.isSafeInteger(changes.nextRevision) || Number(changes.nextRevision) < afterRevision ||
+        Number(changes.nextRevision) > page.revision ||
+        typeof changes.hasMore !== 'boolean' ||
+        (changes.hasMore && Number(changes.nextRevision) <= afterRevision) ||
+        (!changes.hasMore && changes.nextRevision !== page.revision) ||
+        !Array.isArray(changes.deletedThreads) ||
+        changes.deletedThreads.length + page.mailbox.threads.length > maximumMailboxPageThreads ||
+        !changes.deletedThreads.every((item: unknown) => {
+          const row = asRecord(item);
+          return isSafeMailIdentifier(row.accountId) && isSafeMailIdentifier(row.threadId);
+        })
+      ) {
+        throw new CoordinatorError(502, 'invalid_response', 'Mailbox changes are malformed.');
+      }
+      const deletedThreads = changes.deletedThreads as MailboxChanges['deletedThreads'];
+      const deletedKeys = new Set(deletedThreads.map(item => `${item.accountId}\u0000${item.threadId}`));
+      if (page.mailbox.threads.some(item => deletedKeys.has(`${item.accountId}\u0000${item.threadId}`))) {
+        throw new CoordinatorError(502, 'invalid_response', 'Mailbox change identities conflict.');
+      }
+      return { ...page, revision: page.revision, nextRevision: Number(changes.nextRevision),
+        hasMore: changes.hasMore, deletedThreads };
     },
     async getMailbox(options: MailboxLoadOptions = {}): Promise<MailboxSnapshot> {
       const threads: MailboxSnapshot['threads'][number][] = [];

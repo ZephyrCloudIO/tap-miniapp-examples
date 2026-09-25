@@ -186,7 +186,7 @@ describe('bounded conversation history', () => {
 
   it('refreshes an existing truncated cache before reporting complete history', async () => {
     await seedBodies(Array.from({ length: 20 }, () => ['cached', ''] as [string, string]));
-    // Migration 0013 invalidates old completeness this way without removing cached mail.
+    // Migration 0014 invalidates old completeness this way without removing cached mail.
     await env.DB.prepare("UPDATE mail_threads SET content_state = 'metadata' WHERE profile_id = ?")
       .bind(scope.profileId).run();
     provider(Array.from({ length: 25 }, (_, index) => providerMessage(index, `Restored ${index}`, '<b>body</b>')));
