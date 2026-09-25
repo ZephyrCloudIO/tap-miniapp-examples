@@ -26,13 +26,11 @@ if (!validate(manifest)) {
   console.error(validate.errors);
   process.exit(1);
 }
-const specialistAssetUrl = new URL(
-  '../specialists/tap-email-specialist/0.2.0.json',
-  import.meta.url,
-);
+const specialistAssetPath = `specialists/tap-email-specialist/${manifest.versionLabel}.json`;
+const specialistAssetUrl = new URL(`../${specialistAssetPath}`, import.meta.url);
 const specialistAsset = JSON.parse(fs.readFileSync(specialistAssetUrl, 'utf8'));
 const emailOperationsSkillUrl = new URL(
-  '../skills/email-operations/0.2.0/SKILL.md',
+  `../skills/email-operations/${manifest.versionLabel}/SKILL.md`,
   import.meta.url,
 );
 const liveMcpInputSchemaNames = [
@@ -73,8 +71,10 @@ assert.ok(specialist, 'TAP Email specialist contribution is required.');
 assert.ok(mcpServer, 'TAP Email MCP contribution is required.');
 assert.equal(
   specialist.options.manifest,
-  'specialists/tap-email-specialist/0.2.0.json',
+  specialistAssetPath,
 );
+assert.equal(specialistAsset.version, manifest.versionLabel);
+assert.equal(specialistAsset.name, `tap-email-specialist@${manifest.versionLabel}`);
 assert.deepEqual(mcpServer.options.consumerPolicy.contributionIds, [
   'tap-email-specialist',
 ]);
@@ -94,6 +94,7 @@ assert.deepEqual(emailOperationsSkill.authorization.allOf, ['tap-email.view']);
 assert.deepEqual(emailOperationsSkill.options.files, ['SKILL.md']);
 assert.ok(fs.existsSync(emailOperationsSkillUrl), 'Email operations SKILL.md is required.');
 const skillSource = fs.readFileSync(emailOperationsSkillUrl, 'utf8');
+assert.equal(skillSource.match(/^version: (.+)$/mu)?.[1], manifest.versionLabel);
 for (const toolName of [
   'get_mailbox_summary',
   'get_active_email_context',
