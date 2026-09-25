@@ -504,6 +504,8 @@ describe('TAP Email coordinator client', () => {
               thread: {
                 accountId: 'acct_1',
                 threadId: 'thread_1',
+                providerRevision: 'history_1',
+                pageInfo: { nextCursor: null, complete: true },
                 messages: [
                   {
                     messageId: 'message_1',
@@ -560,6 +562,8 @@ describe('TAP Email coordinator client', () => {
           thread: {
             accountId: 'acct_1',
             threadId: 'thread_1',
+            providerRevision: 'history_1',
+            pageInfo: { nextCursor: null, complete: true },
             messages: [
               {
                 messageId: 'message_1',

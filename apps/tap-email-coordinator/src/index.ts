@@ -36,6 +36,7 @@ import {
   storedMessageRichBody,
   syncGoogleMailbox,
   threadSnapshot,
+  ThreadPageError,
 } from './mailbox';
 import {
   beginGoogleOAuth,
@@ -2323,7 +2324,7 @@ export function createTapEmailCoordinator(
           if (!isSafeMailIdentifier(accountId) || !isSafeMailIdentifier(threadId)) {
             throw new ApiError(400, 'invalid_thread', 'The Gmail thread identity is invalid.');
           }
-          const snapshot = await threadSnapshot(env, identity.profileId, accountId, threadId, now());
+          const snapshot = await threadSnapshot(env, identity.profileId, accountId, threadId, now(), url.searchParams.get('cursor') ?? undefined);
           if (!snapshot) throw new ApiError(404, 'thread_not_found', 'The Gmail thread was not found.');
           return json({ thread: snapshot }, 200, cors);
         }
@@ -2373,6 +2374,7 @@ export function createTapEmailCoordinator(
           error instanceof GoogleApiError ||
           error instanceof AttachmentContentError ||
           error instanceof MailboxPageError ||
+          error instanceof ThreadPageError ||
           error instanceof RemoteImageProxyError ||
           error instanceof OutboundAttachmentError
             ? error
@@ -2384,6 +2386,7 @@ export function createTapEmailCoordinator(
           !(error instanceof GoogleApiError) &&
           !(error instanceof AttachmentContentError) &&
           !(error instanceof MailboxPageError) &&
+          !(error instanceof ThreadPageError) &&
           !(error instanceof RemoteImageProxyError) &&
           !(error instanceof OutboundAttachmentError)
         ) {

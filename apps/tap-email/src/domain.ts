@@ -642,7 +642,6 @@ export function isEmailThread(value: unknown): value is EmailThread {
     value.labels.length <= 100 &&
     value.labels.every(label => isBoundedString(label, 256)) &&
     Array.isArray(value.messages) &&
-    value.messages.length <= 1_000 &&
     value.messages.every(isEmailMessage) &&
     isReminder(value.reminder) &&
     isThreadAttentionCorrection(value.attentionCorrection)

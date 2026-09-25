@@ -74,6 +74,26 @@ connectivity. Neither route returns configuration or secret values.
 
 ## Production
 
+Conversation detail reads use `GET /v1/accounts/:accountId/threads/:threadId`
+with an optional `cursor` query parameter. Each response includes
+`thread.providerRevision` and `thread.pageInfo: { nextCursor, complete }`.
+Pages visit newest messages first, with messages inside each page in chronological
+order. Cursors bind the profile, account, thread, and provider revision; a
+`409 thread_changed` requires restarting at the first page.
+
+Pages contain at most 20 messages and target 2 MiB of serialized UTF-8 JSON,
+including the response envelope and cursor. One heavily escaped message may
+exceed the target, up to the shared 8 MiB producer/client ceiling. Bodies and
+attachment metadata are preserved. Oversized provider threads retain all message
+identities and fetch older bodies on demand. Failed body reads return actionable
+errors rather than successful empty messages.
+
+Apply migration `0013_conversation_history.sql` before deploying this coordinator,
+then release the matching email client. The migration marks previously cached
+conversations for refresh on their next read because earlier versions may have
+discarded messages beyond the newest 20. The new client requires explicit page
+information and provides “Load older messages” and retry controls.
+
 The production environment binds the custom domain
 `tap-email-coordinator.theaiplatform.app`. Confirm that domain is in the target
 Cloudflare account.
