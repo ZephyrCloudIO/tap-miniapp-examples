@@ -23,7 +23,7 @@ import {
   type LoadMessageAttachment,
   type SaveMessageAttachment,
 } from './message-attachments';
-import { RichMessageBody } from './rich-message';
+import { plainTextFromRichMessage, RichMessageBody } from './rich-message';
 
 export type ContextualRemoteImageLoader = (
   context: RemoteImageMessageContext,
@@ -45,6 +45,7 @@ export type ContextualAttachmentLoader = (
 interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
   readonly appTheme: MiniAppTheme;
   readonly html: string;
+  readonly scriptsEnabled?: boolean;
   readonly imagesEnabled: boolean;
   readonly loadRemoteImages: ContextualRemoteImageLoader;
   readonly onKeyDown: (event: globalThis.KeyboardEvent) => void;
@@ -57,6 +58,8 @@ export interface ThreadMessageListProps {
   readonly appTheme: MiniAppTheme;
   readonly attachmentExportSupported: boolean;
   readonly expansionRequest?: MessageExpansionRequest | null;
+  readonly htmlEnabled?: boolean;
+  readonly scriptsEnabled?: boolean;
   readonly imagesEnabled: boolean;
   readonly loadAttachment: ContextualAttachmentLoader | null;
   readonly loadRemoteImages: ContextualRemoteImageLoader;
@@ -174,6 +177,7 @@ function CachedRichMessageBody({
   appTheme,
   html,
   imagesEnabled,
+  scriptsEnabled = true,
   loadRemoteImages,
   messageId,
   onKeyDown,
@@ -192,6 +196,7 @@ function CachedRichMessageBody({
     <RichMessageBody
       html={html}
       imagesEnabled={imagesEnabled}
+      scriptsEnabled={scriptsEnabled}
       loadRemoteImages={loadMessageImages}
       onKeyDown={onKeyDown}
       theme={appTheme}
@@ -233,12 +238,14 @@ function MessageHeaderContent({
 }
 
 function ThreadMessageCard({
+  htmlEnabled = true,
   accountId,
   appTheme,
   attachmentExportSupported,
   collapsible,
   expanded,
   imagesEnabled,
+  scriptsEnabled = true,
   loadAttachment,
   loadRemoteImages,
   message,
@@ -297,12 +304,13 @@ function ThreadMessageCard({
       )}
       {expanded ? (
         <div className="thread-message-content" id={contentId}>
-          {message.bodyHtml ? (
+          {htmlEnabled && message.bodyHtml ? (
             <CachedRichMessageBody
               accountId={accountId}
               appTheme={appTheme}
               html={message.bodyHtml}
               imagesEnabled={imagesEnabled}
+              scriptsEnabled={scriptsEnabled}
               loadRemoteImages={loadRemoteImages}
               messageId={message.messageId}
               onKeyDown={onKeyDown}
@@ -311,7 +319,7 @@ function ThreadMessageCard({
               trackingPixelsEnabled={trackingPixelsEnabled}
             />
           ) : (
-            <PlainMessageBody bodyText={message.bodyText} />
+            <PlainMessageBody bodyText={message.bodyText.trim() ? message.bodyText : plainTextFromRichMessage(message.bodyHtml ?? '')} />
           )}
           <MessageAttachments
             attachments={message.attachments ?? []}
@@ -336,7 +344,9 @@ export function ThreadMessageList({
   appTheme,
   attachmentExportSupported,
   expansionRequest,
+  htmlEnabled = true,
   imagesEnabled,
+  scriptsEnabled = true,
   loadAttachment,
   loadRemoteImages,
   messages,
@@ -400,12 +410,14 @@ export function ThreadMessageList({
 
   return messages.map(message => (
     <ThreadMessageCard
+      htmlEnabled={htmlEnabled}
       accountId={accountId}
       appTheme={appTheme}
       attachmentExportSupported={attachmentExportSupported}
       collapsible={collapsible}
       expanded={!collapsible || (expansionOverrides[message.messageId] ?? message.messageId === latestMessageId)}
       imagesEnabled={imagesEnabled}
+      scriptsEnabled={scriptsEnabled}
       key={message.messageId}
       loadAttachment={loadAttachment}
       loadRemoteImages={loadRemoteImages}

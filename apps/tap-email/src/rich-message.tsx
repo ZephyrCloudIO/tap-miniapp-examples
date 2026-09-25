@@ -13,6 +13,8 @@ import {
   bridgeRichMessageWheel,
 } from './iframe-scroll';
 import { watchRichMessageLayout } from './iframe-layout';
+import { readableFrameDocument } from './iframe-document';
+import { isolatedMessageRenderer, IsolatedMessageFrame } from './isolated-message-frame';
 
 const allowedTags = [
   'a',
@@ -553,10 +555,31 @@ function hydrateRemoteImages(
   return parsed.documentElement.outerHTML;
 }
 
-function createSanitizedDocument(value: string): Document {
-  const sanitized = purifier.sanitize(value, purifierConfig);
+function createSanitizedDocument(value: string, scriptsEnabled = false): Document {
+  const eventAttributes = new Set<string>();
+  if (scriptsEnabled) {
+    const inert = new DOMParser().parseFromString(value, 'text/html');
+    for (const script of inert.querySelectorAll('script[src]')) script.remove();
+    for (const element of inert.querySelectorAll('*')) {
+      for (const attribute of element.attributes) {
+        if (/^on[a-z]+$/u.test(attribute.name)) eventAttributes.add(attribute.name);
+      }
+    }
+    value = inert.documentElement.outerHTML;
+  }
+  const sanitized = purifier.sanitize(value, scriptsEnabled ? {
+    ...purifierConfig,
+    ALLOWED_TAGS: [...allowedTags, 'script', 'button', 'input', 'select', 'option', 'textarea', 'label'],
+    ALLOWED_ATTR: [...allowedAttributes, 'value', 'checked', 'disabled', 'name', 'for'],
+    ADD_ATTR: [...eventAttributes],
+    ADD_URI_SAFE_ATTR: [...safePresentationAttributes, ...eventAttributes],
+    ALLOW_DATA_ATTR: true,
+    SANITIZE_NAMED_PROPS: false,
+    FORBID_TAGS: purifierConfig.FORBID_TAGS?.filter(tag => !['script', 'button', 'input', 'select', 'textarea'].includes(tag)),
+  } : purifierConfig);
   const parsed = new DOMParser().parseFromString(String(sanitized), 'text/html');
 
+  for (const script of parsed.querySelectorAll('script[src]')) script.remove();
   for (const style of parsed.querySelectorAll('style')) {
     const safeCss = sanitizeRichMessageCss(style.textContent ?? '');
     if (safeCss.trim()) style.textContent = safeCss;
@@ -641,16 +664,33 @@ export function sanitizeRichMessageHtml(value: string): string {
   return createSanitizedDocument(value).documentElement.outerHTML;
 }
 
+/** Extract text without evaluating sender markup, including HTML-only messages. */
+export function plainTextFromRichMessage(value: string): string {
+  const parsed = createSanitizedDocument(value);
+  for (const element of parsed.querySelectorAll('style, script')) element.remove();
+  for (const element of parsed.querySelectorAll('br, p, div, tr, li, blockquote, h1, h2, h3')) {
+    element.append(parsed.createTextNode('\n'));
+  }
+  return (parsed.body.textContent ?? '').replace(/[^\S\n]+/gu, ' ').replace(/\n[ \t]+/gu, '\n').replace(/\n{3,}/gu, '\n\n').trim();
+}
+
+export function hasEmbeddedMessageScripts(value: string): boolean {
+  const parsed = new DOMParser().parseFromString(value, 'text/html');
+  return parsed.querySelector('script:not([src])') !== null || Array.from(parsed.querySelectorAll('*'))
+    .some(element => Array.from(element.attributes).some(attribute => /^on[a-z]+$/u.test(attribute.name)));
+}
+
 export function buildRichMessageDocument(
   value: string,
   remoteImages: Readonly<Record<string, string>> = {},
   options: {
+    readonly scriptsEnabled?: boolean;
     readonly presentation?: RichMessagePresentation;
     readonly showQuotedContent?: boolean;
     readonly theme?: MiniAppTheme;
   } = {},
 ): string {
-  const parsed = createSanitizedDocument(hydrateRemoteImages(value, remoteImages));
+  const parsed = createSanitizedDocument(hydrateRemoteImages(value, remoteImages), options.scriptsEnabled);
   const presentation = options.presentation ?? richMessagePresentation(value);
   const showQuotedContent = options.showQuotedContent ?? false;
   const theme = options.theme ?? 'light';
@@ -660,7 +700,9 @@ export function buildRichMessageDocument(
   charset.setAttribute('charset', 'utf-8');
   const policy = parsed.createElement('meta');
   policy.setAttribute('http-equiv', 'Content-Security-Policy');
-  policy.setAttribute('content', richMessageContentSecurityPolicy);
+  policy.setAttribute('content', options.scriptsEnabled
+    ? richMessageContentSecurityPolicy.replace("script-src 'none'", "script-src 'unsafe-inline'")
+    : richMessageContentSecurityPolicy);
   const viewport = parsed.createElement('meta');
   viewport.setAttribute('name', 'viewport');
   viewport.setAttribute('content', 'width=device-width, initial-scale=1');
@@ -681,8 +723,12 @@ const maximumFrameHeight = 12_000;
 export const richMessageGutter = 'clamp(16px, 2.4vw, 26px)';
 
 function measuredFrameHeight(frame: HTMLIFrameElement): number {
-  const document = frame.contentDocument;
-  if (!document) return minimumFrameHeight;
+  const document = readableFrameDocument(frame);
+  // Opaque documents retain native scrolling without relaxing their sandbox.
+  if (!document) return Math.min(maximumFrameHeight, Math.max(
+    minimumFrameHeight,
+    frame.closest<HTMLElement>('.message-body')?.clientHeight || 480,
+  ));
   const height = Math.max(
     document.body?.scrollHeight ?? 0,
     document.documentElement.scrollHeight,
@@ -692,6 +738,7 @@ function measuredFrameHeight(frame: HTMLIFrameElement): number {
 
 interface RichMessageBodyProps {
   readonly html: string;
+  readonly scriptsEnabled?: boolean;
   readonly imagesEnabled?: boolean;
   readonly loadRemoteImages?: (
     urls: readonly string[],
@@ -706,7 +753,7 @@ export function listenForRichMessageKeyDown(
   frame: HTMLIFrameElement,
   listener: (event: KeyboardEvent) => void,
 ): () => void {
-  const document = frame.contentDocument;
+  const document = readableFrameDocument(frame);
   if (!document) return () => undefined;
   document.addEventListener('keydown', listener);
   return () => document.removeEventListener('keydown', listener);
@@ -715,6 +762,7 @@ export function listenForRichMessageKeyDown(
 export function RichMessageBody({
   html,
   imagesEnabled = false,
+  scriptsEnabled = true,
   loadRemoteImages,
   onKeyDown,
   theme = 'light',
@@ -722,6 +770,16 @@ export function RichMessageBody({
   trackingPixelsEnabled = false,
 }: RichMessageBodyProps) {
   const frameId = useId();
+  const containsScripts = useMemo(() => hasEmbeddedMessageScripts(html), [html]);
+  const [rendererUrl, setRendererUrl] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!scriptsEnabled || !containsScripts) return;
+    let active = true;
+    void isolatedMessageRenderer().then(url => { if (active) setRendererUrl(url); });
+    return () => { active = false; };
+  }, [scriptsEnabled, containsScripts]);
+  const disableUnavailableRenderer = useCallback(() => setRendererUrl(null), []);
+  const runScripts = scriptsEnabled && containsScripts && typeof rendererUrl === 'string';
   const presentation = useMemo(() => richMessagePresentation(html), [html]);
   const hasQuotedContent = useMemo(() => hasKnownQuotedContent(html), [html]);
   const [quoteDisclosure, setQuoteDisclosure] = useState({ html, shown: false });
@@ -737,10 +795,11 @@ export function RichMessageBody({
   const source = useMemo(
     () => buildRichMessageDocument(html, remoteImages, {
       presentation,
+      scriptsEnabled: runScripts,
       showQuotedContent,
       theme,
     }),
-    [html, presentation, remoteImages, showQuotedContent, theme],
+    [html, presentation, remoteImages, runScripts, showQuotedContent, theme],
   );
   const frameRef = useRef<HTMLIFrameElement>(null);
   const heightUpdateTimerRef = useRef<number | null>(null);
@@ -844,7 +903,18 @@ export function RichMessageBody({
       data-theme={theme}
       style={{ padding: richMessageGutter }}
     >
-      <iframe
+      {runScripts && rendererUrl ? <IsolatedMessageFrame
+        key={source}
+        onFailure={disableUnavailableRenderer}
+        source={source}
+        url={rendererUrl}
+        title={title}
+        id={frameId}
+        presentation={presentation}
+        theme={theme}
+      /> : <iframe
+        // TAP can prohibit navigation while the scriptless frame is guarded.
+        key={source}
         className="rich-message-frame"
         data-presentation={presentation}
         data-theme={theme}
@@ -856,7 +926,10 @@ export function RichMessageBody({
         srcDoc={source}
         style={{ height }}
         title={title}
-      />
+      />}
+      {scriptsEnabled && containsScripts && rendererUrl === null ? (
+        <p className="remote-image-status" role="status">Embedded JavaScript is unavailable in this TAP session. Showing the static HTML message.</p>
+      ) : null}
       {hasQuotedContent ? (
         <button
           aria-controls={frameId}

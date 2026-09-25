@@ -13,6 +13,10 @@ import type {
   ScheduledSendSummary,
 } from '@tap-examples/tap-email-protocol';
 import {
+  MAXIMUM_THREAD_RESPONSE_BYTES,
+  MAXIMUM_THREAD_PAGE_MESSAGES,
+  MAXIMUM_THREAD_CURSOR_LENGTH,
+  serializedUtf8Bytes,
   isAccountCoverage,
   isMailCommandReceipt,
   isMailDraftAttachment,
@@ -102,6 +106,21 @@ export interface StageOutboundAttachmentInput {
   readonly fileName: string;
   readonly mimeType: string;
   readonly bytes: Uint8Array;
+}
+
+export interface ThreadPage {
+  readonly messages: readonly EmailMessage[];
+  readonly providerRevision: string;
+  readonly nextCursor: string | null;
+  readonly complete: boolean;
+}
+
+/** Pages arrive newest first, while each page is in conversation order. */
+export function mergeConversationPage(
+  current: readonly EmailMessage[], older: readonly EmailMessage[],
+): readonly EmailMessage[] {
+  const seen = new Set(current.map(message => message.messageId));
+  return [...older.filter(message => !seen.has(message.messageId)), ...current];
 }
 
 export class CoordinatorError extends Error {
@@ -243,6 +262,15 @@ async function call(
 export interface MailboxPage {
   readonly mailbox: MailboxSnapshot;
   readonly nextCursor: string | null;
+  /** Absent only on older coordinators; never use an unversioned page to reconcile. */
+  readonly revision?: number;
+}
+
+export interface MailboxChanges extends MailboxPage {
+  readonly revision: number;
+  readonly nextRevision: number;
+  readonly hasMore: boolean;
+  readonly deletedThreads: readonly { readonly accountId: string; readonly threadId: string }[];
 }
 
 export interface MailboxLoadProgress extends MailboxPage {
@@ -278,7 +306,11 @@ function mailboxPage(value: unknown): MailboxPage {
   ) {
     throw new CoordinatorError(502, 'invalid_response', 'Mailbox page cursor is malformed.');
   }
-  return { mailbox, nextCursor };
+  const revision = pageInfo.revision;
+  if (revision !== undefined && (!Number.isSafeInteger(revision) || Number(revision) < 0)) {
+    throw new CoordinatorError(502, 'invalid_response', 'Mailbox revision is malformed.');
+  }
+  return { mailbox, nextCursor, ...(revision === undefined ? {} : { revision: Number(revision) }) };
 }
 
 function remoteImages(value: unknown, requestedUrls: ReadonlySet<string>): Readonly<Record<string, string>> {
@@ -412,6 +444,39 @@ export function createCoordinatorClient(
         ),
       );
     },
+    async getMailboxChanges(afterRevision: number): Promise<MailboxChanges> {
+      if (!Number.isSafeInteger(afterRevision) || afterRevision < 0) {
+        throw new CoordinatorError(400, 'invalid_mailbox_cursor', 'Mailbox revision is malformed.');
+      }
+      const body = asRecord(await call(resolved, {
+        method: 'GET', url: `${origin}/v1/mailbox/changes?after=${afterRevision}`,
+      }, 2_097_152, origin));
+      const page = mailboxPage(body);
+      const changes = asRecord(body.changes);
+      if (
+        page.revision === undefined || page.nextCursor !== null ||
+        !Number.isSafeInteger(changes.nextRevision) || Number(changes.nextRevision) < afterRevision ||
+        Number(changes.nextRevision) > page.revision ||
+        typeof changes.hasMore !== 'boolean' ||
+        (changes.hasMore && Number(changes.nextRevision) <= afterRevision) ||
+        (!changes.hasMore && changes.nextRevision !== page.revision) ||
+        !Array.isArray(changes.deletedThreads) ||
+        changes.deletedThreads.length + page.mailbox.threads.length > maximumMailboxPageThreads ||
+        !changes.deletedThreads.every((item: unknown) => {
+          const row = asRecord(item);
+          return isSafeMailIdentifier(row.accountId) && isSafeMailIdentifier(row.threadId);
+        })
+      ) {
+        throw new CoordinatorError(502, 'invalid_response', 'Mailbox changes are malformed.');
+      }
+      const deletedThreads = changes.deletedThreads as MailboxChanges['deletedThreads'];
+      const deletedKeys = new Set(deletedThreads.map(item => `${item.accountId}\u0000${item.threadId}`));
+      if (page.mailbox.threads.some(item => deletedKeys.has(`${item.accountId}\u0000${item.threadId}`))) {
+        throw new CoordinatorError(502, 'invalid_response', 'Mailbox change identities conflict.');
+      }
+      return { ...page, revision: page.revision, nextRevision: Number(changes.nextRevision),
+        hasMore: changes.hasMore, deletedThreads };
+    },
     async getMailbox(options: MailboxLoadOptions = {}): Promise<MailboxSnapshot> {
       const threads: MailboxSnapshot['threads'][number][] = [];
       const seenThreadKeys = new Set<string>();
@@ -459,23 +524,53 @@ export function createCoordinatorClient(
         cursor = page.nextCursor;
       }
     },
-    async getThread(accountId: string, threadId: string): Promise<readonly EmailMessage[]> {
-      const body = asRecord(
-        await call(
-          resolved,
-          {
-            method: 'GET',
-            url: `${origin}/v1/accounts/${encodeURIComponent(accountId)}/threads/${encodeURIComponent(threadId)}`,
-          },
-          2_097_152,
-          origin,
-        ),
-      );
-      const thread = asRecord(body.thread);
-      if (!Array.isArray(thread.messages) || !thread.messages.every(isEmailMessage)) {
-        throw new CoordinatorError(502, 'invalid_response', 'Thread response is malformed.');
+    async getThreadPage(accountId: string, threadId: string, cursor: string | null = null): Promise<ThreadPage> {
+      if (!isSafeMailIdentifier(accountId) || !isSafeMailIdentifier(threadId) ||
+          (cursor !== null && (!cursor || cursor.length > MAXIMUM_THREAD_CURSOR_LENGTH))) {
+        throw new CoordinatorError(400, 'invalid_thread_cursor', 'Conversation identity or cursor is invalid.');
       }
-      return thread.messages;
+      const body = asRecord(await call(resolved, {
+        method: 'GET',
+        url: `${origin}/v1/accounts/${encodeURIComponent(accountId)}/threads/${encodeURIComponent(threadId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+      }, MAXIMUM_THREAD_RESPONSE_BYTES, origin));
+      const thread = asRecord(body.thread);
+      const pageInfo = asRecord(thread.pageInfo);
+      const nextCursor = pageInfo.nextCursor;
+      if (serializedUtf8Bytes(body) > MAXIMUM_THREAD_RESPONSE_BYTES ||
+          thread.accountId !== accountId || thread.threadId !== threadId ||
+          typeof thread.providerRevision !== 'string' || !thread.providerRevision ||
+          !Array.isArray(thread.messages) || thread.messages.length > MAXIMUM_THREAD_PAGE_MESSAGES ||
+          !thread.messages.every(isEmailMessage) ||
+          new Set(thread.messages.map(message => message.messageId)).size !== thread.messages.length ||
+          (nextCursor !== null && (typeof nextCursor !== 'string' || !nextCursor ||
+            nextCursor.length > MAXIMUM_THREAD_CURSOR_LENGTH || nextCursor === cursor || thread.messages.length === 0)) ||
+          pageInfo.complete !== (nextCursor === null)) {
+        throw new CoordinatorError(502, 'invalid_response', 'Conversation page is malformed.');
+      }
+      return { messages: thread.messages, providerRevision: thread.providerRevision,
+        nextCursor: nextCursor as string | null, complete: pageInfo.complete as boolean };
+    },
+    async getThread(accountId: string, threadId: string): Promise<readonly EmailMessage[]> {
+      let messages: readonly EmailMessage[] = [];
+      let cursor: string | null = null;
+      let revision: string | null = null;
+      const seen = new Set<string>();
+      do {
+        const page = await this.getThreadPage(accountId, threadId, cursor);
+        if ((revision !== null && page.providerRevision !== revision) ||
+            (page.nextCursor !== null && seen.has(page.nextCursor))) {
+          throw new CoordinatorError(409, 'thread_changed', 'Reload this conversation to continue.');
+        }
+        revision = page.providerRevision;
+        const merged = mergeConversationPage(messages, page.messages);
+        if (cursor !== null && merged.length === messages.length) {
+          throw new CoordinatorError(502, 'invalid_response', 'Conversation pagination did not advance.');
+        }
+        messages = merged;
+        cursor = page.nextCursor;
+        if (cursor !== null) seen.add(cursor);
+      } while (cursor !== null);
+      return messages;
     },
     async getScheduledSends(): Promise<readonly ScheduledSendSummary[]> {
       const body = asRecord(

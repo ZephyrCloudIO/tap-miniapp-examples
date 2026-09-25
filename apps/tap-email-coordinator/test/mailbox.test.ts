@@ -984,8 +984,8 @@ describe('Google mailbox synchronization', () => {
       'google_attachments',
       'thread_attachments',
       now,
-    ) as { messages: Array<Record<string, unknown>> };
-    expect(snapshot.messages[0]).toMatchObject({
+    );
+    expect(snapshot!.messages[0]).toMatchObject({
       bodyText: 'This is the actual message.',
       bodyHtml: '<p>This is the <b>actual message</b>.</p>',
       attachments: [
@@ -1012,16 +1012,13 @@ describe('Google mailbox synchronization', () => {
         },
       ],
     });
-    const attachments = snapshot.messages[0]!.attachments as Array<{ resourceId: string }>;
+    const attachments = snapshot!.messages[0]!.attachments;
     expect(new Set(attachments.map(attachment => attachment.resourceId)).size).toBe(3);
     expect(attachments.every(attachment => /^att_[A-Za-z0-9_-]{43}$/u.test(attachment.resourceId))).toBe(true);
     expect(JSON.stringify(snapshot)).not.toContain('gmail_secret_locator');
     expect(JSON.stringify(snapshot)).not.toContain(encodeBase64Url('PNG'));
     expect(paths.some(path => path.includes('/attachments/'))).toBe(false);
-    const logoResourceId = (snapshot.messages[0]!.attachments as Array<{
-      fileName: string;
-      resourceId: string;
-    }>).find(attachment => attachment.fileName === 'logo.png')!.resourceId;
+    const logoResourceId = snapshot!.messages[0]!.attachments.find(attachment => attachment.fileName === 'logo.png')!.resourceId;
 
     const stored = await env.DB.prepare(
       `SELECT file_name, gmail_part_path, gmail_attachment_id_ciphertext
@@ -1071,8 +1068,8 @@ describe('Google mailbox synchronization', () => {
       'google_attachments',
       'thread_attachments',
       now,
-    ) as { messages: Array<{ attachments: Array<{ fileName: string; resourceId: string }> }> };
-    expect(refreshed.messages[0]!.attachments.find(
+    );
+    expect(refreshed!.messages[0]!.attachments.find(
       attachment => attachment.fileName === 'logo.png',
     )?.resourceId).toBe(logoResourceId);
 
@@ -1082,7 +1079,7 @@ describe('Google mailbox synchronization', () => {
     expect(await env.DB.prepare(
       `SELECT COUNT(*) AS attachment_count FROM mail_attachments
         WHERE profile_id = 'profile_attachments' AND thread_id = 'thread_attachments'`,
-    ).first<{ attachment_count: number }>()).toEqual({ attachment_count: 100 });
+    ).first<{ attachment_count: number }>()).toEqual({ attachment_count: 120 });
     expect((await env.DB.prepare(
       `SELECT message_id, COUNT(*) AS attachment_count
          FROM mail_attachments
@@ -1090,7 +1087,7 @@ describe('Google mailbox synchronization', () => {
         GROUP BY message_id
         ORDER BY message_id`,
     ).all<{ message_id: string; attachment_count: number }>()).results).toEqual([
-      { message_id: 'message_attachment_flood_0', attachment_count: 40 },
+      { message_id: 'message_attachment_flood_0', attachment_count: 60 },
       { message_id: 'message_attachment_flood_1', attachment_count: 60 },
     ]);
   });
@@ -1171,7 +1168,7 @@ describe('Google mailbox synchronization', () => {
     expect(snapshot).toMatchObject({
       messages: [{ bodyHtml: html }],
     });
-    const bodyText = (snapshot as { messages: Array<{ bodyText: string }> }).messages[0]!.bodyText;
+    const bodyText = snapshot!.messages[0]!.bodyText;
     expect(bodyText).toContain('Rich alert');
     expect(bodyText).toContain('Open dashboard.');
     expect(bodyText).not.toContain('<style>');

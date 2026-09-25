@@ -55,6 +55,18 @@ jobs:
           apps/tap-email/.tap-package
           apps/tap-email/.tap-build
 
+      - name: Archive source maps for this exact build
+        uses: actions/upload-artifact@v4
+        with:
+          name: tap-email-diagnostics-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            apps/tap-email/.tap-diagnostics/desktop/
+            apps/tap-email/.tap-diagnostics/quickjs/
+            apps/tap-email/.tap-package/manifest.tap.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publish to Zephyr Cloud
         env:
           ZE_CI_TOKEN: ${{ secrets.ZE_CI_TOKEN }}
