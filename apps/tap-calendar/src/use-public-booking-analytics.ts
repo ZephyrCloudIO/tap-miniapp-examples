@@ -19,7 +19,11 @@ export function usePublicBookingAnalytics(gateway: CalendarGatewayClient, enable
     let active = true;
     let running = false;
     const load = async () => {
-      if (running || document.visibilityState === "hidden" || navigator.onLine === false) return;
+      if (navigator.onLine === false) {
+        if (active) setError("Offline. Booking analytics cannot refresh.");
+        return;
+      }
+      if (running || document.visibilityState === "hidden") return;
       running = true;
       setLoading(true);
       try {
@@ -40,12 +44,14 @@ export function usePublicBookingAnalytics(gateway: CalendarGatewayClient, enable
     const timer = globalThis.setInterval(catchUp, 60_000);
     globalThis.addEventListener("focus", catchUp);
     globalThis.addEventListener("online", catchUp);
+    globalThis.addEventListener("offline", catchUp);
     document.addEventListener("visibilitychange", catchUp);
     return () => {
       active = false;
       globalThis.clearInterval(timer);
       globalThis.removeEventListener("focus", catchUp);
       globalThis.removeEventListener("online", catchUp);
+      globalThis.removeEventListener("offline", catchUp);
       document.removeEventListener("visibilitychange", catchUp);
     };
   }, [gateway, enabled, attempt]);

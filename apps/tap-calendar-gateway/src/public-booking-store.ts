@@ -1,3 +1,4 @@
+import { PUBLIC_VISIT_ID_PATTERN } from "./public-booking-analytics";
 import type {
   PublicBookingAttempt,
   PublicBookingAttemptClaim,
@@ -183,6 +184,9 @@ const claimScope = (input: PublicBookingAttemptClaim): void => {
   requiredText(input.scope.principal, "principal", 1, 255);
   requiredText(input.idempotencyKey, "idempotencyKey", 16, 255);
   requiredText(input.requestHash, "requestHash", 16, 128);
+  if (input.visitId !== undefined && !PUBLIC_VISIT_ID_PATTERN.test(input.visitId)) {
+    throw new PublicBookingStoreError("invalid_store_input", "visitId must be an anonymous v4 UUID.");
+  }
   requiredText(input.slotProofFingerprint, "slotProofFingerprint", 16, 128);
   requiredText(input.providerOperationId, "providerOperationId", 16, 255);
   requiredText(input.revisionId, "revisionId", 8, 255);
@@ -400,10 +404,10 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
            provider_operation_id, booking_reference, revision_id, start_at,
            end_at, guest_name, guest_email, approval_expires_at, state,
            response_json, rejection_code, last_error_code,
-           created_at, updated_at
+           created_at, updated_at, visit_id
          )
          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                'pending', NULL, NULL, NULL, ?, ?
+                'pending', NULL, NULL, NULL, ?, ?, ?
           WHERE NOT EXISTS (
             SELECT 1
               FROM public_booking_slot_proof_uses
@@ -425,6 +429,7 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
         input.approvalExpiresAt,
         now,
         now,
+        input.visitId ?? null,
         input.scope.workspace,
         input.scope.principal,
         input.slotProofFingerprint,
@@ -496,7 +501,8 @@ export class D1PublicBookingAttemptStore implements PublicBookingAttemptStore {
       input.scope.workspace,
       input.scope.principal,
     );
-    return Number(results[0]?.meta.changes ?? 0) === 1
+    // A first claim also records its visit through a transactional trigger.
+    return Number(results[0]?.meta.changes ?? 0) > 0
       ? { kind: "claimed", attempt }
       : { kind: "existing", attempt };
   }

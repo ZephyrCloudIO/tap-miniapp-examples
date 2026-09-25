@@ -1131,3 +1131,8 @@ p { text-wrap: pretty; }
 .shared-booking-panel small { color: var(--muted-foreground); overflow-wrap: anywhere; }
 .shared-booking-error { color: #ad2828; }
 .shared-booking-actions { justify-content: flex-start; }
+
+.booking-metric-breakdown { display: flex; flex-wrap: wrap; gap: 1rem 2rem; color: var(--muted-foreground); font-size: 0.85rem; }
+.booking-metric-breakdown span { display: flex; align-items: baseline; gap: 0.5rem; }
+.booking-metric-breakdown strong { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.booking-metric-breakdown.compact { margin: 0 0 1rem; font-size: 0.75rem; }

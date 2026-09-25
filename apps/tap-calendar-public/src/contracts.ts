@@ -78,6 +78,7 @@ export interface PublicBookingAvailability {
 }
 
 export interface PublicBookingRequest {
+  readonly visitId?: string;
   readonly schemaVersion: typeof PUBLIC_BOOKING_SCHEMA_VERSION;
   readonly requestId: string;
   readonly slotToken: string;

@@ -576,7 +576,9 @@ export class D1PublicBookingManagementStore implements
     ]);
     const row = credentialRow(results[1]?.results[0]);
     if (!row) return { kind: "not-found" };
-    const changed = Number(results[0]?.meta.changes ?? 0) === 1;
+    // D1 includes confirmation-history trigger writes in meta.changes.
+    // The unique owner/operation predicate still targets at most one credential.
+    const changed = Number(results[0]?.meta.changes ?? 0) > 0;
     const currentStatus = row.status === "cancelled"
       ? "cancelled"
       : row.status === "active" && [

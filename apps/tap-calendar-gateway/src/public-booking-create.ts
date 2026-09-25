@@ -1,3 +1,4 @@
+import { PUBLIC_VISIT_ID_PATTERN } from "./public-booking-analytics";
 import {
   publicSlotSatisfiesPublishedSchedule,
   type PublicSlotTokenClaims,
@@ -14,6 +15,7 @@ const MANAGEMENT_TOKEN_PATTERN = /^tapm_v1_[A-Za-z0-9_-]{16,512}$/u;
 const BOOKING_REFERENCE_PATTERN = /^[A-Za-z0-9_-]{12,255}$/u;
 
 export interface ParsedPublicBookingRequest {
+  readonly visitId?: string;
   readonly schemaVersion: typeof PUBLIC_BOOKING_SCHEMA_VERSION;
   readonly requestId: string;
   readonly slotToken: string;
@@ -45,6 +47,7 @@ export interface PublicBookingGuestInput {
 }
 
 export interface PublicBookingCreateInput {
+  readonly visitId?: string;
   readonly requestId: string;
   readonly guest: PublicBookingGuestInput;
   readonly slotProof: VerifiedPublicSlotProof;
@@ -89,6 +92,7 @@ export interface PublicBookingAttempt {
 }
 
 export interface PublicBookingAttemptClaim {
+  readonly visitId?: string;
   readonly scope: PublicBookingCoordinationScope;
   readonly idempotencyKey: string;
   readonly requestHash: string;
@@ -297,7 +301,8 @@ const exactKeys = (value: Readonly<Record<string, unknown>>, expected: readonly 
 export function parsePublicBookingRequest(value: unknown): ParsedPublicBookingRequest {
   if (
     !isRecord(value) ||
-    !exactKeys(value, ["schemaVersion", "requestId", "slotToken", "guest", "turnstileToken"]) ||
+    !exactKeys(value, ["schemaVersion", "requestId", "slotToken", "guest", "turnstileToken", ...(Object.hasOwn(value, "visitId") ? ["visitId"] : [])]) ||
+    (value.visitId !== undefined && (typeof value.visitId !== "string" || !PUBLIC_VISIT_ID_PATTERN.test(value.visitId))) ||
     value.schemaVersion !== PUBLIC_BOOKING_SCHEMA_VERSION ||
     typeof value.requestId !== "string" ||
     !UUID_PATTERN.test(value.requestId) ||
@@ -319,6 +324,7 @@ export function parsePublicBookingRequest(value: unknown): ParsedPublicBookingRe
   return {
     schemaVersion: PUBLIC_BOOKING_SCHEMA_VERSION,
     requestId: value.requestId,
+    ...(typeof value.visitId === "string" ? { visitId: value.visitId.toLowerCase() } : {}),
     slotToken: value.slotToken,
     guest: normalizedGuest({ name: value.guest.name, email: value.guest.email }),
     turnstileToken: value.turnstileToken,
@@ -799,6 +805,7 @@ export async function createPublicBooking(
       ? new Date(now + PUBLIC_APPROVAL_HOLD_TTL_MS).toISOString()
       : null;
     const claimInput: PublicBookingAttemptClaim = {
+      ...(input.visitId ? { visitId: input.visitId } : {}),
       scope,
       idempotencyKey: input.requestId,
       requestHash,
