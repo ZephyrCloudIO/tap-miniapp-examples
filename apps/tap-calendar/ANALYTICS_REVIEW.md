@@ -135,9 +135,29 @@ path. Lifecycle regression tests caught D1 trigger writes increasing
 positive affected-row counts. Route tests cover the new visit-ID query allowlist
 as well as idempotence and current/lifetime separation.
 
-Validation: organizer 261 tests, public app 44 tests, gateway 189 tests, and 3
-release-guard tests passed; targeted gateway checks were repeated after the final
+Validation: organizer 264 tests (including 3 release-guard tests), public app 44
+tests, and gateway 189 tests passed; targeted gateway checks were repeated after the final
 route changes. All three typechecks and production artifacts passed. The installed
 organizer was independently inspected and is marketplace release 0.1.10. Release
-0.2.1 is prepared for deployment and package upgrade. Deployment verification will
-be recorded after rollout.
+0.2.1 was built and published for package upgrade. CI exposed that the new
+release tests used Node's runner while the workspace discovers tests with Rstest;
+they now use Rstest and pass in the complete organizer suite.
+
+## Production rollout evidence
+
+- Applied pending migrations 0016–0019 successfully on September 25 UTC.
+- Gateway version: `e3298686-f015-4c21-9b98-62b5797dec66`.
+- Public application version: `5dd858ac-fa28-4350-bc2d-70d2c0a0da5d`.
+- Live readiness endpoint confirms analytics v2 and traffic/conversion coverage
+  beginning `2026-09-25T01:51:00.033Z`.
+- Read-only post-migration reconciliation still returns 11 current confirmations,
+  12 lifetime confirmations, and 1 cancellation for Zack's page.
+- A controlled browser visit to `zack/30-min` recorded exactly one view, slot
+  view, and start. Returning to time selection and then guest details left all
+  three at one. No booking was submitted and no guest details were entered.
+  This validation visit remains included in the real traffic ledger.
+- Production publishing guard passed against the deployed gateway, tracker,
+  and organizer artifact. Organizer 0.2.1 is hosted at
+  `https://zackary-chapple-16831-tap-calendar-tap-miniapp-ex-185e8392b-ze.zephyrcloud.app/`.
+- Existing package `tap_pkg_1_hksgns5c1ySs2NZHQhzF1w` was selected for the registry
+  update; installed organizer verification is still in progress.
