@@ -1,3 +1,5 @@
+import { isAttendeeResponse, type CalendarResponseStatus } from "./attendee-response";
+
 export type CalendarProvider =
   | "google"
   | "microsoft"
@@ -68,6 +70,9 @@ export interface CalendarAttendee {
   readonly email: string;
   readonly kind: "tap" | "external";
   readonly required: boolean;
+  readonly responseStatus?: CalendarResponseStatus;
+  /** The connected provider account, which may differ from a shared calendar's owner. */
+  readonly isCurrentUser?: boolean;
 }
 
 export interface CalendarEvent {
@@ -2361,7 +2366,8 @@ const isCalendarAttendee = (value: unknown): value is CalendarAttendee => {
     hasName(typeof value.name === "string" ? value.name : "") &&
     typeof value.email === "string" &&
     isOneOf(value.kind, ["tap", "external"] as const) &&
-    typeof value.required === "boolean"
+    typeof value.required === "boolean" &&
+    isAttendeeResponse(value)
   );
 };
 

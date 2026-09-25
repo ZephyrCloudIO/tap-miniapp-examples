@@ -1,3 +1,4 @@
+import { isAttendeeResponse } from "./attendee-response";
 import type { CalendarMcpConfiguration, CalendarMcpConsent, CalendarMcpGrant, CalendarMcpScope } from "./mcp-contract";
 import type { WorkspaceBookings, SharedHostInput, WorkspaceBookingProfileInput } from "./workspace-bookings";
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk/sdk";
@@ -626,7 +627,7 @@ const isGatewayCalendarEvent = (value: unknown): value is CalendarEvent =>
     typeof attendee.name === "string" &&
     typeof attendee.email === "string" &&
     (attendee.kind === "tap" || attendee.kind === "external") &&
-    typeof attendee.required === "boolean"
+    typeof attendee.required === "boolean" && isAttendeeResponse(attendee)
   ) &&
   (value.busy === undefined || typeof value.busy === "boolean") &&
   (value.allDay === undefined || typeof value.allDay === "boolean") &&

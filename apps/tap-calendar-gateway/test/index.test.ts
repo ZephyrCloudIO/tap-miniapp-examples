@@ -871,6 +871,10 @@ describe("TAP Calendar local gateway", () => {
             items: [{
               id: "event-1",
               summary: "Planning",
+              attendees: [
+                { email: "host@example.com", responseStatus: "accepted" },
+                { email: "primary@example.com", self: true, responseStatus: "needsAction" },
+              ],
               status: "confirmed",
               start: { dateTime: "2026-08-14T09:00:00-04:00" },
               end: { dateTime: "2026-08-14T10:00:00-04:00" },
@@ -960,7 +964,7 @@ describe("TAP Calendar local gateway", () => {
       readonly truncated: boolean;
     }>();
     expect(result.events).toMatchObject([
-      { title: "Planning", kind: "meeting" },
+      { title: "Planning", kind: "meeting", status: "pending", attendees: [{ responseStatus: "accepted", isCurrentUser: false }, { responseStatus: "needsAction", isCurrentUser: true }] },
       { title: "Focus", kind: "focus" },
     ]);
     expect(result.syncedCalendarIds).toEqual([calendarId]);
@@ -1225,6 +1229,26 @@ describe("TAP Calendar local gateway", () => {
         message: "Every requested calendar must have a complete fresh cache before proposing a time.",
       },
     });
+
+    // A fresh legacy snapshot must be rebuilt even without a provider change.
+    // The existing sync-token-2 would fail if this tried an incremental sync.
+    await env.CALENDAR_DB.prepare(
+      "UPDATE calendar_sync_state SET projection_version = 0, freshness = 'fresh', next_sync_at = '2099-01-01T00:00:00Z' WHERE calendar_id = ?",
+    ).bind(calendarId).run();
+    const callsBeforeUpgrade = providerCalls.length;
+    const upgraded = await oauthWorker.fetch(request("/v1/events/query", {
+      method: "POST",
+      json: { timeMin: "2026-08-10T00:00:00Z", timeMax: "2026-08-17T00:00:00Z", calendarIds: [calendarId] },
+    }), oauthEnv);
+    expect(await upgraded.json()).toMatchObject({ events: [
+      { title: "Planning", attendees: [{ responseStatus: "accepted" }, { responseStatus: "needsAction", isCurrentUser: true }] },
+      { title: "Focus" },
+    ] });
+    const upgradeCalls = providerCalls.slice(callsBeforeUpgrade).filter(call => call.url.pathname.endsWith("/events"));
+    expect(upgradeCalls.length).toBeGreaterThan(0);
+    expect(upgradeCalls.every(call => !call.url.searchParams.has("syncToken"))).toBe(true);
+    expect(await env.CALENDAR_DB.prepare("SELECT projection_version FROM calendar_sync_state WHERE calendar_id = ?")
+      .bind(calendarId).first<number>("projection_version")).toBe(1);
 
     calendarAccessRole = "freeBusyReader";
     const downgraded = await oauthWorker.fetch(

@@ -289,6 +289,21 @@ afterEach(() => {
 });
 
 describe("provider booking outbox", () => {
+  it("preserves RSVP and viewer identity through durable provider recovery", async () => {
+    const port = new MemoryPort();
+    const outbox = createProviderBookingOutboxWithPort(port);
+    await outbox.putBeforeProviderCall(preparation());
+    const receipt = commit();
+    const attendees = receipt.booking.event.attendees.map(attendee => ({
+      ...attendee, responseStatus: "needsAction" as const, isCurrentUser: true,
+    }));
+    await outbox.markProviderCommitted("booking-1", {
+      ...receipt, booking: { ...receipt.booking, event: { ...receipt.booking.event, attendees } },
+    });
+    const [reloaded] = await createProviderBookingOutboxWithPort(port).listPendingReconciliation();
+    expect(reloaded?.providerCommit.booking.event.attendees).toEqual(attendees);
+  });
+
   it("persists and recovers a personal event without guests or conferencing", async () => {
     const port = new MemoryPort();
     const outbox = createProviderBookingOutboxWithPort(port);
