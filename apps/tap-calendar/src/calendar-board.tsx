@@ -1,3 +1,4 @@
+import { EventResponseBadge, eventResponseClassName, eventResponseLabel } from "./attendee-response-badge";
 import {
   CalendarDays,
   Link2,
@@ -188,9 +189,11 @@ function TimeGrid({
                     key={event.id}
                     style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
                     onClick={() => onSelectEvent(event.id)}
-                    title={event.title}
+                    title={`${event.title}, ${eventResponseLabel(event)}`}
+                    className={eventResponseClassName(event)}
+                    aria-label={`${event.title}, All day, ${eventResponseLabel(event)}`}
                   >
-                    {event.title}
+                    <span className="rsvp-event-title">{event.title}</span> <EventResponseBadge event={event} compact />
                   </button>
                 ))}
             </div>
@@ -237,7 +240,7 @@ function TimeGrid({
                   const color = colors.get(event.calendarId) ?? "#6d5dfc";
                   return (
                     <button
-                      className={`calendar-event event-${event.kind}`}
+                      className={`calendar-event event-${event.kind} ${eventResponseClassName(event)}`}
                       key={event.id}
                       style={{
                         top: `${layout.topPercentage}%`,
@@ -246,10 +249,10 @@ function TimeGrid({
                       } as React.CSSProperties}
                       type="button"
                       onClick={() => onSelectEvent(event.id)}
-                      aria-label={`${event.title}, ${eventTime(event)}`}
+                      aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}
                     >
-                      <strong>{event.title}</strong>
-                      <span>{eventTime(event)}</span>
+                      <strong className="rsvp-event-title">{event.title}</strong>
+                      <span>{eventTime(event)} <EventResponseBadge event={event} compact /></span>
                       {event.source ? <small><Link2 size={10} /> {event.source.label}</small> : null}
                     </button>
                   );
@@ -298,7 +301,7 @@ function AgendaView({
           </header>
           <div>
             {dayEvents.map(event => (
-              <button type="button" key={event.id} onClick={() => onSelectEvent(event.id)}>
+              <button type="button" key={event.id} className={eventResponseClassName(event)} style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties} onClick={() => onSelectEvent(event.id)} aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}>
                 <span
                   className="event-dot"
                   style={{ background: colors.get(event.calendarId) ?? "#6d5dfc" }}
@@ -306,10 +309,10 @@ function AgendaView({
                 />
                 <time>{event.allDay ? "All day" : formatTime(event.start)}</time>
                 <span className="agenda-copy">
-                  <strong>{event.title}</strong>
+                  <strong className="rsvp-event-title">{event.title}</strong>
                   <small>{eventTime(event)} · {event.kind.replace("-", " ")}</small>
                 </span>
-                <span className={`status-chip status-${event.status}`}>{event.status}</span>
+                <EventResponseBadge event={event} showBookingStatus />
               </button>
             ))}
           </div>
@@ -381,9 +384,11 @@ function MonthView({
                   type="button"
                   key={event.id}
                   onClick={() => onSelectEvent(event.id)}
+                  className={eventResponseClassName(event)}
+                  aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}
                   style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
                 >
-                  <span>{event.allDay ? "All day" : formatTime(event.start)}</span> {event.title}
+                  <span>{event.allDay ? "All day" : formatTime(event.start)}</span> <span className="rsvp-event-title">{event.title}</span> <EventResponseBadge event={event} compact />
                 </button>
               ))}
           </div>

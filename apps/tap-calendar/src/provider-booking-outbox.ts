@@ -1,3 +1,4 @@
+import { isAttendeeResponse, isCalendarResponseStatus } from "./attendee-response";
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
 import type {
   MiniAppJsonValue,
@@ -409,6 +410,9 @@ const normalizeAttendee = (value: unknown): CalendarAttendee => {
   if (value.kind !== "tap" && value.kind !== "external") {
     throw new ProviderBookingOutboxInvariantError("A reconciliation attendee kind is invalid.");
   }
+  if (!isAttendeeResponse(value)) {
+    throw new ProviderBookingOutboxInvariantError("An attendee response is invalid.");
+  }
   if (typeof value.required !== "boolean") {
     throw new ProviderBookingOutboxInvariantError("A reconciliation attendee requirement is invalid.");
   }
@@ -422,6 +426,8 @@ const normalizeAttendee = (value: unknown): CalendarAttendee => {
     email,
     kind: value.kind,
     required: value.required,
+    ...(isCalendarResponseStatus(value.responseStatus) ? { responseStatus: value.responseStatus } : {}),
+    ...(typeof value.isCurrentUser === "boolean" ? { isCurrentUser: value.isCurrentUser } : {}),
   };
 };
 

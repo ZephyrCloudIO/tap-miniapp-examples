@@ -1149,3 +1149,22 @@ p { text-wrap: pretty; }
 .calendar-mcp-grant { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 16px 0; }
 .calendar-mcp-grant ul { padding-left: 20px; }
 @media (max-width: 640px) { .calendar-mcp-grant { align-items: flex-start; flex-direction: column; } }
+
+/* RSVP appearance is separate from booking approval and calendar color. */
+.rsvp-badge { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-foreground); font-size: 10px; font-weight: 600; line-height: 1.3; vertical-align: middle; }
+.rsvp-badge svg { width: 13px; height: 13px; flex: 0 0 auto; color: currentColor; }
+.rsvp-badge-accepted { color: var(--calendar-green); }
+.rsvp-badge-needsAction, .rsvp-badge-tentative { color: var(--foreground); }
+.rsvp-badge-declined { color: var(--muted-foreground); }
+.rsvp-compact .rsvp-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.rsvp-compact { margin-left: 3px; }
+.attendee-list > div > .rsvp-badge { display: inline-flex; width: auto; height: auto; max-width: 130px; border-radius: 0; background: transparent; font-size: 9px; }
+.attendee-list .rsvp-badge svg { color: currentColor; }
+.event-drawer > .rsvp-badge { margin-bottom: 8px; }
+:is(.calendar-event, .all-day-column button, .month-cell button, .agenda-day button).rsvp-accepted { background: color-mix(in srgb, var(--event-color) 30%, var(--card)); }
+:is(.calendar-event, .all-day-column button, .month-cell button, .agenda-day button).rsvp-needsAction { border: 1px solid var(--event-color); border-left-width: 3px; background: var(--card); }
+:is(.calendar-event, .all-day-column button, .month-cell button, .agenda-day button).rsvp-tentative { border: 1px dashed var(--event-color); border-left-width: 3px; background: color-mix(in srgb, var(--event-color) 7%, var(--card)); }
+:is(.calendar-event, .all-day-column button, .month-cell button, .agenda-day button).rsvp-unknown { border: 1px dotted var(--muted-foreground); border-left-width: 3px; background: var(--card); }
+:is(.calendar-event, .all-day-column button, .month-cell button, .agenda-day button):is(.rsvp-declined, .rsvp-cancelled) { border: 1px solid var(--border); border-left: 3px solid var(--muted-foreground); background: var(--muted); color: var(--muted-foreground); }
+:is(.rsvp-declined, .rsvp-cancelled) .rsvp-event-title { color: var(--muted-foreground); text-decoration: line-through; }
+.rsvp-event:focus-visible { outline: 2px solid var(--calendar-accent); outline-offset: 2px; }

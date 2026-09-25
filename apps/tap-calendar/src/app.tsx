@@ -1,3 +1,5 @@
+import { AttendeeResponseBadge, EventResponseBadge, eventResponseClassName } from "./attendee-response-badge";
+import { mergeProviderEvent } from "./provider-event-merge";
 import { normalizePublicBookingDetails, publicBookingDescription } from "./public-booking-details";
 import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-booking-fields";
 
@@ -2702,35 +2704,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       if (!calendarIds.has(event.calendarId)) continue;
       const localEvent = merged.get(event.id);
       if (localEvent) {
-        // Provider fields are authoritative for active committed Events. TAP's
-        // approval lifecycle remains authoritative while a Hold is pending or
-        // after TAP has declined/expired it.
-        if (
-          localEvent.status === "confirmed" &&
-          localEvent.kind !== "hold" &&
-          event.status === localEvent.status &&
-          event.kind === localEvent.kind
-        ) {
-          const localAttendeesByEmail = new Map(
-            localEvent.attendees.map(attendee => [attendee.email.toLowerCase(), attendee]),
-          );
-          merged.set(event.id, {
-            ...event,
-            attendees: event.attendees.map(attendee => {
-              const local = localAttendeesByEmail.get(attendee.email.toLowerCase());
-              return local
-                ? { ...attendee, id: local.id, name: local.name, kind: local.kind }
-                : attendee;
-            }),
-            ...(localEvent.source ? { source: localEvent.source } : {}),
-            ...(event.providerHtmlLink ?? localEvent.providerHtmlLink
-              ? { providerHtmlLink: event.providerHtmlLink ?? localEvent.providerHtmlLink }
-              : {}),
-            ...(event.providerJoinUrl ?? localEvent.providerJoinUrl
-              ? { providerJoinUrl: event.providerJoinUrl ?? localEvent.providerJoinUrl }
-              : {}),
-          });
-        }
+        merged.set(event.id, mergeProviderEvent(localEvent, event));
         continue;
       }
       const duplicatesLocalEvent = state.events.some(localEvent =>
@@ -7482,12 +7456,13 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
 function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent; readonly state: CalendarState; readonly onClose: () => void }) {
   const calendar = allCalendars(state).find(item => item.id === event.calendarId);
   return (
-    <aside className="event-drawer" role="dialog" aria-modal="false" aria-labelledby="event-drawer-title">
+    <aside className={`event-drawer ${eventResponseClassName(event)}`} role="dialog" aria-modal="false" aria-labelledby="event-drawer-title">
       <header><span className="eyebrow">{event.kind.replace("-", " ")}</span><button className="icon-button" type="button" onClick={onClose} aria-label="Close event details"><X /></button></header>
       <span className="event-drawer-color" style={{ background: calendar?.color }} />
-      <h2 id="event-drawer-title">{event.title}</h2>
+      <h2 id="event-drawer-title" className="rsvp-event-title">{event.title}</h2>
+      <EventResponseBadge event={event} />
       <div className="event-detail-list"><p><CalendarDays /><span><strong>{dateTimeFormatter.format(new Date(event.start))}</strong><small>Ends {timeFormatter.format(new Date(event.end))}</small></span></p><p><Video /><span><strong>{event.location ? meetingLocationNames[event.location] : "No meeting location"}</strong><small>{event.location?.startsWith("tap-") ? "External guest access is confirmed at booking" : "Guest policy checked at booking"}</small></span></p><p><Cloud /><span><strong>{calendar?.name}</strong><small>{calendar?.role} · {calendar?.freshness}</small></span></p>{event.source ? <p><Link2 /><span><strong>{event.source.label}</strong><small>Private TAP context stays in TAP</small></span></p> : null}</div>
-      <section className="attendee-list"><span className="eyebrow">Attendees</span>{event.attendees.map(attendee => <div key={attendee.id}><span>{attendee.name.split(" ").map(word => word[0]).join("")}</span><p><strong>{attendee.name}</strong><small>{attendee.email} · {attendee.kind}</small></p><CheckCircle2 /></div>)}</section>
+      <section className="attendee-list"><span className="eyebrow">Attendees</span>{event.attendees.map(attendee => <div key={attendee.id}><span>{attendee.name.split(" ").map(word => word[0]).join("")}</span><p><strong>{attendee.name}{attendee.isCurrentUser ? " (you)" : ""}</strong><small>{attendee.email} · {attendee.kind}</small></p><AttendeeResponseBadge response={attendee.responseStatus ?? "unknown"} /></div>)}</section>
       <footer>{event.providerJoinUrl ? <a className="primary-button" href={event.providerJoinUrl} target="_blank" rel="noreferrer"><Video /> Join meeting</a> : null}{event.providerHtmlLink ? <a className="secondary-button" href={event.providerHtmlLink} target="_blank" rel="noreferrer"><ExternalLink /> Open in provider</a> : null}<button type="button" className="secondary-button" disabled title="Secure rescheduling is completed by the Calendar gateway.">Reschedule</button><button type="button" className="text-button danger-text" disabled title="Secure cancellation is completed by the Calendar gateway.">Cancel</button></footer>
     </aside>
   );

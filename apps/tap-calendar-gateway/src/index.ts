@@ -264,6 +264,8 @@ interface OAuthProviderConfig {
 
 type ProviderFetch = typeof fetch;
 
+type AttendeeResponseStatus = "needsAction" | "accepted" | "tentative" | "declined" | "unknown";
+
 interface GatewayCalendarEvent {
   readonly id: string;
   readonly calendarId: string;
@@ -290,6 +292,8 @@ interface GatewayCalendarEvent {
     readonly email: string;
     readonly kind: "tap" | "external";
     readonly required: boolean;
+    readonly responseStatus?: AttendeeResponseStatus;
+    readonly isCurrentUser?: boolean;
   }[];
   readonly busy: boolean;
   readonly allDay: boolean;
@@ -325,6 +329,7 @@ interface CalendarSyncStateRow {
   readonly calendar_id: string;
   readonly active_generation: string;
   readonly cache_revision: number;
+  readonly projection_version: number;
   readonly sync_token: string | null;
   readonly cache_time_min: string | null;
   readonly cache_time_max: string | null;
@@ -3925,6 +3930,7 @@ const eventInstant = (
 export function normalizeGoogleCalendarEvent(
   value: unknown,
   calendarId: string,
+  accountEmail?: string,
 ): GatewayCalendarEvent | null {
   if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) return null;
   const start = eventInstant(value.start);
@@ -3943,12 +3949,22 @@ export function normalizeGoogleCalendarEvent(
     const providerId = typeof candidate.id === "string" && candidate.id
       ? candidate.id
       : email || String(index);
+    const responseStatus: AttendeeResponseStatus =
+      candidate.responseStatus === "accepted" || candidate.responseStatus === "declined" ||
+      candidate.responseStatus === "tentative" || candidate.responseStatus === "needsAction"
+        ? candidate.responseStatus
+        : "unknown";
     return [{
       id: googleEventId("event", calendarId, `${value.id}:attendee:${providerId}`),
       name,
       email,
       kind: "external" as const,
       required: candidate.optional !== true,
+      responseStatus,
+      // Google `self` identifies this calendar's owner, not necessarily the
+      // authenticated account when reading a shared calendar.
+      isCurrentUser: Boolean(email && accountEmail &&
+        email.toLowerCase() === accountEmail.trim().toLowerCase()),
     }];
   });
   const selfAttendee = rawAttendees.find(candidate => isRecord(candidate) && candidate.self === true);
@@ -4002,7 +4018,7 @@ export function normalizeGoogleCalendarEvent(
     status,
     location,
     attendees,
-    busy: value.transparency !== "transparent",
+    busy: value.transparency !== "transparent" && selfResponse !== "declined" && value.status !== "cancelled",
     allDay: start.allDay,
   };
 }
@@ -4062,6 +4078,8 @@ const providerQueryError = (calendarId: string, cause: unknown): EventQueryError
     message: "Google Calendar could not return events for this calendar.",
   };
 };
+
+const GOOGLE_EVENT_PROJECTION_VERSION = 1;
 
 const GOOGLE_SYNC_EVENT_FIELDS = [
   "nextPageToken",
@@ -4242,6 +4260,7 @@ interface GoogleSyncCollection {
 const googleCacheMutation = (
   value: unknown,
   calendarId: string,
+  accountEmail: string,
 ): GoogleCacheMutation | null => {
   if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) return null;
   const providerEventId = value.id.slice(0, 2048);
@@ -4250,7 +4269,7 @@ const googleCacheMutation = (
     ? new Date(value.updated).toISOString()
     : null;
   const cancelled = value.status === "cancelled";
-  const event = cancelled ? null : normalizeGoogleCalendarEvent(value, calendarId);
+  const event = cancelled ? null : normalizeGoogleCalendarEvent(value, calendarId, accountEmail);
   if (!event) {
     return {
       providerEventId,
@@ -4323,7 +4342,7 @@ async function collectGoogleCalendarChanges(
       throw new ApiError(502, "provider_response_invalid", "Google returned an invalid event list.");
     }
     for (const item of Array.isArray(page.items) ? page.items : []) {
-      const mutation = googleCacheMutation(item, target.id);
+      const mutation = googleCacheMutation(item, target.id, target.connection_label);
       if (mutation) mutations.push(mutation);
       if (mutations.length > MAX_CACHE_SYNC_EVENTS) {
         throw new ApiError(
@@ -4568,7 +4587,8 @@ async function syncGoogleCalendarCache(
     );
     const rollingCoverageRefreshDue = !state.cache_time_max ||
       Date.parse(state.cache_time_max) <= Date.now() + CACHE_ROLLING_REBUILD_MARGIN_MS;
-    const requestedSyncToken = forceFullSync || rollingCoverageRefreshDue
+    const requestedSyncToken = forceFullSync || rollingCoverageRefreshDue ||
+      state.projection_version !== GOOGLE_EVENT_PROJECTION_VERSION
       ? null
       : state.sync_token;
     let resyncedAfterTokenExpiry = false;
@@ -4623,6 +4643,7 @@ async function syncGoogleCalendarCache(
     const commit = await env.CALENDAR_DB.prepare(
       `UPDATE calendar_sync_state
           SET active_generation = ?, cache_revision = cache_revision + 1, sync_token = ?,
+              projection_version = ${GOOGLE_EVENT_PROJECTION_VERSION},
               cache_time_min = COALESCE(?, cache_time_min),
               cache_time_max = COALESCE(?, cache_time_max), freshness = 'fresh',
               last_success_at = ?, next_sync_at = ?, error_code = NULL,
@@ -4728,6 +4749,7 @@ async function syncGoogleCalendarCache(
 
 async function listGoogleCalendarEvents(
   calendar: CalendarRow,
+  accountEmail: string,
   accessToken: string,
   input: EventQueryInput,
   budget: EventQueryBudget,
@@ -4787,7 +4809,7 @@ async function listGoogleCalendarEvents(
     }
     let invalidItems = 0;
     for (const item of Array.isArray(page.items) ? page.items : []) {
-      const event = normalizeGoogleCalendarEvent(item, calendar.id);
+      const event = normalizeGoogleCalendarEvent(item, calendar.id, accountEmail);
       if (!event) {
         invalidItems += 1;
         continue;
@@ -5138,6 +5160,7 @@ async function queryLiveEventsForScope(
         try {
           return await listGoogleCalendarEvents(
             calendar,
+            connection.label,
             accessToken,
             input,
             budget,
@@ -5309,6 +5332,7 @@ const stateUsableForQuery = (
   input: EventQueryInput,
 ): state is CalendarSyncStateRow => Boolean(
   state?.last_success_at &&
+  state.projection_version === GOOGLE_EVENT_PROJECTION_VERSION &&
   state.cache_time_min &&
   state.cache_time_max &&
   Date.parse(state.cache_time_min) <= Date.parse(input.timeMin) &&
@@ -6377,8 +6401,9 @@ const googleCommitHash = (value: Readonly<Record<string, unknown>>): string | nu
 function committedBookingEvent(
   input: ProviderBookingCommitInput,
   providerEvent: Readonly<Record<string, unknown>>,
+  accountEmail: string,
 ): GatewayCalendarEvent {
-  const normalized = normalizeGoogleCalendarEvent(providerEvent, input.destinationCalendarId);
+  const normalized = normalizeGoogleCalendarEvent(providerEvent, input.destinationCalendarId, accountEmail);
   if (!normalized) {
     throw new ApiError(
       502,
@@ -6401,8 +6426,9 @@ function committedBookingProjection(
   input: ProviderBookingCommitInput,
   providerEvent: Readonly<Record<string, unknown>>,
   providerEventId: string,
+  accountEmail: string,
 ): Readonly<Record<string, unknown>> {
-  const event = committedBookingEvent(input, providerEvent);
+  const event = committedBookingEvent(input, providerEvent, accountEmail);
   return {
     booking: {
       state: "committed",
@@ -6449,10 +6475,12 @@ const boundedStringArray = (value: unknown, maximum: number): readonly string[] 
 function recoveredCommittedBookingProjection(
   row: ProviderBookingCommitRow,
   providerEvent: Readonly<Record<string, unknown>>,
+  accountEmail: string,
 ): Readonly<Record<string, unknown>> {
   const normalized = normalizeGoogleCalendarEvent(
     providerEvent,
     row.destination_calendar_id,
+    accountEmail,
   );
   if (!normalized) {
     throw new ApiError(
@@ -6776,7 +6804,7 @@ async function getGoogleBookingStatus(
       "The Google event does not contain TAP's approval proof.",
     );
   }
-  const currentEvent = normalizeGoogleCalendarEvent(providerEvent, row.destination_calendar_id);
+  const currentEvent = normalizeGoogleCalendarEvent(providerEvent, row.destination_calendar_id, target.connection_label);
   if (!currentEvent) {
     throw new ApiError(
       502,
@@ -6794,7 +6822,7 @@ async function getGoogleBookingStatus(
   return json({
     commit: row.response_json
       ? enrichedStoredBookingProjection(row, providerEvent)
-      : recoveredCommittedBookingProjection(row, providerEvent),
+      : recoveredCommittedBookingProjection(row, providerEvent, target.connection_label),
     lifecycle,
     currentEvent: lifecycle.state === "approved"
       ? { ...currentEventProjection, kind: "meeting", status: "confirmed" }
@@ -6887,7 +6915,7 @@ async function stageCommittedBookingInCache(
   input: ProviderBookingCommitInput,
   providerEvent: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  const event = committedBookingEvent(input, providerEvent);
+  const event = committedBookingEvent(input, providerEvent, target.connection_label);
   await stageBookingCacheMutation(env, target, {
     providerEventId: requiredText(providerEvent.id, "provider event id", 2048),
     eventId: event.id,
@@ -7129,7 +7157,7 @@ async function commitGoogleBookingForScope(
           "The deterministic Google event identifier is already in use.",
         );
       }
-      const response = committedBookingProjection(input, providerEvent, providerEventId);
+      const response = committedBookingProjection(input, providerEvent, providerEventId, target.connection_label);
       await finalizeCommittedBooking(
         env,
         workspace,
@@ -7361,7 +7389,7 @@ async function commitGoogleBookingForScope(
         "Google created the event without TAP's commit proof.",
       );
     }
-    const response = committedBookingProjection(input, providerEvent, providerEventId);
+    const response = committedBookingProjection(input, providerEvent, providerEventId, target.connection_label);
     await finalizeCommittedBooking(
       env,
       workspace,
@@ -8151,7 +8179,7 @@ async function stageRescheduledPublicGoogleBooking(
   target: CalendarSyncTarget,
   event: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  const normalized = normalizeGoogleCalendarEvent(event, target.id);
+  const normalized = normalizeGoogleCalendarEvent(event, target.id, target.connection_label);
   if (!normalized) return;
   try {
     await stageBookingCacheMutation(env, target, {
@@ -9260,7 +9288,7 @@ async function resolveGoogleApprovalHold(
       }
     }
     const resolvedEvent = providerEvent
-      ? normalizeGoogleCalendarEvent(providerEvent, target.id)
+      ? normalizeGoogleCalendarEvent(providerEvent, target.id, target.connection_label)
       : null;
     if (providerEvent && !resolvedEvent) {
       throw new ApiError(502, "provider_event_invalid", "Google returned an invalid approved event.");
