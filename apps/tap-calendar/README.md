@@ -141,6 +141,21 @@ directly testable—for example:
 http://localhost:3000/alex-morgan/30min
 ```
 
+## Schedule from the calendar
+
+Click an empty half-hour slot in Day, Work week, or Week to create an event at
+that local date and time. Clicking an empty Month cell starts an event at 9 AM
+on that date. Existing events still open their details. Keyboard users can Tab
+to a day's slot, use Up/Down (or Home/End) to choose a time, and press Enter or
+Space to open the editor.
+
+The workspace editor accepts events with no guests, marks them busy, and defaults
+to **No video call**. Enter a title and save to block your own calendar; add guests
+and optionally Google Meet or connected Zoom for a meeting. Every guest row can
+be removed, including the last one. Personal events use the same live conflict
+validation, Google provider commit, and durable recovery as meetings. The channel
+scheduler continues to require an explicit attendee.
+
 ## Install in TAP
 
 Build the production host-installable package from the repository root. This

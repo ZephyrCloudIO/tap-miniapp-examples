@@ -875,6 +875,28 @@ describe("TAP Calendar domain", () => {
     expect(result.state.events.at(-1)?.location).toBe("tap-huddle");
   });
 
+  it("blocks the calendar without guests or a meeting location, including after replay", () => {
+    const input = {
+      id: "personal-event",
+      title: "Focus time",
+      calendarId: "cal-work",
+      start: "2026-08-17T14:00:00-04:00",
+      end: "2026-08-17T15:00:00-04:00",
+      location: null,
+      attendees: [],
+      approvalRequired: false,
+      requestedAt: "2026-08-14T12:00:00-04:00",
+    } as const;
+    const result = scheduleMeeting(createInitialCalendarState(), input);
+    expect(result.error).toBeNull();
+    expect(result.bookingRequestId).toBeNull();
+    expect(result.state.events.at(-1)).toMatchObject({
+      title: "Focus time", attendees: [], location: null, busy: true, status: "confirmed",
+    });
+    expect(result.state.notificationChannels[0]?.entries[0]?.summary).toBe("Just you · Focus time");
+    expect(scheduleMeeting(result.state, input).state).toBe(result.state);
+  });
+
   it("creates an approval hold and actionable channel entry", () => {
     const initial = createInitialCalendarState();
     const result = scheduleMeeting(initial, {

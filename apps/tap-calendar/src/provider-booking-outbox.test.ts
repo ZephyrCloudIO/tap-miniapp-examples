@@ -289,6 +289,37 @@ afterEach(() => {
 });
 
 describe("provider booking outbox", () => {
+  it("persists and recovers a personal event without guests or conferencing", async () => {
+    const port = new MemoryPort();
+    const outbox = createProviderBookingOutboxWithPort(port);
+    const base = preparation("personal-event");
+    if (base.reconciliation.kind === "work-block") throw new Error("Expected a meeting fixture.");
+    const personal: ProviderBookingOutboxPreparation = {
+      request: { ...base.request, attendeeEmails: [], conferenceProvider: "none" },
+      reconciliation: { ...base.reconciliation, kind: "schedule-meeting", location: null, attendees: [] },
+    };
+    const prepared = await outbox.putBeforeProviderCall(personal);
+    const reloaded = createProviderBookingOutboxWithPort(port);
+    expect(await reloaded.listAwaitingProvider()).toEqual([prepared]);
+
+    const provider = commit();
+    const { providerJoinUrl: _joinUrl, ...event } = provider.booking.event;
+    const committed = await reloaded.markProviderCommitted("personal-event", {
+      ...provider,
+      booking: {
+        ...provider.booking,
+        conferenceStatus: "none",
+        providerJoinUrl: null,
+        event: { ...event, location: null, attendees: [], busy: true },
+      },
+    });
+    expect(await createProviderBookingOutboxWithPort(port).listPendingReconciliation()).toEqual([committed]);
+    await expect(outbox.putBeforeProviderCall({
+      ...personal,
+      request: { ...personal.request, idempotencyKey: "invalid-conference", conferenceProvider: "google-meet" },
+    })).rejects.toThrow("The provider location does not match local reconciliation.");
+  });
+
   it("durably prepares before a provider call, commits, lists, and removes", async () => {
     const port = new MemoryPort();
     let tick = 0;
