@@ -473,6 +473,12 @@ describe("anonymous public booking reads", () => {
     expect(await current.json()).toMatchObject({ totals: {
       requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1,
     } });
+    const specialist: CalendarMcpProps = { workspace, principal, grantId: "test-status-analytics", scopes: ["calendar.analytics"] };
+    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { sourceRevision: 3, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+    const tools = createCalendarLiveTools(env.CALENDAR_DB, specialist, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async () => {});
+    const expected = { requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1 };
+    expect(await tools.call("event_type_analytics", {})).toMatchObject({ totals: expected, trafficSince: expect.any(String), conversionSince: expect.any(String), generatedAt: expect.any(String) });
+    expect(await tools.call("event_type_analytics", { profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ totals: expected, eventTypes: [{ analytics: expected }] });
   });
 
   it("keeps conversion cohorts and confirmation history correct across cancellation and cleanup", async () => {
@@ -838,8 +844,8 @@ describe("anonymous public booking reads", () => {
     const providerCalendarId = await env.CALENDAR_DB.prepare("SELECT id FROM provider_calendars WHERE connection_id = ?").bind(connectionId).first<string>("id");
     const query = { timeMin: slot!.start, timeMax: slot!.end, calendarIds: [providerCalendarId!] };
     expect(await tools.call("calendar_analytics", { ...query, profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ totals: { eventCount: 1, scheduledMinutes: 30 }, byEventType: [{ eventType: { profileId: "profile-public-read", eventTypeId: "event-public-read" }, eventCount: 1 }] });
-    const details = await tools.call("list_events", query);
-    expect(details).toMatchObject({ events: [{ eventType: { profileId: "profile-public-read", eventTypeId: "event-public-read" } }] });
+    const specialistDetails = await tools.call("list_events", query);
+    expect(specialistDetails).toMatchObject({ events: [{ eventType: { profileId: "profile-public-read", eventTypeId: "event-public-read" } }] });
     expect(await tools.call("event_type_analytics", { profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ period: "lifetime", totals: { requests: 1, confirmed: 1 } });
 
     turnstileAccepted = false;

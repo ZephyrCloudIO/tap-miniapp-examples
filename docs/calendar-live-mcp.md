@@ -124,7 +124,7 @@ connection for Chloe or publish the package by itself.
    the Automations screen in a browser. Host deployment/authentication requires
    the final production smoke test above; no live account invites were sent.
 
-Local validation: 201 gateway tests and 260 miniapp tests pass, including 14 new
+Local validation against current main: 208 gateway tests and 273 miniapp tests pass, including 14 new
 gateway cases. Gateway and miniapp typechecks, TAP test-source typecheck, gateway
 production dry build, miniapp package build, and package validation pass. The host
 surface suite still requires `TAP_MINIAPP_TEST_SESSION_FILE` from TAP Test Lab;
