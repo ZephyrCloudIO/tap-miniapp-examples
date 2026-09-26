@@ -136,6 +136,9 @@ if (packageTarget === "workflow-host") {
 library.output = {
   ...library.output,
   assetPrefix: packageTarget === "desktop" ? "auto" : "",
+  // SDK 0.19 does not inventory hosted MCP schema references automatically.
+  // Include their bytes in the signed desktop target lock.
+  copy: packageTarget === "desktop" ? [{ from: "./schemas", to: "targets/desktop/schemas" }] : [],
   sourceMap: false,
   minify: true,
 };

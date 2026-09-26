@@ -9,8 +9,8 @@
     "slug": "tap-calendar"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.2",
-    "version": "0.3.2",
+    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.3",
+    "version": "0.3.3",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -704,6 +704,10 @@
         ],
         "effects": [
           {
+            "kind": "mcp.oauth",
+            "resources": ["https://calendar-api.theaiplatform.app/mcp/live"]
+          },
+          {
             "kind": "external-network",
             "resources": [
               "https://calendar-api.theaiplatform.app"
@@ -722,8 +726,8 @@
         "oauth": {
           "resource": "https://calendar-api.theaiplatform.app/mcp/live",
           "scopes": [
-            "calendar.read",
             "calendar.analytics",
+            "calendar.read",
             "calendar.write"
           ],
           "credentialScope": "workspace-member"
@@ -757,6 +761,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "list_calendars",
+        "inputSchema": "targets/desktop/schemas/mcp/list-calendars.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -789,6 +794,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "list_events",
+        "inputSchema": "targets/desktop/schemas/mcp/list-events.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -821,6 +827,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "get_event",
+        "inputSchema": "targets/desktop/schemas/mcp/get-event.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -853,6 +860,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "find_available_slots",
+        "inputSchema": "targets/desktop/schemas/mcp/find-available-slots.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -885,6 +893,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "create_event",
+        "inputSchema": "targets/desktop/schemas/mcp/create-event.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -917,6 +926,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "list_event_types",
+        "inputSchema": "targets/desktop/schemas/mcp/list-event-types.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -949,6 +959,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "calendar_analytics",
+        "inputSchema": "targets/desktop/schemas/mcp/calendar-analytics.input.json",
         "timeoutMs": 60000,
         "effects": [
           {
@@ -981,6 +992,7 @@
       "options": {
         "serverContributionId": "calendar-live-tools",
         "toolName": "event_type_analytics",
+        "inputSchema": "targets/desktop/schemas/mcp/event-type-analytics.input.json",
         "timeoutMs": 60000,
         "effects": [
           {

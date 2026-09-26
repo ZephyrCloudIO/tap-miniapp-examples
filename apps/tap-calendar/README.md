@@ -187,6 +187,18 @@ In TAP, open **Settings → Miniapps → Custom → Local directory** and select
 Finder-visible `apps/tap-calendar/dist` directory. Then choose
 **Discover packages** and install TAP Calendar for the workspace.
 
+After `publish:production` uploads the release to Zephyr, register it in TAP's
+Marketplace: open **Miniapps → Publish**, paste the immutable deployment root,
+select the existing **TAP Calendar** package, and choose **Verify and publish to
+Marketplace**. Then open **Browse**, find Calendar, and choose **Update manually**
+to apply the new version to the existing installation. Verify its version in
+**Installed → TAP Calendar**. CDN publication alone does not update the listing
+or installed app.
+
+The package build checks canonical OAuth metadata and requires all eight hosted
+MCP input schemas to be present in the signed artifact inventory. The gateway
+regression test compares those schemas with the live Zod definitions.
+
 ## Validate
 
 ```sh
