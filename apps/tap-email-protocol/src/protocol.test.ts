@@ -5,6 +5,8 @@ import {
   isMailCommand,
   isMailDraftAttachment,
   isMailDraftPayload,
+  isMailSenderContext,
+  isSafeMailIdentifier,
   isMailSchedulePayload,
   isScheduledSendSummary,
   type MailAccountDescriptor,
@@ -13,6 +15,17 @@ import {
 } from './protocol';
 
 describe('TAP Email protocol', () => {
+  it('accepts canonical TAP sender identities independently of mail record identifiers', () => {
+    for (const userId of ['user_1', 'google-oauth2|123456789', 'auth0|abc123', 'a'.repeat(1024), 'é'.repeat(512)]) {
+      expect(isMailSenderContext({ userId, workspaceId: 'org_workspace' })).toBe(true);
+    }
+    expect(isSafeMailIdentifier('google-oauth2|123456789')).toBe(false);
+    for (const invalid of ['', ' user_1', 'user_1 ', 'user\n1', 'user\u00001', 'user\u007f1', 'user\u00851', 'a'.repeat(1025), 'é'.repeat(513)]) {
+      expect(isMailSenderContext({ userId: invalid, workspaceId: 'org_workspace' })).toBe(false);
+      expect(isMailSenderContext({ userId: 'google-oauth2|123456789', workspaceId: invalid })).toBe(false);
+    }
+  });
+
   it('requires complete, failure-free account coverage for Operational Zero', () => {
     expect(
       operationalZeroAllowed([
@@ -69,6 +82,7 @@ describe('TAP Email protocol', () => {
     };
     expect(isMailDraftPayload(payload)).toBe(true);
     expect(isMailDraftPayload({ ...payload, expectedContext: { userId: 'user_1', workspaceId: 'workspace_a' } })).toBe(true);
+    expect(isMailDraftPayload({ ...payload, expectedContext: { userId: 'google-oauth2|123456789', workspaceId: 'workspace_a' } })).toBe(true);
     for (const expectedContext of [null, {}, { userId: 'user_1' }, { userId: 'user_1', workspaceId: '' }, { userId: 'user\n1', workspaceId: 'workspace_a' }]) {
       expect(isMailDraftPayload({ ...payload, expectedContext })).toBe(false);
     }

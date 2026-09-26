@@ -21,6 +21,25 @@ function withCommand(state: MailState, id: string): MailState {
 }
 
 describe('bounded durable mail persistence', () => {
+  it('restores cached mail and the exact queued send with a canonical TAP sender identity', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const state = composeMessage(template, 'cmd_auth0', template.accounts[0]!.accountId, null,
+      'test@example.com', 'Subject', 'Preserve this draft', null, '2026-09-26T00:00:00.000Z', {
+        draftKey: 'draft_auth0', draftRevision: 1,
+        sendAfter: '2026-09-26T00:00:05.000Z',
+        expectedContext: { userId: 'google-oauth2|123456789', workspaceId: 'org_workspace' },
+      });
+    await store.save(state);
+
+    const restored = await new ProfileSqliteMailStore(fixture.profile).load();
+    expect(restored?.accounts).toEqual(state.accounts);
+    expect(restored?.threads).toHaveLength(state.threads.length);
+    expect(restored?.commands).toEqual(state.commands);
+    expect(restored?.undo).toEqual(state.undo);
+    expect(await new ProfileSqliteMailStore(fixture.profile).loadJournal()).toMatchObject({ commands: state.commands });
+  });
+
   it('replaces full mailbox batches within native SQL limits without deleting unrelated threads', async () => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);

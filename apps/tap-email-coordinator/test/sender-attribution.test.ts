@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bindSenderProfile, verifySenderContext } from '../src/sender-attribution';
 
-const sender = { userId: 'user_canonical', workspaceId: 'workspace_a' };
+const sender = { userId: 'google-oauth2|123456789', workspaceId: 'workspace_a' };
 const identity = { profileId: 'oidc_subject_different_from_user' };
 const request = new Request('https://coordinator.example/v1/commands', {
   headers: { Authorization: 'Bearer verified-session' },
@@ -41,6 +41,17 @@ describe('trusted sender resolution', () => {
   ])('rejects mismatched or missing membership: $workspaceId/$userId', async context => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => Response.json(
       String(input).endsWith('/GetCurrentUser') ? { user: { userId: sender.userId } } : { context },
+    ));
+    await expect(verifySenderContext(request, production, identity, sender))
+      .rejects.toMatchObject({ code: 'sender_context_mismatch' });
+  });
+
+  it('requires an exact match without normalizing the identity-provider prefix', async () => {
+    const differentSender = { ...sender, userId: 'auth0|123456789' };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => Response.json(
+      String(input).endsWith('/GetCurrentUser')
+        ? { user: { userId: differentSender.userId } }
+        : { context: { ...differentSender, membershipId: 'member' } },
     ));
     await expect(verifySenderContext(request, production, identity, sender))
       .rejects.toMatchObject({ code: 'sender_context_mismatch' });
