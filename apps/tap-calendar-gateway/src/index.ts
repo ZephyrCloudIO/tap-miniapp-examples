@@ -1,6 +1,7 @@
 import OAuthProvider, { type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { readCalendarActivity, syncAvailabilityActivity } from "./calendar-activity";
 import { CALENDAR_MCP_SCOPES, type CalendarMcpScope } from "../../tap-calendar/src/mcp-contract";
 import { createCalendarLiveMcpServer, type CalendarLivePort } from "./calendar-live-mcp";
 import { approveCalendarMcpAuthorization, calendarMcpOAuthRoute, reviewCalendarMcpAuthorization } from "./calendar-mcp-oauth";
@@ -10228,6 +10229,14 @@ async function route(
     return json({ schemaVersion: PUBLIC_BOOKING_ANALYTICS_SCHEMA, ready: true,
       trafficSince: coverage.traffic_since, conversionSince: coverage.conversion_since });
   }
+  if (path === "/v1/activity" && request.method === "GET") {
+    return json(await readCalendarActivity(env.CALENDAR_DB, await principalScope(request, env)));
+  }
+  if (path === "/v1/activity/availability" && request.method === "POST") {
+    const owner = await principalScope(request, env);
+    await syncAvailabilityActivity(env.CALENDAR_DB, owner, await readJson(request));
+    return json({ recorded: true });
+  }
   const oauthResponse = await calendarMcpOAuthRoute(request, env);
   if (oauthResponse) return oauthResponse;
   if (path.startsWith("/v1/mcp/")) {
@@ -10523,6 +10532,7 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
         ["public booking email reconciliation", reconcilePublicBookingEmailNotices(env)],
         ["public booking email delivery", deliverPublicBookingEmails(env)],
         ["calendar cache repair", repairCalendarCaches(env, providerFetch)],
+        ["activity retention", env.CALENDAR_DB.prepare("DELETE FROM calendar_activity_events WHERE occurred_at < ?").bind(new Date(Date.now() - 90 * 86_400_000).toISOString()).run().then(() => undefined)],
         ["expired specialist consent cleanup", env.CALENDAR_DB.prepare("DELETE FROM calendar_mcp_authorizations WHERE expires_at < ?").bind(new Date().toISOString()).run().then(() => undefined)],
       ];
       for (const [name, operation] of jobs) {

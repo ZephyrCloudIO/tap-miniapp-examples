@@ -28,11 +28,12 @@ export function useCalendarMcpSync(gateway: CalendarGatewayClient, state: Calend
   return { sync, error };
 }
 
-export function CalendarMcpPanel({ gateway, authorize, configuration, preview }: {
+export function CalendarMcpPanel({ gateway, authorize, configuration, preview, activityError }: {
   readonly gateway: CalendarGatewayClient;
   readonly authorize: () => Promise<unknown>;
   readonly configuration: ReturnType<typeof useCalendarMcpSync>;
   readonly preview: boolean;
+  readonly activityError?: string | null;
 }) {
   const [code, setCode] = useState("");
   const [consent, setConsent] = useState<CalendarMcpConsent | null>(null);
@@ -55,6 +56,7 @@ export function CalendarMcpPanel({ gateway, authorize, configuration, preview }:
   return <section className="panel calendar-mcp-panel" aria-labelledby="calendar-mcp-title">
     <div className="section-heading"><div><span className="eyebrow">Live specialist connection</span><h2 id="calendar-mcp-title">Calendar access for Chloe</h2><p>Read events, compare Event Types, and create meetings while Calendar is closed.</p></div><span className={`status-chip ${grants?.length ? "status-confirmed" : "status-pending"}`}>{preview ? "Desktop setup required" : grants === null ? "Checking connection" : grants.length ? "Account access granted" : "Not connected"}</span></div>
     <p>In TAP’s specialist tools settings, select <strong>Calendar live tools</strong> for Chloe and connect your account. Return here with the code shown by the connection page.</p>
+    {activityError ? <p role="status">Calendar activity is waiting to synchronize: {activityError}</p> : null}
     <p>Access applies to all calendars connected to this TAP account. Free/busy calendars and private Work Blocks keep their details hidden. Analytics report scheduled time and booking activity.</p>
     {configuration.error || error ? <p role="alert" className="form-error">{error ?? configuration.error}</p> : null}
     {message ? <p role="status">{message}</p> : null}

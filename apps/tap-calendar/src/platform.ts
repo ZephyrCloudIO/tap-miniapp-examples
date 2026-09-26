@@ -126,7 +126,7 @@ export interface TapTaskWorkBlockSource {
   readonly sourceId: string;
   readonly sourceLabel: string;
   readonly suggestedTitle: string;
-  readonly status: MiniAppTask["status"];
+  readonly status: MiniAppTask["phase"];
   readonly priority: MiniAppTask["priority"];
   readonly dueAt: string | null;
   readonly assignees: readonly {
@@ -514,17 +514,13 @@ export function createCalendarPlatform(
             sourceId: task.id,
             sourceLabel: `Task · ${task.title}`,
             suggestedTitle: task.title,
-            status: task.status,
+            status: task.phase,
             priority: task.priority,
             dueAt:
-              task.dueDate === undefined
+              task.dueAt === undefined
                 ? null
-                : isoTimestamp(task.dueDate),
-            assignees: task.assignees.map(assignee => ({
-              id: assignee.id,
-              name: assignee.name,
-              type: assignee.type,
-            })),
+                : isoTimestamp(task.dueAt),
+            assignees: [],
           }))
           .sort(
             (left, right) =>
@@ -627,8 +623,7 @@ const cloneChannel = (channel: MiniAppChannel): MiniAppChannel => ({
 
 const cloneTask = (task: MiniAppTask): MiniAppTask => ({
   ...task,
-  assignees: task.assignees.map(assignee => ({ ...assignee })),
-  channelIds: [...task.channelIds],
+  extensions: structuredClone(task.extensions),
 });
 
 const cloneWorkflow = (workflow: MiniAppWorkflow): MiniAppWorkflow => ({

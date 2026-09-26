@@ -39,6 +39,7 @@ const targetConfigurations = {
   quickjs: {
     name: "tap_tap_calendar_quickjs",
     exposes: {
+      "./activity/tap-calendar-committed-actions": "./src/activity-source.ts",
       "./mcp/calendar-tools": "./src/mcp/calendar-tools-entry.ts",
       "./mcp/calendar-daily-summary": "./src/mcp/daily-summary-tools-entry.ts",
     },

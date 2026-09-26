@@ -120,7 +120,7 @@ const manage = (token: string, action: "reschedule" | "cancel", body: unknown) =
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime("2026-09-20T12:00:00Z"); events.clear(); inserts = 0; failedHost = null; uncertainPatch = false;
-  for (const table of ["calendar_host_reservations", "calendar_booking_hosts", "calendar_workspace_booking_profiles", "public_booking_workspace_audit", "public_booking_email_outbox", "public_booking_management_mutations", "public_booking_management_credentials", "public_booking_slot_proof_uses", "public_booking_attempts", "public_booking_owner_leases", "public_booking_publication_audit", "public_booking_page_revisions", "public_booking_page_slugs", "public_booking_pages", "public_booking_profile_generations", "public_booking_profile_slugs", "public_booking_owner_profile_slots", "public_booking_profiles", "provider_booking_resolutions", "provider_booking_commit_locks", "provider_booking_commits", "provider_calendars", "calendar_connections"]) await env.CALENDAR_DB.prepare(`DELETE FROM ${table}`).run();
+  for (const table of ["calendar_activity_events", "calendar_host_reservations", "calendar_booking_hosts", "calendar_workspace_booking_profiles", "public_booking_workspace_audit", "public_booking_email_outbox", "public_booking_management_mutations", "public_booking_management_credentials", "public_booking_slot_proof_uses", "public_booking_attempts", "public_booking_owner_leases", "public_booking_publication_audit", "public_booking_page_revisions", "public_booking_page_slugs", "public_booking_pages", "public_booking_profile_generations", "public_booking_profile_slugs", "public_booking_owner_profile_slots", "public_booking_profiles", "provider_booking_resolutions", "provider_booking_commit_locks", "provider_booking_commits", "provider_calendars", "calendar_connections"]) await env.CALENDAR_DB.prepare(`DELETE FROM ${table}`).run();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -145,6 +145,22 @@ describe("workspace collective bookings", () => {
     await publish(profile(3), "second-admin");
     expect((await call("/v1/workspace-bookings/profile", profile(0), "zack")).status).toBe(409);
     expect((await call("/v1/workspace-bookings/host", { expectedVersion: 0, enabled: true, displayName: "Imposter", destinationCalendarId: vern, conflictCalendarIds: [vern], sourceAvailabilityScheduleId: "s", schedule }, "imposter")).status).toBe(409);
+  });
+
+  it("attributes shared page changes to the authenticated manager, including unpublishing", async () => {
+    const zack = await connect("zack"); const vern = await connect("vern");
+    await enroll("zack", zack); await enroll("vern", vern);
+    await publish();
+    const changed = profile(1);
+    await publish({ ...changed, events: changed.events.map(event => ({ ...event, title: "Updated shared meeting" })) }, "second-admin");
+    expect((await call("/v1/workspace-bookings/profile", { ...profile(2), published: false }, "third-admin")).status).toBe(200);
+    const result = await env.CALENDAR_DB.prepare("SELECT principal_id, status_id FROM calendar_activity_events WHERE workspace_id = ? AND activity_id = 'booking-page' ORDER BY status_id")
+      .bind(workspace).all<{principal_id: string; status_id: string}>();
+    expect(result.results).toEqual([
+      { principal_id: "zack", status_id: "published" },
+      { principal_id: "third-admin", status_id: "unpublished" },
+      { principal_id: "second-admin", status_id: "updated" },
+    ]);
   });
 
   it("intersects host schedules and busy calendars, fails closed on provider errors, and invalidates withdrawn hosts", async () => {

@@ -35,6 +35,7 @@ export default defineTapMiniapp({
     quickjs: {
       remoteName: manifest.targets.quickjs.remoteName,
       exposes: {
+        "./activity/tap-calendar-committed-actions": { source: "./src/activity-source.ts", runtime: "quickjs" },
         "./mcp/calendar-tools": {
           source: "./src/mcp/calendar-tools-entry.ts",
           runtime: "quickjs",

@@ -1,3 +1,4 @@
+import { isCalendarActivityProjection, type CalendarActivityProjection, type AvailabilityActivityReceipt } from "./activity-contract";
 import { isAttendeeResponse } from "./attendee-response";
 import type { CalendarMcpConfiguration, CalendarMcpConsent, CalendarMcpGrant, CalendarMcpScope } from "./mcp-contract";
 import type { WorkspaceBookings, SharedHostInput, WorkspaceBookingProfileInput } from "./workspace-bookings";
@@ -891,6 +892,8 @@ export function createTapCalendarGatewayTransport(
 }
 
 export interface CalendarGatewayClient {
+  activity(): Promise<CalendarActivityProjection>;
+  syncAvailabilityActivity(entries: readonly Omit<AvailabilityActivityReceipt, "workspaceId">[]): Promise<void>;
   saveMcpConfiguration(sourceRevision: number, configuration: CalendarMcpConfiguration): Promise<void>;
   reviewMcpAuthorization(code: string): Promise<CalendarMcpConsent>;
   approveMcpAuthorization(code: string, scopes: readonly CalendarMcpScope[]): Promise<void>;
@@ -1192,6 +1195,14 @@ export function createCalendarGatewayClient(input: {
   return {
     baseUrl,
     principalId,
+    async activity() {
+      const result = await request<unknown>("GET", "/v1/activity");
+      if (!isCalendarActivityProjection(result) || result.userId !== principalId || result.workspaceId !== workspaceId) {
+        throw new CalendarGatewayError(502, "invalid_activity", "Calendar activity could not be verified for this account.");
+      }
+      return result;
+    },
+    async syncAvailabilityActivity(entries) { await request("POST", "/v1/activity/availability", { entries }); },
     async saveMcpConfiguration(sourceRevision, configuration) { await request("POST", "/v1/mcp/configuration", { sourceRevision, configuration }); },
     async reviewMcpAuthorization(code) { return request<CalendarMcpConsent>("POST", "/v1/mcp/authorizations/review", { code }); },
     async approveMcpAuthorization(code, scopes) { await request("POST", "/v1/mcp/authorizations/approve", { code, scopes }); },

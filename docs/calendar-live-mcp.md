@@ -97,7 +97,7 @@ connection for Chloe or publish the package by itself.
 2. Apply migration `0020_calendar_live_mcp.sql` with the existing gateway
    production migration command. Deploy the gateway with its existing Authz,
    provider secrets, D1, and the new KV binding.
-3. Build, publish, and install Calendar `0.3.0`. Its signed remote
+3. Build, publish, and install Calendar `0.3.1` or newer. Its signed remote
    contribution requests `calendar.read`, `calendar.analytics`, and
    `calendar.write`, partitioned by workspace member. For local host testing,
    point both the remote contribution's URL/resource and the UI gateway setting

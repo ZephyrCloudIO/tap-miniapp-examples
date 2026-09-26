@@ -276,7 +276,7 @@ p { text-wrap: pretty; }
 .public-turnstile p > svg { flex: 0 0 19px; width: 19px; color: #df772b; }
 .public-turnstile[data-status="error"] p { border-color: #e6b8b3; background: #fff5f4; color: #a13f36; }
 .public-booking-card-success { width: min(620px, 100%); min-height: 0; grid-template-columns: 1fr; }
-.public-booking-success { display: grid; width: 100%; justify-items: center; padding: clamp(46px, 7vw, 74px); text-align: center; }
+.public-booking-success { display: grid; width: 100%; justify-items: center; padding: clamp(32px, 5vw, 48px); text-align: center; }
 .public-booking-success > span { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 50%; background: #e8f8f2; color: #138b65; }
 .public-booking-success > span svg { width: 29px; height: 29px; }
 .public-booking-success h1 { margin: 22px 0 9px; color: var(--public-ink); font-size: clamp(28px, 3vw, 36px); }
@@ -286,6 +286,13 @@ p { text-wrap: pretty; }
 .public-booking-confirmation { display: grid; width: 100%; gap: 6px; margin: 25px 0; border: 1px solid var(--public-border); border-radius: 13px; background: #faf9fc; padding: 17px; }
 .public-booking-confirmation strong { color: #302c3d; font-size: 14px; }
 .public-booking-confirmation span { color: var(--public-muted); font-size: 12px; }
+.public-booking-signup { display: grid; min-width: 0; gap: 16px; justify-items: center; border-top: 1px solid var(--public-border); background: #faf9ff; padding: 32px clamp(24px, 5vw, 48px) 36px; text-align: center; }
+.public-booking-signup-brand { display: inline-flex; align-items: center; gap: 7px; color: var(--public-accent-strong); font-size: 12px; font-weight: 750; }
+.public-booking-signup-brand svg { width: 17px; height: 17px; }
+.public-booking-signup h2 { max-width: 25ch; margin: 0; color: var(--public-ink); font-size: clamp(22px, 3vw, 26px); line-height: 1.2; }
+.public-booking-signup p { max-width: 44ch; margin: 0; color: var(--public-muted); font-size: 14px; line-height: 1.65; }
+.public-booking-signup > a { min-height: 48px; min-width: 210px; }
+.public-booking-signup small { color: var(--public-muted); font-size: 12px; line-height: 1.5; }
 .public-booking-footer { display: flex; flex-direction: column; width: min(1080px, 100%); align-items: center; justify-content: space-between; align-self: start; gap: 14px; padding: 18px 4px 0; color: #747080; font-size: 12px; }
 .public-booking-powered { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; color: inherit; text-decoration: none; }
 .public-booking-powered svg { width: 17px; height: 17px; color: var(--primary); }
@@ -425,8 +432,10 @@ p { text-wrap: pretty; }
   .public-booking-slots-list { max-height: none; grid-template-columns: 1fr; }
   .public-booking-actions > button { width: 100%; }
   .public-booking-footer { width: 100%; flex-wrap: wrap; background: white; padding: 19px 20px calc(19px + env(safe-area-inset-bottom)); }
-  .public-booking-card-success { min-height: 100dvh; place-items: center; }
-  .public-booking-success { padding: calc(58px + env(safe-area-inset-top)) 24px calc(44px + env(safe-area-inset-bottom)); }
+  .public-booking-card-success { min-height: 0; }
+  .public-booking-success { padding: calc(36px + env(safe-area-inset-top)) 24px 32px; }
+  .public-booking-success-actions { display: grid; width: 100%; }
+  .public-booking-signup > a { width: 100%; min-width: 0; }
 }
 
 @media (max-width: 420px) {
