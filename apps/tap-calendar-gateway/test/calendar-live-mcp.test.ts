@@ -1,3 +1,13 @@
+import { z } from "zod";
+import calendarManifest from "../../tap-calendar/manifest.tap.json";
+import schema0 from "../../tap-calendar/schemas/mcp/list-calendars.input.json";
+import schema1 from "../../tap-calendar/schemas/mcp/list-events.input.json";
+import schema2 from "../../tap-calendar/schemas/mcp/get-event.input.json";
+import schema3 from "../../tap-calendar/schemas/mcp/find-available-slots.input.json";
+import schema4 from "../../tap-calendar/schemas/mcp/create-event.input.json";
+import schema5 from "../../tap-calendar/schemas/mcp/list-event-types.input.json";
+import schema6 from "../../tap-calendar/schemas/mcp/calendar-analytics.input.json";
+import schema7 from "../../tap-calendar/schemas/mcp/event-type-analytics.input.json";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aggregateCalendarEvents, createCalendarLiveTools, type CalendarLivePort, type LiveEvent } from "../src/calendar-live-mcp";
@@ -28,6 +38,22 @@ beforeEach(async () => {
 });
 
 describe("live Calendar specialist tools", () => {
+  it("ships the exact signed schemas and canonical OAuth contract required by the TAP host", () => {
+    const schemas = [schema0, schema1, schema2, schema3, schema4, schema5, schema6, schema7];
+    const tools = createCalendarLiveTools(env.CALENDAR_DB, props, port(), authorize());
+    const server = calendarManifest.contributions.find(contribution => contribution.id === "calendar-live-tools")!;
+    expect(server.options.oauth!.scopes).toEqual(["calendar.analytics", "calendar.read", "calendar.write"]);
+    expect(server.authorization!.effects!.filter(effect => effect.kind === "mcp.oauth")).toEqual([
+      { kind: "mcp.oauth", resources: [server.options.oauth!.resource] },
+    ]);
+    expect(tools.definitions).toHaveLength(schemas.length);
+    tools.definitions.forEach((tool, index) => {
+      const contribution = calendarManifest.contributions.find(item => item.id === `calendar-live-${tool.name.replaceAll("_", "-")}`)!;
+      expect(contribution.options.inputSchema).toBe(`targets/desktop/schemas/mcp/${tool.name.replaceAll("_", "-")}.input.json`);
+      expect(schemas[index]).toEqual(z.toJSONSchema(tool.schema, { io: "input" }));
+    });
+  });
+
   it("keeps configuration owner-scoped and rejects older snapshots", async () => {
     await saveMcpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 1, configuration: { conflictCalendarIds: [], eventTypes: [] } });
     expect(await loadMcpConfiguration(env.CALENDAR_DB, owner)).toEqual(configuration);

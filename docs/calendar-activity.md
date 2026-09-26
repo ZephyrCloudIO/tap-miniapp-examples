@@ -1,6 +1,6 @@
 # Calendar committed activity
 
-Calendar 0.3.2 registers `tap-calendar-committed-actions` as a storage-only QuickJS
+Calendar 0.3.3 registers `tap-calendar-committed-actions` as a storage-only QuickJS
 `activity.source` for Chloe. It requires SDK 0.19.0 and TAP >=2.20.0. The source
 accepts trusted `self` scope and returns counts for the requesting user and
 workspace over a half-open time range of at least 15 minutes.
@@ -53,9 +53,9 @@ entire millisecond. There are no duration or productivity-score claims.
 For an existing deployment with migrations through 0021, deploy the updated
 gateway before applying 0022: the older shared-host handler assumes one D1
 changed row and would reject successful saves once activity triggers are active.
-Apply 0022 before publishing/installing Calendar 0.3.2. New database deployments
+Apply 0022 before publishing/installing Calendar 0.3.3. New database deployments
 must first apply the earlier migrations. Older Calendar releases continue to
-work; personal availability tracking begins when 0.3.2 is opened.
+work; personal availability tracking begins when 0.3.3 is opened.
 
 Run miniapp/gateway tests and typechecks, `pnpm verify:tap`, manifest validation,
 and production builds. The gateway tests exercise D1 transitions, transaction

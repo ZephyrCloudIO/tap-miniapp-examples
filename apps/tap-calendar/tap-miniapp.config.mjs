@@ -3,6 +3,7 @@ import { defineTapMiniapp } from "@theaiplatform/miniapp-sdk/authoring";
 import { commandTargetBuilder } from "@theaiplatform/miniapp-sdk/lifecycle";
 import { zephyrPublisher } from "@zephyrcloudio/miniapp-zephyr-publisher";
 import { staticContributionProvider } from "../../scripts/tap-miniapp-static-contributions.mjs";
+import { verifyLiveMcpContract } from "./scripts/verify-live-mcp-contract.mjs";
 import { verifySingleReactRuntime } from "./scripts/verify-react-runtime.mjs";
 
 const builder = commandTargetBuilder({
@@ -69,7 +70,9 @@ export default defineTapMiniapp({
     },
   }),
   verify: {
-    verifyRuntime: ({ packageRoot }) =>
-      verifySingleReactRuntime(packageRoot),
+    verifyRuntime: async ({ packageRoot }) => {
+      await verifySingleReactRuntime(packageRoot);
+      await verifyLiveMcpContract(packageRoot);
+    },
   },
 });
