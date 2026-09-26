@@ -1,6 +1,7 @@
 import { activityCommandFromReceipt } from './activity';
 import { EmailToolAccessPanel } from './email-tool-access-panel';
 import { boundMailWindow, type MailWindowCursor } from './bounded-mail-replica';
+import { MailWindowRefresh, retainMailWindow } from './mail-window-refresh';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
 import { isMailDraftPayload } from '@tap-examples/tap-email-protocol';
@@ -785,11 +786,20 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const activityReconciliationsPending = useRef(new Set<string>());
   const queuedDraftRevisions = useRef(new Map<string, number>());
   const [replicaVersion, setReplicaVersion] = useState(0);
-  const [replicaSummary, setReplicaSummary] = useState<ReturnType<typeof mailboxSummary> | null>(null);
+  const [replicaSummary, setReplicaSummary] = useState<{ accountId: string; value: ReturnType<typeof mailboxSummary> } | null>(null);
   const [windowCursor, setWindowCursor] = useState<MailWindowCursor | null>(null);
   const [windowHistory, setWindowHistory] = useState<(MailWindowCursor | null)[]>([]);
   const [nextWindowCursor, setNextWindowCursor] = useState<MailWindowCursor | null>(null);
   const [windowKeys, setWindowKeys] = useState<ReadonlySet<string> | null>(null);
+  const windowSelected = useRef(false);
+  const windowRefresh = useRef<MailWindowRefresh | null>(null);
+  const windowScope = JSON.stringify([state.selectedAccountId, state.selectedSplit, query, windowCursor]);
+  const [windowRead, setWindowRead] = useState<{ scope: string; status: 'loading' | 'ready' | 'error'; pending: boolean } | null>(null);
+  const windowReady = !store.queryThreads || semanticSearch?.query === query.trim() ||
+    (windowRead?.scope === windowScope && windowRead.status === 'ready');
+  const windowFailed = windowRead?.scope === windowScope && windowRead.status === 'error';
+  const windowPending = !windowReady || (semanticSearch?.query !== query.trim() &&
+    windowRead?.scope === windowScope && windowRead.pending);
   const semanticIndexRef = useRef<Promise<EmailSemanticIndex> | null>(null);
   const semanticAbort = useRef<AbortController | null>(null);
   const idFactory = useCallback(
@@ -987,7 +997,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   }, [state]);
 
   const createMailboxSync = useCallback((client: CoordinatorClient) => {
-    const update = (apply: (state: MailState) => MailState) => setState(current => boundMailWindow(apply(current)));
+    const update = (apply: (state: MailState) => MailState) => setState(current => {
+      const updated = apply(current);
+      return boundMailWindow(store.queryThreads && windowSelected.current
+        ? retainMailWindow(current, updated) : updated);
+    });
     return store.commitMailboxUpdate && store.beginMailboxSync
       ? new DurableMailboxSync(client, store, update, () => setReplicaVersion(value => value + 1), () => setCoordinatorNetworkReady(true))
       : new MailboxSync(client, apply => {
@@ -1315,19 +1329,25 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   useEffect(() => {
     if (!hydrated || !store.queryThreads || semanticSearch?.query === query.trim()) return;
-    const abort = new AbortController();
-    void (async () => {
+    setWindowRead({ scope: windowScope, status: 'loading', pending: true });
+    setNextWindowCursor(null);
+    const refresh = new MailWindowRefresh(async signal => {
+      setWindowRead(current => ({ scope: windowScope, pending: true,
+        status: current?.scope === windowScope && current.status === 'ready' ? 'ready' : 'loading' }));
       // Flush local overlays/corrections before replacing the displayed window.
       await persistenceQueue.flush();
-      abort.signal.throwIfAborted();
+      signal.throwIfAborted();
       const result = await store.queryThreads!({ accountId: state.selectedAccountId,
-        split: state.selectedSplit, query, after: windowCursor, signal: abort.signal, bodies: true,
+        split: state.selectedSplit, query, after: windowCursor, signal, bodies: true,
         context: { now: new Date(), timeZone: mailSearchTimeZone } });
+      signal.throwIfAborted();
       const selectedBeforeRead = stateRef.current.threads.find(item => emailThreadKey(item) === stateRef.current.selectedThreadKey);
       const retainedSelection = selectedBeforeRead && store.loadThread
         ? await store.loadThread(selectedBeforeRead.accountId, selectedBeforeRead.threadId)
         : selectedBeforeRead;
-      if (abort.signal.aborted) return;
+      if (signal.aborted) return;
+      windowSelected.current = true;
+      setWindowRead({ scope: windowScope, status: 'ready', pending: false });
       setNextWindowCursor(result.next);
       setWindowKeys(new Set(result.threads.map(emailThreadKey)));
       setState(current => {
@@ -1341,13 +1361,21 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         if (selected && !threads.some(item => emailThreadKey(item) === current.selectedThreadKey)) threads.push(selected);
         return boundMailWindow({ ...current, threads });
       });
-    })().catch(error => {
-      if (!abort.signal.aborted) setCacheError(`Local history could not load: ${String(error)}`);
+    }, error => {
+      setWindowRead({ scope: windowScope, status: 'error', pending: false });
+      setCacheError(`Local history could not load: ${String(error)}`);
     });
-    return () => abort.abort();
-  }, [hydrated, store, persistenceQueue, replicaVersion, query, state.selectedAccountId, state.selectedSplit, windowCursor, semanticSearch]);
+    windowRefresh.current = refresh;
+    refresh.refresh();
+    return () => { refresh.dispose(); windowRefresh.current = null; };
+  }, [hydrated, store, persistenceQueue, query, state.selectedAccountId, state.selectedSplit, windowCursor, windowScope, semanticSearch]);
+
+  useEffect(() => {
+    windowRefresh.current?.refresh();
+  }, [replicaVersion, state.pendingThreadIntents]);
 
   const rows = useMemo(() => {
+    if (!windowReady) return [];
     const candidates = (query.trim()
       ? accountScopedThreads(state)
       : visibleThreads(state)).filter(item => !windowKeys || windowKeys.has(emailThreadKey(item)));
@@ -1367,7 +1395,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       });
     }
     return filterMailThreads(candidates, query, searchContext);
-  }, [query, semanticSearch, state, windowKeys]);
+  }, [query, semanticSearch, state, windowKeys, windowReady]);
 
   useEffect(() => {
     if (!query.trim() || rows.length === 0) return;
@@ -1420,7 +1448,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const emailTaskFinished = activeEmailTask?.status === 'completed' ||
     activeEmailTask?.status === 'duplicate-suppressed';
   const summary = useMemo(
-    () => replicaSummary ?? { ...mailboxSummary(state, new Date().toISOString()),
+    () => (replicaSummary?.accountId === state.selectedAccountId ? replicaSummary.value : null) ?? { ...mailboxSummary(state, new Date().toISOString()),
       ...(store.summarize ? { coverageComplete: false, operationalZero: false } : {}) },
     [state, replicaSummary, store],
   );
@@ -1429,7 +1457,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     let active = true;
     const timer = setTimeout(() => {
       void persistenceQueue.flush().then(() => store.summarize!(state.selectedAccountId)).then(summary => {
-        if (active) setReplicaSummary(summary);
+        if (active) setReplicaSummary({ accountId: state.selectedAccountId, value: summary });
       }).catch(() => undefined);
     }, 250);
     return () => { active = false; clearTimeout(timer); };
@@ -1461,6 +1489,20 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     });
   }, [query, state.accounts, state.selectedAccountId]);
   const activeMailView = mailViewDefinition(state.selectedSplit);
+  const emptyPageOnly = windowHistory.length > 0 || nextWindowCursor !== null;
+  const pendingViewCommands = state.commands.some(command =>
+    state.selectedAccountId === 'all' || command.accountId === state.selectedAccountId);
+  const emptyMailTitle = state.accounts.length === 0 ? 'Bring Google into TAP'
+    : emptyPageOnly ? 'No messages on this page'
+    : pendingViewCommands ? 'Email changes are pending'
+    : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'Newest mail is arriving'
+    : activeMailView.emptyTitle;
+  const emptyMailDescription = state.accounts.length === 0
+    ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.'
+    : emptyPageOnly ? 'Use the page controls to continue browsing this mail view.'
+    : pendingViewCommands ? 'The inbox cannot be confirmed clear until queued actions have finished.'
+    : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.'
+    : `There are no items in ${activeMailView.label} for the selected account view.`;
   const listReferenceNow = new Date();
   const rowGroups = groupThreadsByDay(rows, listReferenceNow);
 
@@ -2958,6 +3000,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 onReconcile={reconcileOutboxSend}
                 onRetry={retryOutboxSend}
               />
+            ) : !windowReady || (rows.length === 0 && windowPending) ? (
+              <div className="zero-state" role="status"><h2>{windowFailed ? 'Mail could not load' : 'Loading mail'}</h2><p>{windowFailed ? 'Retry the device cache to load this view.' : 'Reading the selected account and mail view.'}</p></div>
             ) : rowGroups.map((group, groupIndex) => (
               <div
                 aria-label={group.label}
@@ -2981,18 +3025,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 ))}
               </div>
             ))}
-            {state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' && rows.length === 0 ? (
-              <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{state.accounts.length === 0 ? 'Bring Google into TAP' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'Newest mail is arriving' : activeMailView.emptyTitle}</h2><p>{state.accounts.length === 0 ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.' : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.' : `There are no items in ${activeMailView.label} for the selected account view.`}</p>{state.accounts.length === 0 && !preview ? <GoogleConnectButton busy={connectionBusy} className="primary-button" onLaunch={continueGoogleConnection} onPrepare={prepareGoogleConnection} prepared={googleAuthorizationUrl !== null} /> : null}</div>
+            {windowReady && !windowPending && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' && rows.length === 0 ? (
+              <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 || emptyPageOnly || pendingViewCommands ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{emptyMailTitle}</h2><p>{emptyMailDescription}</p>{state.accounts.length === 0 && !preview ? <GoogleConnectButton busy={connectionBusy} className="primary-button" onLaunch={continueGoogleConnection} onPrepare={prepareGoogleConnection} prepared={googleAuthorizationUrl !== null} /> : null}</div>
             ) : null}
           </div>
           {store.queryThreads && !semanticSearch && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' ? (
             <nav className="mail-history-pagination" aria-label="Mail history pages">
-              <button type="button" disabled={!windowHistory.length} onClick={() => {
+              <button type="button" disabled={!windowReady || !windowHistory.length} onClick={() => {
                 setWindowCursor(windowHistory.at(-1) ?? null);
                 setWindowHistory(history => history.slice(0, -1));
               }}>Newer</button>
               <span>Page {windowHistory.length + 1}</span>
-              <button type="button" disabled={!nextWindowCursor} onClick={() => {
+              <button type="button" disabled={!windowReady || !nextWindowCursor} onClick={() => {
                 setWindowHistory(history => [...history, windowCursor]);
                 setWindowCursor(nextWindowCursor);
               }}>Older</button>
