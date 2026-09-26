@@ -24,7 +24,7 @@ describe('platform session verification', () => {
   it('turns introspection transport failures into a bounded service error', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       expect(init?.signal).toBeInstanceOf(AbortSignal);
-      expect(init?.redirect).toBe('error');
+      expect(init?.redirect).toBe('manual');
       throw new DOMException('Timed out', 'TimeoutError');
     });
     const testEnv = Object.create(env) as Env;
@@ -44,7 +44,12 @@ describe('platform session verification', () => {
   });
 
   it('binds introspection to the package audience and requested action', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      // Exercise workerd's Request constructor: a fetch spy alone accepts
+      // browser-only options such as redirect: 'error' that Workers reject.
+      const outbound = new Request(input, init);
+      expect(outbound.redirect).toBe('manual');
+      expect(outbound.headers.get('Authorization')).toBe('Bearer session-token');
       expect(init?.body).toBe(JSON.stringify({
         audience: tapEmailSessionAudience,
         requiredAction: 'tap-email.manage',
@@ -69,6 +74,24 @@ describe('platform session verification', () => {
       testEnv,
       'tap-email.manage',
     )).resolves.toEqual({ profileId: 'profile_1' });
+  });
+
+  it.each([301, 302, 303, 307, 308])('rejects HTTP %i without forwarding the session', async status => {
+    const outboundRequests: Request[] = [];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      outboundRequests.push(new Request(input, init));
+      return new Response(null, { status, headers: { Location: 'https://untrusted.example/session' } });
+    });
+    await expect(verifyPlatformSession(
+      new Request('https://coordinator.example/v1/mailbox', {
+        headers: { Authorization: 'Bearer session-token' },
+      }),
+      { ...env, TAP_INTROSPECTION_URL: 'https://identity.example/introspect' },
+      'tap-email.view',
+    )).rejects.toMatchObject({ status: 503, code: 'introspection_unavailable' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(outboundRequests).toHaveLength(1);
+    expect(outboundRequests[0]?.redirect).toBe('manual');
   });
 
   it.each([

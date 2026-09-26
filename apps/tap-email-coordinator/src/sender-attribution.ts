@@ -36,7 +36,9 @@ async function directoryCall(request: Request, method: string, body: object): Pr
         'Connect-Protocol-Version': '1',
       },
       body: JSON.stringify(body),
-      redirect: 'error',
+      // Workers support manual redirects; the non-OK check below rejects them
+      // without forwarding the bearer to the Location destination.
+      redirect: 'manual',
       signal: AbortSignal.timeout(5_000),
     });
   } catch {

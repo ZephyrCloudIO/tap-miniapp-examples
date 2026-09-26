@@ -103,7 +103,9 @@ export const verifyPlatformSession: AccessVerifier = async (
         audience: tapEmailSessionAudience,
         requiredAction,
       }),
-      redirect: 'error',
+      // workerd rejects redirect: 'error' before dispatch. Inspect redirects
+      // ourselves so the session is never forwarded to another endpoint.
+      redirect: 'manual',
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -111,6 +113,13 @@ export const verifyPlatformSession: AccessVerifier = async (
       503,
       'introspection_unavailable',
       'Session introspection did not complete.',
+    );
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw new AccessError(
+      503,
+      'introspection_unavailable',
+      'Session introspection redirected unexpectedly.',
     );
   }
   if (response.status === 429 || response.status >= 500) {
