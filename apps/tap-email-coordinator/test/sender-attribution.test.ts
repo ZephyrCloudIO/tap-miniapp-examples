@@ -16,9 +16,10 @@ describe('trusted sender resolution', () => {
     const calls: string[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
+      const outbound = new Request(input, init);
       expect(url.startsWith('https://directory.theaiplatform.app/rpc/')).toBe(true);
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer verified-session');
-      expect(init?.redirect).toBe('error');
+      expect(outbound.redirect).toBe('manual');
       calls.push(url);
       if (url.endsWith('/GetCurrentUser')) return Response.json({ user: { userId: sender.userId } });
       expect(JSON.parse(String(init?.body))).toEqual({ workspaceId: sender.workspaceId });
@@ -51,5 +52,18 @@ describe('trusted sender resolution', () => {
   ])('preserves denial/unavailability for status %i', async (status, code) => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: Number(status) }));
     await expect(verifySenderContext(request, production, identity, sender)).rejects.toMatchObject({ code });
+  });
+
+  it.each([301, 302, 303, 307, 308])('rejects Directory HTTP %i without forwarding the session', async status => {
+    const outboundRequests: Request[] = [];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      outboundRequests.push(new Request(input, init));
+      return new Response(null, { status, headers: { Location: 'https://untrusted.example/identity' } });
+    });
+    await expect(verifySenderContext(request, production, identity, sender))
+      .rejects.toMatchObject({ status: 503, code: 'directory_unavailable' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(outboundRequests).toHaveLength(2);
+    expect(outboundRequests.every(outbound => outbound.redirect === 'manual')).toBe(true);
   });
 });

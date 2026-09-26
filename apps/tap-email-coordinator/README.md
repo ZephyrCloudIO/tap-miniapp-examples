@@ -68,6 +68,12 @@ Missing grants, a different audience, malformed fields, or an unavailable
 introspection service fail closed. Local development remains an explicit
 `ALLOW_DEV_IDENTITY=true` grant and must never be enabled in production.
 
+Introspection and Directory requests use `redirect: 'manual'` and reject 3xx
+responses without following `Location`, so authorization headers stay at the
+configured authority. The pinned Workers runtime rejects `redirect: 'error'`
+during request construction, before any network request. Auth tests construct
+real Workers `Request` objects to catch this class of runtime incompatibility.
+
 `GET /health` is a process-liveness probe. `GET /ready` additionally validates
 non-secret runtime configuration, queue bindings, encryption-key shape, and D1
 connectivity. Neither route returns configuration or secret values.
