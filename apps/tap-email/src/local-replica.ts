@@ -368,7 +368,7 @@ export async function replaceNormalizedLocalReplica(
       if (table === 'local_mail_accounts') continue;
       for (let offset = 0; offset < state.threads.length; offset += 100) {
         const batch = state.threads.slice(offset, offset + 100);
-        await transaction.execute(`DELETE FROM ${table} WHERE ${batch.map(() => '(account_id = ? AND thread_id = ?)').join(' OR ')}`,
+        await transaction.execute(`DELETE FROM ${table} WHERE (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})`,
           batch.flatMap(thread => [thread.accountId, thread.threadId]));
       }
     }
