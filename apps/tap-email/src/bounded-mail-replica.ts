@@ -50,7 +50,8 @@ interface RecordWrite { readonly kind: string; readonly accountId: string; reado
 async function writeRecords(tx: MiniAppPrivateSqlTransaction, table: Table, records: readonly RecordWrite[]): Promise<void> {
   for (let offset = 0; offset < records.length; offset += 100) {
     const batch = records.slice(offset, offset + 100);
-    await tx.execute(`DELETE FROM ${table} WHERE ${batch.map(() => '(kind = ? AND account_id = ? AND thread_id = ? AND entity_id = ?)').join(' OR ')}`,
+    // A flat row-value set avoids an OR tree deeper than TAP's SQLite limit.
+    await tx.execute(`DELETE FROM ${table} WHERE (kind, account_id, thread_id, entity_id) IN (VALUES ${batch.map(() => '(?, ?, ?, ?)').join(', ')})`,
       batch.flatMap(record => [record.kind, record.accountId, record.threadId, record.entityId]));
   }
   function* rows() {

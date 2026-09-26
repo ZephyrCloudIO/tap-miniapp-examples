@@ -21,6 +21,42 @@ function withCommand(state: MailState, id: string): MailState {
 }
 
 describe('bounded durable mail persistence', () => {
+  it('replaces full mailbox batches within native SQL limits without deleting unrelated threads', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 130 }, (_, index) => thread(index));
+    const otherAccount = template.accounts.find(account => account.accountId !== threads[0]!.accountId)!;
+    const otherThread = { ...threads[0]!, accountId: otherAccount.accountId, subject: 'Other mailbox' };
+    await store.save({ ...template, threads: [...threads, otherThread] });
+    fixture.statements.length = 0;
+    await store.saveCache({ ...template, threads: threads.slice(0, 100).map(item => ({ ...item, subject: 'Updated' })) });
+
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM local_mail_threads').get()?.n).toBe(131);
+    expect(fixture.sqlite.prepare("SELECT COUNT(*) AS n FROM local_mail_threads WHERE subject = 'Updated'").get()?.n).toBe(100);
+    expect(fixture.sqlite.prepare('SELECT subject FROM local_mail_threads WHERE account_id = ? AND thread_id = ?')
+      .get(otherThread.accountId, otherThread.threadId)?.subject).toBe('Other mailbox');
+    const deletes = fixture.statements.filter(sql => sql.startsWith('DELETE FROM local_mail_') && sql.includes('?'));
+    expect(deletes.some(sql => sql.startsWith('DELETE FROM local_mail_records'))).toBe(true);
+    expect(deletes.some(sql => sql.startsWith('DELETE FROM local_mail_threads'))).toBe(true);
+    const schema = fixture.sqlite.prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type = 'table' DESC").all();
+    // Node's SQLite uses a deeper default expression limit than TAP. Compile the
+    // actual generated statements against the host's native SQLite limits too.
+    const result = execFileSync('python3', ['-c', `
+import json, sqlite3, sys
+data = json.load(sys.stdin)
+c = sqlite3.connect(':memory:')
+c.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH, 100)
+c.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+c.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 1024 * 1024)
+c.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 256)
+for entry in data['schema']: c.execute(entry['sql'])
+for sql in data['statements']:
+ c.execute('EXPLAIN ' + sql, [None] * sql.count('?')).fetchall()
+print('native SQL limits passed')
+`], { encoding: 'utf8', input: JSON.stringify({ schema, statements: deletes }) });
+    expect(result.trim()).toBe('native SQL limits passed');
+  });
+
   it('splits escaped UTF-8 at byte boundaries and round-trips surrogate pairs', () => {
     for (const value of ['a'.repeat(maximumRecordPartBytes), '😀"\\\n'.repeat(40_000), '\ud800'.repeat(30_000)]) {
       const parts = [...recordParts(value)];
