@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
   CalendarCheck2,
   CalendarClock,
   Check,
@@ -572,7 +573,10 @@ function BookingExperience({ route, page, visitId, onPublishedPageChanged }: {
                 : "Your meeting is confirmed. Keep the secure management link below in case plans change."}</p>
               <div className="public-booking-confirmation">
                 <strong>{page.eventType.title}</strong>
-                <span>{dateTimeFormatter.format(new Date(result.startsAt))}</span>
+                <span>With {page.eventType.hosts?.length
+                  ? page.eventType.hosts.map(host => host.displayName).join(", ")
+                  : page.profile.displayName}</span>
+                <span>{dateTimeFormatter.formatRange(new Date(result.startsAt), new Date(result.endsAt))}</span>
                 <span>{page.eventType.locationLabel}</span>
               </div>
               <div className="public-booking-success-actions">
@@ -581,6 +585,20 @@ function BookingExperience({ route, page, visitId, onPublishedPageChanged }: {
                   Book another meeting
                 </Button>
               </div>
+            </section>
+            <section className="public-booking-signup" aria-labelledby="public-booking-signup-title">
+              <span className="public-booking-signup-brand"><CalendarCheck2 aria-hidden="true" /> The AI Platform</span>
+              <h2 id="public-booking-signup-title">Schedule your own meetings for free</h2>
+              <p>Create a free account on The AI Platform, connect your calendar, and let people book a time that works.</p>
+              <Button asChild size="lg">
+                <a
+                  href="https://theaiplatform.app/?utm_source=tap-calendar&utm_medium=booking-confirmation&utm_campaign=free-scheduling"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Get started free with The AI Platform (opens in a new tab)"
+                >Get started free <ArrowUpRight aria-hidden="true" /></a>
+              </Button>
+              <small>Download the app, then create your free account.</small>
             </section>
           </div>
           <PublicFooter />
