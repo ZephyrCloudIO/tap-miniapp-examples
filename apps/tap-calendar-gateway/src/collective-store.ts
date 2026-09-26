@@ -84,7 +84,9 @@ export async function saveHost(database: Database, scope: BookingScope, input: u
     ON CONFLICT(workspace_id, principal_id) DO UPDATE SET version = excluded.version, enabled = excluded.enabled,
       policy_json = excluded.policy_json, updated_at = excluded.updated_at WHERE calendar_booking_hosts.version = ?`)
     .bind(scope.workspace, scope.principal, host.version, input.enabled ? 1 : 0, JSON.stringify(host), new Date().toISOString(), expected).run();
-  if (result.meta.changes !== 1) return conflict();
+  // D1 includes the activity trigger write in its change count. The owner key
+  // and expected version restrict the host mutation itself to a single row.
+  if (Number(result.meta.changes ?? 0) === 0) return conflict();
   return { enabled: input.enabled, host };
 }
 

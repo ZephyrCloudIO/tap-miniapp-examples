@@ -1,3 +1,4 @@
+import { isCalendarActivityJournal } from "./activity-contract";
 import { isAttendeeResponse, type CalendarResponseStatus } from "./attendee-response";
 
 export type CalendarProvider =
@@ -286,6 +287,7 @@ export interface CalendarWorkflowNode {
 }
 
 export interface CalendarState {
+  readonly activityJournal?: import("./activity-contract").CalendarActivityJournal;
   readonly schemaVersion: 1;
   readonly activeView: CalendarView;
   readonly accounts: readonly CalendarAccount[];
@@ -2704,6 +2706,7 @@ export function isCalendarState(value: unknown): value is CalendarState {
   if (!isRecord(value)) return false;
   if (
     value.schemaVersion !== 1 ||
+    (value.activityJournal !== undefined && !isCalendarActivityJournal(value.activityJournal)) ||
     !isOneOf(value.activeView, ["day", "work-week", "week", "month", "agenda", "team"] as const) ||
     typeof value.activeAvailabilityId !== "string" ||
     !Array.isArray(value.accounts) ||

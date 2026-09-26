@@ -10,15 +10,15 @@ afterEach(() => {
 });
 
 describe("TAP Calendar storage", () => {
-  it("loads an empty projection without requiring a storage write", async () => {
+  it("initializes an empty projection and activity coverage in one revision", async () => {
     const get = rs.fn(async () => ({ value: null, revision: 0 }));
-    const set = rs.fn();
+    const set = rs.fn(async () => ({ revision: 10 }));
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set } });
 
     const loaded = await loadCalendarState(false, "user-alex");
 
     expect(loaded).toMatchObject({
-      revision: 0,
+      revision: 10,
       state: {
         accounts: [],
         events: [],
@@ -30,12 +30,12 @@ describe("TAP Calendar storage", () => {
     expect(get).toHaveBeenCalledWith(
       calendarPrincipalStorageAddresses("user-alex").state,
     );
-    expect(set).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledTimes(1);
   });
 
   it("does not read the legacy workspace state for another principal", async () => {
     const get = rs.fn(async () => ({ value: null, revision: null }));
-    Reflect.set(globalThis, SDK_SLOT, { storage: { get, set: rs.fn() } });
+    Reflect.set(globalThis, SDK_SLOT, { storage: { get, set: rs.fn(async () => ({ revision: 1 })) } });
 
     await loadCalendarState(false, "user-other");
 
@@ -57,18 +57,18 @@ describe("TAP Calendar storage", () => {
     const legacyEventType = legacy.bookingProfiles[0]!.eventTypes[0]!;
     delete (legacyEventType as { availabilityScheduleId?: string }).availabilityScheduleId;
     const get = rs.fn(async () => ({ value: legacy, revision: 9 }));
-    const set = rs.fn();
+    const set = rs.fn(async () => ({ revision: 10 }));
     Reflect.set(globalThis, SDK_SLOT, { storage: { get, set } });
 
     const loaded = await loadCalendarState(false, "user-alex");
 
-    expect(loaded.revision).toBe(9);
+    expect(loaded.revision).toBe(10);
     expect(loaded.state.accounts).toHaveLength(legacy.accounts.length);
     expect(loaded.state.events).toHaveLength(legacy.events.length);
     expect(loaded.state.bookingProfiles).toHaveLength(legacy.bookingProfiles.length);
     expect(
       loaded.state.bookingProfiles[0]!.eventTypes[0]!.availabilityScheduleId,
     ).toBe(legacy.activeAvailabilityId);
-    expect(set).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 9 }));
   });
 });

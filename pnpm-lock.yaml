@@ -438,8 +438,8 @@ importers:
   apps/tap-calendar:
     dependencies:
       '@theaiplatform/miniapp-sdk':
-        specifier: 0.16.0
-        version: 0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.19.0
+        version: 0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@vvo/tzdb':
         specifier: 6.198.0
         version: 6.198.0

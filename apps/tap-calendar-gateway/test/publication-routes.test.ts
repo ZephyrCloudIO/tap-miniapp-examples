@@ -65,6 +65,7 @@ const request = (path: string, body: unknown) => new Request(
 
 beforeEach(async () => {
   await env.CALENDAR_DB.batch([
+    env.CALENDAR_DB.prepare("DELETE FROM calendar_activity_events"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_publication_audit"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_page_revisions"),
     env.CALENDAR_DB.prepare("DELETE FROM public_booking_page_slugs"),
@@ -125,6 +126,26 @@ describe("organizer publication routes", () => {
     expect(await unpublished.json()).toMatchObject({
       publication: { generation: 2, idempotentReplay: false },
     });
+  });
+
+  it("records actual page publication changes, excluding no-op saves and stale writes", async () => {
+    const send = (body: unknown) => worker.fetch(request("/v1/publications/profiles", body), env);
+    const initial = await send(profilePublication());
+    expect(initial.status).toBe(200);
+    const first = await initial.json<{ publication: { generation: number } }>();
+    const replay = await send(profilePublication(first.publication.generation));
+    expect(replay.status).toBe(200);
+    const second = await replay.json<{ publication: { generation: number } }>();
+    const updated = await send(profilePublication(second.publication.generation, [publicationPage("Changed meeting")]));
+    expect(updated.status).toBe(200);
+    const third = await updated.json<{ publication: { generation: number } }>();
+    expect((await send(profilePublication(0, [publicationPage("Stale change")]))).status).toBe(409);
+    expect((await worker.fetch(request("/v1/publications/profiles/unpublish", {
+      schemaVersion: "tap.calendar.profile-unpublication.v1", sourceProfileId: "profile-route-1", expectedGeneration: third.publication.generation,
+    }), env)).status).toBe(200);
+    const activity = await env.CALENDAR_DB.prepare("SELECT status_id FROM calendar_activity_events WHERE workspace_id = ? AND principal_id = ? AND activity_id = 'booking-page' ORDER BY event_key")
+      .bind(workspace, principal).all<{status_id: string}>();
+    expect(activity.results.map(row => row.status_id)).toEqual(["published", "updated", "unpublished"]);
   });
 
   it("claims a public profile namespace without requiring an Event Type", async () => {

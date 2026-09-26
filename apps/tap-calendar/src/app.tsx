@@ -1,3 +1,5 @@
+import { useCalendarActivitySync } from "./use-calendar-activity-sync";
+import { appendAvailabilityActivity } from "./activity-journal";
 import { AttendeeResponseBadge, EventResponseBadge, eventResponseClassName } from "./attendee-response-badge";
 import { mergeProviderEvent } from "./provider-event-merge";
 import { normalizePublicBookingDetails, publicBookingDescription } from "./public-booking-details";
@@ -1398,6 +1400,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       transport,
     });
   }, [calendarPrincipalId, context, preview]);
+  const calendarActivitySync = useCalendarActivitySync(calendarGateway, context?.workspaceId, state, !preview);
   const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview);
   const bookingAnalytics = usePublicBookingAnalytics(
     calendarGateway, !preview && state !== null && section === "booking-pages",
@@ -1783,7 +1786,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       if (!current) return false;
       const mutated = mutation(current);
       if (mutated === current) return false;
-      const next = preview
+      const publicationState = preview
         ? mutated
         : markChangedPublicBookingProfilesPending(
           current,
@@ -1792,6 +1795,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         );
       setSaving(true);
       try {
+        const next = preview ? publicationState : appendAvailabilityActivity(current, publicationState, context?.workspaceId ?? "");
         const revision = await saveCalendarState(
           next,
           preview,
@@ -2970,7 +2974,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
               onDeclineBooking={requestId => resolveBookingApproval(requestId, "decline")}
             />
           ) : null}
-          {section === "automations" ? <AutomationsScreen state={state} specialistPanel={<CalendarMcpPanel gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
+          {section === "automations" ? <AutomationsScreen state={state} specialistPanel={<CalendarMcpPanel activityError={calendarActivitySync.error} gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
           {section === "settings" ? (
             <SettingsScreen
               state={state}

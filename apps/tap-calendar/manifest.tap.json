@@ -9,8 +9,8 @@
     "slug": "tap-calendar"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.1",
-    "version": "0.3.1",
+    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.2",
+    "version": "0.3.2",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -30,8 +30,8 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.16.0",
-    "tapHost": ">=2.5.5"
+    "tapSdk": "0.19.0",
+    "tapHost": ">=2.20.0"
   },
   "targets": {
     "desktop": {
@@ -58,6 +58,7 @@
       "assetLockIntegrity": "pending",
       "libraryType": "module",
       "exposes": {
+        "./activity/tap-calendar-committed-actions": { "integrity": "pending", "runtime": "quickjs" },
         "./mcp/calendar-tools": { "integrity": "pending", "runtime": "quickjs" },
         "./mcp/calendar-daily-summary": { "integrity": "pending", "runtime": "quickjs" }
       }
@@ -77,6 +78,173 @@
     }
   },
   "contributions": [
+    {
+      "kind": "activity.source",
+      "id": "tap-calendar-committed-actions",
+      "apiVersion": 1,
+      "targets": {
+        "quickjs": {
+          "expose": "./activity/tap-calendar-committed-actions",
+          "runtime": "quickjs"
+        }
+      },
+      "authorization": {
+        "allOf": [
+          "calendar.view"
+        ],
+        "effects": [
+          {
+            "kind": "storage",
+            "resources": [
+              "tap-calendar"
+            ]
+          }
+        ]
+      },
+      "lifecycleScope": "installation",
+      "options": {
+        "name": "Calendar activity",
+        "description": "Counts of committed Calendar actions for the current user and workspace. Partial when retained history or the last synchronization does not cover the requested range.",
+        "activityTypes": [
+          {
+            "id": "meeting-scheduled",
+            "name": "Meetings scheduled",
+            "description": "Provider-confirmed meetings created from Calendar, channel scheduling, or authorized specialists.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "confirmed",
+                "name": "Confirmed",
+                "description": "Confirmed outcome."
+              }
+            ]
+          },
+          {
+            "id": "meeting-rescheduled",
+            "name": "Meetings rescheduled",
+            "description": "Successful booking date or time changes.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "completed",
+                "name": "Completed",
+                "description": "Completed outcome."
+              }
+            ]
+          },
+          {
+            "id": "meeting-cancelled",
+            "name": "Meetings cancelled",
+            "description": "Successful booking cancellations.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "completed",
+                "name": "Completed",
+                "description": "Completed outcome."
+              }
+            ]
+          },
+          {
+            "id": "work-block-created",
+            "name": "Work blocks created",
+            "description": "Personal focus blocks saved to the provider.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "confirmed",
+                "name": "Confirmed",
+                "description": "Confirmed outcome."
+              }
+            ]
+          },
+          {
+            "id": "booking-received",
+            "name": "Bookings received",
+            "description": "Successful guest submissions, separated by initial approval state.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "confirmed",
+                "name": "Confirmed",
+                "description": "Confirmed outcome."
+              },
+              {
+                "id": "pending",
+                "name": "Pending",
+                "description": "Pending outcome."
+              }
+            ]
+          },
+          {
+            "id": "booking-decision",
+            "name": "Booking decisions",
+            "description": "Committed organizer approval or decline decisions.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "approved",
+                "name": "Approved",
+                "description": "Approved outcome."
+              },
+              {
+                "id": "declined",
+                "name": "Declined",
+                "description": "Declined outcome."
+              }
+            ]
+          },
+          {
+            "id": "booking-page",
+            "name": "Booking page changes",
+            "description": "Published, changed, or unpublished booking pages; identical publications are excluded.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "published",
+                "name": "Published",
+                "description": "Published outcome."
+              },
+              {
+                "id": "updated",
+                "name": "Updated",
+                "description": "Updated outcome."
+              },
+              {
+                "id": "unpublished",
+                "name": "Unpublished",
+                "description": "Unpublished outcome."
+              }
+            ]
+          },
+          {
+            "id": "availability-updated",
+            "name": "Availability updates",
+            "description": "Saved changes to schedules, date overrides, buffers, or booking policies.",
+            "unit": "count",
+            "statuses": [
+              {
+                "id": "saved",
+                "name": "Saved",
+                "description": "Saved outcome."
+              }
+            ]
+          }
+        ],
+        "supportedScopes": [
+          "self"
+        ],
+        "specialistAccess": [
+          "chloe"
+        ],
+        "storageReads": [
+          {
+            "namespace": "tap-calendar",
+            "keyTemplate": "users/{userId}/activity/v1"
+          }
+        ]
+      }
+    },
     {
       "kind": "ui.surface",
       "id": "tap-calendar",
@@ -830,6 +998,7 @@
       "apiVersion": 1,
       "options": {
         "contributionIds": [
+          "tap-calendar-committed-actions",
           "tap-calendar",
           "tap-calendar-channel-scheduler",
           "calendar-tools",

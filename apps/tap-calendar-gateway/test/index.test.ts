@@ -430,8 +430,8 @@ describe("TAP Calendar local gateway", () => {
         background.push(promise);
       },
     } as unknown as ExecutionContext);
-    expect(background).toHaveLength(6);
-    await expect(Promise.all(background)).resolves.toHaveLength(6);
+    expect(background).toHaveLength(7);
+    await expect(Promise.all(background)).resolves.toHaveLength(7);
   });
 
   it("persists an empty-install connection and every discovered calendar in D1", async () => {

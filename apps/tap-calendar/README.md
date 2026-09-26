@@ -299,15 +299,18 @@ confirmation semantics for older organizer packages during upgrades.
 #### Production rollout
 
 Run all three applications' tests/typechecks and build their production artifacts.
-The current release needs all migrations through 0021, including 0016 (Zoom),
+The current release needs all migrations through 0022, including 0016 (Zoom),
 0017 (traffic), 0018 (collective bookings), both 0019 migrations (analytics v2
-and booking details), 0020 (live MCP), and 0021 (attendee responses). The production
-gateway also requires its dedicated `OAUTH_KV` binding. Apply migrations before
-the gateway; deploy the public app before publishing the organizer package:
+and booking details), 0020 (live MCP), 0021 (attendee responses), and 0022 (committed activity). The production
+gateway also requires its dedicated `OAUTH_KV` binding. For an existing deployment
+through 0021, deploy the gateway before applying 0022, then publish the organizer
+package. See [Calendar activity](../../docs/calendar-activity.md) for the upgrade
+order, the eight activity types, and coverage limits. Deploy the public app before
+publishing the organizer package:
 
 ```sh
-CLOUDFLARE_ACCOUNT_ID=b848db7e2edd56dee8ffcc39c18612a5 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
 pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
+CLOUDFLARE_ACCOUNT_ID=b848db7e2edd56dee8ffcc39c18612a5 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
 pnpm --filter @tap-examples/tap-calendar-public deploy:production
 pnpm --filter @tap-examples/tap-calendar build:miniapp:production
 pnpm --filter @tap-examples/tap-calendar publish:production
