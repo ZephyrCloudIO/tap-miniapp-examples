@@ -1,6 +1,6 @@
 import { CalendarGatewayError } from "./gateway";
 
-export type ProviderConnectionStep = "connect" | "import" | "refresh";
+export type ProviderConnectionStep = "connect" | "import" | "refresh" | "verify" | "disconnect";
 
 export function providerUnavailableDescription(localConnectorAvailable: boolean): string {
   return localConnectorAvailable
@@ -14,6 +14,12 @@ export function providerConnectionErrorMessage(
   step: ProviderConnectionStep,
 ): string {
   if (cause instanceof CalendarGatewayError) {
+    if (cause.code === "zoom_connection_in_use") {
+      return "Cancel upcoming Zoom bookings before disconnecting this account.";
+    }
+    if (cause.code === "zoom_reauthorization_required" || cause.code === "zoom_not_connected") {
+      return "Reconnect Zoom before creating another meeting.";
+    }
     if (cause.code === "authorization_pending") {
       return `Finish connecting ${providerName} in your browser, then try again.`;
     }
@@ -26,7 +32,7 @@ export function providerConnectionErrorMessage(
     if (cause.code === "provider_access_denied") {
       return `${providerName} denied calendar access. Review the requested access and try again.`;
     }
-    if (cause.code === "provider_rate_limited") {
+    if (cause.code === "provider_rate_limited" || cause.code === "zoom_rate_limited") {
       return `${providerName} is receiving too many requests. Wait a moment and try again.`;
     }
     if (
@@ -42,6 +48,10 @@ export function providerConnectionErrorMessage(
     ? "start the connection"
     : step === "refresh"
       ? "look for new calendars"
-      : "import your calendars";
+      : step === "verify"
+        ? "check the connection"
+        : step === "disconnect"
+          ? "disconnect your account"
+          : "import your calendars";
   return `TAP Calendar couldn't ${action} with ${providerName}. Try again.`;
 }

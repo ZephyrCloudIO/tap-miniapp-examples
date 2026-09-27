@@ -39,13 +39,20 @@ test("renders honest first-run states without demo customer data", async ({ surf
     "Included automatically with your Google Destination Calendar.",
     { exact: true },
   )).toBeVisible();
+
+  await surface.getByRole("button", { name: "Add account", exact: true }).click();
+  const accountDialog = surface.getByRole("dialog", { name: "Add an account" });
+  await accountDialog.getByLabel("Provider", { exact: true }).selectOption("zoom");
+  await expect(surface.getByRole("dialog", { name: "Connect Zoom", exact: true })).toBeVisible();
+  await expect(accountDialog).not.toBeVisible();
+  await surface.getByRole("button", { name: "Close dialog", exact: true }).click();
 });
 
 test("guides Event Type creation to the missing Availability Schedule", async ({ surface }) => {
   await expectReadySurface(surface);
 
   await surface.getByRole("button", { name: "Add calendar account", exact: true }).first().click();
-  const accountDialog = surface.getByRole("dialog", { name: "Add a calendar account" });
+  const accountDialog = surface.getByRole("dialog", { name: "Add an account" });
   await expect(accountDialog).toBeVisible();
   await accountDialog.locator('input[name="account-label"]').fill("me@example.com");
   await accountDialog.locator('input[name="calendar-name-0"]').fill("Primary");
@@ -136,7 +143,7 @@ test("guides Event Type creation to the missing Availability Schedule", async ({
 test("adds several calendars and persists another calendar on the same account", async ({ surface, tap }) => {
   await expectReadySurface(surface);
   await surface.getByRole("button", { name: "Add calendar account", exact: true }).first().click();
-  await expect(surface.getByRole("dialog", { name: "Add a calendar account" })).toBeVisible();
+  await expect(surface.getByRole("dialog", { name: "Add an account" })).toBeVisible();
   await surface.locator('input[name="account-label"]').fill("me@example.com");
   await surface.locator('input[name="calendar-name-0"]').fill("Primary");
   await surface.getByRole("button", { name: "Add another calendar", exact: true }).click();
