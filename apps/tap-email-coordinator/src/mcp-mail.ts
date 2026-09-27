@@ -1,3 +1,5 @@
+import { ensureThreadInventory, readExactMessageBody, ThreadPageError } from './mailbox';
+import { GoogleApiError } from './google';
 import type {
   BoundedMailMessage,
   EmailProvider,
@@ -80,6 +82,7 @@ interface MessageRow {
   readonly recipients_json: string;
   readonly sent_at: string;
   readonly body_text_ciphertext?: string;
+  readonly ordinal: number;
 }
 
 interface AttachmentRow {
@@ -242,7 +245,7 @@ function coverageWarnings(
     resources.some(resource => resource === 'thread-metadata' || resource === 'message-metadata')
   ) {
     warnings.push(
-      'Coordinator coverage currently describes synchronized inbox history; Sent, Drafts, Spam, and provider-wide archives may be incomplete.',
+      'Search covers synchronized provider-wide metadata, including Sent, Drafts, Spam and archives; missing provider history and message bodies are not searched.',
     );
   }
   if (
@@ -701,20 +704,45 @@ export async function getEmailThread(
 ): Promise<MailThreadReadResult> {
   assertExactThreadScope(request);
   const accounts = await accountRows(env, profileId, [request.accountId]);
+  const limit = request.limit ?? maximumThreadMessages;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximumThreadMessages) throw new McpMailError('invalid_limit', 'Thread page size must be between 1 and 50.');
+  if (!request.cursor) {
+    try { await ensureThreadInventory(env, profileId, request.accountId, request.threadId, now); }
+    catch (error) {
+      if (error instanceof GoogleApiError) throw new McpMailError(error.code, error.message);
+      throw error;
+    }
+  }
   const selectedThread = await exactThreadRow(env, profileId, request);
+  let afterOrdinal = -1;
+  let afterMessageId = '';
+  if (request.cursor) {
+    try {
+      if (request.cursor.length > maximumCursorCharacters) throw new Error();
+      const value = JSON.parse(await openSecret(request.cursor, env.GOOGLE_TOKEN_ENCRYPTION_KEY));
+      if (value.v !== 1 || value.kind !== 'thread-messages' || value.profileId !== profileId ||
+        value.accountId !== request.accountId || value.threadId !== request.threadId ||
+        !Number.isSafeInteger(value.ordinal) || value.ordinal < 0 || !isSafeMailIdentifier(value.messageId)) throw new Error();
+      if (value.revision !== selectedThread.history_id) throw new McpMailError('thread_changed', 'This conversation changed. Restart its message pagination.');
+      afterOrdinal = value.ordinal; afterMessageId = value.messageId;
+    } catch (error) {
+      if (error instanceof McpMailError) throw error;
+      throw new McpMailError('invalid_cursor', 'The thread cursor does not match this profile, account or conversation.');
+    }
+  }
   const messageResult = await env.DB.prepare(
-    `SELECT message_id, internet_message_id, sender_json, recipients_json, sent_at
+    `SELECT message_id, internet_message_id, sender_json, recipients_json, sent_at, ordinal
        FROM mail_messages
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?
-      ORDER BY ordinal
-      LIMIT ?`,
-  ).bind(
-    profileId,
-    request.accountId,
-    request.threadId,
-    maximumThreadMessages + 1,
-  ).all<MessageRow>();
-  const messageRows = messageResult.results.slice(0, maximumThreadMessages);
+        AND (ordinal > ? OR (ordinal = ? AND message_id > ?))
+      ORDER BY ordinal, message_id LIMIT ?`,
+  ).bind(profileId, request.accountId, request.threadId, afterOrdinal, afterOrdinal, afterMessageId, limit + 1).all<MessageRow>();
+  const messageRows = messageResult.results.slice(0, limit);
+  const last = messageRows.at(-1);
+  const continuation = messageResult.results.length > limit && last ? await sealSecret(JSON.stringify({
+    v: 1, kind: 'thread-messages', profileId, accountId: request.accountId, threadId: request.threadId,
+    revision: selectedThread.history_id, ordinal: last.ordinal, messageId: last.message_id,
+  }), env.GOOGLE_TOKEN_ENCRYPTION_KEY) : null;
   const attachmentResult = await messageAttachments(
     env,
     profileId,
@@ -722,8 +750,11 @@ export async function getEmailThread(
     request.threadId,
     messageRows.map(row => row.message_id),
   );
-  const truncated = messageResult.results.length > maximumThreadMessages ||
+  const truncated = continuation !== null || request.cursor != null ||
     attachmentResult.truncated;
+  if ((await exactThreadRow(env, profileId, request)).history_id !== selectedThread.history_id) {
+    throw new McpMailError('thread_changed', 'This conversation changed. Restart its message pagination.');
+  }
   const threadRef = { accountId: request.accountId, threadId: request.threadId };
   return {
     untrustedContent: true as const,
@@ -740,6 +771,7 @@ export async function getEmailThread(
       resources: ['thread-metadata', 'message-metadata'],
       threadRefs: [threadRef],
       resultTruncated: truncated,
+      nextCursor: continuation,
     }),
   };
 }
@@ -770,7 +802,7 @@ export async function readEmailMessages(
     throw new McpMailError('invalid_content_limit', 'Message character limit is out of range.');
   }
   const accounts = await accountRows(env, profileId, [request.accountId]);
-  await exactThreadRow(env, profileId, request);
+  const selectedThread = await exactThreadRow(env, profileId, request);
   const result = await env.DB.prepare(
     `SELECT message_id, internet_message_id, sender_json, recipients_json,
             sent_at, body_text_ciphertext
@@ -790,35 +822,39 @@ export async function readEmailMessages(
       'One or more exact messages were not found in the selected thread.',
     );
   }
-  const attachmentResult = await messageAttachments(
-    env,
-    profileId,
-    request.accountId,
-    request.threadId,
-    request.messageIds,
-  );
-  const messages: BoundedMailMessage[] = [];
+  const bodies = new Map<string, { text: string; unavailable: string | null }>();
+  let providerUsed = false;
   for (const messageId of request.messageIds) {
-    const row = byId.get(messageId)!;
-    const plaintext = await openSecret(
-      row.body_text_ciphertext!,
-      env.GOOGLE_TOKEN_ENCRYPTION_KEY,
-    );
-    messages.push({
-      ...messageMetadata(
-        row,
-        request.accountId,
-        request.threadId,
-        attachmentResult.byMessage.get(messageId) ?? [],
-      ),
-      bodyText: plaintext.slice(0, request.maximumCharactersPerMessage),
-      bodyTextTruncated: plaintext.length > request.maximumCharactersPerMessage,
-    });
+    try {
+      const body = await readExactMessageBody(env, profileId, request.accountId, request.threadId,
+        messageId, selectedThread.history_id, now);
+      providerUsed ||= body.hydrated;
+      bodies.set(messageId, { text: body.bodyText, unavailable: null });
+    } catch (error) {
+      if (error instanceof ThreadPageError) throw new McpMailError(error.code, error.message);
+      if (!(error instanceof GoogleApiError)) throw error;
+      bodies.set(messageId, { text: '', unavailable: error.code });
+    }
   }
+  const attachmentResult = await messageAttachments(env, profileId, request.accountId, request.threadId, request.messageIds);
+  if ((await exactThreadRow(env, profileId, request)).history_id !== selectedThread.history_id) {
+    throw new McpMailError('thread_changed', 'This conversation changed. Reload its message references.');
+  }
+  const messages: BoundedMailMessage[] = request.messageIds.map(messageId => {
+    const body = bodies.get(messageId)!;
+    return { ...messageMetadata(byId.get(messageId)!, request.accountId, request.threadId,
+      attachmentResult.byMessage.get(messageId) ?? []),
+      bodyText: body.text.slice(0, request.maximumCharactersPerMessage),
+      bodyTextTruncated: body.text.length > request.maximumCharactersPerMessage,
+      bodyState: body.unavailable ? 'unavailable' : 'available', bodyUnavailableReason: body.unavailable,
+    };
+  });
   const truncated = attachmentResult.truncated ||
     messages.some(message => message.bodyTextTruncated);
   const threadRef = { accountId: request.accountId, threadId: request.threadId };
   const messageRefs = request.messageIds.map(messageId => ({ ...threadRef, messageId }));
+  const coverage = receipt({ now, accounts, resources: ['message-content'], threadRefs: [threadRef], messageRefs, resultTruncated: truncated });
+  const unavailable = messages.filter(message => message.bodyState === 'unavailable');
   return {
     untrustedContent: true as const,
     contentPolicy: {
@@ -828,14 +864,9 @@ export async function readEmailMessages(
       maximumCharactersPerMessage: request.maximumCharactersPerMessage,
     },
     messages,
-    coverage: receipt({
-      now,
-      accounts,
-      resources: ['message-content'],
-      threadRefs: [threadRef],
-      messageRefs,
-      resultTruncated: truncated,
-    }),
+    coverage: { ...coverage, fallback: unavailable.length ? 'failed' : providerUsed ? 'used' : 'not-needed',
+      warnings: [...coverage.warnings, ...unavailable.map(message => `Message ${message.messageId} body unavailable (${message.bodyUnavailableReason}); do not interpret it as empty.`)],
+    },
   };
 }
 

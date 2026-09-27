@@ -334,12 +334,32 @@ export interface MailThreadDescriptor extends EmailThreadRef {
   readonly latestMessageRef: EmailMessageRef | null;
 }
 
+/** Body availability is independent of provider metadata traversal and local vector indexing. */
+export interface MailBodyCoverage {
+  readonly accountId: string;
+  readonly enabled: boolean;
+  readonly total: number;
+  readonly downloaded: number;
+  readonly pending: number;
+  readonly unavailable: number;
+  readonly metadataThreads: number;
+  readonly providerHistoryComplete: boolean;
+  readonly updatedAt: string | null;
+  readonly errorCode: string | null;
+}
+
 export interface BoundedMailMessage extends MailMessageMetadata {
   readonly bodyText: string;
   readonly bodyTextTruncated: boolean;
+  /** An unavailable body is never evidence of an empty message. */
+  readonly bodyState: 'available' | 'unavailable';
+  readonly bodyUnavailableReason: string | null;
 }
 
-export interface ExactMailThreadRequest extends EmailThreadRef {}
+export interface ExactMailThreadRequest extends EmailThreadRef {
+  readonly cursor?: string | null;
+  readonly limit?: number;
+}
 
 export interface ExactMailMessageReadRequest extends EmailThreadRef {
   readonly messageIds: readonly string[];

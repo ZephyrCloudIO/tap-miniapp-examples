@@ -9,6 +9,7 @@ import {
 import type {
   AccountCoverage,
   MailCommand,
+  MailBodyCoverage,
   MailCommandReceipt,
   MailDraftAttachment,
   MailDraftPayload,
@@ -415,6 +416,8 @@ export interface EmailToolAccess {
   readonly connected: boolean;
   readonly scopes: readonly string[];
   readonly expiresAt: string | null;
+  readonly verifiedAt?: string | null;
+  readonly verifiedOperation?: string | null;
 }
 function parseEmailToolAccess(value: unknown): EmailToolAccess {
   const body = asRecord(value);
@@ -423,7 +426,29 @@ function parseEmailToolAccess(value: unknown): EmailToolAccess {
     !(body.expiresAt === null || (typeof body.expiresAt === 'string' && Number.isFinite(Date.parse(body.expiresAt))))) {
     throw new CoordinatorError(502, 'invalid_response', 'Email tool access response is malformed.');
   }
-  return { connected: body.connected, scopes: body.scopes, expiresAt: body.expiresAt };
+  if (body.verifiedAt != null && (typeof body.verifiedAt !== 'string' || !Number.isFinite(Date.parse(body.verifiedAt)))) {
+    throw new CoordinatorError(502, 'invalid_response', 'Email tool verification response is malformed.');
+  }
+  return { connected: body.connected, scopes: body.scopes, expiresAt: body.expiresAt,
+    verifiedAt: typeof body.verifiedAt === 'string' ? body.verifiedAt : null,
+    verifiedOperation: typeof body.verifiedOperation === 'string' ? body.verifiedOperation : null };
+}
+
+function parseBodyCoverage(value: unknown): readonly MailBodyCoverage[] {
+  const body = asRecord(value);
+  if (!Array.isArray(body?.accounts) || body.accounts.length > 100) throw new CoordinatorError(502, 'invalid_response', 'Body coverage response is malformed.');
+  return body.accounts.map(value => {
+    const item = asRecord(value);
+    const validCount = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+    if (!item || !isSafeMailIdentifier(item.accountId) || typeof item.enabled !== 'boolean' ||
+      typeof item.providerHistoryComplete !== 'boolean' || !['total', 'downloaded', 'pending', 'unavailable', 'metadataThreads'].every(key => validCount(item[key])) ||
+      !(item.updatedAt === null || (typeof item.updatedAt === 'string' && Number.isFinite(Date.parse(item.updatedAt)))) ||
+      !(item.errorCode === null || typeof item.errorCode === 'string') ||
+      Number(item.downloaded) + Number(item.pending) + Number(item.unavailable) !== item.total) {
+      throw new CoordinatorError(502, 'invalid_response', 'Body coverage response is malformed.');
+    }
+    return item as unknown as MailBodyCoverage;
+  });
 }
 
 export function createCoordinatorClient(
@@ -457,6 +482,14 @@ export function createCoordinatorClient(
       });
       return { items: body.items, views, observedAt: body.observedAt,
         next: parseActivityCursor(body.next), viewsNext: parseActivityCursor(body.viewsNext) };
+    },
+    async getBodyCoverage(): Promise<readonly MailBodyCoverage[]> {
+      return parseBodyCoverage(await call(resolved, { method: 'GET', url: `${origin}/v1/body-coverage` }, 65_536, origin));
+    },
+    async setBodyBackfill(accountId: string, enabled: boolean): Promise<readonly MailBodyCoverage[]> {
+      if (!isSafeMailIdentifier(accountId)) throw new CoordinatorError(400, 'invalid_account', 'Choose an exact email account.');
+      return parseBodyCoverage(await call(resolved, { method: 'POST', url: `${origin}/v1/accounts/${encodeURIComponent(accountId)}/body-backfill`,
+        headers: [{ name: 'Content-Type', value: 'application/json' }], body: JSON.stringify({ enabled }) }, 65_536, origin));
     },
     async getEmailToolAccess() {
       return parseEmailToolAccess(await call(resolved, { method: 'GET', url: `${origin}/v1/mcp/credential` }, 8_192, origin));

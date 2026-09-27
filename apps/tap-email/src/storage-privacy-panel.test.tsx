@@ -77,6 +77,19 @@ describe('StoragePrivacyPanel', () => {
     expect(formatStorageBytes(2_048)).toBe('2.0 KB');
   });
 
+  it('shows epoch coverage as unknown and surfaces unresolved failures', async () => {
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const store = { inspectStorage: async () => ({ ...inventory, accounts: [{ ...inventory.accounts[0]!,
+      indexedThrough: '1970-01-01T00:00:00Z', unresolvedFailures: 2 }] }) } as unknown as LocalMailStore;
+    try {
+      await act(async () => root.render(<StoragePrivacyPanel accounts={previewMailState().accounts} store={store} onWipe={() => {}} />));
+      expect(container.textContent).toContain('Historical coverage not verified');
+      expect(container.textContent).toContain('2 unresolved sync failures');
+      expect(container.textContent).not.toMatch(/1969|1970/);
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('shows measured classes and requires a second click before wiping', async () => {
     const container = document.createElement('div');
     document.body.append(container);

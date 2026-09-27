@@ -86,4 +86,28 @@ describe('durable revisioned mailbox synchronization', () => {
     await history;
     expect(await store.loadThread(threads[100]!.accountId, threads[100]!.threadId)).toBeNull();
   });
+  it('retries history from the committed cursor on refresh, coalesces callers, and stops after completion', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...seed, threads: [] });
+    const cursors: (string | null | undefined)[] = [];
+    let attempts = 0;
+    const sync = new DurableMailboxSync({
+      getMailboxPage: async cursor => {
+        cursors.push(cursor);
+        if (cursor === 'older' && ++attempts === 1) throw new Error('offline');
+        return page(threads.slice(100, 200), 2);
+      }, getMailboxChanges: async () => changes([], 2),
+    }, store, () => {}, () => {}, () => {});
+    const head = page(threads.slice(0, 100), 1, 'older');
+    const first = sync.loadHistory(head);
+    expect(sync.loadHistory(head)).toBe(first);
+    await expect(first).rejects.toThrow('offline');
+    expect((await store.beginMailboxSync()).nextCursor).toBe('older');
+    await sync.loadHistory(head);
+    await sync.loadHistory(head);
+    expect(cursors).toEqual(['older', 'older']);
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM local_mail_threads').get()?.n).toBe(200);
+  });
+
 });

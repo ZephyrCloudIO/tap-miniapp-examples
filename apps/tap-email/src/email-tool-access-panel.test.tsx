@@ -35,6 +35,36 @@ describe('Email tool connection', () => {
     } finally { await act(async () => root.unmount()); }
   });
 
+  it('distinguishes a credential from verified tool access and keeps setup steps after reopening', async () => {
+    let verifiedAt: string | null = null;
+    let opened = 0;
+    const client = {
+      getEmailToolAccess: async () => ({ connected: true, scopes: ['email.metadata.read'],
+        expiresAt: '2026-10-24T00:00:00Z', verifiedAt }),
+      createEmailToolAccess: async () => ({ connected: true, scopes: ['email.metadata.read'],
+        expiresAt: '2026-10-24T00:00:00Z', token: 'replacement-token' }),
+      revokeEmailToolAccess: async () => {},
+    };
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const button = (label: string) => [...container.querySelectorAll('button')].find(item => item.textContent === label)!;
+    try {
+      await act(async () => root.render(<EmailToolAccessPanel client={client} openSettings={async () => { opened++; }} />));
+      expect(container.querySelector('[role=status]')?.textContent).toContain('has not been verified');
+      expect(container.querySelectorAll('ol li')).toHaveLength(3);
+      expect(container.textContent).toContain('tap-email-access-token');
+      expect(container.querySelector('input[type=password]')).toBeNull();
+      await act(async () => button('Open installed Email settings').click());
+      expect(opened).toBe(1);
+      verifiedAt = '2026-09-27T15:00:00Z';
+      await act(async () => button('Refresh tool verification').click());
+      expect(container.querySelector('[role=status]')?.textContent).toContain('authenticated Email tool read succeeded');
+      expect(container.textContent).toContain('does not identify which specialist');
+      await act(async () => button('Replace connection token').click());
+      expect(container.querySelector('[role=status]')?.textContent).toContain('has not been verified');
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('defaults to read scope, displays the token once, and revokes access', async () => {
     const created: boolean[] = [];
     let revoked = 0;

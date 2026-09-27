@@ -4,6 +4,7 @@ import { readRecord, readReplicaAccounts, writeRecord, writeReplicaThreads } fro
 import { emailThreadKey } from './domain';
 import { insertBoundedRows } from './bounded-sql';
 import { deleteNormalizedLocalThread } from './local-replica';
+import { queueSemanticChanges } from './semantic-index-queue';
 
 export interface RevisionedMailboxUpdate {
   readonly changes?: MailboxChanges;
@@ -12,6 +13,7 @@ export interface RevisionedMailboxUpdate {
 }
 
 async function removeThread(tx: MiniAppPrivateSqlTransaction, accountId: string, threadId: string) {
+  await queueSemanticChanges(tx, [{ accountId, threadId }]);
   await deleteNormalizedLocalThread(tx, accountId, threadId);
   await tx.execute('DELETE FROM local_mail_records WHERE account_id = ? AND thread_id = ?', [accountId, threadId]);
   await tx.execute('DELETE FROM local_mail_bodies WHERE account_id = ? AND thread_id = ?', [accountId, threadId]);

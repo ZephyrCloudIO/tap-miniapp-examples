@@ -554,6 +554,23 @@ describe('live MCP connection and delivery', () => {
     expect((await invoke(worker, second.token, 'list_email_accounts')).status).toBe(401);
   });
 
+  it('verifies only successful tool reads for the current credential and resets verification on rotation', async () => {
+    const worker = createTapEmailCoordinator({ verifyAccess: async () => profile, now: () => new Date(observedAt) });
+    const status = async () => (await worker.fetch(new Request('https://coordinator.example/v1/mcp/credential'), env)).json();
+    const first = await connect(worker);
+    expect(await status()).toMatchObject({ connected: true, verifiedAt: null, verifiedOperation: null });
+    await invoke(worker, first.token, 'read_email_messages', { accountId: 'other-account', threadId: 'missing', messageIds: ['missing'] });
+    expect(await status()).toMatchObject({ verifiedAt: null });
+    await invoke(worker, first.token, 'list_email_accounts');
+    expect(await status()).toMatchObject({ verifiedAt: observedAt, verifiedOperation: 'mcp.list_email_accounts' });
+    const second = await connect(worker);
+    expect(await status()).toMatchObject({ connected: true, verifiedAt: null });
+    expect((await invoke(worker, first.token, 'list_email_accounts')).status).toBe(401);
+    expect(await status()).toMatchObject({ verifiedAt: null });
+    await invoke(worker, second.token, 'list_email_accounts');
+    expect(await status()).toMatchObject({ verifiedAt: observedAt });
+  });
+
   it('finds, reads, sends once, and exposes a content-free activity receipt', async () => {
     let providerCalls = 0;
     const referrals: object[] = [];

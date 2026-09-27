@@ -424,6 +424,7 @@ describe('Google mailbox synchronization', () => {
               nextPageToken: 'older-page',
             });
       }
+      if (url.pathname === '/gmail/v1/users/me/history') return Response.json({ historyId: 'history_21' });
       const threadId = url.pathname.split('/').at(-1);
       if (threadId === 'thread_new' || threadId === 'thread_old') {
         const format = url.searchParams.get('format');
@@ -483,6 +484,11 @@ describe('Google mailbox synchronization', () => {
       pageToken: 'older-page',
     });
 
+    await syncGoogleMailbox(env, { profileId: 'profile_history', accountId: 'google_history', mode: 'partial' }, now);
+    expect(await env.DB.prepare("SELECT coverage_state FROM google_accounts WHERE profile_id = 'profile_history'").first('coverage_state')).toBe('backfilling');
+    // A legacy zero horizon is unknown, not proof of a complete archive.
+    await env.DB.prepare("UPDATE google_accounts SET backfill_complete_through = '1970-01-01T00:00:00.000Z' WHERE profile_id = 'profile_history'").run();
+
     await syncGoogleMailbox(env, {
       profileId: 'profile_history',
       accountId: 'google_history',
@@ -498,6 +504,10 @@ describe('Google mailbox synchronization', () => {
       backfill_page_token: null,
       backfill_complete_through: '2026-07-01T12:00:00.000Z',
     });
+    const providerCalls = vi.mocked(fetch).mock.calls.length;
+    await syncGoogleMailbox(env, { profileId: 'profile_history', accountId: 'google_history',
+      mode: 'continue', pageToken: 'older-page' }, now);
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(providerCalls);
     expect((await env.DB.prepare(
       `SELECT thread_id, content_state FROM mail_threads
         WHERE profile_id = 'profile_history' AND account_id = 'google_history'
@@ -520,6 +530,30 @@ describe('Google mailbox synchronization', () => {
         WHERE profile_id = 'profile_history' AND account_id = 'google_history'
           AND thread_id = 'thread_old'`,
     ).first()).toEqual({ content_state: 'full' });
+  });
+
+  it('recovers an orphaned backfill checkpoint once while keeping current-mail sync independent', async () => {
+    await env.DB.prepare(`INSERT INTO google_accounts
+      (profile_id, account_id, google_subject, connection_state, coverage_state, newest_history_id,
+       backfill_page_token, sync_generation, unresolved_failures, email_address, created_at, updated_at)
+      VALUES ('profile_orphan', 'google_orphan', 'subject_orphan', 'active', 'backfilling', 'history_10',
+              'resume-page', 'generation_1', 1, 'owner@example.com', ?, ?)`)
+      .bind(now.toISOString(), now.toISOString()).run();
+    await env.DB.prepare(`INSERT INTO provider_events
+      (profile_id, account_id, event_id, history_id, state, payload_json, dispatch_pending, received_at, updated_at)
+      VALUES ('profile_orphan', 'google_orphan', 'failed_continue', 'bootstrap', 'dead_letter', ?, 0, ?, ?)`)
+      .bind(JSON.stringify({ kind: 'sync-account', eventId: 'failed_continue', profileId: 'profile_orphan',
+        accountId: 'google_orphan', mode: 'continue', pageToken: 'resume-page', syncGeneration: 'generation_1' }),
+        now.toISOString(), now.toISOString()).run();
+    await enqueueScheduledSyncs(env, now);
+    await enqueueScheduledSyncs(env, now);
+    const pending = (await env.DB.prepare(`SELECT payload_json FROM provider_events
+      WHERE profile_id = 'profile_orphan' AND state = 'received'`).all<{ payload_json: string }>()).results.map(row => JSON.parse(row.payload_json));
+    expect(pending.filter(item => item.mode === 'continue')).toEqual([
+      expect.objectContaining({ pageToken: 'resume-page', syncGeneration: 'generation_1' }),
+    ]);
+    expect(pending.filter(item => item.mode === 'partial')).toHaveLength(1);
+    expect(await env.DB.prepare("SELECT backfill_page_token FROM google_accounts WHERE profile_id = 'profile_orphan'").first('backfill_page_token')).toBe('resume-page');
   });
 
   it('requests recent history without restarting a saved newest-first backfill', async () => {
@@ -552,7 +586,8 @@ describe('Google mailbox synchronization', () => {
     const event = await env.DB.prepare(
       `SELECT payload_json
          FROM provider_events
-        WHERE profile_id = 'profile_resume' AND account_id = 'google_resume'`,
+        WHERE profile_id = 'profile_resume' AND account_id = 'google_resume'
+          AND json_extract(payload_json, '$.mode') = 'partial'`,
     ).first<{ payload_json: string }>();
     expect(JSON.parse(event?.payload_json ?? '{}')).toMatchObject({
       profileId: 'profile_resume',
@@ -1075,7 +1110,7 @@ describe('Google mailbox synchronization', () => {
 
     floodAttachments = true;
     await sync(instrumentedEnv);
-    expect(persistenceBatchSizes).toEqual([4, 3]);
+    expect(persistenceBatchSizes).toEqual([5, 3]);
     expect(await env.DB.prepare(
       `SELECT COUNT(*) AS attachment_count FROM mail_attachments
         WHERE profile_id = 'profile_attachments' AND thread_id = 'thread_attachments'`,

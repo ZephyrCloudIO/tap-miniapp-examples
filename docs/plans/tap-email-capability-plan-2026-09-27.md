@@ -2,7 +2,7 @@
 
 Baseline: main **f3fa6b4**, Email **0.3.5**, Miniapp SDK **0.19.0**. This is an implementation plan, not a statement that the proposed features exist. No application behavior was changed during the review.
 
-Subsequent implementation: [Email 0.3.6 release scope](../../apps/tap-email/docs/releases/0.3.6.md) records the focused fixes now implemented. The remaining cards are still planned; the full first delivery gate is not complete.
+Subsequent implementation: [Email 0.3.6 release scope](../../apps/tap-email/docs/releases/0.3.6.md) records the focused fixes now implemented. The [Email 0.3.7 release scope](../../apps/tap-email/docs/releases/0.3.7.md) adds history recovery, shared exact body reads, paginated conversation metadata, opt-in durable historical body downloads, durable semantic maintenance and verified tool-access setup. EP02, EP03, EP05 and EP11 remain partially implemented; their broader acceptance criteria and the full first delivery gate are not complete. Coordinator body downloads do not establish complete local body search, and Chloe's live credential/grant acceptance remains outstanding.
 
 Read the [implementation review](../../research/tap-email-deep-review-2026-09-27.md), [SDK/host audit](../../research/tap-email-sdk-delta-2026-09-27.md), [backend audit](../../research/tap-email-backend-reality-2026-09-27.md) and [60-item Superhuman ledger](../../research/superhuman-advertised-capabilities-2026-09-27.md) for evidence. Superhuman feature IDs **SH01–SH60** below refer to that source-backed ledger. They cover Mail, with separate rows for Go and Email Assistant; advertised does not mean independently benchmarked.
 

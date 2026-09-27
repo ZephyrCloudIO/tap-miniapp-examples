@@ -1,9 +1,10 @@
 import type { MailboxPage } from './coordinator-client';
+import type { SemanticIndexQueue, SemanticIndexJob } from './semantic-index-queue';
 import { writeRevisionedMailboxPage, type RevisionedMailboxUpdate } from './revisioned-mail-replica';
 import {
   boundedReplicaMigrations, journalOf, readJournal, writeJournal, readReplicaState,
   readRecord, writeRecord, writeReplicaThreads, writeReplicaUi, queryMailWindow,
-  readThread, readSync, writeSync, replicaStatistics, summarizeReplica,
+  readThread, readThreads, readSync, writeSync, replicaStatistics, summarizeReplica,
   type MailJournal, type MailWindow, type MailWindowQuery, type MailboxSyncCheckpoint,
 } from './bounded-mail-replica';
 import {
@@ -30,7 +31,7 @@ export type LocalMailStoreCapability =
   | 'preview-fixture'
   | 'unavailable';
 
-export interface LocalMailStore {
+export interface LocalMailStore extends Partial<SemanticIndexQueue> {
   readonly capability: LocalMailStoreCapability;
   load(options?: { initialWindow?: boolean }): Promise<MailState | null>;
   save(state: MailState): Promise<void>;
@@ -1009,6 +1010,50 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     });
   }
 
+  prepareSemanticIndex(collection: string): Promise<void> {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      await database.transaction(async tx => {
+        if (await readRecord<string>(tx, 'local_mail_records', 'semantic-index') === collection) return;
+        await tx.execute('DELETE FROM local_mail_semantic_changes');
+        await tx.execute(`INSERT INTO local_mail_semantic_changes (account_id, thread_id, token)
+          SELECT account_id, thread_id, ? FROM local_mail_threads ORDER BY received_at DESC`, [collection]);
+        await writeRecord(tx, 'local_mail_records', 'semantic-index', '', '', '', collection);
+      });
+      await database.checkpoint();
+    });
+  }
+
+  readSemanticBatch(collection: string, signal?: AbortSignal) {
+    return this.enqueue(async database => {
+      signal?.throwIfAborted();
+      if (await readRecord<string>(database, 'local_mail_records', 'semantic-index') !== collection) {
+        throw new Error('The active meaning-search model changed. Retry indexing.');
+      }
+      const pending = await database.query('SELECT COUNT(*) FROM local_mail_semantic_changes');
+      const result = await database.query('SELECT account_id, thread_id, token FROM local_mail_semantic_changes ORDER BY rowid LIMIT 8');
+      const identities = result.rows.map(([account, thread, token]) => ({
+        accountId: String(account), threadId: String(thread), token: String(token),
+      }));
+      const threads = await readThreads(database, identities, signal);
+      const jobs: SemanticIndexJob[] = identities.map(job => ({ ...job, thread: threads.get(emailThreadKey(job)) ?? null }));
+      return { jobs, pending: Number(pending.rows[0]?.[0] ?? 0) };
+    });
+  }
+
+  acknowledgeSemanticBatch(collection: string, jobs: readonly SemanticIndexJob[]): Promise<void> {
+    if (!jobs.length) return Promise.resolve();
+    return this.enqueue(async database => {
+      await database.transaction(async tx => {
+        if (await readRecord<string>(tx, 'local_mail_records', 'semantic-index') !== collection) return;
+        for (const job of jobs) await tx.execute(
+          'DELETE FROM local_mail_semantic_changes WHERE account_id = ? AND thread_id = ? AND token = ?',
+          [job.accountId, job.threadId, job.token]);
+      });
+      await database.checkpoint();
+    });
+  }
+
   beginMailboxSync(): Promise<MailboxSyncCheckpoint> {
     return this.enqueue(async database => {
       await this.migrateLegacy(database);
@@ -1776,6 +1821,8 @@ export class ProfileSqliteMailStore implements LocalMailStore {
               updatedAt,
             );
           }
+          await transaction.execute(`INSERT OR REPLACE INTO local_mail_semantic_changes (account_id, thread_id, token)
+            SELECT account_id, thread_id, ? FROM local_mail_threads WHERE account_id = ?`, [crypto.randomUUID(), accountId]);
           await deleteNormalizedLocalAccount(transaction, accountId);
           await transaction.execute('DELETE FROM local_mail_records WHERE account_id = ?', [accountId]);
           await transaction.execute('DELETE FROM local_mail_bodies WHERE account_id = ?', [accountId]);
@@ -1875,8 +1922,12 @@ export class ProfileSqliteMailStore implements LocalMailStore {
         ]);
         await database.transaction(async transaction => {
           await transaction.execute('DELETE FROM mailbox_state WHERE id = ?', [1]);
+          await transaction.execute(`INSERT OR REPLACE INTO local_mail_semantic_changes (account_id, thread_id, token)
+            SELECT account_id, thread_id, ? FROM local_mail_threads`, [crypto.randomUUID()]);
+          const semanticCollection = await readRecord<string>(transaction, 'local_mail_records', 'semantic-index');
           await deleteNormalizedLocalReplica(transaction);
           await transaction.execute('DELETE FROM local_mail_records');
+          if (semanticCollection) await writeRecord(transaction, 'local_mail_records', 'semantic-index', '', '', '', semanticCollection);
           await transaction.execute('DELETE FROM local_mail_bodies');
           await transaction.execute('DELETE FROM local_mail_versions');
           await transaction.execute('DELETE FROM local_mail_journal');

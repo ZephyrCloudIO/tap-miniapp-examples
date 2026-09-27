@@ -26,8 +26,8 @@ export function formatStorageBytes(bytes: number | null): string {
 }
 
 function indexedThroughLabel(value: string | null): string {
-  if (!value) return 'Coverage horizon unavailable';
-  return `Indexed through ${new Intl.DateTimeFormat(undefined, {
+  if (!value || !Number.isFinite(Date.parse(value)) || Date.parse(value) <= 0) return 'Historical coverage not verified';
+  return `Oldest observed mail: ${new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))}`;
@@ -101,7 +101,7 @@ export function StoragePrivacyPanel({
         <>
           <div className="storage-summary">
             <strong>{formatStorageBytes(inventory.quota.usedBytes)}</strong>
-            <span>{indexedThroughLabel(inventory.indexedAt)}</span>
+            <span>{inventory.indexedAt ? `Local data updated ${new Date(inventory.indexedAt).toLocaleString()}` : 'Local update time unavailable'}</span>
           </div>
           <div className="storage-class-list">
             {inventory.classes.map(item => (
@@ -120,6 +120,7 @@ export function StoragePrivacyPanel({
                   <span>
                     <strong>{account?.displayName || account?.address || item.accountId}</strong>
                     <small>{indexedThroughLabel(item.indexedThrough)}</small>
+                    <small>{item.state} · {item.unresolvedFailures} unresolved sync failures</small>
                   </span>
                   <button
                     aria-label={`Clear local data for ${account?.displayName || item.accountId}`}
