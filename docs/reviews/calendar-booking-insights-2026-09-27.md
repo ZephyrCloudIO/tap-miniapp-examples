@@ -49,7 +49,7 @@ Reviewed against the [Web Interface Guidelines](https://github.com/vercel-labs/w
 - Checked populated, no-traffic, and unavailable states; expanded definitions
   with the keyboard; verified focus containment, dismissal, and focus restoration.
 - Mobile footer retained approximately 14px below the Close button after scrolling.
-- Calendar: 337 unit tests, typecheck, production miniapp build, and manifest check.
+- Calendar: 343 unit tests, typecheck, production miniapp build, and manifest check.
 - Gateway: 18 public booking route tests, including a regression with twelve
   pre-tracking bookings and four later visits. Existing cases cover retries,
   multiple bookings per visit, cancellation, and mismatched coverage periods.
@@ -94,7 +94,7 @@ moves to the name field on edit and back to Edit profile after Save or Cancel.
 Verified desktop and 390px/320px layouts with no horizontal overflow. Seven new
 UI tests cover the claim transition, explicit edit/cancel, saved name and URL,
 offline edits, failed claim/edit retries, and confirmed versus stale meetings.
-All 337 Calendar tests, typecheck, production build, and manifest validation pass.
+All 343 Calendar tests, typecheck, production build, and manifest validation pass.
 
 ## Workspace hosts and Zoom readiness
 
@@ -130,14 +130,30 @@ field's helper text. Removed that select and aligned Display name and Time zone
 in one row, stacking them on mobile. Removed the local profile-count callout,
 which did not establish whether a global booking address was available.
 
-Claimed addresses now appear in a dedicated URL card with a lock and “Name
-claimed” status, instead of an input that looks editable. They remain locked
-when the profile is offline. A saved draft's address requires an explicit
-“Change address” action; cancelling restores the original address and focus.
-New profiles explain that the address becomes permanent after a successful
-claim. Publish/offline guidance reflects the form's current choice.
+Claimed addresses appear in a URL card with “Name claimed” and an explicit
+“Change address” action. Opening it shows the replacement field, the old address
+that will be released, and an acknowledgement that someone else can claim it.
+Confirm address change calls a dedicated authenticated endpoint. Cancel restores
+the original address. The form no longer contains publishing controls or the
+namespace information block; publishing remains on the Booking pages screen.
+Saving ordinary profile settings preserves the current publication state.
 
-Four regression tests cover locked claimed addresses, taking a profile offline,
-draft address changes and cancellation, and failed first-claim recovery.
-Browser review confirmed equal field positions and heights on desktop, no
-horizontal overflow at 390px and 320px, and the draft change/cancel/save flow.
+The gateway claims the new slug and releases the old one in one transaction,
+with ownership and generation checks. It updates routing URLs without changing
+page IDs, revisions, analytics, calendar events, or visibility. Occupied names
+and competing writes leave the losing profile's current address intact. A
+completed request can be retried after a lost response. There is no redirect
+from the released address: another profile can claim it.
+
+Six dialog tests cover guarded changes, acknowledgement, failed renames, cancel,
+offline settings, and draft creation. Four address-sync tests cover receipts,
+local persistence failure, concurrent offline intent, and response validation.
+The gateway has 24 publication tests, 19 public-route tests, and 10 management
+tests passing. These include name reuse by another owner, competing claims,
+stale requests, unauthenticated requests, retry, and offline renaming.
+
+Browser review confirmed aligned fields on desktop, no horizontal overflow at
+390px and 320px, and the error, acknowledgement, successful rename, and focus
+restoration states. All 343 Calendar tests and both typechecks pass. The
+production miniapp build and manifest validation pass. Deploy the updated
+gateway before the miniapp; no new migration is required.

@@ -684,7 +684,12 @@ p { text-wrap: pretty; }
 .booking-profile-address-help { margin: 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.5; }
 .booking-profile-address > button { justify-self: start; }
 .booking-profile-url-preview { overflow-wrap: anywhere; }
-.booking-profile-visibility input { flex: 0 0 auto; margin-top: 3px; }
+.booking-address-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.booking-address-change-warning { display: grid; gap: 12px; border-left: 3px solid var(--calendar-orange); padding-left: 12px; font-size: 11px; line-height: 1.5; }
+.booking-address-change-warning p { margin: 0; overflow-wrap: anywhere; }
+.booking-address-confirm { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.booking-address-confirm input { flex: 0 0 auto; margin-top: 3px; }
+.booking-address-actions > button { max-width: 100%; white-space: normal; }
 .calendar-form-fields { gap: 14px; }
 .date-duration-grid { grid-template-columns: minmax(0, 2fr) minmax(160px, 1fr); }
 .date-duration-grid > .field, .date-duration-grid > [data-slot="field"] { min-width: 0; }

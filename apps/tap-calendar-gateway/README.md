@@ -72,6 +72,25 @@ Deployment order:
 No production migration, deployment, namespace claim, or provider connection is
 performed by building or running the test suite.
 
+## Individual profile address changes
+
+`POST /v1/publications/profiles/rename` uses the authenticated organizer scope.
+The `tap.calendar.profile-rename.v1` body includes `sourceProfileId`,
+`previousSlug`, `profileSlug`, and `expectedGeneration`. The replacement must be
+available, valid, and outside the reserved route names.
+
+One D1 transaction claims the next generation, releases the old slug, reserves
+the new one, updates profile/page routing URLs, and records a `rename` audit
+entry. The profile's live/offline status and all page IDs, revisions, and booking
+records stay intact. The generation ledger retains the current publication
+status while the audit identifies the rename. Ordinary publication requests
+still cannot rename a profile implicitly.
+
+The released slug has no redirect and can be claimed by another owner. Occupied
+names or concurrent writes roll back the entire rename. An exact completed
+request is replayable after a lost response. Deploy the updated gateway before
+Calendar 0.3.6; this uses the existing tables and requires no new migration.
+
 ## Booking notes and additional guests
 
 The public booking POST accepts optional `notes` (up to 2,000 characters) and

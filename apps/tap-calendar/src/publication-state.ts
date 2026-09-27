@@ -32,9 +32,13 @@ export function markChangedPublicBookingProfilesPending(
   const bookingProfiles = next.bookingProfiles.map(profile => {
     const previous = previousById.get(profile.id);
     if (!shouldTrackPublication(previous, profile)) return profile;
+    // A confirmed rename changes routing only; it is not a new publish intent.
+    const confirmedRename = previous?.publication && profile.publication &&
+      profile.publication.generation > previous.publication.generation &&
+      profile.slug === profile.publication.reservedSlug;
     const previousFingerprint = previous === undefined
       ? null
-      : publicBookingProfilePublicationFingerprint(current, previous);
+      : publicBookingProfilePublicationFingerprint(current, confirmedRename ? { ...previous, slug: profile.slug } : previous);
     const nextFingerprint = publicBookingProfilePublicationFingerprint(next, profile);
     if (previousFingerprint === nextFingerprint) return profile;
     changed = true;

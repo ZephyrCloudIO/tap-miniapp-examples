@@ -1,3 +1,4 @@
+import { isBookingProfileServerPublicationReceipt, type BookingProfileServerPublicationReceipt } from "./domain";
 import { isCalendarActivityProjection, type CalendarActivityProjection, type AvailabilityActivityReceipt } from "./activity-contract";
 import { isAttendeeResponse } from "./attendee-response";
 import { isCalendarMcpConfiguration, type CalendarMcpConfiguration, type CalendarMcpConfigurationSnapshot, type CalendarMcpConsent, type CalendarMcpGrant, type CalendarMcpScope } from "./mcp-contract";
@@ -207,6 +208,14 @@ export const PUBLIC_BOOKING_PROFILE_UNPUBLICATION_SCHEMA_VERSION =
 export interface PublicBookingProfileUnpublicationInput {
   readonly schemaVersion: typeof PUBLIC_BOOKING_PROFILE_UNPUBLICATION_SCHEMA_VERSION;
   readonly sourceProfileId: string;
+  readonly expectedGeneration: number;
+}
+
+export interface PublicBookingProfileRenameInput {
+  readonly schemaVersion: "tap.calendar.profile-rename.v1";
+  readonly sourceProfileId: string;
+  readonly previousSlug: string;
+  readonly profileSlug: string;
   readonly expectedGeneration: number;
 }
 
@@ -911,6 +920,7 @@ export interface CalendarGatewayClient {
   publishPublicBookingProfile(
     input: PublicBookingProfilePublicationInput,
   ): Promise<CalendarGatewayPublishedBookingProfile>;
+  renamePublicBookingProfile(input: PublicBookingProfileRenameInput): Promise<BookingProfileServerPublicationReceipt>;
   unpublishPublicBookingProfile(
     input: PublicBookingProfileUnpublicationInput,
   ): Promise<CalendarGatewayUnpublishedBookingProfile>;
@@ -1263,6 +1273,20 @@ export function createCalendarGatewayClient(input: {
         );
       }
       return publishedBookingProfileReceipt(result.publication, value);
+    },
+    async renamePublicBookingProfile(value) {
+      const result = await request<unknown>("POST", "/v1/publications/profiles/rename", {
+        schemaVersion: value.schemaVersion, sourceProfileId: value.sourceProfileId,
+        previousSlug: value.previousSlug, profileSlug: value.profileSlug, expectedGeneration: value.expectedGeneration,
+      });
+      if (!isRecord(result) || !hasExactKeys(result, ["publication"]) ||
+        !isBookingProfileServerPublicationReceipt(result.publication) ||
+        result.publication.sourceProfileId !== value.sourceProfileId ||
+        result.publication.reservedSlug !== value.profileSlug ||
+        result.publication.generation !== value.expectedGeneration + 1) {
+        return invalidPublicationReceipt("The Calendar gateway returned an invalid booking address receipt. Retry the address change.");
+      }
+      return result.publication;
     },
     async unpublishPublicBookingProfile(value) {
       const result = await request<unknown>(

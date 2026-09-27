@@ -14,6 +14,8 @@ import {
   storeWorkspaceDefinition, workspaceProfileScope, workspaceProfileSourceId, workspacePublication,
 } from "./collective-store";
 import {
+  parsePublicBookingProfileRename,
+  renamePublicBookingProfile,
   parsePublicBookingProfilePublication,
   parsePublicBookingProfileUnpublication,
   publishPublicBookingProfile,
@@ -1130,6 +1132,16 @@ async function publishBookingProfile(
   } catch (error) {
     return publicationApiError(error);
   }
+}
+
+async function renameBookingProfile(request: Request, env: CalendarGatewayEnv): Promise<Response> {
+  const scope = await principalScope(request, env);
+  const body = await readJson(request);
+  try {
+    const result = await renamePublicBookingProfile({ database: env.CALENDAR_DB, scope,
+      input: parsePublicBookingProfileRename(body), publicBaseUrl: publicBookingBaseUrl(env) });
+    return json({ publication: result });
+  } catch (error) { return publicationApiError(error); }
 }
 
 async function unpublishBookingProfile(
@@ -10390,6 +10402,9 @@ async function route(
     const scope = await principalScope(request, env);
     const snapshot = await loadPublicBookingAnalytics(env.CALENDAR_DB, scope);
     return json(path.startsWith("/v1/") ? legacyPublicBookingAnalytics(snapshot) : snapshot);
+  }
+  if (request.method === "POST" && path === "/v1/publications/profiles/rename") {
+    return renameBookingProfile(request, env);
   }
   if (request.method === "POST" && path === "/v1/publications/profiles/unpublish") {
     return unpublishBookingProfile(request, env);

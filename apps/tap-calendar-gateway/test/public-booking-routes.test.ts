@@ -555,6 +555,22 @@ describe("anonymous public booking reads", () => {
     expect(history).toBe(now);
   });
 
+  it("renames through the authenticated organizer route and moves public resolution", async () => {
+    await connectAndPublish();
+    const path = "/v1/publications/profiles/rename";
+    const body = { schemaVersion: "tap.calendar.profile-rename.v1", sourceProfileId: "profile-public-read",
+      previousSlug: "public-owner", profileSlug: "renamed-owner", expectedGeneration: 1 };
+    const unauthorized = await worker.fetch(new Request(`https://calendar-api.theaiplatform.app${path}`, {
+      method: "POST", headers: { Origin: organizerOrigin, "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }), { ...workerEnv(), LOCAL_DEVELOPMENT: "false" });
+    expect(unauthorized.status).toBe(401);
+    const result = await worker.fetch(organizerRequest(path, { method: "POST", json: body }), workerEnv());
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ publication: { reservedSlug: "renamed-owner", generation: 2, status: "published" } });
+    expect((await worker.fetch(publicRequest("/api/public/pages/public-owner/30min"), workerEnv())).status).toBe(404);
+    expect((await worker.fetch(publicRequest("/api/public/pages/renamed-owner/30min"), workerEnv())).status).toBe(200);
+  });
+
   it("returns the exact guest-safe Booking Profile root without organizer authentication", async () => {
     const { calendarId } = await connectAndPublish();
     const response = await worker.fetch(publicRequest(

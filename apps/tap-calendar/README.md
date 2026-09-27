@@ -379,6 +379,13 @@ profile-local Event Type slugs, stores immutable public/private revisions, and
 publishes or withdraws the complete active page set. Failed and concurrent
 publication attempts cannot partially change live routing.
 
+An individual profile's **Profile settings → Change address** action can claim
+a replacement slug and release the old one. The user acknowledges that someone
+else can claim the released address. All booking URLs move together; bookings,
+analytics, and page identities remain intact. Renaming an offline profile keeps
+it offline. Ordinary settings saves preserve publication status, and publishing
+or taking pages offline remains on the Booking pages screen.
+
 The public page resolves availability from the Event Type's explicit
 Availability Schedule, not from whichever schedule is currently marked as the
 workspace default. The gateway serves anonymous page resolution, authoritative

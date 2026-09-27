@@ -103,6 +103,27 @@ export interface PublicBookingProfileUnpublicationInput {
   readonly expectedGeneration: number;
 }
 
+export interface PublicBookingProfileRenameInput {
+  readonly schemaVersion: "tap.calendar.profile-rename.v1";
+  readonly sourceProfileId: string;
+  readonly previousSlug: string;
+  readonly profileSlug: string;
+  readonly expectedGeneration: number;
+}
+
+export function parsePublicBookingProfileRename(value: unknown): PublicBookingProfileRenameInput {
+  if (!isRecord(value) || value.schemaVersion !== "tap.calendar.profile-rename.v1") {
+    throw new PublicBookingPublicationError(400, "invalid_publication", "Provide a booking address change.");
+  }
+  const profileSlug = slug(value.profileSlug, "profileSlug");
+  if (RESERVED_PROFILE_SLUGS.has(profileSlug)) {
+    throw new PublicBookingPublicationError(409, "profile_slug_reserved", "That booking address is reserved. Choose another.");
+  }
+  return { schemaVersion: "tap.calendar.profile-rename.v1", sourceProfileId: requiredString(value.sourceProfileId, "sourceProfileId"),
+    previousSlug: slug(value.previousSlug, "previousSlug"), profileSlug,
+    expectedGeneration: publicationGeneration(value.expectedGeneration, "expectedGeneration") };
+}
+
 export interface PublishedBookingPageRecord {
   readonly profileId: string;
   readonly pageId: string;
@@ -852,7 +873,7 @@ export async function publishPublicBookingProfile(options: {
     throw new PublicBookingPublicationError(
       409,
       "profile_slug_immutable",
-      "Published Booking Profile slugs cannot be changed in public booking v1.",
+      "Use Change address to release the old booking address and claim a new one.",
     );
   }
   const slugOwner = await options.database.prepare(
@@ -1185,4 +1206,71 @@ export async function unpublishPublicBookingProfile(options: {
     unpublishedAt: now,
     idempotentReplay: false,
   };
+}
+
+/** Rename routing identity atomically; page IDs, revisions, bookings, and visibility stay intact. */
+export async function renamePublicBookingProfile(options: {
+  readonly database: D1Database;
+  readonly scope: PublicBookingOwnerScope;
+  readonly input: PublicBookingProfileRenameInput;
+  readonly publicBaseUrl: string;
+  readonly now?: string;
+}) {
+  const { database, scope, input } = options;
+  const now = options.now ?? new Date().toISOString();
+  const profile = await loadProfile(database, scope, input.sourceProfileId);
+  if (!profile) throw new PublicBookingPublicationError(404, "publication_not_found", "This booking profile was not found.");
+  const pages = await loadPages(database, profile.id);
+  const receipt = (current: ProfileRow, currentPages: readonly PageRow[]) => ({
+    sourceProfileId: current.source_profile_id,
+    generation: current.publication_generation,
+    status: current.status === "published" ? "published" as const : "unpublished" as const,
+    reservedSlug: current.current_slug,
+    updatedAt: current.updated_at,
+    eventTypes: currentPages
+      .filter(page => page.status === "published" && page.current_revision_id)
+      .map(page => ({ sourceEventTypeId: page.source_event_type_id, revisionId: page.current_revision_id!, reservedSlug: page.current_slug })),
+  });
+  const targetGeneration = input.expectedGeneration + 1;
+  const auditId = `public-rename-${profile.id}-${targetGeneration}`;
+  const replay = async (current: ProfileRow) => current.current_slug === input.profileSlug &&
+    current.publication_generation === targetGeneration && Boolean(await database.prepare(
+      "SELECT 1 FROM public_booking_publication_audit WHERE id = ? AND profile_id = ? AND action = 'rename'",
+    ).bind(auditId, profile.id).first());
+  if (await replay(profile)) return receipt(profile, pages);
+  if (profile.publication_generation !== input.expectedGeneration || profile.current_slug !== input.previousSlug) {
+    publicationConflict(profile.publication_generation, "This booking address changed in another session. Refresh before renaming it.");
+  }
+  if (input.profileSlug === profile.current_slug) {
+    throw new PublicBookingPublicationError(400, "profile_slug_unchanged", "Choose a different booking address.");
+  }
+  const occupied = async () => Boolean(await database.prepare(
+    "SELECT 1 FROM public_booking_profile_slugs WHERE slug = ? COLLATE NOCASE",
+  ).bind(input.profileSlug).first());
+  const unavailable = (): never => { throw new PublicBookingPublicationError(409, "profile_slug_unavailable", "That booking address is already claimed. Choose another; your current address has not changed."); };
+  if (await occupied()) return unavailable();
+  try {
+    await database.batch([
+      // Claim the generation before touching either address. A competing writer rolls back the batch.
+      database.prepare("INSERT INTO public_booking_profile_generations (profile_id, generation, action, created_at) VALUES (?, ?, ?, ?)")
+        .bind(profile.id, targetGeneration, profile.status === "published" ? "publish" : "unpublish", now),
+      database.prepare("DELETE FROM public_booking_profile_slugs WHERE profile_id = ? AND slug = ? COLLATE NOCASE")
+        .bind(profile.id, input.previousSlug),
+      database.prepare("INSERT INTO public_booking_profile_slugs (slug, profile_id, active, created_at) VALUES (?, ?, 1, ?)")
+        .bind(input.profileSlug, profile.id, now),
+      database.prepare("UPDATE public_booking_profiles SET current_slug = ?, publication_generation = ?, updated_at = ? WHERE id = ? AND publication_generation = ?")
+        .bind(input.profileSlug, targetGeneration, now, profile.id, input.expectedGeneration),
+      database.prepare("UPDATE public_booking_pages SET canonical_url = ? || '/' || current_slug, updated_at = ? WHERE profile_id = ?")
+        .bind(`${options.publicBaseUrl.replace(/\/$/u, "")}/${input.profileSlug}`, now, profile.id),
+      database.prepare("INSERT INTO public_booking_publication_audit (id, profile_id, workspace_id, principal_id, action, created_at) VALUES (?, ?, ?, ?, 'rename', ?)")
+        .bind(auditId, profile.id, scope.workspace, scope.principal, now),
+    ]);
+  } catch (error) {
+    const current = await loadProfile(database, scope, input.sourceProfileId);
+    if (current && await replay(current)) return receipt(current, await loadPages(database, current.id));
+    if (await occupied()) return unavailable();
+    if (batchConflict(error)) publicationConflict(current?.publication_generation);
+    throw error;
+  }
+  return receipt({ ...profile, current_slug: input.profileSlug, publication_generation: targetGeneration, updated_at: now }, pages);
 }

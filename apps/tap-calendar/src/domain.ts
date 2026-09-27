@@ -765,10 +765,10 @@ export function enforceImmutablePublicationSlugs(
 
 const pendingPublicationsMatch = (
   left: PendingBookingProfilePublication | undefined,
-  right: PendingBookingProfilePublication | undefined,
+  right: PendingBookingProfilePublication | null | undefined,
 ): boolean =>
   left !== undefined &&
-  right !== undefined &&
+  right != null &&
   left.desiredStatus === right.desiredStatus &&
   left.expectedGeneration === right.expectedGeneration &&
   left.requestedAt === right.requestedAt;
@@ -781,7 +781,7 @@ const pendingPublicationsMatch = (
 export function applyBookingProfilePublicationReceipt(
   profile: BookingProfile,
   receipt: BookingProfileServerPublicationReceipt,
-  acknowledgedPending?: PendingBookingProfilePublication,
+  acknowledgedPending?: PendingBookingProfilePublication | null,
 ): BookingProfile {
   if (!isBookingProfileServerPublicationReceipt(receipt)) {
     throw new Error("The Booking Profile publication receipt is malformed.");
@@ -856,7 +856,7 @@ export function applyBookingProfilePublicationReceipt(
 export function applyPublicBookingProfilePublicationReceipt(
   state: CalendarState,
   receipt: BookingProfileServerPublicationReceipt,
-  acknowledgedPending?: PendingBookingProfilePublication,
+  acknowledgedPending?: PendingBookingProfilePublication | null,
 ): CalendarState {
   if (!state.bookingProfiles.some(profile => profile.id === receipt.sourceProfileId)) {
     return state;
