@@ -24,10 +24,11 @@ function publishSurfaceEvent(
 export function mount(
   container: HTMLElement,
   context: TapFederatedSurfaceMountContext,
+  nativeHeader = false,
 ): TapFederatedSurfaceMount {
-  const stopAppearanceSync = installMiniAppAppearanceSync();
+  const stopAppearanceSync = nativeHeader ? () => {} : installMiniAppAppearanceSync();
   const root = createRoot(container);
-  root.render(<TapCalendarApp context={context} />);
+  root.render(<TapCalendarApp context={context} nativeHeader={nativeHeader} />);
   publishSurfaceEvent(context, "calendar.surface.mounted");
 
   let mounted = true;

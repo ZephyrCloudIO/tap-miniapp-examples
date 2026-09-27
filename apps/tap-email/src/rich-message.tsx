@@ -731,7 +731,7 @@ function measuredFrameHeight(frame: HTMLIFrameElement): number {
   ));
   const height = Math.max(
     document.body?.scrollHeight ?? 0,
-    document.documentElement.scrollHeight,
+    document.documentElement?.scrollHeight ?? 0,
   );
   return Math.min(maximumFrameHeight, Math.max(minimumFrameHeight, height));
 }

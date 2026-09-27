@@ -11,7 +11,7 @@ import schema7 from "../../tap-calendar/schemas/mcp/event-type-analytics.input.j
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aggregateCalendarEvents, createCalendarLiveTools, type CalendarLivePort, type LiveEvent } from "../src/calendar-live-mcp";
-import { loadMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "../src/calendar-mcp-store";
+import { loadMcpConfiguration, readMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, saveV1McpConfiguration, type CalendarMcpProps } from "../src/calendar-mcp-store";
 
 const owner = { workspace: "mcp-workspace", principal: "mcp-user" };
 const props: CalendarMcpProps = { ...owner, grantId: "mcp-grant", scopes: ["calendar.read", "calendar.analytics", "calendar.write"] };
@@ -34,7 +34,7 @@ beforeEach(async () => {
   ]);
   await env.CALENDAR_DB.prepare("INSERT INTO calendar_mcp_grants (id, workspace_id, principal_id, client_name, scopes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(props.grantId, props.workspace, props.principal, "Chloe", JSON.stringify(props.scopes), new Date().toISOString()).run();
-  await saveMcpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 2, configuration });
+  await saveMcpConfiguration(env.CALENDAR_DB, owner, { expectedRevision: null, configuration });
 });
 
 describe("live Calendar specialist tools", () => {
@@ -55,10 +55,22 @@ describe("live Calendar specialist tools", () => {
   });
 
   it("keeps configuration owner-scoped and rejects older snapshots", async () => {
-    await saveMcpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 1, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+    await expect(saveMcpConfiguration(env.CALENDAR_DB, owner, { expectedRevision: null, configuration: { conflictCalendarIds: [], eventTypes: [] } })).rejects.toMatchObject({ code: "configuration_conflict" });
     expect(await loadMcpConfiguration(env.CALENDAR_DB, owner)).toEqual(configuration);
     await expect(loadMcpConfiguration(env.CALENDAR_DB, { ...owner, principal: "someone-else" })).rejects.toMatchObject({ code: "calendar_setup_required" });
-    await expect(saveMcpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 3, configuration: { ...configuration, credentials: "do not accept" } })).rejects.toMatchObject({ code: "invalid_mcp_configuration" });
+    await expect(saveMcpConfiguration(env.CALENDAR_DB, owner, { expectedRevision: null, configuration: { ...configuration, credentials: "do not accept" } })).rejects.toMatchObject({ code: "invalid_mcp_configuration" });
+  });
+  it("accepts exactly one concurrent writer and returns the server revision", async () => {
+    const before = await readMcpConfiguration(env.CALENDAR_DB, owner);
+    expect(before.revision).toBe(1);
+    const attempts = await Promise.allSettled(["phone", "desktop"].map(id => saveMcpConfiguration(env.CALENDAR_DB, owner, {
+      expectedRevision: before.revision, configuration: { ...configuration, conflictCalendarIds: [id] },
+    })));
+    expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.find(result => result.status === "fulfilled")).toMatchObject({ value: { saved: true, revision: 2 } });
+    expect(attempts.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "configuration_conflict" } });
+    expect((await readMcpConfiguration(env.CALENDAR_DB, owner)).revision).toBe(2);
+    await expect(saveMcpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 999, configuration })).rejects.toMatchObject({ code: "invalid_mcp_configuration" });
   });
   it("enforces grant scope, identity, and revocation on every call", async () => {
     const provider = port();
@@ -119,4 +131,15 @@ describe("live Calendar specialist tools", () => {
     await expect(tools.call("create_event", { title: "New meeting", start: range.timeMin, end: range.timeMax, idempotencyKey: crypto.randomUUID(), destinationCalendarId: "mcp-calendar" })).rejects.toMatchObject({ code: "calendar_grant_revoked" });
     expect(inserted).toBe(false);
   });
+});
+
+
+it("preserves published v1 clients until v2 adoption, then fences device counters", async () => {
+  const owner = { workspace: "rollout-workspace", principal: "rollout-user" };
+  const configuration = { conflictCalendarIds: [], eventTypes: [] };
+  await saveV1McpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 10, configuration });
+  expect((await readMcpConfiguration(env.CALENDAR_DB, owner)).revision).toBe(10);
+  await saveMcpConfiguration(env.CALENDAR_DB, owner, { expectedRevision: 10, configuration });
+  await expect(saveV1McpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 999, configuration: { ...configuration, conflictCalendarIds: ["stale"] } })).rejects.toMatchObject({ code: "calendar_update_required" });
+  expect(await readMcpConfiguration(env.CALENDAR_DB, owner)).toEqual({ revision: 11, configuration });
 });

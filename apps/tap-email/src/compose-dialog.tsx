@@ -182,6 +182,9 @@ export function ComposeDialog({
             recipientRef.current?.focus({ preventScroll: true });
           }}
           onKeyDown={event => {
+            // React events from a portaled child dialog still bubble through
+            // Compose. Let that dialog own its shortcuts and dismissal.
+            if (event.target instanceof Element && event.target.closest('[role="dialog"]') !== event.currentTarget) return;
             if (event.nativeEvent.isComposing || event.repeat || (event.target instanceof Element && event.target.closest('[data-composer-tool]'))) return;
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) { event.preventDefault(); setTool('ai'); return; }
             const command = resolveComposeShortcut(event);

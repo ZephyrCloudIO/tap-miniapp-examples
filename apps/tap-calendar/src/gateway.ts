@@ -1,6 +1,6 @@
 import { isCalendarActivityProjection, type CalendarActivityProjection, type AvailabilityActivityReceipt } from "./activity-contract";
 import { isAttendeeResponse } from "./attendee-response";
-import type { CalendarMcpConfiguration, CalendarMcpConsent, CalendarMcpGrant, CalendarMcpScope } from "./mcp-contract";
+import { isCalendarMcpConfiguration, type CalendarMcpConfiguration, type CalendarMcpConfigurationSnapshot, type CalendarMcpConsent, type CalendarMcpGrant, type CalendarMcpScope } from "./mcp-contract";
 import type { WorkspaceBookings, SharedHostInput, WorkspaceBookingProfileInput } from "./workspace-bookings";
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk/sdk";
 import { isPublicBookingAnalytics, type PublicBookingAnalytics } from "./public-booking-analytics";
@@ -894,7 +894,8 @@ export function createTapCalendarGatewayTransport(
 export interface CalendarGatewayClient {
   activity(): Promise<CalendarActivityProjection>;
   syncAvailabilityActivity(entries: readonly Omit<AvailabilityActivityReceipt, "workspaceId">[]): Promise<void>;
-  saveMcpConfiguration(sourceRevision: number, configuration: CalendarMcpConfiguration): Promise<void>;
+  readMcpConfiguration(): Promise<CalendarMcpConfigurationSnapshot>;
+  saveMcpConfiguration(expectedRevision: number | null, configuration: CalendarMcpConfiguration): Promise<{ saved: true; revision: number }>;
   reviewMcpAuthorization(code: string): Promise<CalendarMcpConsent>;
   approveMcpAuthorization(code: string, scopes: readonly CalendarMcpScope[]): Promise<void>;
   listMcpGrants(): Promise<readonly CalendarMcpGrant[]>;
@@ -1203,7 +1204,18 @@ export function createCalendarGatewayClient(input: {
       return result;
     },
     async syncAvailabilityActivity(entries) { await request("POST", "/v1/activity/availability", { entries }); },
-    async saveMcpConfiguration(sourceRevision, configuration) { await request("POST", "/v1/mcp/configuration", { sourceRevision, configuration }); },
+    async readMcpConfiguration() {
+      const result = await request<unknown>("GET", "/v2/mcp/configuration");
+      if (!result || typeof result !== "object" || !("revision" in result) || !("configuration" in result)) throw new CalendarGatewayError(502, "invalid_configuration", "Invalid specialist configuration response.");
+      if (result.revision === null && result.configuration === null) return { revision: null, configuration: null };
+      if (typeof result.revision !== "number" || !Number.isSafeInteger(result.revision) || result.revision < 0 || !isCalendarMcpConfiguration(result.configuration)) throw new CalendarGatewayError(502, "invalid_configuration", "Invalid specialist configuration response.");
+      return { revision: result.revision, configuration: result.configuration };
+    },
+    async saveMcpConfiguration(expectedRevision, configuration) {
+      const result = await request<unknown>("POST", "/v2/mcp/configuration", { expectedRevision, configuration });
+      if (!result || typeof result !== "object" || !("saved" in result) || result.saved !== true || !("revision" in result) || typeof result.revision !== "number" || !Number.isSafeInteger(result.revision) || result.revision < 1) throw new CalendarGatewayError(502, "invalid_configuration_receipt", "Calendar did not confirm the saved configuration revision.");
+      return { saved: true, revision: result.revision };
+    },
     async reviewMcpAuthorization(code) { return request<CalendarMcpConsent>("POST", "/v1/mcp/authorizations/review", { code }); },
     async approveMcpAuthorization(code, scopes) { await request("POST", "/v1/mcp/authorizations/approve", { code, scopes }); },
     async listMcpGrants() { return (await request<{ grants: readonly CalendarMcpGrant[] }>("GET", "/v1/mcp/grants")).grants; },

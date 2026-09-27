@@ -52,7 +52,7 @@ beforeEach(async () => {
     env.CALENDAR_DB.prepare("DELETE FROM calendar_mcp_grants"),
     env.CALENDAR_DB.prepare("DELETE FROM calendar_mcp_configuration"),
   ]);
-  await saveMcpConfiguration(env.CALENDAR_DB, owner, { sourceRevision: 1, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+  await saveMcpConfiguration(env.CALENDAR_DB, owner, { expectedRevision: null, configuration: { conflictCalendarIds: [], eventTypes: [] } });
 });
 
 describe("Calendar OAuth transport and consent", () => {

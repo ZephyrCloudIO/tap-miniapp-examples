@@ -89,6 +89,20 @@ describe('mail window refresh', () => {
     expect(mergeMailWindow(current, [updated]).threads[0]).toBe(updated);
   });
 
+  it('keeps loaded conversation bodies when a newer local row has the same provider revision', () => {
+    const seed = previewMailState();
+    const original = seed.threads[0]!;
+    const loaded = { ...original, localReplicaRevision: 1,
+      messages: [{ ...original.messages[0]!, bodyText: 'Complete message', bodyHtml: '<p>Complete message</p>' }] };
+    const row = { ...loaded, localReplicaRevision: 2, starred: !loaded.starred,
+      messages: loaded.messages.map(({ bodyHtml: _html, ...message }) => ({ ...message, bodyText: '' })) };
+    const current = { ...seed, threads: [loaded], selectedThreadKey: emailThreadKey(loaded) };
+    const result = mergeMailWindow(current, [row]).threads[0]!;
+    expect(result.starred).toBe(row.starred);
+    expect(result.messages).toBe(loaded.messages);
+    expect(mergeMailWindow(current, [{ ...row, providerRevision: 'new-body' }]).threads[0]!.messages).toBe(row.messages);
+  });
+
   it('keeps an older selected account window while incoming mail updates matching rows', () => {
     const seed = previewMailState();
     const displayed = Array.from({ length: 100 }, (_, index) => ({ ...seed.threads[0]!,

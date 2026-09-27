@@ -26,6 +26,7 @@
     "verify:package": "node scripts/verify-sdk-package.mjs && node ../../scripts/verify-built-package.mjs .tap-package && node scripts/verify-react-runtime.mjs && node scripts/verify-diagnostics.mjs"
   },
   "dependencies": {
+    "@tap-examples/tap-mobile-ui": "workspace:*",
     "@tap-examples/tap-email-protocol": "workspace:*",
     "@theaiplatform/miniapp-sdk": "0.19.0",
     "dompurify": "^3.4.15",

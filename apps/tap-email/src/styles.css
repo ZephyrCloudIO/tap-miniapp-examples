@@ -176,6 +176,10 @@ kbd {
 }
 
 .account-switcher { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; }
+.mobile-account-toolbar { flex: 0 0 auto; min-width: 0; padding: 4px 10px 10px; border-bottom: 1px solid var(--mail-border); }
+.mobile-account-toolbar .account-switcher { justify-content: start; overflow-x: auto; }
+.mobile-account-toolbar .account-switcher button { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
+.mobile-account-toolbar .account-shortcut { display: none; }
 .account-switcher button,
 .app-actions button {
   display: inline-flex;
@@ -828,9 +832,14 @@ kbd {
 
 @media (max-width: 640px) {
   .tap-email { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  .app-bar { width: 100%; flex: 0 0 58px; gap: 8px; padding-inline: 10px; }
-  .account-switcher { overflow: hidden; }
-  .account-switcher button:not(.is-active) { display: none; }
+  .app-bar { width: 100%; height: auto; flex: 0 0 auto; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; padding: 8px 10px; }
+  .brand { grid-column: 1; grid-row: 1; }
+  .app-actions { grid-column: 2; grid-row: 1; }
+  .account-switcher { grid-column: 1 / -1; grid-row: 2; justify-content: start; overflow-x: auto; }
+  .account-switcher button { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
+  .account-switcher .account-shortcut, .app-actions kbd { display: none; }
+  .app-actions > button[aria-label="Keyboard shortcuts"] { display: none; }
+  .app-actions > button { min-height: 44px; }
   .app-actions .compose-button { padding-inline: 9px; }
   .capability-banner { height: auto; min-height: 35px; flex: 0 0 auto; padding-block: 6px; text-align: center; }
   .mail-shell,
@@ -848,6 +857,9 @@ kbd {
     grid-template-rows: minmax(0, 1fr);
   }
   .thread-column { border-right: 0; border-bottom: 1px solid var(--mail-border); }
+  .mail-shell.has-no-accounts { grid-template-rows: minmax(0, 1fr); }
+  .mail-shell.has-no-accounts > .message-pane { display: none; }
+  .zero-state { height: auto; min-height: 100%; }
   .message-header, .message-body { padding-inline: 12px; }
   .attention-panel-summary > span:not(.attention-action):not(.attention-urgency):not(.attention-expand-label),
   .attention-panel-summary > time { display: none; }

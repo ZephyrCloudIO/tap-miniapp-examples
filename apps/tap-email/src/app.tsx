@@ -1,4 +1,5 @@
 import { useComposerServices } from './use-composer-services';
+import { NativeHeader, useCompactLayout } from '@tap-examples/tap-mobile-ui';
 import { localSentRecipients } from './recipient-history';
 import { activityCommandFromReceipt } from './activity';
 import { createBookingLinksClient } from './booking-links';
@@ -263,6 +264,7 @@ import {
 } from './view-location';
 
 interface TapEmailAppProps {
+  readonly nativeHeader?: boolean;
   readonly appTheme?: MiniAppTheme;
   readonly preview?: boolean;
   readonly surfaceContext?: TapFederatedSurfaceMountContext;
@@ -710,7 +712,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
   );
 }
 
-export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext, diagnostics }: TapEmailAppProps) {
+export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext, diagnostics, nativeHeader = false }: TapEmailAppProps) {
   const store = useMemo(() => createLocalMailStore(preview), [preview]);
   const activityLedger = useMemo(
     () => createLocalEmailActivityLedger(preview),
@@ -738,6 +740,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [activityError, setActivityError] = useState('');
   const [initialMailboxRequestPending, setInitialMailboxRequestPending] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>('none');
+  const compact = useCompactLayout();
+  const [mobileReader, setMobileReader] = useState(false);
+  const readerScreen = nativeHeader && compact && mobileReader;
   const [replyDrafts, setReplyDrafts] = useState<Readonly<Record<string, ReplyDraft>>>({});
   const [poppedReplyKey, setPoppedReplyKey] = useState<string | null>(null);
   const [threadListCollapsed, setThreadListCollapsed] = useState(false);
@@ -1466,10 +1471,14 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   useEffect(() => {
     if (!selectedThreadAccountId || !selectedThreadId || !store.loadThread) return;
     const abort = new AbortController();
+    const requestedMessages = selectedThread(stateRef.current)?.messages;
     void store.loadThread(selectedThreadAccountId, selectedThreadId, true, abort.signal).then(cached => {
       if (abort.signal.aborted || !cached) return;
       setState(current => selectedThread(current)?.threadId === cached.threadId &&
         selectedThread(current)?.accountId === cached.accountId &&
+        // A slow disk read must not replace a conversation page that arrived
+        // from the provider while this cache request was queued.
+        selectedThread(current)?.messages === requestedMessages &&
         current.threads.find(item => emailThreadKey(item) === emailThreadKey(cached))?.providerRevision === cached.providerRevision
         ? boundMailWindow(mergeThreadMessages(current, cached.accountId, cached.threadId, cached.messages)) : current);
     }).catch(() => undefined);
@@ -1753,6 +1762,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     );
     return refresh;
   }, [surfaceContext, createMailboxSync]);
+
+  useEffect(() => {
+    if (preview || !hydrated) return;
+    let closed = false;
+    const resume = () => {
+      void refreshMailbox().catch(error => {
+        if (!closed) setMailboxError(`Mailbox refresh will retry: ${String(error)}`);
+      });
+    };
+    window.addEventListener('focus', resume);
+    return () => { closed = true; window.removeEventListener('focus', resume); };
+  }, [hydrated, preview, refreshMailbox]);
 
   const activityCursor = useRef({ after: new Date(Date.now() - 90 * 86_400_000).toISOString(), afterId: '' });
   const activityViewCursor = useRef(activityCursor.current);
@@ -2092,6 +2113,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   }, [coordinatorNetworkReady, dispatchTick, flash, hydrated, initialLoadSettled, notify, preview, recordCommittedEmailActivity, refreshMailbox, state.commands, state.undo, store.capability, surfaceContext?.userId, surfaceContext?.workspaceId]);
 
   const openThread = useCallback((target: EmailThread) => {
+    setMobileReader(true);
     const commandId = `cmd_${idFactory()}`;
     const now = new Date().toISOString();
     setState(current => {
@@ -2915,9 +2937,22 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   return (
     <TooltipProvider delayDuration={250} skipDelayDuration={75}>
-    <div className="tap-email" ref={rootRef} tabIndex={-1}>
+    <div className={`tap-email${readerScreen ? ' mobile-reader' : ''}`} ref={rootRef} tabIndex={-1}>
       <a className="skip-link" href="#tap-email-main">Skip to Mailbox</a>
-      <header className="app-bar">
+      {nativeHeader && surfaceContext ? <>
+        <NativeHeader context={surfaceContext} title={readerScreen ? "Message" : "Email"} back={readerScreen ? { label: "Back to inbox", onPress: () => setMobileReader(false) } : undefined} actions={[
+          { id: 'compose', label: 'Compose email', icon: 'compose', primary: true, disabled: state.accounts.length === 0, onPress: () => runCommand('compose') },
+          { id: 'sync', label: 'Sync email', icon: 'refresh', primary: true, disabled: state.accounts.length === 0, busy: syncing, onPress: () => {
+            void requestFreshMail().catch(error => { setMailboxError(`Mailbox synchronization failed: ${String(error)}`); flash('Mailbox synchronization failed. Try again.'); });
+          } },
+          { id: 'add-account', label: googleAuthorizationUrl ? 'Continue Google sign-in' : 'Add email account', icon: 'plus', busy: connectionBusy, onPress: googleAuthorizationUrl ? continueGoogleConnection : prepareGoogleConnection },
+          { id: 'workflows', label: 'Email workflows', icon: 'check', disabled: state.accounts.length === 0, onPress: () => setOverlay('workflows') },
+          { id: 'settings', label: 'Email settings', icon: 'settings', onPress: () => setOverlay('settings') },
+        ]} />
+        <div className="mobile-account-toolbar">
+          <AccountSwitcher accounts={state.accounts} onSelect={accountId => setState(current => selectAccount(current, accountId))} selectedAccountId={state.selectedAccountId} />
+        </div>
+      </> : <header className="app-bar">
         <div className="brand"><span className="brand-mark">T</span><span>TAP Email</span></div>
         <AccountSwitcher
           accounts={state.accounts}
@@ -2969,18 +3004,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           </button>
           <button className="compose-button" type="button" onClick={() => runCommand('compose')} disabled={state.accounts.length === 0}>Compose <kbd>C</kbd></button>
         </div>
-      </header>
+      </header>}
 
       {showCapabilityBanner ? (
         <div className={`capability-banner ${capabilityBannerClass}`} role={loadError ? 'alert' : 'status'} aria-live="polite">
           <strong>{capabilityBannerTitle}</strong>
-          <span>{capabilityBannerMessage}</span>
+          <span>{nativeHeader && mailboxError ? state.accounts.length ? 'Showing saved mail. Could not refresh right now.' : 'Could not load your mailbox. Try again.' : capabilityBannerMessage}</span>
           {mailboxError && !preview ? <button type="button" onClick={() => void refreshMailbox().catch(error => setMailboxError(`TAP Email could not open the cloud mailbox: ${String(error)}`))}>Retry</button> : null}
           {cacheError && !preview ? <button type="button" onClick={() => void retryDeviceCache()}>Retry device cache</button> : null}
         </div>
       ) : null}
 
-      <main className={`mail-shell${threadListCollapsed ? ' is-thread-list-collapsed' : ''}`} id="tap-email-main" tabIndex={-1}>
+      <main className={`mail-shell${threadListCollapsed ? ' is-thread-list-collapsed' : ''}${state.accounts.length === 0 ? ' has-no-accounts' : ''}`} id="tap-email-main" tabIndex={-1}>
         <aside className="split-sidebar" aria-label="Email views">
           <div className="zero-card">
             <div className="zero-orbit" title="Critical conversations"><span>{summary.critical}</span></div>
@@ -3015,7 +3050,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         <section
           aria-label="Thread list"
           className="thread-column"
-          hidden={threadListCollapsed}
+          hidden={nativeHeader && compact ? readerScreen : threadListCollapsed}
           id={THREAD_LIST_PANE_ID}
         >
           <div className="thread-toolbar">
@@ -3101,6 +3136,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
         <article
           className={`message-pane${poppedReplyDraft?.placement === 'sidecar' ? ' has-reply-sidecar' : ''}`}
+          hidden={nativeHeader && compact && !readerScreen}
           aria-label="Selected email"
         >
           {state.selectedSplit === 'scheduled' ? (

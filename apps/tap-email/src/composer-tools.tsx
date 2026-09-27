@@ -1,3 +1,4 @@
+import { useCompactLayout } from '@tap-examples/tap-mobile-ui';
 import type { MailFollowUp } from '@tap-examples/tap-email-protocol';
 import type { MiniAppChannel } from '@theaiplatform/miniapp-sdk/sdk';
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@theaiplatform/miniapp-sdk/ui';
@@ -24,6 +25,26 @@ export function ComposerToolbar({ canSend, attachmentBusy, sendAnyway, onAttach,
   readonly onShare: () => void;
   readonly onWriteAi: () => void;
 }) {
+  const compact = useCompactLayout();
+  const [toolsOpen, setToolsOpen] = useState(false);
+  if (compact && document.documentElement.dataset.tapMobile) return <>
+    <div className="mobile-compose-toolbar">
+      <Button type="button" disabled={!canSend} onClick={onSend}>{sendAnyway ? 'Send anyway' : 'Send'}</Button>
+      <Button type="button" variant="ghost" disabled={attachmentBusy} onClick={onAttach} aria-label={attachmentBusy ? 'Attaching files' : 'Attach files'}><Paperclip aria-hidden="true" /></Button>
+      <Button type="button" variant="ghost" onClick={() => setToolsOpen(true)}>More options</Button>
+    </div>
+    <Dialog open={toolsOpen} onOpenChange={setToolsOpen}>
+      <DialogContent className="composer-tool-dialog mobile-compose-options">
+        <DialogTitle>Message options</DialogTitle>
+        <DialogDescription>Schedule, add a reminder, or share this draft.</DialogDescription>
+        <Button type="button" variant="ghost" disabled={!canSend} onClick={() => { setToolsOpen(false); onSchedule(); }}>Send later</Button>
+        <Button type="button" variant="ghost" onClick={() => { setToolsOpen(false); onRemind(); }}>Remind me</Button>
+        <Button type="button" variant="ghost" onClick={() => { setToolsOpen(false); onShare(); }}>Share draft</Button>
+        <Button type="button" variant="ghost" onClick={() => { setToolsOpen(false); onWriteAi(); }}>Write with AI</Button>
+        {children}
+      </DialogContent>
+    </Dialog>
+  </>;
   return <div className="composer-toolbar">
     <div className="composer-primary-actions">
       <Button type="button" disabled={!canSend} onClick={onSend}>{sendAnyway ? 'Send anyway' : 'Send'}</Button>
