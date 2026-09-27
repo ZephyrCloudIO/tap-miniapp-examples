@@ -4,10 +4,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { resolveComposeShortcut } from './keybindings';
 import { mentionsMissingAttachment } from './outbound-attachment';
 import { SendLaterDialog } from './send-later-dialog';
+import type { BookingLinksClient } from './booking-links';
+import { ShareAvailability } from './share-availability';
 
 export type ReplyPlacement = 'inline' | 'sidecar';
 
 export interface ReplyComposerProps {
+  readonly bookingLinks?: BookingLinksClient;
   readonly attachmentBusy: boolean;
   readonly attachmentError: string;
   readonly attachments: readonly MailDraftAttachment[];
@@ -39,6 +42,7 @@ function isPlacementShortcut(event: React.KeyboardEvent): boolean {
 }
 
 export function ReplyComposer({
+  bookingLinks,
   attachmentBusy,
   attachmentError,
   attachments,
@@ -219,6 +223,10 @@ export function ReplyComposer({
         </p>
       ) : null}
       <footer className="reply-composer-footer">
+        <ShareAvailability client={bookingLinks} bodyRef={bodyRef} onBodyTextChange={value => {
+          setMissingAttachmentConfirmation(false);
+          onBodyTextChange(value);
+        }} />
         <button
           aria-label="Attach files"
           disabled={attachmentBusy}

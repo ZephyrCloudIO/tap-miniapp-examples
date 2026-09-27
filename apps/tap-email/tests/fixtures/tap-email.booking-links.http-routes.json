@@ -1,0 +1,74 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://calendar-api.theaiplatform.app/v1/booking-links",
+      "headers": [
+        {
+          "name": "X-TAP-Workspace-Id",
+          "value": "tap-fixture-workspace-v1"
+        }
+      ],
+      "body": null,
+      "timeoutMs": 15000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "credentialRef": "platform-session",
+    "response": {
+      "finalUrl": "https://calendar-api.theaiplatform.app/v1/booking-links",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        {
+          "name": "content-type",
+          "value": "application/json"
+        }
+      ],
+      "bodyText": "{\"schemaVersion\":\"tap.calendar.booking-links.v1\",\"userId\":\"tap-fixture-user-v1\",\"workspaceId\":\"tap-fixture-workspace-v1\",\"links\":[{\"profileId\":\"fixture-profile\",\"eventTypeId\":\"fixture-event\",\"title\":\"Office hours\",\"durationMinutes\":30,\"url\":\"https://cal.with-tap.ai/fixture/office-hours\",\"revisionId\":\"fixture-revision\",\"generation\":1}]}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 337,
+      "elapsedMs": 1,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  },
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://calendar-api.theaiplatform.app/v1/booking-links?profileId=fixture-profile&eventTypeId=fixture-event&revisionId=fixture-revision&generation=1",
+      "headers": [
+        {
+          "name": "X-TAP-Workspace-Id",
+          "value": "tap-fixture-workspace-v1"
+        }
+      ],
+      "body": null,
+      "timeoutMs": 15000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "credentialRef": "platform-session",
+    "response": {
+      "finalUrl": "https://calendar-api.theaiplatform.app/v1/booking-links?profileId=fixture-profile&eventTypeId=fixture-event&revisionId=fixture-revision&generation=1",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        {
+          "name": "content-type",
+          "value": "application/json"
+        }
+      ],
+      "bodyText": "{\"schemaVersion\":\"tap.calendar.booking-links.v1\",\"userId\":\"tap-fixture-user-v1\",\"workspaceId\":\"tap-fixture-workspace-v1\",\"link\":{\"profileId\":\"fixture-profile\",\"eventTypeId\":\"fixture-event\",\"title\":\"Office hours\",\"durationMinutes\":30,\"url\":\"https://cal.with-tap.ai/fixture/office-hours\",\"revisionId\":\"fixture-revision\",\"generation\":1}}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 334,
+      "elapsedMs": 1,
+      "contentType": "application/json"
+    },
+    "repeat": 1
+  }
+]

@@ -225,6 +225,15 @@ assert.ok(emailOwnerLevel, 'The default email-owner permission level is required
 const emailOwnerActions = new Set(emailOwnerLevel.actions);
 const surface = contribution('ui.surface', 'tap-email');
 assert.ok(surface, 'TAP Email surface contribution is required.');
+assert.ok(surface.authorization.onDemand.includes('network.request'));
+assert.ok(surface.authorization.onDemand.includes('credentials.use'));
+assert.ok(surface.authorization.effects.some(effect =>
+  effect.kind === 'external-network' && effect.resources.includes('https://calendar-api.theaiplatform.app'),
+), 'Share availability requires the exact Calendar gateway origin.');
+assert.ok(surface.authorization.effects.some(effect => effect.kind === 'credentials' && effect.resources.includes('http')));
+assert.ok(!manifest.contributions.some(item => item.kind.startsWith('mcp.') && item.authorization?.effects?.some(effect =>
+  effect.kind === 'external-network' && effect.resources.includes('https://calendar-api.theaiplatform.app'),
+)), 'Calendar link access belongs only to the Email surface.');
 for (const actionId of [
   ...(surface.authorization.allOf ?? []),
   ...(surface.authorization.onDemand ?? []),

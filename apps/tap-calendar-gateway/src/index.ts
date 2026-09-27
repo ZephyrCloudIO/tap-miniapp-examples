@@ -7,6 +7,7 @@ import { createCalendarLiveMcpServer, type CalendarLivePort } from "./calendar-l
 import { approveCalendarMcpAuthorization, calendarMcpOAuthRoute, reviewCalendarMcpAuthorization } from "./calendar-mcp-oauth";
 import { CalendarMcpError, listMcpGrants, loadMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "./calendar-mcp-store";
 import type { CollectiveHost } from "./collective-types";
+import { listPublishedBookingLinks } from "./booking-links";
 import {
   CollectiveBookingError, assertHostsCurrent, bookedHosts, hostBusyIntervals, listHosts,
   parseWorkspaceDefinition, readHost, readWorkspaceDefinition, reserveHosts, saveHost,
@@ -894,6 +895,7 @@ async function bindLegacyLocalOwner(
 async function principalScope(
   request: Request,
   env: CalendarGatewayEnv,
+  bindLegacyOwner = true,
 ): Promise<CalendarPrincipalScope> {
   let scope: CalendarPrincipalScope;
   try {
@@ -914,7 +916,7 @@ async function principalScope(
     }
     throw error;
   }
-  await bindLegacyLocalOwner(env, scope);
+  if (bindLegacyOwner) await bindLegacyLocalOwner(env, scope);
   return scope;
 }
 
@@ -10338,6 +10340,27 @@ async function route(
   }
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
+  }
+  if (request.method === "GET" && path === "/v1/booking-links") {
+    const scope = await principalScope(request, env, false);
+    const query = new URL(request.url).searchParams;
+    const fields = ["profileId", "eventTypeId", "revisionId", "generation"];
+    const selecting = query.size > 0;
+    if (selecting && (query.size !== fields.length || fields.some(field => !query.get(field)) ||
+      [...query.keys()].some(field => !fields.includes(field)) ||
+      !/^[1-9]\d*$/u.test(query.get("generation") ?? "") ||
+      !Number.isSafeInteger(Number(query.get("generation"))) ||
+      [...query.values()].some(value => value.length > 255))) {
+      throw new ApiError(400, "invalid_booking_link_selection", "Select a published Calendar page.");
+    }
+    const links = await listPublishedBookingLinks(env.CALENDAR_DB, scope);
+    const identity = { schemaVersion: "tap.calendar.booking-links.v1", userId: scope.principal, workspaceId: scope.workspace };
+    if (!selecting) return json({ ...identity, links });
+    const link = links.find(candidate => candidate.profileId === query.get("profileId") &&
+      candidate.eventTypeId === query.get("eventTypeId") && candidate.revisionId === query.get("revisionId") &&
+      candidate.generation === Number(query.get("generation")));
+    if (!link) throw new ApiError(409, "booking_link_stale", "This booking page changed or is no longer published. Refresh the list and choose again.");
+    return json({ ...identity, link });
   }
   if (request.method === "GET" && (path === "/v1/publications/analytics" || path === "/v2/publications/analytics")) {
     const scope = await principalScope(request, env);

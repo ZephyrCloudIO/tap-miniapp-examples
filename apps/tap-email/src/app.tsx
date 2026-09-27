@@ -1,4 +1,5 @@
 import { activityCommandFromReceipt } from './activity';
+import { createBookingLinksClient } from './booking-links';
 import { EmailToolAccessPanel } from './email-tool-access-panel';
 import { boundMailWindow, journalOf, type MailWindowCursor } from './bounded-mail-replica';
 import { MailWindowCache, MailWindowRefresh, mergeMailWindow, retainMailWindow } from './mail-window-refresh';
@@ -707,6 +708,11 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
 }
 
 export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext, diagnostics }: TapEmailAppProps) {
+  const bookingLinks = useMemo(() => !preview && surfaceContext?.userId && surfaceContext.workspaceId
+    ? createBookingLinksClient({
+      context: { userId: surfaceContext.userId, workspaceId: surfaceContext.workspaceId },
+      authorize: action => hasEmailAuthority(surfaceContext, action),
+    }) : undefined, [preview, surfaceContext, surfaceContext?.userId, surfaceContext?.workspaceId]);
   const store = useMemo(() => createLocalMailStore(preview), [preview]);
   const activityLedger = useMemo(
     () => createLocalEmailActivityLedger(preview),
@@ -3159,6 +3165,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                   />
                   {activeReplyDraft?.placement === 'inline' ? (
                     <ReplyComposer
+                      bookingLinks={bookingLinks}
                       attachmentBusy={activeReplyDraft.attachmentBusy}
                       attachmentError={activeReplyDraft.attachmentError}
                       attachments={activeReplyDraft.attachments}
@@ -3195,6 +3202,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 {poppedReplyDraft?.placement === 'sidecar' ? (
                   <aside className="reply-sidecar" aria-label={`Popped out reply to ${poppedReplyDraft.recipientLabel}`}>
                     <ReplyComposer
+                      bookingLinks={bookingLinks}
                       attachmentBusy={poppedReplyDraft.attachmentBusy}
                       attachmentError={poppedReplyDraft.attachmentError}
                       attachments={poppedReplyDraft.attachments}
@@ -3247,6 +3255,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {overlay === 'remind' && thread ? <ReminderDialog thread={thread} onClose={() => setOverlay('none')} onConfirm={confirmReminder} /> : null}
       {overlay === 'compose' && composeDraftKey ? (
         <ComposeDialog
+          bookingLinks={bookingLinks}
           accounts={state.accounts}
           draftKey={composeDraftKey}
           initialAccountId={thread?.accountId ?? state.accounts[0]?.accountId ?? ''}

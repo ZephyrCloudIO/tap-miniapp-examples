@@ -19,6 +19,8 @@ import {
   type SelectAndStageAttachmentsResult,
 } from './outbound-attachment';
 import { SendLaterDialog } from './send-later-dialog';
+import type { BookingLinksClient } from './booking-links';
+import { ShareAvailability } from './share-availability';
 
 export interface ComposeDraftMessage {
   readonly accountId: string;
@@ -33,6 +35,7 @@ export interface ComposeDraftMessage {
 }
 
 export interface ComposeDialogProps {
+  readonly bookingLinks?: BookingLinksClient;
   readonly accounts: readonly EmailAccount[];
   readonly draftKey: string;
   readonly initialAccountId: string;
@@ -55,6 +58,7 @@ export interface ComposeDialogProps {
 }
 
 export function ComposeDialog({
+  bookingLinks,
   accounts,
   draftKey,
   initialAccountId,
@@ -222,6 +226,7 @@ export function ComposeDialog({
           <footer>
             <span>Sent through the selected connected account.</span>
             <div className="compose-footer-actions">
+              <ShareAvailability client={bookingLinks} bodyRef={bodyRef} onBodyTextChange={value => change(() => setBodyText(value))} />
               <Button disabled={attachmentBusy || !from} onClick={() => { void attach(); }} type="button" variant="ghost"><Paperclip aria-hidden="true" />{attachmentBusy ? 'Attaching…' : 'Attach'}</Button>
               <Button disabled={!canSend} onClick={() => setSendLaterOpen(true)} type="button" variant="ghost"><Clock3 aria-hidden="true" />Send later</Button>
               <Button className="primary-button" type="button" disabled={!canSend} onClick={requestSend}>
