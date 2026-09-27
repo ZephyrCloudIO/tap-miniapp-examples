@@ -4490,7 +4490,6 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
       isEventTypePublicationLive(profile, eventType)).length,
     0,
   );
-  const liveUrlCount = liveProfiles.length + liveEventPageCount;
   const hasWritableDestination = Boolean(providerWritableDestination(state));
   const hasAvailabilitySchedule = state.availability.length > 0;
   const canCreateEventType = hasWritableDestination && hasAvailabilitySchedule;
@@ -4616,7 +4615,7 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
         <span>Lifetime confirmations <strong>{snapshot?.totals.lifetimeConfirmed.toLocaleString() ?? "—"}</strong></span>
         <span>Cancelled <strong>{snapshot?.totals.cancelled.toLocaleString() ?? "—"}</strong></span>
         <span>Awaiting approval <strong>{snapshot?.totals.pending.toLocaleString() ?? "—"}</strong></span>
-        <span>Published URLs <strong>{liveUrlCount}</strong></span>
+        <span>Live booking pages <strong>{liveEventPageCount.toLocaleString()}</strong></span>
       </div> : null}
       <div className="section-heading"><div><span className="eyebrow">Public scheduling</span><h2>Booking Profiles & Event Types</h2><p>Public booking v1 supports individual profiles with globally reserved slugs.</p></div><button type="button" className="primary-button" onClick={() => setProfileEditor("new")}><Plus /> New Booking Profile</button></div>
       {state.bookingProfiles.length === 0 ? (

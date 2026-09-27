@@ -22,6 +22,7 @@ rate cannot be reconstructed. No production records or counters were changed.
 | Traffic and conversion coverage can start at different times. | Only append booked visits to the activity funnel when both periods match. Otherwise show conversion separately with its own period. |
 | Empty, unavailable, preview, and measured-zero states were ambiguous. | No traffic displays an em dash and a sharing prompt. Missing data displays an unavailable message. Local previews do not invent a live conversion rate. |
 | Metric definitions competed with the main result. | Keep the historical-data limitation visible; move detailed counting rules into a keyboard-accessible disclosure. |
+| “Published URLs” counted profile landing pages alongside the visible event pages. | “Live booking pages” counts the event pages using the same publication check as their Live badges. A profile with two live event pages now shows two. |
 
 ## Visual design review
 
