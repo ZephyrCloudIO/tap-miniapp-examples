@@ -1,8 +1,8 @@
 {
-  "name": "tap-email-specialist@0.3.5",
+  "name": "tap-email-specialist@0.3.6",
   "slug": "tap-email-specialist",
   "displayName": "TAP Email Specialist",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "schemaVersion": "2.0.0",
   "maintainers": [
     {

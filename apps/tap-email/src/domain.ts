@@ -1883,6 +1883,10 @@ export function mailboxSummary(state: MailState, now: string): MailboxSummary {
     thread => thread.critical || thread.needsResponse,
   );
   const failedCommands = recoverableImmediateSends(state).length;
+  const dueReminders = threads.filter(
+    thread => thread.status === 'reminded' && thread.reminder &&
+      Date.parse(thread.reminder.dueAt) <= Date.parse(now),
+  ).length;
   return {
     generatedAt: now,
     accountIds: state.accounts.map(account => account.accountId),
@@ -1890,14 +1894,9 @@ export function mailboxSummary(state: MailState, now: string): MailboxSummary {
     critical: active.filter(thread => thread.critical).length,
     needsResponse: active.filter(thread => thread.needsResponse).length,
     waiting: active.filter(thread => thread.waitingOnOthers).length,
-    dueReminders: threads.filter(
-      thread =>
-        thread.status === 'reminded' &&
-        thread.reminder &&
-        Date.parse(thread.reminder.dueAt) <= Date.parse(now),
-    ).length,
+    dueReminders,
     failedCommands,
-    operationalZero: coverageComplete && actionable.length === 0 && failedCommands === 0,
+    operationalZero: coverageComplete && actionable.length === 0 && dueReminders === 0 && failedCommands === 0,
     coverageComplete,
   };
 }

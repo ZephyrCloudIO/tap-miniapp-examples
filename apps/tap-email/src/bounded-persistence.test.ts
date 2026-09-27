@@ -21,6 +21,50 @@ function withCommand(state: MailState, id: string): MailState {
 }
 
 describe('bounded durable mail persistence', () => {
+  it('preserves searchable body enrichment across same-revision metadata refreshes', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const metadata = thread(0);
+    const hydrated = { ...metadata, messages: [{ ...metadata.messages[0]!, bodyText: 'saffron contract' }] };
+    await store.save({ ...template, threads: [hydrated] });
+    let sync = await store.beginMailboxSync();
+    await store.commitMailboxPage(sync, { schemaVersion: 1, accounts: template.accounts, threads: [metadata] }, null);
+
+    const restarted = new ProfileSqliteMailStore(fixture.profile);
+    expect((await restarted.queryThreads({ query: 'saffron contract' })).threads.map(item => item.threadId))
+      .toEqual([metadata.threadId]);
+    expect((await restarted.loadThread(metadata.accountId, metadata.threadId))?.messages[0]?.bodyText)
+      .toBe('saffron contract');
+
+    // New source revisions can invalidate old content; this is not indefinite retention.
+    sync = await restarted.beginMailboxSync();
+    await restarted.commitMailboxPage(sync, { schemaVersion: 1, accounts: template.accounts,
+      threads: [{ ...metadata, providerRevision: 'new_content_revision' }] }, null);
+    expect((await restarted.queryThreads({ query: 'saffron contract' })).threads).toEqual([]);
+    expect((await restarted.loadThread(metadata.accountId, metadata.threadId))?.messages[0]?.bodyText).toBe('');
+  });
+
+  it('includes due reminders outside the UI window in Operational Zero', async () => {
+    const fixture = sqliteStoreFixture();
+    let now = Date.parse('2026-09-27T12:00:00.000Z');
+    const store = new ProfileSqliteMailStore(fixture.profile, () => now);
+    const records = Array.from({ length: 150 }, (_, index) => ({ ...thread(index),
+      status: 'done' as const, critical: false, needsResponse: false }));
+    const source = records.at(-1)!;
+    const due = { ...source, status: 'reminded' as const,
+      reminder: { reminderId: 'reminder_outside_window', accountId: source.accountId, threadId: source.threadId,
+        condition: 'regardless' as const, createdAt: new Date(now).toISOString(), dueAt: '2026-09-27T13:00:00.000Z' } };
+    await store.save({ ...template,
+      selectedThreadKey: null,
+      accounts: template.accounts.map(account => ({ ...account,
+        coverage: { ...account.coverage, state: 'current' as const } })),
+      threads: [...records.slice(0, -1), due] });
+    expect((await store.load())?.threads.some(item => item.threadId === due.threadId)).toBe(false);
+    expect(await store.summarize()).toMatchObject({ dueReminders: 0, operationalZero: true });
+    now = Date.parse(due.reminder.dueAt);
+    expect(await store.summarize()).toMatchObject({ dueReminders: 1, operationalZero: false, coverageComplete: true });
+  });
+
   it('restores cached mail and the exact queued send with a canonical TAP sender identity', async () => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);

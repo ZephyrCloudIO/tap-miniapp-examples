@@ -185,7 +185,16 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
       (incoming as EmailThread & { localReplicaRevision?: number }).localReplicaRevision);
     const source = stale ? previous : incoming;
     const messageMap = new Map(previous?.messages.map(message => [message.messageId, message]));
-    for (const message of source.messages) messageMap.set(message.messageId, message);
+    for (const message of source.messages) {
+      const cached = messageMap.get(message.messageId);
+      // A metadata page cannot demote content already read at this revision.
+      // A changed provider revision may intentionally invalidate that content.
+      const preservePreview = previous?.providerRevision === source.providerRevision &&
+        !message.bodyText && !message.bodyHtml && cached?.bodyText;
+      messageMap.set(message.messageId, preservePreview
+        ? { ...message, bodyText: cached.bodyText }
+        : message);
+    }
     const correction = !previous?.attentionCorrection ||
       (incoming.attentionCorrection && incoming.attentionCorrection.correctedAt > previous.attentionCorrection.correctedAt)
       ? incoming.attentionCorrection : previous.attentionCorrection;
@@ -515,5 +524,5 @@ export async function summarizeReplica(sql: Sql, now: string, accountId = 'all',
   const sync = await readSync(sql);
   const coverageComplete = summary.coverageComplete && (!sync || sync.complete);
   return { ...summary, inbox, critical, needsResponse, waiting, dueReminders, coverageComplete,
-    operationalZero: coverageComplete && critical === 0 && needsResponse === 0 && summary.failedCommands === 0 };
+    operationalZero: coverageComplete && critical === 0 && needsResponse === 0 && dueReminders === 0 && summary.failedCommands === 0 };
 }

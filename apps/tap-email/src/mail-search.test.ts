@@ -47,6 +47,18 @@ function thread(
 }
 
 describe('mail date search', () => {
+  it('matches from only against message senders, not recipients or unclassified participants', () => {
+    const source = thread('sender_test', '2026-09-12T14:00:00.000Z', 'Launch', ['2026-09-12T14:00:00.000Z']);
+    const recipient = { name: 'Bob', address: 'bob@example.com' };
+    const conversation = { ...source, participants: [...source.participants, recipient],
+      messages: source.messages.map(message => ({ ...message, to: [recipient] })) };
+    expect(filterMailThreads([conversation], 'from:bob@example.com', newYorkNow)).toEqual([]);
+    expect(filterMailThreads([conversation], 'to:bob@example.com', newYorkNow)).toEqual([conversation]);
+    expect(filterMailThreads([conversation], 'from:research@pitchbook.com', newYorkNow)).toEqual([conversation]);
+    expect(filterMailThreads([{ ...conversation, messages: [] }], 'from:research@pitchbook.com', newYorkNow)).toEqual([]);
+    expect(filterMailThreads([conversation], 'bob@example.com', newYorkNow)).toEqual([conversation]);
+  });
+
   it('resolves today and yesterday in the supplied time zone, not UTC', () => {
     const context = {
       now: '2026-09-13T03:30:00.000Z', // Sep 12, 11:30 PM in New York

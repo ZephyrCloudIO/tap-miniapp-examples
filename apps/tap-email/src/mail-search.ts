@@ -416,7 +416,6 @@ function threadMatchesOperators(
 ): boolean {
   if (!operators) return true;
   const senders = [
-    ...thread.participants.flatMap(participant => [participant.name ?? '', participant.address]),
     ...thread.messages.flatMap(message => [message.from.name ?? '', message.from.address]),
   ];
   const recipients = thread.messages.flatMap(message =>

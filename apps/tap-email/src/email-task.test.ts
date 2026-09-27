@@ -82,7 +82,7 @@ describe('email to canonical TAP Task', () => {
     expect(first).toMatch(/^tap-email:task:v1:[a-f0-9]{64}$/u);
   });
 
-  it('creates once with a receipt, then applies priority and reminder due date', async () => {
+  it('creates priority and reminder due date atomically with the receipt', async () => {
     const creates: unknown[] = [];
     const updates: unknown[] = [];
     const records: EmailTaskReceiptRecord[] = [];
@@ -111,13 +111,11 @@ describe('email to canonical TAP Task', () => {
       workspaceId: 'workspace_1',
       title: 'Follow up: Approve the launch plan',
       initialPhase: 'inbox',
-    });
-    expect(updates).toEqual([{
-      workspaceId: 'workspace_1',
-      taskId: 'task_7',
       priority: 'urgent',
       dueAt: Date.parse(source.reminderDueAt!),
-    }]);
+    });
+    expect(updates).toEqual([]);
+    expect(outcome.task).toEqual({ id: 'task_7' });
     expect(records).toEqual([expect.objectContaining({
       accountId: 'google_work',
       threadId: 'thread_42',
@@ -154,7 +152,7 @@ describe('email to canonical TAP Task', () => {
     });
   });
 
-  it('replays duplicate-suppressed receipts through deterministic configuration', async () => {
+  it('replays duplicate-suppressed receipts without overwriting later human changes', async () => {
     let createKey = '';
     let updateCalls = 0;
     const outcome = await createEmailTask({
@@ -176,7 +174,8 @@ describe('email to canonical TAP Task', () => {
     });
     expect(createKey).toBe(await emailTaskIdempotencyKey(source, 'workspace_1'));
     expect(outcome.status).toBe('duplicate-suppressed');
-    expect(updateCalls).toBe(1);
+    expect(updateCalls).toBe(0);
+    expect(outcome.task).toEqual({ id: 'task_7' });
   });
 
   it('rejects a mismatched backlink tuple before calling the Tasks API', async () => {

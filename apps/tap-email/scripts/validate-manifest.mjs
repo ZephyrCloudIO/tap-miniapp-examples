@@ -53,6 +53,9 @@ assert.equal('package' in manifest, false);
 assert.equal('release' in manifest, false);
 assert.equal('lifecycle' in manifest, false);
 assert.equal(manifest.compatibility.tapSdk, '0.19.0');
+assert.equal(manifest.compatibility.tapHost, '>=2.24.1');
+assert.ok(!JSON.stringify(manifest).includes('workflows.runs.read'),
+  'Workflow observation must request the host workflows.read action.');
 assert.ok(manifest.targets?.desktop, 'The desktop package target is required.');
 assert.ok(manifest.targets?.quickjs, 'The QuickJS package target is required.');
 assert.deepEqual(manifest.runtimePolicy, {
