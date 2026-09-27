@@ -1,6 +1,7 @@
 import type { MiniAppPrivateSqlTransaction } from '@theaiplatform/miniapp-sdk/sdk';
 import { CoordinatorError, type MailboxChanges, type MailboxPage } from './coordinator-client';
 import { readRecord, readReplicaAccounts, writeRecord, writeReplicaThreads } from './bounded-mail-replica';
+import { emailThreadKey } from './domain';
 import { insertBoundedRows } from './bounded-sql';
 import { deleteNormalizedLocalThread } from './local-replica';
 
@@ -27,17 +28,27 @@ export async function writeRevisionedMailboxPage(tx: MiniAppPrivateSqlTransactio
   const threads: typeof page.mailbox.threads[number][] = [];
   const deleted: { accountId: string; threadId: string }[] = [];
   const versions: (string | number | null)[][] = [];
+  const previousVersions = new Map<string, readonly unknown[]>();
+  const identities = [...page.mailbox.threads, ...(options.changes?.deletedThreads ?? [])];
+  for (let offset = 0; offset < identities.length; offset += 100) {
+    const batch = identities.slice(offset, offset + 100);
+    const result = await tx.query(`SELECT account_id, thread_id, revision, bootstrap, present FROM local_mail_versions
+      WHERE (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})`,
+    batch.flatMap(thread => [thread.accountId, thread.threadId]));
+    for (const [accountId, threadId, ...version] of result.rows) previousVersions.set(emailThreadKey({ accountId: String(accountId), threadId: String(threadId) }), version);
+    if (options.bootstrap) {
+      const present = batch.filter(thread => 'providerRevision' in thread);
+      if (present.length) await tx.execute(`UPDATE local_mail_versions SET bootstrap = ? WHERE present = 1
+        AND (account_id, thread_id) IN (VALUES ${present.map(() => '(?, ?)').join(', ')})`,
+      [options.bootstrap, ...present.flatMap(thread => [thread.accountId, thread.threadId])]);
+    }
+  }
   for (const [items, present] of [[page.mailbox.threads, 1], [options.changes?.deletedThreads ?? [], 0]] as const) {
     for (const thread of items) {
-      const previous = await tx.query('SELECT revision, bootstrap, present FROM local_mail_versions WHERE account_id = ? AND thread_id = ?',
-        [thread.accountId, thread.threadId]);
-      if (options.bootstrap && present && previous.rows[0]?.[2] === 1) {
-        await tx.execute('UPDATE local_mail_versions SET bootstrap = ? WHERE account_id = ? AND thread_id = ?',
-          [options.bootstrap, thread.accountId, thread.threadId]);
-      }
-      if (revision < Math.max(Number(previous.rows[0]?.[0] ?? control.complete + 1), control.complete)) continue;
+      const previous = previousVersions.get(emailThreadKey(thread));
+      if (revision < Math.max(Number(previous?.[0] ?? control.complete + 1), control.complete)) continue;
       versions.push([thread.accountId, thread.threadId, revision, present,
-        options.bootstrap ?? (typeof previous.rows[0]?.[1] === 'string' ? previous.rows[0][1] : null)]);
+        options.bootstrap ?? (typeof previous?.[1] === 'string' ? previous[1] : null)]);
       if (present && 'providerRevision' in thread) {
         const projected = { ...thread, localReplicaRevision: revision };
         threads.push(projected);

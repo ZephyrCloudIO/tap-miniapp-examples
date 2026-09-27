@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@rstest/core';
 import { boundMailWindow } from './bounded-mail-replica';
 import { emailThreadKey, mergeMailboxPage, previewMailState } from './domain';
-import { MailWindowRefresh, retainMailWindow } from './mail-window-refresh';
+import { MailWindowCache, MailWindowRefresh, mergeMailWindow, retainMailWindow } from './mail-window-refresh';
 
 describe('mail window refresh', () => {
   it('finishes an in-flight read despite continuous sync commits and coalesces the next read', async () => {
@@ -51,6 +51,42 @@ describe('mail window refresh', () => {
     expect(reads).toBe(1);
     expect(delivered).toBe(0);
     expect(errors).toEqual([]);
+  });
+
+  it('returns cached account/pages synchronously, bounds retention, and clears on wipe', () => {
+    const cache = new MailWindowCache();
+    const seed = previewMailState();
+    const rows = seed.threads.map(thread => ({ ...thread, messages: thread.messages.map(({ bodyHtml: _html, ...message }) => message) }));
+    cache.set('work/inbox/1', rows);
+    cache.set('personal/sent/2', rows.slice(0, 1));
+    expect(cache.get('work/inbox/1')![0]).toBe(rows[0]);
+    expect(cache.get('personal/sent/1')).toBeUndefined();
+    for (let index = 0; index < 12; index++) cache.set(`page-${index}`, rows);
+    expect(cache.get('work/inbox/1')).toBeUndefined();
+    cache.clear();
+    expect(cache.get('page-11')).toBeUndefined();
+  });
+
+  it('retains hydrated object identity and bounds bytes across recent views', () => {
+    const cache = new MailWindowCache();
+    const source = previewMailState().threads[0]!;
+    const thread = { ...source, messages: [{ ...source.messages[0]!, bodyHtml: '<b>Hydrated</b>', bodyText: 'x'.repeat(4_300_000) }] };
+    cache.set('first', [thread]);
+    expect(cache.get('first')![0]).toBe(thread);
+    cache.set('second', [thread]);
+    expect(cache.get('first')).toBeUndefined();
+    expect(cache.get('second')![0]!.messages[0]!.bodyHtml).toBe('<b>Hydrated</b>');
+  });
+
+  it('keeps current local edits and selected bodies while incremental rows arrive', () => {
+    const seed = previewMailState();
+    const original = seed.threads[0]!;
+    const edited = { ...original, starred: !original.starred };
+    const current = { ...seed, threads: [edited], selectedThreadKey: emailThreadKey(edited) };
+    expect(mergeMailWindow(current, [original]).threads[0]).toBe(edited);
+    expect(mergeMailWindow(current, [seed.threads[1]!]).threads).toEqual([seed.threads[1], edited]);
+    const updated = { ...original, providerRevision: 'newer-provider-revision' };
+    expect(mergeMailWindow(current, [updated]).threads[0]).toBe(updated);
   });
 
   it('keeps an older selected account window while incoming mail updates matching rows', () => {

@@ -1,4 +1,4 @@
-import type { MiniAppPrivateSqlTransaction, MiniAppSqlMigration } from '@theaiplatform/miniapp-sdk/sdk';
+import type { MiniAppPrivateSqlTransaction, MiniAppSqlMigration, MiniAppSqlValue } from '@theaiplatform/miniapp-sdk/sdk';
 import {
   emptyMailState, emailThreadKey, isMailState, projectedThreads, mailboxSummary,
   threadMatchesSplit, type EmailThread, type MailboxSnapshot, type MailState,
@@ -171,8 +171,9 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
     threadId: '', entityId: '', value: account }));
   const threads: EmailThread[] = [];
   const bodies: (string | number)[][] = [];
+  const previousThreads = await readThreads(tx, state.threads);
   for (const incoming of state.threads) {
-    const previous = await readThread(tx, incoming.accountId, incoming.threadId, false);
+    const previous = previousThreads.get(emailThreadKey(incoming));
     if (localChangesOnly && !previous) {
       const version = await tx.query('SELECT present FROM local_mail_versions WHERE account_id = ? AND thread_id = ?',
         [incoming.accountId, incoming.threadId]);
@@ -229,21 +230,64 @@ async function evictBodies(tx: MiniAppPrivateSqlTransaction): Promise<void> {
   }
 }
 
-export async function readThread(sql: Sql, accountId: string, threadId: string, bodies: boolean): Promise<EmailThread | null> {
-  const record = await readRecord<Omit<EmailThread, 'messages'> & { messageIds: string[] }>(sql, 'local_mail_records', 'thread', accountId, threadId);
-  if (!record) return null;
-  const { messageIds, ...metadata } = record;
-  const messages: EmailThread['messages'][number][] = [];
-  for (const id of messageIds) {
-    const message = await readRecord<EmailThread['messages'][number]>(sql, 'local_mail_records', 'message', accountId, threadId, id);
-    if (!message) throw new Error('The local mail message record is incomplete.');
-    messages.push(message);
+/** Read metadata in bounded batches instead of one host round trip per message.
+ * 64 parts are at most 4 MiB of escaped payload, below the host response limit.
+ * The caller holds the store queue, so record parts cannot change mid-read.
+ */
+export async function readThreads(sql: Sql, identities: readonly { accountId: string; threadId: string }[],
+  signal?: AbortSignal): Promise<Map<string, EmailThread>> {
+  const threads = new Map<string, EmailThread>();
+  for (let offset = 0; offset < identities.length; offset += 100) {
+    const batch = identities.slice(offset, offset + 100);
+    const records = new Map<string, { kind: string; accountId: string; threadId: string; entityId: string; parts: string[] }>();
+    let after: MiniAppSqlValue[] | null = null;
+    while (true) {
+      signal?.throwIfAborted();
+      const result = await sql.query(`SELECT kind, account_id, thread_id, entity_id, part, payload
+        FROM local_mail_records WHERE kind IN ('thread', 'message')
+        AND (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})
+        ${after ? 'AND (kind, account_id, thread_id, entity_id, part) > (?, ?, ?, ?, ?)' : ''}
+        ORDER BY kind, account_id, thread_id, entity_id, part LIMIT 64`,
+      [...batch.flatMap(item => [item.accountId, item.threadId]), ...(after ?? [])]);
+      for (const [kind, accountId, threadId, entityId, part, payload] of result.rows) {
+        const key = JSON.stringify([kind, accountId, threadId, entityId]);
+        let record = records.get(key);
+        if (!record) {
+          record = { kind: String(kind), accountId: String(accountId), threadId: String(threadId), entityId: String(entityId), parts: [] };
+          records.set(key, record);
+        }
+        if (part !== record.parts.length || typeof payload !== 'string') throw new Error('Incomplete local mail record.');
+        record.parts.push(payload);
+      }
+      if (result.rows.length < 64) break;
+      after = result.rows.at(-1)!.slice(0, 5);
+    }
+    const messages = new Map<string, EmailThread['messages'][number]>();
+    for (const record of records.values()) if (record.kind === 'message') {
+      messages.set(JSON.stringify([record.accountId, record.threadId, record.entityId]), JSON.parse(record.parts.join('')));
+    }
+    for (const record of records.values()) if (record.kind === 'thread') {
+      const { messageIds, ...metadata } = JSON.parse(record.parts.join('')) as Omit<EmailThread, 'messages'> & { messageIds: string[] };
+      threads.set(emailThreadKey(metadata), { ...metadata, messages: messageIds.map(id => {
+        const message = messages.get(JSON.stringify([record.accountId, record.threadId, id]));
+        if (!message) throw new Error('The local mail message record is incomplete.');
+        return message;
+      }) });
+    }
   }
+  return threads;
+}
+
+export async function readThread(sql: Sql, accountId: string, threadId: string, bodies: boolean, signal?: AbortSignal): Promise<EmailThread | null> {
+  const thread = (await readThreads(sql, [{ accountId, threadId }], signal)).get(emailThreadKey({ accountId, threadId }));
+  if (!thread) return null;
+  const { messages, ...metadata } = thread;
   if (bodies) {
     const cached = await sql.query('SELECT provider_revision FROM local_mail_bodies WHERE account_id = ? AND thread_id = ?', [accountId, threadId]);
     if (cached.rows[0]?.[0] === metadata.providerRevision) {
       const hydrated = await readRecord<EmailThread['messages']>(sql, 'local_mail_records', 'body', accountId, threadId);
       if (hydrated) {
+        signal?.throwIfAborted();
         await sql.execute('UPDATE local_mail_bodies SET last_accessed_at = ? WHERE account_id = ? AND thread_id = ?', [Date.now(), accountId, threadId]);
         return { ...metadata, messages: hydrated };
       }
@@ -261,6 +305,12 @@ export interface MailWindowQuery {
   readonly after?: MailWindowCursor | null;
   readonly signal?: AbortSignal;
   readonly bodies?: boolean;
+  readonly limit?: number;
+  /** Cumulative rows, delivered before the rest of the page or lookahead finishes. */
+  readonly onProgress?: (threads: readonly EmailThread[]) => void;
+  /** Current UI overlays need not wait for their durable journal write to display. */
+  readonly journal?: MailJournal;
+  readonly localThreads?: readonly EmailThread[];
 }
 export interface MailWindow { readonly threads: readonly EmailThread[]; readonly next: MailWindowCursor | null }
 
@@ -268,56 +318,91 @@ export async function queryMailWindow(sql: Sql, options: MailWindowQuery, journa
   let cursor = options.after ?? null;
   const threads: EmailThread[] = [];
   let bodyBytes = 0;
-  const resource = !options.query?.trim() &&
-    (options.split === 'sent' || options.split === 'drafts' || options.split === 'spam')
-    ? options.split : null;
-  const resourceOverrides = new Set(resource ? (journal?.pendingThreadIntents ?? [])
-    .filter(intent => intent.patch.providerResources !== undefined &&
-      (!options.accountId || options.accountId === 'all' || intent.accountId === options.accountId))
-    .map(emailThreadKey) : []);
-  // Filter provider folders in SQLite before crossing the host bridge for each
-  // message. Pending resource patches still get their normal projected match.
-  const resourceMatch = resource ? `EXISTS (SELECT 1 FROM local_mail_thread_resources AS resource
+  const limit = Math.max(1, Math.min(mailWindowSize, options.limit ?? mailWindowSize));
+  const split = options.query?.trim() ? undefined : options.split;
+  const resource = split === 'sent' || split === 'drafts' || split === 'spam' || split === 'inbox' || split === 'starred' || split === 'trash' ? split : null;
+  const localThreads = new Map(options.localThreads?.map(thread => [emailThreadKey(thread), thread]));
+  const resourceOverrides = new Set([...localThreads.keys(), ...(journal?.pendingThreadIntents ?? [])
+    .filter(intent => !options.accountId || options.accountId === 'all' || intent.accountId === options.accountId)
+    .map(emailThreadKey)]);
+  const resourceExists = `EXISTS (SELECT 1 FROM local_mail_thread_resources AS resource
     WHERE resource.account_id = thread.account_id AND resource.thread_id = thread.thread_id
-      AND resource.resource_kind = ?)` : '1';
+      AND resource.resource_kind = ?)`;
+  // These are conservative candidates; projected threadMatchesSplit remains the
+  // authority (including legacy threads without provider resources and overlays).
+  const resourceMatch = resource
+    ? `(${resourceExists}${split === 'inbox' ? " OR status = 'inbox'" : split === 'starred' ? ' OR starred = 1' : split === 'trash' ? " OR status = 'trashed'" : ''})`
+    : split === 'done' ? "status = 'done'"
+    : split === 'reminders' ? "status = 'reminded'"
+    : split === 'critical' ? "status = 'inbox' AND critical = 1"
+    : split === 'needs-response' ? "status = 'inbox' AND needs_response = 1"
+    : split === 'waiting' ? "status = 'inbox' AND waiting_on_others = 1"
+    : split ? '0' : '1';
+  const overrides = split ? [...resourceOverrides].map(key => key.split('\0')) : [];
+  const overrideBatches = Array.from({ length: Math.max(1, Math.ceil(overrides.length / 400)) }, (_, index) => overrides.slice(index * 400, index * 400 + 400));
   while (true) {
     options.signal?.throwIfAborted();
-    const result = await sql.query(`WITH candidates AS (
-      SELECT account_id, thread_id, received_at, ${resourceMatch} AS resource_match
-      FROM local_mail_threads AS thread
-      WHERE (? = 'all' OR account_id = ?) AND (? IS NULL OR received_at < ? OR
-        (received_at = ? AND (account_id > ? OR (account_id = ? AND thread_id > ?)))))
-      SELECT account_id, thread_id, received_at, resource_match FROM candidates
-      WHERE resource_match = 1 OR ? = 1
-      ORDER BY received_at DESC, account_id, thread_id LIMIT 100`,
-    [...(resource ? [resource] : []), options.accountId ?? 'all', options.accountId ?? 'all', cursor?.receivedAt ?? null,
-      cursor?.receivedAt ?? null, cursor?.receivedAt ?? null, cursor?.accountId ?? null, cursor?.accountId ?? null, cursor?.threadId ?? null,
-      resourceOverrides.size > 0 ? 1 : 0]);
-    for (const [accountId, threadId, receivedAt, matchesResource] of result.rows) {
+    const candidatesByKey = new Map<string, readonly MiniAppSqlValue[]>();
+    for (const batch of overrideBatches) {
       options.signal?.throwIfAborted();
-      const next = { accountId: String(accountId), threadId: String(threadId), receivedAt: String(receivedAt) };
-      if (Number(matchesResource) !== 1 && !resourceOverrides.has(emailThreadKey(next))) {
-        cursor = next;
-        continue;
-      }
-      let thread = await readThread(sql, next.accountId, next.threadId, false);
-      if (!thread) throw new Error('The local mail thread record is incomplete.');
-      const projected = journal ? projectedThreads({ ...emptyMailState(), ...journal, threads: [thread] })[0]! : thread;
-      const matches = (options.query?.trim() || !options.split || threadMatchesSplit(projected, options.split)) &&
-        filterMailThreads([projected], options.query ?? '', options.context ?? { now: new Date(), timeZone: 'UTC' }).length > 0;
-      if (matches) {
-        // Look ahead one match but return the cursor preceding it, avoiding skips.
-        if (threads.length === mailWindowSize) return { threads, next: cursor };
-        if (options.bodies && bodyBytes < memoryBodyBudgetBytes) {
-          const hydrated = await readThread(sql, next.accountId, next.threadId, true);
-          if (hydrated && bodyBytes + serializedBytes(hydrated.messages) <= memoryBodyBudgetBytes) thread = hydrated;
+      const result = await sql.query(`WITH candidates AS (
+        SELECT account_id, thread_id, received_at, ${resourceMatch} AS resource_match
+        FROM local_mail_threads AS thread
+        WHERE (? = 'all' OR account_id = ?) AND (? IS NULL OR received_at < ? OR
+          (received_at = ? AND (account_id > ? OR (account_id = ? AND thread_id > ?)))))
+        SELECT account_id, thread_id, received_at, resource_match FROM candidates
+        WHERE resource_match = 1 ${batch.length ? `OR (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})` : ''}
+        ORDER BY received_at DESC, account_id, thread_id LIMIT 100`,
+      [...(resource ? [resource] : []), options.accountId ?? 'all', options.accountId ?? 'all', cursor?.receivedAt ?? null,
+        cursor?.receivedAt ?? null, cursor?.receivedAt ?? null, cursor?.accountId ?? null, cursor?.accountId ?? null, cursor?.threadId ?? null,
+        ...batch.flat()]);
+      for (const row of result.rows) candidatesByKey.set(emailThreadKey({ accountId: String(row[0]), threadId: String(row[1]) }), row);
+    }
+    // Each bounded override query contains the same provider matches plus its
+    // own local edits. Merge their top 100 with SQLite's binary key ordering.
+    const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+    const result = { rows: [...candidatesByKey.values()].sort((a, b) =>
+      compare(String(b[2]), String(a[2])) || compare(String(a[0]), String(b[0])) || compare(String(a[1]), String(b[1]))).slice(0, 100) };
+    for (let offset = 0; offset < result.rows.length; offset += 20) {
+      const previousCount = threads.length;
+      const batch = result.rows.slice(offset, offset + 20);
+      const candidates = batch.filter(([accountId, threadId, , matchesResource]) =>
+        Number(matchesResource) === 1 || resourceOverrides.has(emailThreadKey({ accountId: String(accountId), threadId: String(threadId) })));
+      const records = await readThreads(sql, candidates.map(([accountId, threadId]) => ({ accountId: String(accountId), threadId: String(threadId) })), options.signal);
+      for (const [accountId, threadId, receivedAt] of batch) {
+        options.signal?.throwIfAborted();
+        const next = { accountId: String(accountId), threadId: String(threadId), receivedAt: String(receivedAt) };
+        let thread = records.get(emailThreadKey(next));
+        if (!thread) {
+          if (candidates.some(row => row[0] === accountId && row[1] === threadId)) throw new Error('The local mail thread record is incomplete.');
+          cursor = next;
+          continue;
         }
-        const bytes = serializedBytes(thread.messages);
-        if (bodyBytes + bytes <= memoryBodyBudgetBytes) bodyBytes += bytes;
-        else thread = withoutBodies(thread);
-        threads.push(thread);
+        const local = localThreads.get(emailThreadKey(thread));
+        if (local?.providerRevision === thread.providerRevision &&
+          (local as EmailThread & { localReplicaRevision?: number }).localReplicaRevision ===
+          (thread as EmailThread & { localReplicaRevision?: number }).localReplicaRevision) thread = local;
+        else if (local?.attentionCorrection && (!thread.attentionCorrection ||
+          local.attentionCorrection.correctedAt > thread.attentionCorrection.correctedAt)) {
+          thread = { ...thread, attentionCorrection: local.attentionCorrection };
+        }
+        const projected = journal ? projectedThreads({ ...emptyMailState(), ...journal, threads: [thread] })[0]! : thread;
+        const matches = (options.query?.trim() || !options.split || threadMatchesSplit(projected, options.split)) &&
+          filterMailThreads([projected], options.query ?? '', options.context ?? { now: new Date(), timeZone: 'UTC' }).length > 0;
+        if (matches) {
+          if (threads.length === limit) return { threads, next: cursor };
+          if (options.bodies && bodyBytes < memoryBodyBudgetBytes) {
+            const hydrated = await readThread(sql, next.accountId, next.threadId, true);
+            if (hydrated && bodyBytes + serializedBytes(hydrated.messages) <= memoryBodyBudgetBytes) thread = hydrated;
+          }
+          const bytes = serializedBytes(thread.messages);
+          if (bodyBytes + bytes <= memoryBodyBudgetBytes) bodyBytes += bytes;
+          else thread = withoutBodies(thread);
+          threads.push(thread);
+        }
+        cursor = next;
       }
-      cursor = next;
+      if (threads.length > previousCount) options.onProgress?.([...threads]);
     }
     if (result.rows.length < 100) return { threads, next: null };
   }
@@ -342,14 +427,15 @@ export async function writeSync(tx: MiniAppPrivateSqlTransaction, checkpoint: Ma
     [[1, checkpoint.generation, checkpoint.nextCursor, checkpoint.pagesLoaded, checkpoint.threadsLoaded, Number(checkpoint.complete), checkpoint.updatedAt]]);
 }
 
-export async function readReplicaState(sql: Sql): Promise<MailState | null> {
+export async function readReplicaState(sql: Sql, initialWindow = false): Promise<MailState | null> {
   const ui = await readRecord<Omit<MailState, 'threads' | 'accounts' | keyof MailJournal>>(sql, 'local_mail_records', 'ui');
   const journal = await readJournal(sql);
   if (!ui && !journal) return null;
   const accounts = await readReplicaAccounts(sql);
   const { pendingThreadIntents: _intents, outbox: _outbox, ...base } = emptyMailState();
   const state = { ...base, ...ui, ...journal, accounts,
-    threads: (await queryMailWindow(sql, { bodies: true }, journal)).threads };
+    threads: (await queryMailWindow(sql, initialWindow
+      ? { accountId: ui?.selectedAccountId, split: ui?.selectedSplit, limit: 20 } : { bodies: true }, journal)).threads };
   if (!isMailState(state)) throw new Error('The local mail replica is malformed.');
   return state;
 }
@@ -399,8 +485,8 @@ export async function replicaStatistics(sql: Sql, accountId?: string): Promise<L
   return { counts, logicalBytes: Number(bytes.rows[0]?.[0] ?? 0), accounts: coverage };
 }
 
-export async function summarizeReplica(sql: Sql, now: string, accountId = 'all'): Promise<MailboxSummary> {
-  const journal = await readJournal(sql);
+export async function summarizeReplica(sql: Sql, now: string, accountId = 'all', liveJournal?: MailJournal): Promise<MailboxSummary> {
+  const journal = liveJournal ?? await readJournal(sql);
   const base = { ...emptyMailState(), accounts: (await readReplicaAccounts(sql)).filter(account => accountId === 'all' || account.accountId === accountId) };
   const summary = mailboxSummary({ ...base, ...journal }, now);
   const totals = await sql.query(`SELECT

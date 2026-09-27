@@ -14,7 +14,7 @@ import {
   type MiniAppPrivateStorageHandle,
 } from '@theaiplatform/miniapp-sdk/sdk';
 import { isSafeMailIdentifier, type MailboxSummary } from '@tap-examples/tap-email-protocol';
-import { isMailState, emptyMailState, type MailState, type MailboxSnapshot } from './domain';
+import { isMailState, emptyMailState, emailThreadKey, type MailState, type MailboxSnapshot } from './domain';
 import {
   deleteNormalizedLocalAccount,
   deleteNormalizedLocalReplica,
@@ -32,7 +32,7 @@ export type LocalMailStoreCapability =
 
 export interface LocalMailStore {
   readonly capability: LocalMailStoreCapability;
-  load(): Promise<MailState | null>;
+  load(options?: { initialWindow?: boolean }): Promise<MailState | null>;
   save(state: MailState): Promise<void>;
   saveJournal?(state: MailJournal): Promise<void>;
   loadJournal?(): Promise<MailJournal | null>;
@@ -40,10 +40,11 @@ export interface LocalMailStore {
     mailbox: MailboxSnapshot; deleted: readonly { accountId: string; threadId: string }[]; checkpoint?: MailboxSyncCheckpoint;
   }>;
   commitMailboxRefresh?(mailbox: MailboxSnapshot): Promise<void>;
+  stageCache?(state: MailState): void;
   saveCache?(state: MailState): Promise<void>;
   queryThreads?(query: MailWindowQuery): Promise<MailWindow>;
-  summarize?(accountId?: string): Promise<MailboxSummary>;
-  loadThread?(accountId: string, threadId: string, bodies?: boolean): Promise<MailState['threads'][number] | null>;
+  summarize?(accountId?: string, journal?: MailJournal): Promise<MailboxSummary>;
+  loadThread?(accountId: string, threadId: string, bodies?: boolean, signal?: AbortSignal): Promise<MailState['threads'][number] | null>;
   beginMailboxSync?(): Promise<MailboxSyncCheckpoint>;
   commitMailboxPage?(expected: MailboxSyncCheckpoint, mailbox: MailboxSnapshot, nextCursor: string | null): Promise<MailboxSyncCheckpoint>;
   loadMailboxPageProgress(): Promise<MailboxPageProgress | null>;
@@ -724,8 +725,10 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   readonly capability = 'private-profile-sqlite' as const;
   private connection: Promise<ProfileConnection> | null = null;
   private pendingWrite: Promise<void> = Promise.resolve();
+  private foregroundReads: ((database: MiniAppPrivateSqlDatabase) => Promise<void>)[] = [];
   private persistedObjects = new WeakSet<object>();
   private journalSignature: string | null = null;
+  private stagedThreads = new Map<string, MailState['threads'][number]>();
 
   constructor(
     private readonly profileStorage: MiniAppPrivateStorageApi,
@@ -804,13 +807,38 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     return state ? { state, serialized: '', updatedAt: new Date(this.now()).toISOString() } : null;
   }
 
+  private async drainForegroundReads(database: MiniAppPrivateSqlDatabase): Promise<void> {
+    // An active transaction completes atomically; queued background transactions
+    // then yield to navigation. A fixed snapshot prevents write starvation.
+    for (const read of this.foregroundReads.splice(0)) await read(database);
+  }
+
   private enqueue<T>(operation: (database: MiniAppPrivateSqlDatabase) => Promise<T>): Promise<T> {
-    const task = this.pendingWrite.catch(() => undefined).then(async () => operation((await this.connect()).database));
+    const task = this.pendingWrite.catch(() => undefined).then(async () => {
+      const { database } = await this.connect();
+      await this.drainForegroundReads(database);
+      try { return await operation(database); }
+      finally { await this.drainForegroundReads(database); }
+    });
     this.pendingWrite = task.then(() => undefined, () => undefined);
     return task;
   }
 
-  private remember(state: MailState): void {
+  private enqueueRead<T>(operation: (database: MiniAppPrivateSqlDatabase) => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const read = async (database: MiniAppPrivateSqlDatabase) => {
+        try { resolve(await operation(database)); } catch (error) { reject(error); }
+      };
+      this.foregroundReads.push(read);
+      // Also drains reads when no write is currently running.
+      void this.enqueue(async () => undefined).catch(error => {
+        this.foregroundReads = this.foregroundReads.filter(item => item !== read);
+        reject(error);
+      });
+    });
+  }
+
+  private remember(state: Pick<MailState, 'accounts' | 'threads'>): void {
     for (const entity of [...state.accounts, ...state.threads]) this.persistedObjects.add(entity);
   }
 
@@ -874,10 +902,10 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     }
   }
 
-  load(): Promise<MailState | null> {
+  load(options?: { initialWindow?: boolean }): Promise<MailState | null> {
     return this.enqueue(async database => {
       await this.migrateLegacy(database);
-      const state = await readReplicaState(database);
+      const state = await readReplicaState(database, options?.initialWindow);
       if (state) this.remember(state);
       return state;
     });
@@ -913,6 +941,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
         return { ...applied, checkpoint };
       });
       await database.checkpoint();
+      this.remember(result.mailbox);
       return result;
     });
   }
@@ -936,30 +965,45 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     });
   }
 
+  stageCache(state: MailState): void {
+    // Keep unsaved row edits when navigation replaces the visible window before
+    // the coalesced UI save runs. Read results are already marked as persisted.
+    for (const thread of state.threads) if (!this.persistedObjects.has(thread)) this.stagedThreads.set(emailThreadKey(thread), thread);
+  }
+
   saveCache(state: MailState): Promise<void> {
+    this.stageCache(state);
     return this.enqueue(async database => {
       await this.migrateLegacy(database);
-      await database.transaction(tx => this.writeStoredMailbox(tx, state, new Date(this.now()).toISOString()));
+      const staged = new Map(this.stagedThreads);
+      const snapshot = { ...state, threads: [...new Map([...state.threads.map(thread => [emailThreadKey(thread), thread] as const), ...staged]).values()] };
+      await database.transaction(tx => this.writeStoredMailbox(tx, snapshot, new Date(this.now()).toISOString()));
       await database.checkpoint();
-      this.remember(state);
+      this.remember(snapshot);
+      for (const [key, thread] of staged) if (this.stagedThreads.get(key) === thread) this.stagedThreads.delete(key);
     });
   }
 
   queryThreads(query: MailWindowQuery): Promise<MailWindow> {
-    return this.enqueue(async database => {
-      const window = await queryMailWindow(database, query, await readJournal(database));
-      for (const thread of window.threads) this.persistedObjects.add(thread);
+    return this.enqueueRead(async database => {
+      query.signal?.throwIfAborted();
+      const window = await queryMailWindow(database, { ...query, localThreads: [...this.stagedThreads.values()], onProgress: threads => {
+        for (const thread of threads) if (this.stagedThreads.get(emailThreadKey(thread)) !== thread) this.persistedObjects.add(thread);
+        query.onProgress?.(threads);
+      } }, query.journal ?? await readJournal(database));
+      for (const thread of window.threads) if (this.stagedThreads.get(emailThreadKey(thread)) !== thread) this.persistedObjects.add(thread);
       return window;
     });
   }
 
-  summarize(accountId = 'all'): Promise<MailboxSummary> {
-    return this.enqueue(database => summarizeReplica(database, new Date(this.now()).toISOString(), accountId));
+  summarize(accountId = 'all', journal?: MailJournal): Promise<MailboxSummary> {
+    return this.enqueue(database => summarizeReplica(database, new Date(this.now()).toISOString(), accountId, journal));
   }
 
-  loadThread(accountId: string, threadId: string, bodies = true): Promise<MailState['threads'][number] | null> {
-    return this.enqueue(async database => {
-      const thread = await readThread(database, accountId, threadId, bodies);
+  loadThread(accountId: string, threadId: string, bodies = true, signal?: AbortSignal): Promise<MailState['threads'][number] | null> {
+    return this.enqueueRead(async database => {
+      signal?.throwIfAborted();
+      const thread = await readThread(database, accountId, threadId, bodies, signal);
       if (thread) this.persistedObjects.add(thread);
       return thread;
     });
@@ -1747,6 +1791,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           await transaction.execute('DELETE FROM remote_image_cache');
         });
         await database.checkpoint();
+        for (const [key, thread] of this.stagedThreads) if (thread.accountId === accountId) this.stagedThreads.delete(key);
         this.persistedObjects = new WeakSet();
         this.journalSignature = null;
 
@@ -1841,6 +1886,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           await transaction.execute('DELETE FROM remote_image_cache');
         });
         await database.checkpoint();
+        this.stagedThreads.clear();
         this.persistedObjects = new WeakSet();
         this.journalSignature = null;
         const completedAt = new Date(this.now()).toISOString();
