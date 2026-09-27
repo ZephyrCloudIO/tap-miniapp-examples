@@ -178,3 +178,30 @@ persistence. Desktop, 390px, and 320px layouts fit without horizontal overflow.
 All 343 Calendar unit tests, typecheck, and production miniapp build pass. The
 existing hosted first-run test now expects reminders and the private channel
 inside Settings; the hosted TAP suite was not rerun for this relocation.
+
+## Event description and physical location
+
+The event editor now groups three independent fields: Video call, Physical
+location, and Description. Description uses the SDK text area for plain text.
+A room or address can accompany Google Meet or Zoom, or be saved without a
+video call. Event details show the address and multiline description alongside
+the video provider and join action.
+
+The fields persist through local saving, provider preparation, interrupted
+booking recovery, and approval resolution. Plain text is escaped for Google's
+HTML description field and converted back on read. For a Zoom event with an
+address, Google receives the address in `location` and the Zoom join URL in
+conference entry points. Existing Zoom-only events still use their original
+location links. The cache projection version advances so unchanged older
+events reload their descriptions and addresses.
+
+Validation: 348 Calendar unit tests and 35 gateway API/projection tests pass.
+The provider tests cover physical-only, Meet, and Zoom events, approval holds,
+replays, recovery, escaped text, and legacy Zoom links. Calendar and gateway
+typechecks, the production miniapp build, manifest and analytics checks, and
+the gateway production dry run pass. Another 18 live-MCP and public provider
+compatibility tests pass. The local Worker startup check passes (about 40 ms
+active CPU time on this machine). Browser review used the actual form and
+event drawer with an isolated local fixture in light/dark themes and at 390px
+and 320px. The fixture was removed. A live Google/Zoom write has not been run
+for these new fields; provider transport is mocked in the automated tests.

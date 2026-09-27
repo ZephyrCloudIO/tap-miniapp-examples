@@ -1277,3 +1277,7 @@ p { text-wrap: pretty; }
 :is(.calendar-event, .all-day-column button, .month-cell button, .agenda-day button):is(.rsvp-declined, .rsvp-cancelled) { border: 1px solid var(--border); border-left: 3px solid var(--muted-foreground); background: var(--muted); color: var(--muted-foreground); }
 :is(.rsvp-declined, .rsvp-cancelled) .rsvp-event-title { color: var(--muted-foreground); text-decoration: line-through; }
 .rsvp-event:focus-visible { outline: 2px solid var(--calendar-accent); outline-offset: 2px; }
+
+.event-text-detail { margin: 18px 0; }
+.event-text-detail h3 { margin-bottom: 6px; font-size: 12px; }
+.event-text-detail p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }

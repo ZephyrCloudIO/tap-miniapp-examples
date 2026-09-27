@@ -1,3 +1,4 @@
+import { compile as compileHtmlToText } from "html-to-text";
 import OAuthProvider, { type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -271,6 +272,10 @@ type ProviderFetch = typeof fetch;
 type AttendeeResponseStatus = "needsAction" | "accepted" | "tentative" | "declined" | "unknown";
 
 interface GatewayCalendarEvent {
+  readonly description?: string;
+  readonly physicalLocation?: string;
+  readonly providerJoinUrl?: string;
+  readonly providerHtmlLink?: string;
   readonly id: string;
   readonly calendarId: string;
   readonly title: string;
@@ -605,10 +610,22 @@ const googleMeetConferenceRequested = (
   return solutionKey?.type === "hangoutsMeet";
 };
 
+const googleZoomJoinUrl = (value: Readonly<Record<string, unknown>>): string | null => {
+  const conference = isRecord(value.conferenceData) ? value.conferenceData : null;
+  const entryPoints = conference && Array.isArray(conference.entryPoints) ? conference.entryPoints : [];
+  for (const entry of entryPoints) {
+    if (isRecord(entry) && entry.entryPointType === "video") {
+      const link = normalizeZoomJoinUrl(entry.uri);
+      if (link) return link;
+    }
+  }
+  return normalizeZoomJoinUrl(value.location);
+};
+
 const providerConferenceJoinUrl = (
   value: Readonly<Record<string, unknown>>,
 ): string | null =>
-  googleMeetJoinUrl(value) ?? normalizeZoomJoinUrl(value.location);
+  googleMeetJoinUrl(value) ?? googleZoomJoinUrl(value);
 
 const normalizedProviderJoinUrl = (value: unknown): string | null =>
   normalizeGoogleMeetJoinUrl(value) ?? normalizeZoomJoinUrl(value);
@@ -3935,7 +3952,7 @@ async function syncConnection(
 
 const GOOGLE_EVENT_FIELDS = [
   "nextPageToken",
-  "items(id,status,summary,start,end,eventType,transparency,location,hangoutLink,conferenceData,attendees(id,email,displayName,responseStatus,optional,self),extendedProperties(private))",
+  "items(id,status,summary,description,start,end,eventType,transparency,location,htmlLink,hangoutLink,conferenceData,attendees(id,email,displayName,responseStatus,optional,self),extendedProperties(private))",
 ].join(",");
 
 const googleEventId = (
@@ -3963,6 +3980,13 @@ const eventInstant = (
   }
   return null;
 };
+
+const calendarDescriptionText = compileHtmlToText({
+  wordwrap: false,
+  preserveNewlines: true,
+  limits: { maxInputLength: 65_536, maxDepth: 30 },
+  selectors: [{ selector: "a", options: { ignoreHref: true } }, { selector: "img", format: "skip" }],
+});
 
 export function normalizeGoogleCalendarEvent(
   value: unknown,
@@ -4033,7 +4057,7 @@ export function normalizeGoogleCalendarEvent(
     : {};
   const conferenceKey = isRecord(conferenceSolution.key) ? conferenceSolution.key : {};
   const hasGoogleMeetJoinUrl = googleMeetJoinUrl(value) !== null;
-  const hasZoomJoinUrl = normalizeZoomJoinUrl(value.location) !== null;
+  const hasZoomJoinUrl = googleZoomJoinUrl(value) !== null;
   const location: GatewayCalendarEvent["location"] =
     hasGoogleMeetJoinUrl &&
         (conferenceKey.type === "hangoutsMeet" ||
@@ -4044,6 +4068,13 @@ export function normalizeGoogleCalendarEvent(
       : typeof value.location === "string" && value.location.trim().length > 0
         ? "physical"
         : null;
+  const description = typeof value.description === "string"
+    ? calendarDescriptionText(value.description.slice(0, 65_536)).trim().slice(0, 65_536) : "";
+  const physicalLocation = typeof value.location === "string" &&
+    !normalizeZoomJoinUrl(value.location) && !normalizeGoogleMeetJoinUrl(value.location)
+    ? value.location.trim().slice(0, 1_024) : "";
+  const joinUrl = providerConferenceJoinUrl(value);
+  const htmlLink = normalizeGoogleCalendarHtmlUrl(value.htmlLink);
   const summary = typeof value.summary === "string" ? value.summary.trim().slice(0, 255) : "";
   return {
     id: googleEventId("event", calendarId, value.id),
@@ -4054,6 +4085,10 @@ export function normalizeGoogleCalendarEvent(
     kind,
     status,
     location,
+    ...(description ? { description } : {}),
+    ...(physicalLocation ? { physicalLocation } : {}),
+    ...(joinUrl ? { providerJoinUrl: joinUrl } : {}),
+    ...(htmlLink ? { providerHtmlLink: htmlLink } : {}),
     attendees,
     busy: value.transparency !== "transparent" && selfResponse !== "declined" && value.status !== "cancelled",
     allDay: start.allDay,
@@ -4116,12 +4151,12 @@ const providerQueryError = (calendarId: string, cause: unknown): EventQueryError
   };
 };
 
-const GOOGLE_EVENT_PROJECTION_VERSION = 1;
+const GOOGLE_EVENT_PROJECTION_VERSION = 2;
 
 const GOOGLE_SYNC_EVENT_FIELDS = [
   "nextPageToken",
   "nextSyncToken",
-  "items(id,status,updated,summary,start,end,eventType,transparency,location,hangoutLink,conferenceData,attendees(id,email,displayName,responseStatus,optional,self),extendedProperties(private))",
+  "items(id,status,updated,summary,description,start,end,eventType,transparency,location,htmlLink,hangoutLink,conferenceData,attendees(id,email,displayName,responseStatus,optional,self),extendedProperties(private))",
 ].join(",");
 
 const logCalendarSync = (
@@ -6341,6 +6376,12 @@ async function getGoogleCommittedEvent(
   }
 }
 
+const zoomCalendarConferenceData = (conference: ProvisionedZoomConference) => ({
+  conferenceId: conference.meetingId,
+  conferenceSolution: { key: { type: "addOn" }, name: "Zoom" },
+  entryPoints: [{ entryPointType: "video", uri: conference.joinUrl, label: "Zoom" }],
+});
+
 const googleCommitEventBody = (
   input: ProviderBookingCommitInput,
   providerEventId: string,
@@ -6352,11 +6393,9 @@ const googleCommitEventBody = (
     ? `Pending approval: ${input.title}`.slice(0, 255)
     : input.title,
   ...(input.description ? { description: input.description } : {}),
-  ...(zoomConference
-    ? { location: zoomConference.joinUrl }
-    : input.location
-      ? { location: input.location }
-      : {}),
+  ...(input.location ? { location: input.location }
+    : zoomConference ? { location: zoomConference.joinUrl } : {}),
+  ...(zoomConference && input.location ? { conferenceData: zoomCalendarConferenceData(zoomConference) } : {}),
   start: { dateTime: input.timeMin },
   end: { dateTime: input.timeMax },
   transparency: "opaque",
@@ -6406,7 +6445,7 @@ async function insertGoogleCommittedEvent(
     input.bookingKind === "meeting" && input.attendeeEmails.length > 0 ? "all" : "none",
   );
   url.searchParams.set("maxAttendees", String(MAX_EVENT_ATTENDEES));
-  if (input.conferenceProvider === "google-meet") {
+  if (input.conferenceProvider === "google-meet" || (input.conferenceProvider === "zoom" && input.location !== null)) {
     url.searchParams.set("conferenceDataVersion", "1");
   }
   url.searchParams.set("fields", GOOGLE_COMMITTED_EVENT_FIELDS);
@@ -6483,7 +6522,7 @@ function committedBookingProjection(
       conferenceStatus: input.conferenceProvider === "google-meet"
         ? googleMeetJoinUrl(providerEvent) ? "ready" : "pending"
         : input.conferenceProvider === "zoom"
-          ? normalizeZoomJoinUrl(providerEvent.location) ? "ready" : "pending"
+          ? googleZoomJoinUrl(providerEvent) ? "ready" : "pending"
         : "none",
       event,
     },
@@ -7517,7 +7556,8 @@ function publicGoogleCommitInput(
     idempotencyKey: command.idempotencyKey,
     title: command.title,
     description: command.description,
-    location: command.location,
+    // Public booking links use "zoom" as a provider label, not a physical address.
+    location: command.conferenceProvider === "zoom" && command.location === "zoom" ? null : command.location,
     bookingKind: command.bookingKind,
     attendeeEmails: command.attendeeEmails,
     conferenceProvider: command.conferenceProvider,
@@ -8693,7 +8733,7 @@ async function patchGoogleApprovedHold(
   url.searchParams.set("sendUpdates", input.attendeeEmails.length > 0 ? "all" : "none");
   url.searchParams.set("maxAttendees", String(MAX_EVENT_ATTENDEES));
   url.searchParams.set("fields", GOOGLE_COMMITTED_EVENT_FIELDS);
-  if (input.conferenceProvider === "google-meet") {
+  if (input.conferenceProvider === "google-meet" || (input.conferenceProvider === "zoom" && input.location !== null)) {
     url.searchParams.set("conferenceDataVersion", "1");
   }
   const currentTitle = typeof current.summary === "string"
@@ -8719,10 +8759,11 @@ async function patchGoogleApprovedHold(
     },
   };
   if (input.description !== null) body.description = input.description;
-  if (zoomConference) {
-    body.location = zoomConference.joinUrl;
-  } else if (input.location !== null) {
+  if (input.location !== null) {
     body.location = input.location;
+    if (zoomConference) body.conferenceData = zoomCalendarConferenceData(zoomConference);
+  } else if (zoomConference) {
+    body.location = zoomConference.joinUrl;
   }
   if (input.conferenceProvider === "google-meet") {
     body.conferenceData = {

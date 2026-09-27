@@ -1233,7 +1233,7 @@ describe("TAP Calendar local gateway", () => {
     // A fresh legacy snapshot must be rebuilt even without a provider change.
     // The existing sync-token-2 would fail if this tried an incremental sync.
     await env.CALENDAR_DB.prepare(
-      "UPDATE calendar_sync_state SET projection_version = 0, freshness = 'fresh', next_sync_at = '2099-01-01T00:00:00Z' WHERE calendar_id = ?",
+      "UPDATE calendar_sync_state SET projection_version = 1, freshness = 'fresh', next_sync_at = '2099-01-01T00:00:00Z' WHERE calendar_id = ?",
     ).bind(calendarId).run();
     const callsBeforeUpgrade = providerCalls.length;
     const upgraded = await oauthWorker.fetch(request("/v1/events/query", {
@@ -1248,7 +1248,7 @@ describe("TAP Calendar local gateway", () => {
     expect(upgradeCalls.length).toBeGreaterThan(0);
     expect(upgradeCalls.every(call => !call.url.searchParams.has("syncToken"))).toBe(true);
     expect(await env.CALENDAR_DB.prepare("SELECT projection_version FROM calendar_sync_state WHERE calendar_id = ?")
-      .bind(calendarId).first<number>("projection_version")).toBe(1);
+      .bind(calendarId).first<number>("projection_version")).toBe(2);
 
     calendarAccessRole = "freeBusyReader";
     const downgraded = await oauthWorker.fetch(
@@ -1935,7 +1935,8 @@ describe("TAP Calendar local gateway", () => {
               status: 503,
             });
           }
-          const withConference = isRecordForTest(body.conferenceData) && !deferMeetConference
+          if (isRecordForTest(body.conferenceData)) expect(url.searchParams.get("conferenceDataVersion")).toBe("1");
+          const withConference = isRecordForTest(body.conferenceData) && isRecordForTest(body.conferenceData.createRequest) && !deferMeetConference
             ? {
               hangoutLink: `https://meet.google.com/${eventId.slice(-10)}`,
               conferenceData: {
@@ -1984,7 +1985,8 @@ describe("TAP Calendar local gateway", () => {
           if (providerEvents.has(eventId)) {
             return Response.json({ error: { message: "Duplicate" } }, { status: 409 });
           }
-          const withConference = isRecordForTest(body.conferenceData) && !deferMeetConference
+          if (isRecordForTest(body.conferenceData)) expect(url.searchParams.get("conferenceDataVersion")).toBe("1");
+          const withConference = isRecordForTest(body.conferenceData) && isRecordForTest(body.conferenceData.createRequest) && !deferMeetConference
             ? {
               hangoutLink: `https://meet.google.com/${eventId.slice(-10)}`,
               conferenceData: {
@@ -3873,6 +3875,63 @@ describe("TAP Calendar local gateway", () => {
       conflictEnd: null,
     })).resolves.toMatchObject({ status: "committed" });
     expect(deleteRequests.at(-1)?.sendUpdates).toBe("none");
+
+    const plainDescription = 'Agenda <draft> & "notes"\nBring a laptop.';
+    const providerDescription = 'Agenda &lt;draft&gt; &amp; &quot;notes&quot;<br>Bring a laptop.';
+    for (const [index, conferenceProvider] of ["none", "google-meet", "zoom"].entries()) {
+      const key = `booking-hybrid-${conferenceProvider}`;
+      const details = { description: plainDescription, physicalLocation: "Room 3, 123 Main Street" };
+      const payload = {
+        ...meetingPayload, idempotencyKey: key, conferenceProvider,
+        start: `2026-09-${10 + index}T18:00:00Z`, end: `2026-09-${10 + index}T18:30:00Z`,
+        location: details.physicalLocation, description: providerDescription,
+      };
+      const created = await oauthWorker.fetch(request("/v1/bookings/commit", { method: "POST", json: payload }), oauthEnv);
+      expect(created.status).toBe(201);
+      expect(await created.json()).toMatchObject({ booking: {
+        event: { ...details, location: conferenceProvider === "none" ? "physical" : conferenceProvider },
+        conferenceStatus: conferenceProvider === "none" ? "none" : "ready",
+      } });
+      expect(insertedBodies.at(-1)).toMatchObject({ location: details.physicalLocation, description: providerDescription });
+      if (conferenceProvider === "zoom") {
+        expect(insertedBodies.at(-1)).toMatchObject({ conferenceData: {
+          conferenceSolution: { key: { type: "addOn" }, name: "Zoom" },
+          entryPoints: [{ entryPointType: "video", uri: expect.stringMatching(/^https:\/\/[^/]*zoom\.us\/j\//u) }],
+        } });
+      }
+      const insertsBeforeReplay = insertCalls;
+      const replay = await oauthWorker.fetch(request("/v1/bookings/commit", { method: "POST", json: payload }), oauthEnv);
+      expect(await replay.json()).toMatchObject({ idempotentReplay: true, booking: { event: details } });
+      expect(insertCalls).toBe(insertsBeforeReplay);
+      const recovered = await oauthWorker.fetch(request(`/v1/bookings/${key}/status`), oauthEnv);
+      expect(await recovered.json()).toMatchObject({ commit: { booking: { event: details } }, currentEvent: details });
+
+      const holdKey = `booking-hybrid-hold-${conferenceProvider}`;
+      const held = await oauthWorker.fetch(request("/v1/bookings/commit", { method: "POST", json: {
+        ...holdPayload, idempotencyKey: holdKey,
+        start: `2026-09-${13 + index}T18:00:00Z`, end: `2026-09-${13 + index}T18:30:00Z`,
+        location: details.physicalLocation, description: providerDescription,
+      } }), oauthEnv);
+      expect(held.status).toBe(201);
+      expect(await held.json()).toMatchObject({ booking: { event: { ...details, kind: "hold" } } });
+      const approval = {
+        idempotencyKey: `resolution-hybrid-${conferenceProvider}`, decision: "approve", title: holdPayload.title,
+        attendeeEmails: holdPayload.attendeeEmails, conferenceProvider, conflictCalendarIds: [calendarId],
+        location: details.physicalLocation, description: providerDescription,
+      };
+      const approvedHybrid = await oauthWorker.fetch(request(`/v1/bookings/${holdKey}/resolve`, {
+        method: "POST", json: approval,
+      }), oauthEnv);
+      expect(approvedHybrid.status).toBe(200);
+      expect(await approvedHybrid.json()).toMatchObject({ resolution: { event: {
+        ...details, kind: "meeting", location: conferenceProvider === "none" ? "physical" : conferenceProvider,
+      } } });
+      expect(patchedBodies.at(-1)).toMatchObject({ location: details.physicalLocation, description: providerDescription });
+      const patchesBeforeReplay = patchCalls;
+      const approvalReplay = await oauthWorker.fetch(request(`/v1/bookings/${holdKey}/resolve`, { method: "POST", json: approval }), oauthEnv);
+      expect(await approvalReplay.json()).toMatchObject({ idempotentReplay: true, resolution: { event: details } });
+      expect(patchCalls).toBe(patchesBeforeReplay);
+    }
   }, 15_000);
 
   it("keeps workspaces isolated and deletes only the authorized connection", async () => {

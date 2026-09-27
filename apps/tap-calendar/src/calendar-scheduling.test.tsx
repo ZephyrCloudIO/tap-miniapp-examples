@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { CalendarBoard } from "./calendar-board";
-import { ScheduleDialog } from "./app";
+import { EventDrawer, ScheduleDialog } from "./app";
 import { createInitialCalendarState } from "./test-fixtures";
 import { updateCalendar, type CalendarView } from "./domain";
 
@@ -85,6 +85,38 @@ describe("calendar slot scheduling", () => {
 });
 
 describe("personal calendar events", () => {
+  it("submits a plain-text description and physical address alongside Zoom", async () => {
+    const submit = rs.fn().mockResolvedValue({ error: null, retrySameAttempt: false });
+    await render(<ScheduleDialog state={state} principalAccess={principalAccess} zoomConnected initialStart="2026-08-14T09:30" onClose={rs.fn()} onSubmit={submit} />);
+    await input("meeting-title", "Hybrid planning");
+    await input("schedule-physical-location", "  Room 3, 123 Main Street  ");
+    const description = container.querySelector<HTMLTextAreaElement>("#schedule-description")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(description, "Agenda <draft> & notes\nBring a laptop.");
+      description.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(container.querySelector<HTMLButtonElement>("#schedule-location")!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent === "Zoom")!);
+    await click(button("Save event"));
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      location: "zoom", physicalLocation: "Room 3, 123 Main Street",
+      description: "Agenda <draft> & notes\nBring a laptop.",
+    }));
+  });
+
+  it("shows the address, literal description, and video join link together", async () => {
+    await render(<EventDrawer state={state} onClose={rs.fn()} event={{
+      id: "hybrid", calendarId: "cal-google-main", title: "Hybrid planning",
+      start: "2026-08-14T09:30:00Z", end: "2026-08-14T10:00:00Z", kind: "meeting", status: "confirmed",
+      attendees: [], location: "zoom", physicalLocation: "Room 3, 123 Main Street",
+      description: "Agenda <script>alert('draft')</script>\nBring a laptop.", providerJoinUrl: "https://zoom.us/j/123456789",
+    }} />);
+    expect(container.textContent).toContain("Room 3, 123 Main Street");
+    expect(container.textContent).toContain("Agenda <script>alert('draft')</script>\nBring a laptop.");
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector<HTMLAnchorElement>('a[href="https://zoom.us/j/123456789"]')?.textContent).toContain("Join meeting");
+  });
+
   it("selects duration with the keyboard and dismisses the menu without closing the draft", async () => {
     const submit = rs.fn().mockResolvedValue({ error: null, retrySameAttempt: false });
     const close = rs.fn();

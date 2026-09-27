@@ -1,3 +1,4 @@
+import { providerDescription } from "./event-details";
 import { changeBookingProfileAddress } from "./profile-address";
 import { CalendarSelect } from "./calendar-select";
 import { MeetingProviderIcon } from "./meeting-provider-icon";
@@ -314,6 +315,7 @@ type RefreshMeetingProviderConnections = () => Promise<
 type RequireCalendarManage = () => Promise<void>;
 
 interface ProviderBookingReservationInput {
+  readonly physicalLocation?: string;
   readonly description?: string;
   readonly actionId: CalendarAuthorityAction;
   readonly idempotencyKey: string;
@@ -496,6 +498,8 @@ function reconcileCommittedProviderBooking(
     start: intent.start,
     end: intent.end,
     location: intent.location,
+    ...(intent.description ? { description: intent.description } : {}),
+    ...(intent.physicalLocation ? { physicalLocation: intent.physicalLocation } : {}),
     attendees: intent.attendees,
     approvalRequired: intent.approvalRequired,
     ...(intent.eventTypeId ? { eventTypeId: intent.eventTypeId } : {}),
@@ -555,6 +559,8 @@ const approvalBookingEventMatchesIntent = (
     event.start === intent.start &&
     event.end === intent.end &&
     event.location === intent.location &&
+    event.description === intent.description &&
+    event.physicalLocation === intent.physicalLocation &&
     JSON.stringify(event.attendees) === JSON.stringify(intent.attendees);
 };
 
@@ -717,6 +723,8 @@ const approvalEventMatchesExpected = (
   event.start === expected.start &&
   event.end === expected.end &&
   event.location === expected.location &&
+  event.description === expected.description &&
+  event.physicalLocation === expected.physicalLocation &&
   JSON.stringify(event.attendees) === JSON.stringify(expected.attendees);
 
 function reconcileApprovalStatusLifecycle(
@@ -1173,15 +1181,16 @@ const openZoomAuthorization = async (
 const providerLocationConfiguration = (
   location: MeetingLocation | null | undefined,
   bookingKind: ProviderBookingReservationInput["bookingKind"],
+  physicalLocation?: string,
 ): {
   readonly location?: string;
   readonly conferenceProvider: "none" | "google-meet" | "zoom";
 } => {
   if (bookingKind === "meeting" && (location === "google-meet" || location === "zoom")) {
-    return { conferenceProvider: location };
+    return { conferenceProvider: location, ...(physicalLocation ? { location: physicalLocation } : {}) };
   }
   return {
-    ...(location ? { location: meetingLocationNames[location] } : {}),
+    ...(physicalLocation ? { location: physicalLocation } : location ? { location: meetingLocationNames[location] } : {}),
     conferenceProvider: "none",
   };
 };
@@ -1633,6 +1642,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
     const providerLocation = providerLocationConfiguration(
       input.location,
       input.bookingKind,
+      input.physicalLocation,
     );
     const request: ProviderBookingOutboxProviderRequest = {
       destinationCalendarId: input.destinationCalendarId,
@@ -2439,6 +2449,8 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
       start: input.start,
       end: input.end,
       bookingKind: input.approvalRequired ? "approval-hold" : "meeting",
+      ...(input.description ? { description: providerDescription(input.description) } : {}),
+      ...(input.physicalLocation ? { physicalLocation: input.physicalLocation } : {}),
       location: input.location,
       attendees: input.attendees,
       reconciliation: {
@@ -2447,6 +2459,8 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
         calendarId: input.calendarId,
         start: input.start,
         end: input.end,
+        ...(input.description ? { description: input.description } : {}),
+        ...(input.physicalLocation ? { physicalLocation: input.physicalLocation } : {}),
         location: input.location,
         attendees: input.attendees,
         approvalRequired: input.approvalRequired,
@@ -2551,6 +2565,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
     const providerLocation = providerLocationConfiguration(
       event.location ?? undefined,
       "meeting",
+      event.physicalLocation,
     );
     const resolutionRequest: ProviderApprovalResolutionOutboxPreparation["request"] = {
       idempotencyKey: `${request.id}-${decision}`,
@@ -2561,6 +2576,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
       ...(decision === "approve"
         ? {
             title: event.title,
+            ...(event.description ? { description: providerDescription(event.description) } : {}),
             attendeeEmails: event.attendees
               .map(attendee => attendee.email.toLowerCase())
               .sort(),
@@ -2583,6 +2599,8 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
           kind: "hold",
           status: "pending",
           location: event.location,
+          ...(event.description ? { description: event.description } : {}),
+          ...(event.physicalLocation ? { physicalLocation: event.physicalLocation } : {}),
           attendees: event.attendees,
         },
       },
@@ -6090,6 +6108,8 @@ function ScheduleMeetingEditor({
     readonly requestedAt: string;
   } | null>(null);
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [physicalLocation, setPhysicalLocation] = useState("");
   const [attendeeDrafts, setAttendeeDrafts] = useState<readonly AttendeeDraft[]>([]);
   const [selectedParticipantIds, setSelectedParticipantIds] =
     useState<ReadonlySet<string>>(() => new Set());
@@ -6152,6 +6172,8 @@ function ScheduleMeetingEditor({
       calendarId: destination.id,
       start: start.toISOString(),
       end: new Date(start.getTime() + durationMinutes * 60_000).toISOString(),
+      ...(description.trim() ? { description: description.trim() } : {}),
+      ...(physicalLocation.trim() ? { physicalLocation: physicalLocation.trim() } : {}),
       location,
       attendees,
       approvalRequired: !personalEvent && approvalRequired,
@@ -6348,7 +6370,7 @@ function ScheduleMeetingEditor({
             </Field>
           </div>
           <Field>
-            <FieldLabel htmlFor="schedule-location">Location</FieldLabel>
+            <FieldLabel htmlFor="schedule-location">Video call</FieldLabel>
             <CalendarSelect
               id="schedule-location"
               name="schedule-location"
@@ -6360,6 +6382,20 @@ function ScheduleMeetingEditor({
               <SelectItem value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</SelectItem>
             </CalendarSelect>
             <FieldDescription>{location === null ? "This event marks you as busy. Add a video call if you need one." : meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="schedule-physical-location">Physical location</FieldLabel>
+            <Input id="schedule-physical-location" name="schedule-physical-location"
+              placeholder="Add a room or address" autoComplete="off" maxLength={1_024}
+              value={physicalLocation} disabled={submitting}
+              onChange={event => setPhysicalLocation(event.currentTarget.value)} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="schedule-description">Description</FieldLabel>
+            <Textarea id="schedule-description" name="schedule-description"
+              placeholder="Add an agenda, directions, or other details" rows={4} maxLength={2_000}
+              value={description} disabled={submitting}
+              onChange={event => setDescription(event.currentTarget.value)} />
           </Field>
         </FieldGroup>
         {!personalEvent ? <label className="approval-check"><input type="checkbox" checked={approvalRequired} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require approval</strong><small>Creates an expiring Tentative Booking Hold for approval.</small></span></label> : null}
@@ -7636,7 +7672,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
   );
 }
 
-function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent; readonly state: CalendarState; readonly onClose: () => void }) {
+export function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent; readonly state: CalendarState; readonly onClose: () => void }) {
   useMobileDismiss(true, onClose, ".event-drawer");
   const calendar = allCalendars(state).find(item => item.id === event.calendarId);
   return (
@@ -7645,7 +7681,9 @@ function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent;
       <span className="event-drawer-color" style={{ background: calendar?.color }} />
       <h2 id="event-drawer-title" className="rsvp-event-title">{event.title}</h2>
       <EventResponseBadge event={event} />
-      <div className="event-detail-list"><p><CalendarDays /><span><strong>{dateTimeFormatter.format(new Date(event.start))}</strong><small>Ends {timeFormatter.format(new Date(event.end))}</small></span></p><p><Video /><span><strong>{event.location ? meetingLocationNames[event.location] : "No meeting location"}</strong><small>{event.location?.startsWith("tap-") ? "External guest access is confirmed at booking" : "Guest policy checked at booking"}</small></span></p><p><Cloud /><span><strong>{calendar?.name}</strong><small>{calendar?.role} · {calendar?.freshness}</small></span></p>{event.source ? <p><Link2 /><span><strong>{event.source.label}</strong><small>Private TAP context stays in TAP</small></span></p> : null}</div>
+      <div className="event-detail-list"><p><CalendarDays /><span><strong>{dateTimeFormatter.format(new Date(event.start))}</strong><small>Ends {timeFormatter.format(new Date(event.end))}</small></span></p><p><Video /><span><strong>{event.location && event.location !== "physical" ? meetingLocationNames[event.location] : "No video call"}</strong><small>{event.location?.startsWith("tap-") ? "External guest access is confirmed at booking" : "Guest policy checked at booking"}</small></span></p><p><Cloud /><span><strong>{calendar?.name}</strong><small>{calendar?.role} · {calendar?.freshness}</small></span></p>{event.source ? <p><Link2 /><span><strong>{event.source.label}</strong><small>Private TAP context stays in TAP</small></span></p> : null}</div>
+      {event.physicalLocation ? <section className="event-text-detail"><h3>Physical location</h3><p>{event.physicalLocation}</p></section> : null}
+      {event.description ? <section className="event-text-detail"><h3>Description</h3><p>{event.description}</p></section> : null}
       <section className="attendee-list"><span className="eyebrow">Attendees</span>{event.attendees.map(attendee => <div key={attendee.id}><span>{attendee.name.split(" ").map(word => word[0]).join("")}</span><p><strong>{attendee.name}{attendee.isCurrentUser ? " (you)" : ""}</strong><small>{attendee.email} · {attendee.kind}</small></p><AttendeeResponseBadge response={attendee.responseStatus ?? "unknown"} /></div>)}</section>
       <footer>{event.providerJoinUrl ? <a className="primary-button" href={event.providerJoinUrl} target="_blank" rel="noreferrer"><Video /> Join meeting</a> : null}{event.providerHtmlLink ? <a className="secondary-button" href={event.providerHtmlLink} target="_blank" rel="noreferrer"><ExternalLink /> Open in provider</a> : null}<button type="button" className="secondary-button" disabled title="Secure rescheduling is completed by the Calendar gateway.">Reschedule</button><button type="button" className="text-button danger-text" disabled title="Secure cancellation is completed by the Calendar gateway.">Cancel</button></footer>
     </aside>

@@ -1,3 +1,4 @@
+import { providerDescription } from "./event-details";
 import { isAttendeeResponse, isCalendarResponseStatus } from "./attendee-response";
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
 import type {
@@ -56,6 +57,8 @@ export interface ProviderBookingOutboxProviderRequest {
 }
 
 export interface ProviderBookingScheduleReconciliation {
+  readonly description?: string;
+  readonly physicalLocation?: string;
   readonly kind: "schedule-meeting" | "public-booking";
   readonly title: string;
   readonly calendarId: string;
@@ -133,6 +136,8 @@ export interface ProviderApprovalResolutionReconciliation {
   readonly decision: "approve" | "decline";
   /** Provider-semantic fingerprint of the local pending Hold being decided. */
   readonly expectedEvent: {
+    readonly description?: string;
+    readonly physicalLocation?: string;
     /** The normalized TAP Calendar Event ID, not the raw provider Event ID. */
     readonly id: string;
     readonly title: string;
@@ -511,8 +516,8 @@ const normalizeProviderRequest = (
       ? { conflictTimeMin, conflictTimeMax }
       : {}),
     bookingKind: value.bookingKind as CalendarGatewayBookingKind,
-    ...(normalizeOptionalDetail(value.description, "Provider booking description") !== undefined
-      ? { description: normalizeOptionalDetail(value.description, "Provider booking description")! }
+    ...(normalizeOptionalDetail(value.description, "Provider booking description", 16_000) !== undefined
+      ? { description: normalizeOptionalDetail(value.description, "Provider booking description", 16_000)! }
       : {}),
     ...(normalizeOptionalDetail(value.location, "Provider booking location") !== undefined
       ? { location: normalizeOptionalDetail(value.location, "Provider booking location")! }
@@ -522,6 +527,15 @@ const normalizeProviderRequest = (
       : {}),
     ...(conferenceProvider !== undefined ? { conferenceProvider } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
+  };
+};
+
+const normalizeEventDetails = (value: { readonly description?: unknown; readonly physicalLocation?: unknown }) => {
+  const description = normalizeOptionalDetail(value.description, "Event description", 65_536);
+  const physicalLocation = normalizeOptionalDetail(value.physicalLocation, "Physical location", 1_024);
+  return {
+    ...(description !== undefined ? { description } : {}),
+    ...(physicalLocation !== undefined ? { physicalLocation } : {}),
   };
 };
 
@@ -582,6 +596,7 @@ const normalizeReconciliation = (
     start,
     end,
     location: value.location as MeetingLocation | null,
+    ...normalizeEventDetails(value),
     attendees: value.attendees.map(normalizeAttendee),
     approvalRequired: value.approvalRequired,
     ...(eventTypeId !== undefined ? { eventTypeId } : {}),
@@ -641,6 +656,18 @@ const assertPreparationMatches = (
       throw new ProviderBookingOutboxInvariantError(
         "A Work Block cannot recover as a meeting location or conference.",
       );
+    }
+    return;
+  }
+  if (reconciliation.description !== undefined && request.description !== providerDescription(reconciliation.description)) {
+    throw new ProviderBookingOutboxInvariantError("The provider description does not match local reconciliation.");
+  }
+  if (reconciliation.physicalLocation !== undefined) {
+    const expectedConference = request.bookingKind === "meeting" &&
+      (reconciliation.location === "google-meet" || reconciliation.location === "zoom")
+      ? reconciliation.location : "none";
+    if (request.location !== reconciliation.physicalLocation || conferenceProvider !== expectedConference) {
+      throw new ProviderBookingOutboxInvariantError("The provider address or conference does not match local reconciliation.");
     }
     return;
   }
@@ -704,6 +731,7 @@ const normalizeProviderEvent = (event: CalendarEvent): CalendarEvent => {
     kind: event.kind,
     status: event.status,
     location: event.location,
+    ...normalizeEventDetails(event),
     attendees: event.attendees.map(normalizeAttendee),
     ...(event.busy !== undefined ? { busy: event.busy } : {}),
     ...(event.allDay !== undefined ? { allDay: event.allDay } : {}),
@@ -816,7 +844,7 @@ const assertCommitMatchesRequest = (
   const expectedProviderLocation = request.conferenceProvider === "google-meet"
     ? booking.conferenceStatus === "ready"
       ? "google-meet"
-      : null
+      : request.location === undefined ? null : "physical"
     : request.conferenceProvider === "zoom"
       ? "zoom"
     : request.location === undefined
@@ -922,6 +950,7 @@ const normalizeApprovalResolutionRequest = (
   const description = normalizeOptionalDetail(
     value.description,
     "Approval-resolution description",
+    16_000,
   );
   const location = normalizeOptionalDetail(
     value.location,
@@ -1005,6 +1034,7 @@ const normalizeApprovalResolutionReconciliation = (
       kind: "hold",
       status: "pending",
       location: expected.location as MeetingLocation | null,
+      ...normalizeEventDetails(expected),
       attendees,
     },
   };
@@ -1039,16 +1069,17 @@ const normalizeApprovalResolutionPreparation = (
       : expected.location === "zoom"
         ? "zoom"
         : "none";
-    const expectedLocation = expected.location === null ||
+    const expectedLocation = expected.physicalLocation ?? (expected.location === null ||
         expected.location === "google-meet" || expected.location === "zoom"
       ? undefined
-      : providerMeetingLocationNames[expected.location];
+      : providerMeetingLocationNames[expected.location]);
     if (
       request.title !== expected.title ||
       JSON.stringify(request.attendeeEmails ?? []) !==
         JSON.stringify(expectedEmails) ||
       (request.conferenceProvider ?? "none") !== expectedConference ||
-      request.location !== expectedLocation
+      request.location !== expectedLocation ||
+      (expected.description !== undefined && request.description !== providerDescription(expected.description))
     ) {
       throw new ProviderBookingOutboxInvariantError(
         "The provider approval request does not match the expected local Hold.",
@@ -1132,7 +1163,7 @@ const assertResolutionMatchesPreparation = (
     preparation.request.conferenceProvider === "google-meet" &&
     result.resolution.providerJoinUrl === null
       ? resolvedEvent.location === null || resolvedEvent.location === "physical"
-      : resolvedEvent?.location === expectedEvent.location;
+      : resolvedEvent?.location === (expectedEvent.location === null && expectedEvent.physicalLocation ? "physical" : expectedEvent.location);
   const approvedLinksAgree = resolvedEvent !== null &&
     (resolvedEvent.providerJoinUrl === undefined ||
       resolvedEvent.providerJoinUrl === result.resolution.providerJoinUrl);
@@ -1145,6 +1176,7 @@ const assertResolutionMatchesPreparation = (
     resolvedEvent.kind === "meeting" &&
     resolvedEvent.status === "confirmed" &&
     approvedLocationMatches &&
+    (expectedEvent.physicalLocation === undefined || resolvedEvent.physicalLocation === expectedEvent.physicalLocation) &&
     approvedLinksAgree &&
     attendeeFingerprint(resolvedEvent.attendees) ===
       attendeeFingerprint(expectedEvent.attendees);

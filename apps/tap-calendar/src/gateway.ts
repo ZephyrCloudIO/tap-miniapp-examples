@@ -630,6 +630,8 @@ const isGatewayCalendarEvent = (value: unknown): value is CalendarEvent =>
     "physical",
     "custom",
   ].includes(String(value.location))) &&
+  (value.description === undefined || (typeof value.description === "string" && value.description.length <= 65_536)) &&
+  (value.physicalLocation === undefined || (typeof value.physicalLocation === "string" && value.physicalLocation.length <= 1_024)) &&
   Array.isArray(value.attendees) &&
   value.attendees.every(attendee =>
     isRecord(attendee) &&

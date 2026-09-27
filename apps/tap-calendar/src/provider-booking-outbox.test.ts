@@ -18,6 +18,7 @@ import {
   type ProviderApprovalResolutionOutboxPreparation,
 } from "./provider-booking-outbox";
 import { calendarPrincipalStorageAddresses } from "./principal-storage";
+import { providerDescription } from "./event-details";
 
 const SDK_SLOT = Symbol.for("tap.internal.v1");
 
@@ -302,6 +303,53 @@ describe("provider booking outbox", () => {
     });
     const [reloaded] = await createProviderBookingOutboxWithPort(port).listPendingReconciliation();
     expect(reloaded?.providerCommit.booking.event.attendees).toEqual(attendees);
+  });
+
+  it("recovers descriptions and physical addresses, including while Meet is being created", async () => {
+    const port = new MemoryPort();
+    const outbox = createProviderBookingOutboxWithPort(port);
+    const base = preparation();
+    const details = { description: 'Agenda <draft> & "notes"\nBring a laptop.', physicalLocation: "Room 3" };
+    const draft = {
+      request: { ...base.request, description: providerDescription(details.description), location: details.physicalLocation },
+      reconciliation: { ...base.reconciliation, ...details },
+    };
+    await outbox.putBeforeProviderCall(draft);
+    const provider = commit();
+    const { providerJoinUrl: _join, ...event } = provider.booking.event;
+    await outbox.markProviderCommitted("booking-1", {
+      ...provider, booking: { ...provider.booking, providerJoinUrl: null, conferenceStatus: "pending",
+        event: { ...event, ...details, location: "physical" },
+      },
+    });
+    const [recovered] = await createProviderBookingOutboxWithPort(port).listPendingReconciliation();
+    expect(recovered?.reconciliation).toMatchObject(details);
+    expect(recovered?.providerCommit.booking.event).toMatchObject(details);
+    await expect(outbox.putBeforeProviderCall({ ...draft,
+      request: { ...draft.request, idempotencyKey: "wrong-address", location: "Room 4" },
+    })).rejects.toThrow("address or conference");
+    await expect(outbox.putBeforeProviderCall({ ...draft,
+      request: { ...draft.request, idempotencyKey: "wrong-description", description: "Different" },
+    })).rejects.toThrow("description does not match");
+  });
+
+  it("recovers the same event details after approving a hold", async () => {
+    const port = new MemoryPort();
+    const outbox = createProviderBookingOutboxWithPort(port);
+    const base = approvalPreparation();
+    const details = { description: "Agenda <draft>\nBring notes.", physicalLocation: "Room 3" };
+    await outbox.putApprovalResolutionBeforeProviderCall({
+      ...base, request: { ...base.request, description: providerDescription(details.description), location: details.physicalLocation },
+      reconciliation: { ...base.reconciliation, expectedEvent: { ...base.reconciliation.expectedEvent, ...details } },
+    });
+    const provider = resolution();
+    if (!provider.resolution.event) throw new Error("Expected approved event fixture.");
+    await outbox.markApprovalResolutionCommitted("resolution-approve-1", {
+      ...provider, resolution: { ...provider.resolution, event: { ...provider.resolution.event, ...details } },
+    });
+    const [recovered] = await createProviderBookingOutboxWithPort(port).listPendingApprovalResolutionReconciliation();
+    expect(recovered?.reconciliation.expectedEvent).toMatchObject(details);
+    expect(recovered?.providerResolution.resolution.event).toMatchObject(details);
   });
 
   it("persists and recovers a personal event without guests or conferencing", async () => {

@@ -80,6 +80,10 @@ export interface CalendarEvent {
   readonly id: string;
   readonly calendarId: string;
   readonly title: string;
+  /** Plain text, including line breaks. */
+  readonly description?: string;
+  /** A room or address, independent of the video provider in location. */
+  readonly physicalLocation?: string;
   readonly start: string;
   readonly end: string;
   readonly kind: "meeting" | "work-block" | "hold" | "focus";
@@ -306,10 +310,14 @@ export interface CalendarState {
 export interface ScheduleMeetingInput {
   readonly id: string;
   readonly title: string;
+  /** Plain text, including line breaks. */
+  readonly description?: string;
+  /** A room or address, independent of the video provider in location. */
+  readonly physicalLocation?: string;
   readonly calendarId: string;
   readonly start: string;
   readonly end: string;
-  /** Null creates a calendar event without a location or video conference. */
+  /** Null creates an event without a video conference; a physical location may still be set. */
   readonly location: MeetingLocation | null;
   readonly attendees: readonly CalendarAttendee[];
   readonly approvalRequired: boolean;
@@ -1818,6 +1826,8 @@ export function scheduleMeeting(
       existingEvent.kind === (input.approvalRequired ? "hold" : "meeting") &&
       existingEvent.status === (input.approvalRequired ? "pending" : "confirmed") &&
       existingEvent.location === input.location &&
+      existingEvent.description === (input.description?.trim() || undefined) &&
+      existingEvent.physicalLocation === (input.physicalLocation?.trim() || undefined) &&
       JSON.stringify(existingEvent.attendees) === JSON.stringify(input.attendees);
     const requestMatches = bookingRequestId === null || (
       existingRequest?.eventId === input.id &&
@@ -1851,6 +1861,8 @@ export function scheduleMeeting(
     kind: input.approvalRequired ? "hold" : "meeting",
     status,
     location: input.location,
+    ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    ...(input.physicalLocation?.trim() ? { physicalLocation: input.physicalLocation.trim() } : {}),
     attendees: input.attendees,
     busy: true,
     ...(input.providerHtmlLink ? { providerHtmlLink: input.providerHtmlLink } : {}),
@@ -2465,6 +2477,8 @@ const isCalendarEvent = (value: unknown): value is CalendarEvent => {
       "physical",
       "custom",
     ] as const)) &&
+    (value.description === undefined || (typeof value.description === "string" && value.description.length <= 65_536)) &&
+    (value.physicalLocation === undefined || (typeof value.physicalLocation === "string" && value.physicalLocation.length <= 1_024)) &&
     Array.isArray(value.attendees) &&
     value.attendees.every(isCalendarAttendee) &&
     (value.busy === undefined || typeof value.busy === "boolean") &&
