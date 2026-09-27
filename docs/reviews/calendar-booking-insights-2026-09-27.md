@@ -35,6 +35,9 @@ Reviewed against the [Web Interface Guidelines](https://github.com/vercel-labs/w
 - Aligned booking status counts in a responsive grid and kept labels with values.
 - Replaced the full-width primary “Done” action with a compact SDK outline button.
 - Preserved bottom padding and aligned card actions across empty and populated pages.
+- Aligned Shared bookings with the surrounding sections: 25px outer gutters on
+  desktop and 15px below 900px, with matching vertical spacing. Verified both
+  desktop and 390px layouts without horizontal overflow.
 - Kept semantic headings, definition lists, visible focus, and Escape dismissal.
   The modal focus trap includes the new disclosure, and closing restores focus
   to the Insights button.
