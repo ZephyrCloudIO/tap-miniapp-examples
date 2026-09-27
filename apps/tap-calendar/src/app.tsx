@@ -10,6 +10,7 @@ import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-b
 
 import { CalendarMcpPanel, useCalendarMcpSync } from "./calendar-mcp-panel";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
+import { analyticsDate, BookingInsights, BookingVisitSummary } from "./booking-insights";
 import { applyPublicBookingAnalytics, publicBookingPageMetrics, publicBookingConversion, type PublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
@@ -114,7 +115,6 @@ import {
   allCalendars,
   applyAvailabilityBookingPolicy,
   availabilityForDate,
-  conversionRate,
   createAdditionalAvailabilityWindow,
   createWorkBlock,
   decideBookingRequest,
@@ -4607,10 +4607,10 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
   return (
     <div className="content-stack">
       <section className="summary-grid">
-        <MetricCard icon={<Eye />} label="Page views" value={analyticsAvailable ? totals.views.toLocaleString() : "—"} detail={liveAnalytics ? snapshot ? `Since ${new Date(snapshot.trafficSince).toLocaleDateString()}; one per page visit` : "Waiting for public tracking data" : "Local preview activity"} tone="blue" />
-        <MetricCard icon={<MousePointerClick />} label="Confirmed bookings" value={analyticsAvailable ? totals.confirmed.toLocaleString() : "—"} detail={liveAnalytics ? "Confirmed now; excludes cancellations" : `${((totals.confirmed / Math.max(1, totals.views)) * 100).toFixed(1)}% view-to-booking conversion`} tone="green" />
-        <MetricCard icon={<MousePointerClick />} label="Starts" value={analyticsAvailable ? (snapshot?.totals.starts ?? analyticsState.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => sum + eventType.analytics.starts, 0)).toLocaleString() : "—"} detail="Visits that reached guest details" tone="violet" />
-        <MetricCard icon={<BarChart3 />} label="View-to-booking conversion" value={snapshot ? publicBookingConversion(snapshot.totals) : "—"} detail={snapshot ? `${snapshot.totals.convertedVisits.toLocaleString()} confirmed visits / ${snapshot.totals.conversionViews.toLocaleString()} tracked visits` : "Waiting for matched visit and booking data"} tone="green" />
+        <MetricCard icon={<Eye />} label="Page visits" value={snapshot ? snapshot.totals.conversionViews.toLocaleString() : "—"} detail={snapshot ? `Since ${analyticsDate(snapshot.conversionSince)}` : "Waiting for public tracking data"} tone="blue" />
+        <MetricCard icon={<MousePointerClick />} label="Booked visits" value={snapshot ? snapshot.totals.convertedVisits.toLocaleString() : "—"} detail={snapshot ? `Visits that led to a booking since ${analyticsDate(snapshot.conversionSince)}` : "Waiting for matched visit and booking data"} tone="violet" />
+        <MetricCard icon={<BarChart3 />} label="Visit conversion" value={snapshot ? publicBookingConversion(snapshot.totals) : "—"} detail={snapshot ? snapshot.totals.conversionViews === 0 ? "No visits recorded yet" : `${snapshot.totals.convertedVisits.toLocaleString()} of ${snapshot.totals.conversionViews.toLocaleString()} visits since ${analyticsDate(snapshot.conversionSince)}` : "Waiting for public tracking data"} tone="blue" />
+        <MetricCard icon={<CalendarCheck2 />} label="Confirmed bookings" value={analyticsAvailable ? totals.confirmed.toLocaleString() : "—"} detail={liveAnalytics ? "All time · currently confirmed" : "Local preview activity"} tone="green" />
       </section>
       {liveAnalytics ? <div className="booking-metric-breakdown" aria-label="Booking status totals">
         <span>Lifetime confirmations <strong>{snapshot?.totals.lifetimeConfirmed.toLocaleString() ?? "—"}</strong></span>
@@ -4722,8 +4722,6 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
           ) : null}
           <div className="event-type-grid">
             {profile.eventTypes.map(eventType => {
-              const analytics = analyticsState.bookingProfiles.find(item => item.id === profile.id)!
-                .eventTypes.find(item => item.id === eventType.id)!.analytics;
               const publicMetrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
               const pageIsLive = isEventTypePublicationLive(profile, eventType);
               const eventTypeStatus = !eventType.active
@@ -4738,8 +4736,8 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
                 <h3>{eventType.title}</h3><p>{eventType.description}</p>
                 <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><MeetingProviderIcon provider={eventType.location} /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
                 <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span>{pageIsLive ? <button type="button" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button> : null}</div>
-                <div className="conversion-row"><div><span>Views</span><strong>{analyticsAvailable ? analytics.views.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Starts</span><strong>{analyticsAvailable ? analytics.starts.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Confirmed</span><strong>{analyticsAvailable ? analytics.confirmed.toLocaleString() : "—"}</strong></div><b title="Share of tracked visits that produced a confirmed booking">{liveAnalytics ? snapshot ? publicBookingConversion(publicMetrics) : "—" : `${(conversionRate(analytics) * 100).toFixed(1)}%`}</b></div>
-                {liveAnalytics ? <div className="booking-metric-breakdown compact"><span>Lifetime confirmed <strong>{snapshot ? publicMetrics.lifetimeConfirmed.toLocaleString() : "—"}</strong></span><span>Cancelled <strong>{snapshot ? publicMetrics.cancelled.toLocaleString() : "—"}</strong></span></div> : null}
+                <BookingVisitSummary metrics={publicMetrics} snapshot={snapshot} />
+                {liveAnalytics ? <div className="booking-card-history"><span>All time</span><span><strong>{snapshot ? publicMetrics.confirmed.toLocaleString() : "—"}</strong> confirmed</span><span><strong>{snapshot ? publicMetrics.cancelled.toLocaleString() : "—"}</strong> cancelled</span></div> : null}
                 <footer><button type="button" className="secondary-button" onClick={() => onPreview(profile.id, eventType.id)}><Eye /> Preview page</button><button type="button" className="secondary-button" onClick={() => setInsights({ profile, eventType })}><BarChart3 /> Insights</button></footer>
               </article>
             );})}
@@ -4749,7 +4747,7 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
       );})}
       {profileEditor ? <BookingProfileDialog state={state} profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} /> : null}
       {eventTypeProfileId ? <EventTypeDialog state={state} profileId={eventTypeProfileId} zoomConnected={zoomConnected} onClose={() => setEventTypeProfileId(null)} onNavigate={onNavigate} onSubmit={saveEventType} /> : null}
-      {insightsProfile && insightsEventType ? <BookingInsightsDialog snapshot={snapshot} analyticsAvailable={analyticsAvailable} liveAnalytics={liveAnalytics} profile={insightsProfile} eventType={insightsEventType} onClose={() => setInsights(null)} /> : null}
+      {insightsProfile && insightsEventType ? <BookingInsightsDialog snapshot={snapshot} liveAnalytics={liveAnalytics} profile={insightsProfile} eventType={insightsEventType} onClose={() => setInsights(null)} /> : null}
     </div>
   );
 }
@@ -4922,28 +4920,12 @@ function EventTypeDialog({
   );
 }
 
-function BookingInsightsDialog({ profile, eventType, snapshot, analyticsAvailable, liveAnalytics, onClose }: { readonly profile: BookingProfile; readonly eventType: EventType; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly onClose: () => void }) {
+function BookingInsightsDialog({ profile, eventType, snapshot, liveAnalytics, onClose }: { readonly profile: BookingProfile; readonly eventType: EventType; readonly snapshot: PublicBookingAnalytics | null; readonly liveAnalytics: boolean; readonly onClose: () => void }) {
   const metrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
-  const steps = [
-    ["Views", eventType.analytics.views],
-    ["Slot views", eventType.analytics.slotViews],
-    ["Starts", eventType.analytics.starts],
-    ["Accepted requests", eventType.analytics.requests],
-    ["Currently confirmed", eventType.analytics.confirmed],
-  ] as const;
   return (
-    <Modal title={`${eventType.title} insights`} description={`Privacy-preserving funnel analytics for cal.with-tap.ai/${profile.slug}/${eventType.slug}.`} onClose={onClose}>
-      <div className="content-stack insights-dialog">
-        <div className="conversion-row">{steps.map(([label, value], index) => <div key={label}><span>{label}</span><strong>{analyticsAvailable ? value.toLocaleString() : "—"}</strong>{index < steps.length - 1 ? <ArrowRight /> : null}</div>)}</div>
-        {liveAnalytics ? <div className="booking-metric-breakdown" aria-label="Booking outcomes">
-          {([['Lifetime confirmed', metrics.lifetimeConfirmed], ['Cancelled', metrics.cancelled], ['Awaiting approval', metrics.pending], ['Declined', metrics.declined], ['Expired', metrics.expired]] as const).map(([label, value]) => <span key={label}>{label} <strong>{snapshot ? value.toLocaleString() : "—"}</strong></span>)}
-        </div> : null}
-        <div className="privacy-preview"><BarChart3 /><div><strong>{liveAnalytics ? `${snapshot ? publicBookingConversion(metrics) : "—"} view-to-booking conversion` : `${(conversionRate(eventType.analytics) * 100).toFixed(1)}% view-to-confirmed conversion`}</strong>
-          <p>A view is one booking-page visit. A start is a visit that reaches guest details. Reloading starts a new visit; retries and back navigation do not.</p>
-          <small>{liveAnalytics ? snapshot ? `Views and starts are recorded since ${new Date(snapshot.trafficSince).toLocaleString()}. Earlier traffic is unavailable. Conversion uses ${metrics.convertedVisits} confirmed visits out of ${metrics.conversionViews} visits since ${new Date(snapshot.conversionSince).toLocaleString()}. Each visit converts at most once, even if it produces several bookings. Later cancellations do not erase that conversion. Booking status totals include historical bookings. Updated ${new Date(snapshot.generatedAt).toLocaleString()}.` : "Public analytics are unavailable. No local preview counts are included." : "Local preview activity only."}</small>
-        </div></div>
-        <button type="button" className="primary-button full-width" onClick={onClose}>Done</button>
-      </div>
+    <Modal title={`${eventType.title} insights`} description={`cal.with-tap.ai/${profile.slug}/${eventType.slug}`} onClose={onClose} className="booking-insights-modal">
+      <BookingInsights metrics={metrics} snapshot={snapshot} preview={!liveAnalytics} />
+      <div className="insights-dialog-actions"><Button type="button" variant="outline" onClick={onClose}>Close</Button></div>
     </Modal>
   );
 }
@@ -7515,7 +7497,7 @@ function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent;
   );
 }
 
-function Modal({ title, description, onClose, children }: { readonly title: string; readonly description: string; readonly onClose: () => void; readonly children: ReactNode }) {
+function Modal({ title, description, onClose, children, className }: { readonly title: string; readonly description: string; readonly onClose: () => void; readonly children: ReactNode; readonly className?: string }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const close = useEffectEvent(onClose);
@@ -7532,7 +7514,7 @@ function Modal({ title, description, onClose, children }: { readonly title: stri
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = [...(cardRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]):not([aria-hidden="true"]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') ?? [])].filter(element => element.offsetParent !== null);
+      const focusable = [...(cardRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]):not([aria-hidden="true"]), textarea:not([disabled]), a[href], summary, [tabindex]:not([tabindex="-1"])') ?? [])].filter(element => element.offsetParent !== null);
       if (focusable.length === 0) return;
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
@@ -7552,7 +7534,7 @@ function Modal({ title, description, onClose, children }: { readonly title: stri
   }, []);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={cardRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
+      <div ref={cardRef} className={`modal-card${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
         <header><div><span className="eyebrow">TAP Calendar</span><h2 id="modal-title">{title}</h2><p id="modal-description">{description}</p></div><button ref={closeRef} type="button" className="icon-button" onClick={onClose} aria-label="Close dialog"><X /></button></header>
         <div className="modal-body">{children}</div>
       </div>

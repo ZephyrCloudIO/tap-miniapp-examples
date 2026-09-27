@@ -481,6 +481,33 @@ describe("anonymous public booking reads", () => {
     expect(await tools.call("event_type_analytics", { profileId: "profile-public-read", eventTypeId: "event-public-read" })).toMatchObject({ totals: expected, eventTypes: [{ analytics: expected }] });
   });
 
+  it("does not attribute historical bookings to visits recorded after tracking began", async () => {
+    const { revisionId } = await connectAndPublish();
+    const beforeTracking = "2026-08-15T12:00:00.000Z";
+    for (let index = 0; index < 12; index += 1) {
+      await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_attempts (
+        workspace_id, principal_id, idempotency_key, request_hash, provider_operation_id,
+        booking_reference, revision_id, start_at, end_at, guest_name, guest_email,
+        state, response_json, created_at, updated_at
+      ) VALUES (?, ?, ?, 'request-hash-123456', ?, ?, ?, ?, ?, 'Guest', 'guest@example.com',
+        'committed', ?, ?, ?)`).bind(workspace, principal, `historic-attempt-${index}`,
+        `historic-operation-${index}`, `historic-reference-${index}`, revisionId,
+        "2026-08-17T12:00:00.000Z", "2026-08-17T12:30:00.000Z",
+        JSON.stringify({ status: "confirmed" }), beforeTracking, beforeTracking).run();
+    }
+    for (let index = 0; index < 4; index += 1) {
+      const response = await worker.fetch(publicRequest("/api/public/pages/public-owner/30min/analytics", {
+        method: "POST", json: { visitId: crypto.randomUUID(), stage: index === 0 ? "starts" : "views" },
+      }), workerEnv());
+      expect(response.status).toBe(200);
+    }
+    const response = await worker.fetch(organizerRequest("/v2/publications/analytics"), workerEnv());
+    expect(await response.json()).toMatchObject({ totals: {
+      views: 4, slotViews: 1, starts: 1, requests: 12, confirmed: 12,
+      lifetimeConfirmed: 12, conversionViews: 4, convertedVisits: 0,
+    } });
+  });
+
   it("keeps conversion cohorts and confirmation history correct across cancellation and cleanup", async () => {
     const { revisionId } = await connectAndPublish();
     const now = new Date(testNow).toISOString();
