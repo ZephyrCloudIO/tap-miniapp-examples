@@ -167,7 +167,6 @@ import { persistProviderVisibleMailMergeDrafts } from './email-workflows';
 import { WorkflowCenter } from './workflow-center';
 import {
   EMAIL_TASK_WRITE_ACTION,
-  EmailTaskConfigurationError,
   EmailTaskReceiptPersistenceError,
   createEmailTask,
 } from './email-task';
@@ -2230,20 +2229,17 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       setEmailTask({ threadKey, status: outcome.status, message });
       flash(message);
     })().catch(error => {
-      const partial = error instanceof EmailTaskConfigurationError;
       const receiptCacheFailed = error instanceof EmailTaskReceiptPersistenceError;
-      const message = partial
-        ? 'Task created, but its due date or priority could not be applied. Retry to reconcile it.'
-        : receiptCacheFailed && error.task
-          ? 'Task created, but its local receipt state could not be saved. Replay remains protected by TAP.'
-          : receiptCacheFailed && error.receipt.status === 'pending'
-            ? 'Task creation is pending, but its local receipt state could not be saved.'
-        : error instanceof Error && error.message === 'task-write-denied'
-          ? 'TAP Email is not allowed to create Tasks in this workspace.'
-          : 'TAP Email could not create the Task. Try again.';
+      const message = receiptCacheFailed && error.task
+        ? 'Task created, but its local receipt state could not be saved. Replay remains protected by TAP.'
+        : receiptCacheFailed && error.receipt.status === 'pending'
+          ? 'Task creation is pending, but its local receipt state could not be saved.'
+          : error instanceof Error && error.message === 'task-write-denied'
+            ? 'TAP Email is not allowed to create Tasks in this workspace.'
+            : 'TAP Email could not create the Task. Try again.';
       setEmailTask({
         threadKey,
-        status: partial || receiptCacheFailed ? 'partial' : 'error',
+        status: receiptCacheFailed ? 'partial' : 'error',
         message,
       });
       flash(message);

@@ -10,6 +10,7 @@ import {
   isMailboxSnapshot,
   markDone,
   markThreadRead,
+  mailboxSummary,
   mailSplitThreadCount,
   mergeMailboxPage,
   mergeMailboxSnapshot,
@@ -37,6 +38,23 @@ import {
 const now = '2026-08-18T15:30:00.000Z';
 
 describe('TAP Email domain', () => {
+  it('prevents Operational Zero when a reminder becomes due without new mail', () => {
+    const state = previewMailState();
+    const source = state.threads[0]!;
+    const reminded = {
+      ...state,
+      accounts: state.accounts.map(account => ({ ...account,
+        coverage: { ...account.coverage, state: 'current' as const } })),
+      threads: [{ ...source, status: 'reminded' as const, critical: false, needsResponse: false,
+        reminder: { reminderId: 'reminder_due', accountId: source.accountId, threadId: source.threadId,
+          condition: 'regardless' as const, createdAt: now, dueAt: '2026-08-18T16:00:00.000Z' } }],
+    };
+    expect(mailboxSummary(reminded, now)).toMatchObject({ dueReminders: 0, operationalZero: true });
+    expect(mailboxSummary(reminded, '2026-08-18T16:00:00.000Z')).toMatchObject({
+      dueReminders: 1, operationalZero: false, coverageComplete: true,
+    });
+  });
+
   it('accepts paged conversation history beyond 1,000 messages', () => {
     const state = previewMailState();
     const thread = state.threads[0]!;

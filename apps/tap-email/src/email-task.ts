@@ -54,7 +54,7 @@ export type EmailTaskCreationOutcome =
   | Readonly<{
       status: 'completed' | 'duplicate-suppressed';
       receipt: MiniAppActionReceipt;
-      task: MiniAppTask;
+      task: Pick<MiniAppTask, 'id'>;
     }>
   | Readonly<{
       status: 'pending' | 'failed';
@@ -83,25 +83,12 @@ export class InvalidEmailTaskSourceError extends Error {
   }
 }
 
-export class EmailTaskConfigurationError extends Error {
-  readonly code = 'email_task_configuration_failed' as const;
-
-  constructor(
-    readonly receipt: MiniAppActionReceipt,
-    readonly taskId: string,
-    options?: ErrorOptions,
-  ) {
-    super('The task exists, but TAP Email could not apply its due date and priority.', options);
-    this.name = 'EmailTaskConfigurationError';
-  }
-}
-
 export class EmailTaskReceiptPersistenceError extends Error {
   readonly code = 'email_task_receipt_persistence_failed' as const;
 
   constructor(
     readonly receipt: MiniAppActionReceipt,
-    readonly task: MiniAppTask | null,
+    readonly task: Pick<MiniAppTask, 'id'> | null,
     options?: ErrorOptions,
   ) {
     super('TAP returned a task receipt, but TAP Email could not cache its local receipt state.', options);
@@ -292,6 +279,8 @@ export async function createEmailTask({
     title: emailTaskTitle(source),
     description: emailTaskMetadata(source),
     initialPhase: 'inbox',
+    priority,
+    ...(dueDate === undefined ? {} : { dueAt: dueDate }),
     idempotencyKey,
   });
 
@@ -335,31 +324,9 @@ export async function createEmailTask({
     throw new Error(error);
   }
 
-  let task: MiniAppTask;
-  try {
-    const update = {
-      workspaceId,
-      taskId,
-      priority,
-      ...(dueDate === undefined ? {} : { dueAt: dueDate }),
-    } satisfies Parameters<typeof tasks.update>[0];
-    ({ task } = await tasks.update(update));
-  } catch (error) {
-    await persistReceipt({
-      schemaVersion: 1,
-      workspaceId,
-      accountId: source.accountId,
-      threadId: source.threadId,
-      idempotencyKey,
-      receiptId: receipt.receiptId,
-      receiptStatus: receipt.status,
-      configurationStatus: 'failed',
-      taskId,
-      error: error instanceof Error ? truncate(error.message, 240) : 'Task configuration failed.',
-      updatedAt: now(),
-    }).catch(() => undefined);
-    throw new EmailTaskConfigurationError(receipt, taskId, { cause: error });
-  }
+  // The receipt establishes identity, not a current task snapshot. In particular,
+  // replay must not overwrite priority/dates changed by a human since creation.
+  const task = { id: taskId };
   try {
     await persistReceipt({
       schemaVersion: 1,
@@ -369,7 +336,7 @@ export async function createEmailTask({
       idempotencyKey,
       receiptId: receipt.receiptId,
       receiptStatus: receipt.status,
-      configurationStatus: 'applied',
+      configurationStatus: receipt.status === 'completed' ? 'applied' : 'not-applicable',
       taskId,
       error: null,
       updatedAt: now(),

@@ -128,7 +128,7 @@
         "action:files.overwrite",
         "action:workflows.list",
         "action:workflows.invoke",
-        "action:workflows.runs.read",
+        "action:workflows.read",
         "effect:storage:tap-email",
         "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
         "effect:credentials:http",
