@@ -46,6 +46,9 @@ import {
   MailOpen,
   Plus,
   Rows3,
+  Reply,
+  Star,
+  MoreHorizontal,
   Search,
   Settings,
 } from 'lucide-react';
@@ -122,6 +125,7 @@ import {
 } from './keybindings';
 import {
   stageChloeEmailPrompt,
+  CHLOE_EMAIL_ACTIONS,
   type ChloeEmailIntent,
 } from './chloe-email';
 import {
@@ -272,7 +276,7 @@ interface TapEmailAppProps {
   readonly diagnostics?: EmailDiagnostics;
 }
 
-type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'shortcuts' | 'settings' | 'handoff' | 'workflows';
+type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'shortcuts' | 'settings' | 'handoff' | 'workflows' | 'message-options';
 
 interface ReplyDraft {
   readonly followUp?: MailDraftPayload['followUp'];
@@ -2951,9 +2955,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     <div className={`tap-email${readerScreen ? ' mobile-reader' : ''}`} ref={rootRef} tabIndex={-1}>
       <a className="skip-link" href="#tap-email-main">Skip to Mailbox</a>
       {nativeHeader && surfaceContext ? <>
-        <NativeHeader context={surfaceContext} title={readerScreen ? "Message" : "Email"} back={readerScreen ? { label: "Back to inbox", onPress: () => setMobileReader(false) } : undefined} actions={[
-          { id: 'compose', label: 'Compose email', icon: 'compose', primary: true, disabled: state.accounts.length === 0, onPress: () => runCommand('compose') },
-          { id: 'sync', label: 'Sync email', icon: 'refresh', primary: true, disabled: state.accounts.length === 0, busy: syncing, onPress: () => {
+        <NativeHeader context={surfaceContext} title="Email" back={readerScreen ? { label: "Back to inbox", onPress: () => setMobileReader(false) } : undefined} actions={[
+          ...(readerScreen && thread ? [{ id: 'done', label: 'Archive email', icon: 'check' as const, primary: true, onPress: () => runCommand('done') }, { id: 'message-options', label: 'Message options', icon: 'menu' as const, onPress: () => setOverlay('message-options') }] : []),
+          { id: 'compose', label: 'Compose email', icon: 'compose', primary: !readerScreen, disabled: state.accounts.length === 0, onPress: () => runCommand('compose') },
+          { id: 'sync', label: 'Sync email', icon: 'refresh', primary: !readerScreen, disabled: state.accounts.length === 0, busy: syncing, onPress: () => {
             void requestFreshMail().catch(error => { setMailboxError(`Mailbox synchronization failed: ${String(error)}`); flash('Mailbox synchronization failed. Try again.'); });
           } },
           { id: 'add-account', label: googleAuthorizationUrl ? 'Continue Google sign-in' : 'Add email account', icon: 'plus', busy: connectionBusy, onPress: googleAuthorizationUrl ? continueGoogleConnection : prepareGoogleConnection },
@@ -3176,7 +3181,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 <div className="message-title-row">
                   <ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} />
                   <h2>{thread.subject}</h2>
-                  <ReaderActions
+                  {nativeHeader ? <button type="button" className={`mobile-message-star${thread.starred ? ' is-starred' : ''}`} aria-label={thread.starred ? 'Unstar thread' : 'Star thread'} aria-pressed={thread.starred} onClick={() => runCommand('toggle-star')}><Star aria-hidden="true" /></button> : <ReaderActions
                     conversationBusy={conversationHandoffBusy}
                     conversationFinished={conversationHandoffFinished}
                     conversationStatusId={activeConversationHandoff ? 'conversation-handoff-status' : undefined}
@@ -3187,7 +3192,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                     taskBusy={emailTaskBusy}
                     taskFinished={emailTaskFinished}
                     taskStatusId={activeEmailTask ? 'email-task-status' : undefined}
-                  />
+                  />}
                 </div>
                 {activeConversationHandoff ? (
                   <div
@@ -3209,17 +3214,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                     {activeEmailTask.message}
                   </div>
                 ) : null}
-                <ThreadAttentionPanel
+                {!nativeHeader ? <ThreadAttentionPanel
                   account={accountFor(state.accounts, thread.accountId)}
                   now={listReferenceNow}
                   onCorrect={correctSelectedThreadAttention}
                   thread={thread}
                   timeZone={mailSearchTimeZone}
-                />
+                /> : null}
               </header>
               <div className="reader-workspace">
                 <div className="message-body">
                   <PagedThreadMessages
+                    mobile={nativeHeader}
                     client={!preview && initialLoadSettled && coordinatorNetworkReady ? coordinatorRef.current : null}
                     providerRevision={thread.providerRevision}
                     onMessages={receiveThreadMessages}
@@ -3318,6 +3324,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                   </aside>
                 ) : null}
               </div>
+              {nativeHeader && !activeReplyDraft ? <div className="mobile-message-footer">
+                <button type="button" onClick={() => runCommand('reply')}><Reply aria-hidden="true" /> Reply</button>
+                <button type="button" onClick={() => setOverlay('message-options')}><MoreHorizontal aria-hidden="true" /> More</button>
+              </div> : null}
             </>
           ) : (
             <div className="empty-reader"><ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} /><MailOpen aria-hidden="true" /><h2>{state.accounts.length === 0 ? 'Your focused inbox starts here' : 'Select a thread'}</h2><p>{state.accounts.length === 0 ? 'Connect Google, then use J, K, H, and E to drive toward Operational Zero.' : 'Use J and K to move through the queue.'}</p></div>
@@ -3342,6 +3352,22 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           ) : null}
         </div>
       ) : null}
+      {overlay === 'message-options' && thread ? <Dialog open onOpenChange={open => { if (!open) setOverlay('none'); }}>
+        <DialogContent className="mobile-reader-options">
+          <DialogTitle>Message options</DialogTitle>
+          <DialogDescription className="sr-only">Actions and TAP insights for this conversation.</DialogDescription>
+          <div className="mobile-reader-option-list">
+            <button type="button" onClick={() => runCommand('toggle-read')}>{thread.unread ? 'Mark as read' : 'Mark as unread'}</button>
+            <button type="button" onClick={() => runCommand('remind')}>Remind me</button>
+            <button type="button" onClick={() => runCommand('trash')}>Move to trash</button>
+            <button type="button" disabled={emailTaskBusy || emailTaskFinished} onClick={() => { setOverlay('none'); createTaskFromEmail(); }}>{emailTaskBusy ? 'Creating task…' : emailTaskFinished ? 'Task created' : 'Create task'}</button>
+            <button type="button" disabled={conversationHandoffBusy} onClick={() => runCommand('bring-to-conversation')}>Discuss in TAP</button>
+          </div>
+          <h3>Ask Chloe</h3>
+          <div className="mobile-reader-option-list">{CHLOE_EMAIL_ACTIONS.map(action => <button key={action.intent} type="button" onClick={() => { setOverlay('none'); askChloe(action.intent); }}>{action.label}</button>)}</div>
+          <ThreadAttentionPanel account={accountFor(state.accounts, thread.accountId)} now={listReferenceNow} onCorrect={correctSelectedThreadAttention} thread={thread} timeZone={mailSearchTimeZone} />
+        </DialogContent>
+      </Dialog> : null}
       {overlay === 'remind' && thread ? <ReminderDialog thread={thread} onClose={() => setOverlay('none')} onConfirm={confirmReminder} /> : null}
       {overlay === 'compose' && composeDraftKey ? (
         <ComposeDialog

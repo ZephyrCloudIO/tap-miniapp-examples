@@ -98,7 +98,7 @@ export function PagedThreadMessages({ client, providerRevision, onMessages, ...p
         setWindowed(false);
         void load();
       }}>Load newest messages</button> : null}
-      {page?.complete ? <p role="status">{windowed ? 'End of conversation' : 'All conversation messages loaded'}</p> : null}
+      {page?.complete ? <p className="thread-page-complete" role="status">{windowed ? 'End of conversation' : 'All conversation messages loaded'}</p> : null}
     </div>
     <ThreadMessageList {...props} />
   </>;
