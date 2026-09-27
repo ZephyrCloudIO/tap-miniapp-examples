@@ -1,3 +1,5 @@
+import { CalendarSelect } from "./calendar-select";
+import { SelectItem } from "@theaiplatform/miniapp-sdk/ui";
 import { copyTextToClipboard } from "./clipboard";
 import { useEffect, useState } from "react";
 import { Users, Plus, Copy, RefreshCw } from "lucide-react";
@@ -80,8 +82,8 @@ function HostEnrollment({ data, state, busy, onSave }: { readonly data: Workspac
       <p>Choose your connected Google calendar and availability. Each host completes this once. After changing an Availability Schedule, save it here and ask an admin to refresh the shared links.</p>
       <div className="shared-booking-fields">
         <label className="field"><span>Your public name</span><input required maxLength={160} value={displayName} onChange={event => setDisplayName(event.currentTarget.value)} /></label>
-        <label className="field"><span>Your Google calendar</span><select required value={destination} onChange={event => setDestination(event.currentTarget.value)}><option value="" disabled>Choose a calendar</option>{destinations.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
-        <label className="field"><span>Availability Schedule</span><select required value={scheduleId} onChange={event => setScheduleId(event.currentTarget.value)}><option value="" disabled>Choose a schedule</option>{state.availability.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="field"><span>Your Google calendar</span><CalendarSelect required placeholder="Choose a calendar" value={destination} onValueChange={value => setDestination(value)}>{destinations.map(calendar => <SelectItem key={calendar.id} value={calendar.id}>{calendar.name}</SelectItem>)}</CalendarSelect></label>
+        <label className="field"><span>Availability Schedule</span><CalendarSelect required placeholder="Choose a schedule" value={scheduleId} onValueChange={value => setScheduleId(value)}>{state.availability.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</CalendarSelect></label>
       </div>
       {!destinations.length || !state.availability.length ? <p>Connect a Google calendar in Settings and create an Availability Schedule to get started.</p> : null}
       <label className="shared-booking-check"><input type="checkbox" checked={consent} onChange={event => setConsent(event.currentTarget.checked)} /> Allow this workspace’s owners and admins to include me in shared bookings using this availability and my Google Conflict Calendars.</label>
@@ -128,8 +130,8 @@ function WorkspaceProfileEditor({ data, busy, onSave, onCopy }: { readonly data:
           {event.hostIds.filter(id => !data.hosts.some(host => host.principalId === id)).map(id => <button type="button" className="secondary-button" key={id} onClick={() => update(event.id, { hostIds: event.hostIds.filter(value => value !== id), organizerId: event.organizerId === id ? "" : event.organizerId })}>Remove unavailable host</button>)}
         </fieldset>
         <div className="shared-booking-fields">
-          <label className="field"><span>Organizer</span><select required value={event.organizerId} onChange={e => update(event.id, { organizerId: e.currentTarget.value })}><option value="" disabled>Choose a required host</option>{data.hosts.filter(host => event.hostIds.includes(host.principalId)).map(host => <option key={host.principalId} value={host.principalId}>{host.displayName}</option>)}</select></label>
-          <label className="field"><span>Meeting room</span><select value={event.location} onChange={e => update(event.id, { location: e.currentTarget.value as SharedEventType["location"] })}><option value="google-meet">Google Meet</option><option value="zoom">Organizer’s Zoom</option></select></label>
+          <label className="field"><span>Organizer</span><CalendarSelect required placeholder="Choose a required host" value={event.organizerId} onValueChange={value => update(event.id, { organizerId: value })}>{data.hosts.filter(host => event.hostIds.includes(host.principalId)).map(host => <SelectItem key={host.principalId} value={host.principalId}>{host.displayName}</SelectItem>)}</CalendarSelect></label>
+          <label className="field"><span>Meeting room</span><CalendarSelect value={event.location} onValueChange={value => update(event.id, { location: value as SharedEventType["location"] })}><SelectItem value="google-meet">Google Meet</SelectItem><SelectItem value="zoom">Organizer’s Zoom</SelectItem></CalendarSelect></label>
         </div>
         <label className="shared-booking-check"><input type="checkbox" checked={event.approvalRequired} onChange={e => update(event.id, { approvalRequired: e.currentTarget.checked })} /> Require organizer approval</label>
         <div className="shared-booking-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setEvents(current => current.filter(item => item.id !== event.id)); setDirty(true); }}>Remove meeting</button>

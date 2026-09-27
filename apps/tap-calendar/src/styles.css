@@ -307,7 +307,7 @@ p { text-wrap: pretty; }
 .field { display: grid; gap: 6px; }
 .field > span { font-size: 9px; font-weight: 700; }
 .field > small { color: var(--muted-foreground); font-size: 8px; }
-.field input, .field select, .field textarea, .weekly-hours input {
+.field input, .field textarea, .weekly-hours input {
   width: 100%; min-height: 37px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); padding: 7px 10px; color: var(--foreground); font-size: 10px;
 }
 .field textarea { resize: vertical; }
@@ -1098,7 +1098,7 @@ p { text-wrap: pretty; }
   .weekly-hour-row { grid-template-columns: 40px 90px minmax(0, 1fr) 92px; }
   .weekly-hour-row > .switch { display: grid; width: 40px; height: 40px; place-items: center; }
   .weekly-hour-row > .switch > span { top: 11px; bottom: 11px; }
-  .availability-policy input, .availability-policy select, .availability-policy-actions button { min-height: 44px; }
+  .availability-policy input, .availability-policy [role="combobox"], .availability-policy-actions button { min-height: 44px; }
   .availability-conflict-row { min-height: 54px; }
   .public-booking-close, .public-booking-month-button, .public-booking-back { min-width: 44px; min-height: 44px; }
   .public-booking-day { min-height: 44px; }
@@ -1132,7 +1132,7 @@ p { text-wrap: pretty; }
 .shared-booking-section summary { cursor: pointer; font-weight: 600; }
 .shared-booking-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .shared-booking-panel .field { display: flex; flex-direction: column; gap: 8px; }
-.shared-booking-panel input:not([type=checkbox]), .shared-booking-panel select, .shared-booking-panel textarea { min-height: 40px; border: 1px solid var(--border, #dadde5); border-radius: 8px; padding: 8px 10px; background: inherit; color: inherit; font: inherit; width: 100%; }
+.shared-booking-panel input:not([type=checkbox]), .shared-booking-panel textarea { min-height: 40px; border: 1px solid var(--border, #dadde5); border-radius: 8px; padding: 8px 10px; background: inherit; color: inherit; font: inherit; width: 100%; }
 .shared-booking-event { display: grid; gap: 16px; border: 1px solid var(--border, #dadde5); border-radius: 12px; padding: 20px; min-width: 0; }
 .shared-booking-hosts { border: 0; padding: 0; display: grid; gap: 10px; }
 .shared-booking-check { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; line-height: 1.5; }

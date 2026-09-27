@@ -1,3 +1,4 @@
+import { CalendarSelect } from "./calendar-select";
 import { useCalendarActivitySync } from "./use-calendar-activity-sync";
 import { NativeHeader, useMobileDismiss, useCompactLayout } from '@tap-examples/tap-mobile-ui';
 import { appendAvailabilityActivity } from "./activity-journal";
@@ -22,8 +23,7 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
-  NativeSelect,
-  NativeSelectOption,
+  SelectItem,
   Textarea,
 } from "@theaiplatform/miniapp-sdk/ui";
 import {
@@ -3669,7 +3669,7 @@ function AvailabilityScreen({ state, commit }: { readonly state: CalendarState; 
   const preferredStartRef = useRef<HTMLInputElement>(null);
   const preferredEndRef = useRef<HTMLInputElement>(null);
   const conflictPolicyRef = useRef<HTMLFieldSetElement>(null);
-  const bookingHorizonRef = useRef<HTMLSelectElement>(null);
+  const bookingHorizonRef = useRef<HTMLButtonElement>(null);
   const windowDraftRef = useRef<typeof windowDraft>(null);
   const windowSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingIntervalFocusRef = useRef<
@@ -4112,18 +4112,18 @@ function AvailabilityScreen({ state, commit }: { readonly state: CalendarState; 
                   <div className="availability-policy-pair">
                     <label className="field">
                       <span>Minimum notice</span>
-                      <select disabled={policySaving} value={policyDraft.minimumNoticeMinutes} onChange={event => updatePolicyDraft({ minimumNoticeMinutes: Number(event.currentTarget.value) })}>
-                        {!minimumNoticeOptions.some(value => value === policyDraft.minimumNoticeMinutes) ? <option value={policyDraft.minimumNoticeMinutes}>{formatPolicyMinutes(policyDraft.minimumNoticeMinutes)}</option> : null}
-                        {minimumNoticeOptions.map(value => <option value={value} key={value}>{formatPolicyMinutes(value)}</option>)}
-                      </select>
+                      <CalendarSelect disabled={policySaving} value={String(policyDraft.minimumNoticeMinutes)} onValueChange={value => updatePolicyDraft({ minimumNoticeMinutes: Number(value) })}>
+                        {!minimumNoticeOptions.some(value => value === policyDraft.minimumNoticeMinutes) ? <SelectItem value={String(policyDraft.minimumNoticeMinutes)}>{formatPolicyMinutes(policyDraft.minimumNoticeMinutes)}</SelectItem> : null}
+                        {minimumNoticeOptions.map(value => <SelectItem value={String(value)} key={value}>{formatPolicyMinutes(value)}</SelectItem>)}
+                      </CalendarSelect>
                       <small>How close to the start time someone may book.</small>
                     </label>
                     <label className="field">
                       <span>Booking horizon</span>
-                      <select ref={bookingHorizonRef} disabled={policySaving} value={policyDraft.bookingHorizonDays} onChange={event => updatePolicyDraft({ bookingHorizonDays: Number(event.currentTarget.value) })}>
-                        {!bookingHorizonOptions.some(value => value === policyDraft.bookingHorizonDays) ? <option value={policyDraft.bookingHorizonDays}>{formatBookingHorizon(policyDraft.bookingHorizonDays)}</option> : null}
-                        {bookingHorizonOptions.map(value => <option value={value} key={value}>{formatBookingHorizon(value)}</option>)}
-                      </select>
+                      <CalendarSelect ref={bookingHorizonRef} disabled={policySaving} value={String(policyDraft.bookingHorizonDays)} onValueChange={value => updatePolicyDraft({ bookingHorizonDays: Number(value) })}>
+                        {!bookingHorizonOptions.some(value => value === policyDraft.bookingHorizonDays) ? <SelectItem value={String(policyDraft.bookingHorizonDays)}>{formatBookingHorizon(policyDraft.bookingHorizonDays)}</SelectItem> : null}
+                        {bookingHorizonOptions.map(value => <SelectItem value={String(value)} key={value}>{formatBookingHorizon(value)}</SelectItem>)}
+                      </CalendarSelect>
                       <small>How far into the future someone may book.</small>
                     </label>
                   </div>
@@ -4134,17 +4134,17 @@ function AvailabilityScreen({ state, commit }: { readonly state: CalendarState; 
                   <div className="availability-policy-pair">
                     <label className="field">
                       <span>Buffer before</span>
-                      <select disabled={policySaving} value={policyDraft.bufferBeforeMinutes} onChange={event => updatePolicyDraft({ bufferBeforeMinutes: Number(event.currentTarget.value) })}>
-                        {!availabilityBufferOptions.some(value => value === policyDraft.bufferBeforeMinutes) ? <option value={policyDraft.bufferBeforeMinutes}>{formatPolicyMinutes(policyDraft.bufferBeforeMinutes)}</option> : null}
-                        {availabilityBufferOptions.map(value => <option value={value} key={value}>{formatPolicyMinutes(value)}</option>)}
-                      </select>
+                      <CalendarSelect disabled={policySaving} value={String(policyDraft.bufferBeforeMinutes)} onValueChange={value => updatePolicyDraft({ bufferBeforeMinutes: Number(value) })}>
+                        {!availabilityBufferOptions.some(value => value === policyDraft.bufferBeforeMinutes) ? <SelectItem value={String(policyDraft.bufferBeforeMinutes)}>{formatPolicyMinutes(policyDraft.bufferBeforeMinutes)}</SelectItem> : null}
+                        {availabilityBufferOptions.map(value => <SelectItem value={String(value)} key={value}>{formatPolicyMinutes(value)}</SelectItem>)}
+                      </CalendarSelect>
                     </label>
                     <label className="field">
                       <span>Buffer after</span>
-                      <select disabled={policySaving} value={policyDraft.bufferAfterMinutes} onChange={event => updatePolicyDraft({ bufferAfterMinutes: Number(event.currentTarget.value) })}>
-                        {!availabilityBufferOptions.some(value => value === policyDraft.bufferAfterMinutes) ? <option value={policyDraft.bufferAfterMinutes}>{formatPolicyMinutes(policyDraft.bufferAfterMinutes)}</option> : null}
-                        {availabilityBufferOptions.map(value => <option value={value} key={value}>{formatPolicyMinutes(value)}</option>)}
-                      </select>
+                      <CalendarSelect disabled={policySaving} value={String(policyDraft.bufferAfterMinutes)} onValueChange={value => updatePolicyDraft({ bufferAfterMinutes: Number(value) })}>
+                        {!availabilityBufferOptions.some(value => value === policyDraft.bufferAfterMinutes) ? <SelectItem value={String(policyDraft.bufferAfterMinutes)}>{formatPolicyMinutes(policyDraft.bufferAfterMinutes)}</SelectItem> : null}
+                        {availabilityBufferOptions.map(value => <SelectItem value={String(value)} key={value}>{formatPolicyMinutes(value)}</SelectItem>)}
+                      </CalendarSelect>
                     </label>
                   </div>
                 </fieldset>
@@ -4384,8 +4384,8 @@ function AddAvailabilityDialog({
         <TimeZoneCombobox label="Time zone" name="availability-timezone" value={timezone} onValueChange={setTimezone} required disabled={submitting} />
         <div className="form-grid"><label className="field"><span>Weekday start</span><input ref={weekdayStartRef} type="time" value={start} required disabled={submitting} aria-invalid={error && !availabilityClockTimePattern.test(start) ? true : undefined} aria-describedby={error ? "availability-schedule-error" : undefined} onChange={event => setStart(event.currentTarget.value)} /></label><label className="field"><span>Weekday end</span><input ref={weekdayEndRef} type="time" value={end} required disabled={submitting} aria-invalid={error && !availabilityClockTimePattern.test(end) ? true : undefined} aria-describedby={error ? "availability-schedule-error" : undefined} onChange={event => setEnd(event.currentTarget.value)} /></label></div>
         <div className="form-grid"><label className="field"><span>Preferred start</span><input ref={schedulePreferredStartRef} type="time" value={preferredStart} required disabled={submitting} aria-invalid={error && !availabilityClockTimePattern.test(preferredStart) ? true : undefined} aria-describedby={error ? "availability-schedule-error" : undefined} onChange={event => setPreferredStart(event.currentTarget.value)} /></label><label className="field"><span>Preferred end</span><input ref={schedulePreferredEndRef} type="time" value={preferredEnd} required disabled={submitting} aria-invalid={error && !availabilityClockTimePattern.test(preferredEnd) ? true : undefined} aria-describedby={error ? "availability-schedule-error" : undefined} onChange={event => setPreferredEnd(event.currentTarget.value)} /></label></div>
-        <div className="form-grid"><label className="field"><span>Buffer before</span><select value={bufferBeforeMinutes} disabled={submitting} onChange={event => setBufferBeforeMinutes(Number(event.currentTarget.value))}>{availabilityBufferOptions.map(value => <option value={value} key={value}>{formatPolicyMinutes(value)}</option>)}</select></label><label className="field"><span>Buffer after</span><select value={bufferAfterMinutes} disabled={submitting} onChange={event => setBufferAfterMinutes(Number(event.currentTarget.value))}>{availabilityBufferOptions.map(value => <option value={value} key={value}>{formatPolicyMinutes(value)}</option>)}</select></label></div>
-        <div className="form-grid"><label className="field"><span>Minimum notice</span><select value={minimumNoticeMinutes} disabled={submitting} onChange={event => setMinimumNoticeMinutes(Number(event.currentTarget.value))}>{minimumNoticeOptions.map(value => <option value={value} key={value}>{formatPolicyMinutes(value)}</option>)}</select><small>How close to the start time someone may book.</small></label><label className="field"><span>Booking horizon</span><select value={bookingHorizonDays} disabled={submitting} onChange={event => setBookingHorizonDays(Number(event.currentTarget.value))}>{bookingHorizonOptions.map(value => <option value={value} key={value}>{formatBookingHorizon(value)}</option>)}</select><small>How far into the future someone may book.</small></label></div>
+        <div className="form-grid"><label className="field"><span>Buffer before</span><CalendarSelect value={String(bufferBeforeMinutes)} disabled={submitting} onValueChange={value => setBufferBeforeMinutes(Number(value))}>{availabilityBufferOptions.map(value => <SelectItem value={String(value)} key={value}>{formatPolicyMinutes(value)}</SelectItem>)}</CalendarSelect></label><label className="field"><span>Buffer after</span><CalendarSelect value={String(bufferAfterMinutes)} disabled={submitting} onValueChange={value => setBufferAfterMinutes(Number(value))}>{availabilityBufferOptions.map(value => <SelectItem value={String(value)} key={value}>{formatPolicyMinutes(value)}</SelectItem>)}</CalendarSelect></label></div>
+        <div className="form-grid"><label className="field"><span>Minimum notice</span><CalendarSelect value={String(minimumNoticeMinutes)} disabled={submitting} onValueChange={value => setMinimumNoticeMinutes(Number(value))}>{minimumNoticeOptions.map(value => <SelectItem value={String(value)} key={value}>{formatPolicyMinutes(value)}</SelectItem>)}</CalendarSelect><small>How close to the start time someone may book.</small></label><label className="field"><span>Booking horizon</span><CalendarSelect value={String(bookingHorizonDays)} disabled={submitting} onValueChange={value => setBookingHorizonDays(Number(value))}>{bookingHorizonOptions.map(value => <SelectItem value={String(value)} key={value}>{formatBookingHorizon(value)}</SelectItem>)}</CalendarSelect><small>How far into the future someone may book.</small></label></div>
         <label className="approval-check"><input type="checkbox" checked={makeDefault} disabled={firstSchedule || submitting} onChange={event => setMakeDefault(event.currentTarget.checked)} /><span><strong>Make this the default</strong><small>{firstSchedule ? "Your first schedule becomes the default automatically." : "New Event Types will use this schedule unless changed."}</small></span></label>
         <DialogActions onCancel={onClose} submitLabel="Add schedule" submitting={submitting} />
       </form>
@@ -4779,7 +4779,7 @@ function BookingProfileDialog({
     <Modal title={editing ? "Booking Profile settings" : "New Booking Profile"} description="Choose the globally unique first segment of every public scheduling URL in this profile." onClose={onClose}>
       <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; if (!isSupportedTimeZone(timezone)) { setError("Choose a valid IANA time zone."); return; } if (ownerType !== "individual" && published) { setError("Public booking v1 supports individual profiles only."); return; } setSubmitting(true); const next: BookingProfile = { id: profile?.id ?? createEntityId("profile"), displayName: displayName.trim(), ownerType, slug: slug.trim(), timezone, published, eventTypes: profile?.eventTypes ?? [], ...(profile?.publication === undefined ? {} : { publication: profile.publication }), ...(profile?.pendingPublication === undefined ? {} : { pendingPublication: profile.pendingPublication }) }; void onSubmit(next).then(message => setError(message)).finally(() => setSubmitting(false)); }}>
         {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
-        <div className="form-grid"><label className="field"><span>Owner</span><select value={ownerType} disabled={submitting} onChange={event => setOwnerType(event.currentTarget.value as BookingProfile["ownerType"])}><option value="individual">Individual</option><option value="team" disabled>Team · not supported in public v1</option><option value="organization" disabled>Organization · not supported in public v1</option></select></label><TimeZoneCombobox label="Time zone" name="profile-timezone" value={timezone} onValueChange={setTimezone} required disabled={submitting} /></div>
+        <div className="form-grid"><label className="field"><span>Owner</span><CalendarSelect value={ownerType} disabled={submitting} onValueChange={value => setOwnerType(value as BookingProfile["ownerType"])}><SelectItem value="individual">Individual</SelectItem><SelectItem value="team" disabled>Team · not supported in public v1</SelectItem><SelectItem value="organization" disabled>Organization · not supported in public v1</SelectItem></CalendarSelect></label><TimeZoneCombobox label="Time zone" name="profile-timezone" value={timezone} onValueChange={setTimezone} required disabled={submitting} /></div>
         <label className="field"><span>Display name</span><input name="profile-name" autoComplete="organization" value={displayName} required maxLength={120} onChange={event => setDisplayName(event.currentTarget.value)} /></label>
         <label className="field"><span>Profile Slug</span><input name="profile-slug" autoComplete="off" value={slug} required readOnly={slugReserved} aria-describedby="profile-slug-description" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" onChange={event => setSlug(event.currentTarget.value.toLowerCase())} /><small id="profile-slug-description">{slugReserved ? "This globally reserved slug cannot be changed." : `cal.with-tap.ai/${slug || "your-slug"}`}</small></label>
         <label className="approval-check"><input type="checkbox" checked={published} disabled={submitting} onChange={event => setPublished(event.currentTarget.checked)} /><span><strong>Claim and publish this profile</strong><small>{hasActiveEventTypes ? "Reserve the profile URL and publish every active Event Type." : `Reserve cal.with-tap.ai/${slug || "your-slug"} now. Add Event Types whenever you’re ready.`}</small></span></label>
@@ -4862,20 +4862,20 @@ function EventTypeDialog({
           </Field>
           <Field>
             <FieldLabel htmlFor="event-type-availability-schedule">Availability Schedule</FieldLabel>
-            <NativeSelect
+            <CalendarSelect
               id="event-type-availability-schedule"
               name="event-type-availability-schedule"
               value={availabilityScheduleId}
               required
               disabled={submitting}
-              onChange={event => setAvailabilityScheduleId(event.currentTarget.value)}
+              onValueChange={value => setAvailabilityScheduleId(value)}
             >
               {state.availability.map(schedule => (
-                <NativeSelectOption value={schedule.id} key={schedule.id}>
+                <SelectItem value={schedule.id} key={schedule.id}>
                   {schedule.name}{schedule.id === state.activeAvailabilityId ? " (Default)" : ""} · {timeZoneDisplayLabel(schedule.timezone)}
-                </NativeSelectOption>
+                </SelectItem>
               ))}
-            </NativeSelect>
+            </CalendarSelect>
             <FieldDescription>
               Weekly hours, travel overrides, buffers, notice, and booking horizon come from this schedule.
             </FieldDescription>
@@ -4883,29 +4883,29 @@ function EventTypeDialog({
           <div className="form-grid">
             <Field>
               <FieldLabel htmlFor="event-type-duration">Duration</FieldLabel>
-              <NativeSelect id="event-type-duration" name="event-type-duration" value={String(durationMinutes)} disabled={submitting} onChange={event => setDurationMinutes(Number(event.currentTarget.value))}>
-                <NativeSelectOption value="15">15 minutes</NativeSelectOption>
-                <NativeSelectOption value="30">30 minutes</NativeSelectOption>
-                <NativeSelectOption value="45">45 minutes</NativeSelectOption>
-                <NativeSelectOption value="60">1 hour</NativeSelectOption>
-                <NativeSelectOption value="90">90 minutes</NativeSelectOption>
-              </NativeSelect>
+              <CalendarSelect id="event-type-duration" name="event-type-duration" value={String(durationMinutes)} disabled={submitting} onValueChange={value => setDurationMinutes(Number(value))}>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="45">45 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+                <SelectItem value="90">90 minutes</SelectItem>
+              </CalendarSelect>
             </Field>
             <Field>
               <FieldLabel htmlFor="event-type-provider">Meeting provider</FieldLabel>
-              <NativeSelect id="event-type-provider" name="event-type-provider" value={location} disabled={submitting} onChange={event => setLocation(event.currentTarget.value as MeetingLocation)}>
-                <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
-                <NativeSelectOption value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</NativeSelectOption>
-              </NativeSelect>
+              <CalendarSelect id="event-type-provider" name="event-type-provider" value={location} disabled={submitting} onValueChange={value => setLocation(value as MeetingLocation)}>
+                <SelectItem value="google-meet">Google Meet</SelectItem>
+                <SelectItem value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</SelectItem>
+              </CalendarSelect>
               <FieldDescription>{meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
             </Field>
           </div>
           <div className="form-grid">
             <Field>
               <FieldLabel htmlFor="event-type-destination">Destination Calendar</FieldLabel>
-              <NativeSelect id="event-type-destination" name="event-type-destination" value={destinationCalendarId} disabled={submitting} onChange={event => setDestinationCalendarId(event.currentTarget.value)}>
-                {writableCalendars.map(calendar => <NativeSelectOption value={calendar.id} key={calendar.id}>{calendar.name}</NativeSelectOption>)}
-              </NativeSelect>
+              <CalendarSelect id="event-type-destination" name="event-type-destination" value={destinationCalendarId} disabled={submitting} onValueChange={value => setDestinationCalendarId(value)}>
+                {writableCalendars.map(calendar => <SelectItem value={calendar.id} key={calendar.id}>{calendar.name}</SelectItem>)}
+              </CalendarSelect>
             </Field>
             <Field>
               <FieldLabel htmlFor="event-type-color">Accent color</FieldLabel>
@@ -5023,7 +5023,7 @@ function NotificationsScreen({ state, commit, announce, platform, workspaceId, o
       <aside className="notification-settings panel">
         <header><span className="eyebrow">Personal reminders</span><h2>Before a meeting</h2><p>Defaults apply unless an Event Type overrides them.</p></header>
         <label className="setting-row"><span><strong>System notification</strong><small>Default: 10 minutes before</small></span><span className="switch"><input type="checkbox" checked={state.notificationPreferences.system} onChange={event => void commit(current => updateNotificationPreferences(current, { system: event.currentTarget.checked }))} /><span /></span></label>
-        <label className="field"><span>Reminder offsets</span><select value={state.notificationPreferences.reminderMinutes[0] ?? 10} onChange={event => void commit(current => updateNotificationPreferences(current, { reminderMinutes: [Number(event.currentTarget.value)] }))}><option value="5">5 minutes before</option><option value="10">10 minutes before</option><option value="15">15 minutes before</option><option value="30">30 minutes before</option></select></label>
+        <label className="field"><span>Reminder offsets</span><CalendarSelect value={String(state.notificationPreferences.reminderMinutes[0] ?? 10)} onValueChange={value => void commit(current => updateNotificationPreferences(current, { reminderMinutes: [Number(value)] }))}><SelectItem value="5">5 minutes before</SelectItem><SelectItem value="10">10 minutes before</SelectItem><SelectItem value="15">15 minutes before</SelectItem><SelectItem value="30">30 minutes before</SelectItem></CalendarSelect></label>
         <div className="delivery-grid">
           {(["tap", "email", "sms", "whatsapp", "telegram"] as const).map(channel => (
             <label key={channel}><input type="checkbox" checked={state.notificationPreferences[channel]} onChange={event => void commit(current => updateNotificationPreferences(current, { [channel]: event.currentTarget.checked }))} /><span>{channel === "tap" ? "TAP channel" : channel.charAt(0).toUpperCase() + channel.slice(1)}</span>{channel === "sms" || channel === "whatsapp" ? <small>Consent required</small> : null}</label>
@@ -5091,7 +5091,7 @@ function AddNotificationChannelDialog({
         }}
       >
         <label className="field"><span>Channel name</span><input value={name} required maxLength={120} onChange={event => setName(event.currentTarget.value)} /></label>
-        <label className="field"><span>Summary scope</span><select value={scope} onChange={event => setScope(event.currentTarget.value as typeof scope)}><option value="team">Selected team</option><option value="calendar">Selected calendar</option><option value="event-type">Selected Event Type</option></select></label>
+        <label className="field"><span>Summary scope</span><CalendarSelect value={scope} onValueChange={value => setScope(value as typeof scope)}><SelectItem value="team">Selected team</SelectItem><SelectItem value="calendar">Selected calendar</SelectItem><SelectItem value="event-type">Selected Event Type</SelectItem></CalendarSelect></label>
         <div className="privacy-preview"><ShieldCheck /><div><strong>Permission-aware delivery</strong><p>Full details only reach authorized channel members.</p><small>Everyone else receives a redacted busy summary.</small></div></div>
         <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button" disabled={submitting || !name.trim()}><MessageSquareText /> {submitting ? "Adding…" : "Add channel"}</button></div>
       </form>
@@ -5274,7 +5274,7 @@ function SettingsScreen({
             </div>
           </div>
         </section>
-        <aside className="settings-aside"><section className="panel"><span className="eyebrow">Default behavior</span><h2>Scheduling</h2><label className="field"><span>Destination calendar</span><select value={allCalendars(state).find(calendar => calendar.destination)?.id ?? ""} disabled={!allCalendars(state).some(calendar => calendar.writable)} onChange={event => void commit(current => updateCalendar(current, event.currentTarget.value, { destination: true }), "Destination Calendar updated.")}><option value="" disabled>No writable calendar</option>{allCalendars(state).filter(calendar => calendar.writable).map(calendar => <option value={calendar.id} key={calendar.id}>{calendar.name}</option>)}</select></label><div className="field"><span>Viewer time zone</span><div className="viewer-time-zone"><Globe2 /><span><strong>Automatic</strong><small>{detectedTimeZone()}</small></span></div><small>Calendar views follow this device. Availability schedules have their own configurable time zone.</small></div><label className="setting-row"><span><strong>Offline read-only</strong><small>Keep the last safe calendar view available</small></span><span className="switch"><input type="checkbox" defaultChecked /><span /></span></label></section><section className="panel privacy-card"><ShieldCheck /><div><span className="eyebrow">Privacy boundary</span><h3>Busy by default</h3><p>Shared calendars and team views expose free/busy unless every viewer can read event details. Work Blocks never copy private task or message content to a provider.</p></div></section>{preview ? <section className="panel danger-card"><span className="eyebrow">Local preview</span><h3>Clear local Calendar data</h3><p>Remove locally configured accounts, events, availability, booking pages, and channels.</p><button type="button" className="secondary-button" onClick={() => { resetPreviewCalendar(gateway.principalId); announce("Local Calendar data cleared."); globalThis.location.reload(); }}><RefreshCw /> Clear local data</button></section> : null}</aside>
+        <aside className="settings-aside"><section className="panel"><span className="eyebrow">Default behavior</span><h2>Scheduling</h2><label className="field"><span>Destination calendar</span><CalendarSelect placeholder="No writable calendar" value={allCalendars(state).find(calendar => calendar.destination)?.id ?? ""} disabled={!allCalendars(state).some(calendar => calendar.writable)} onValueChange={value => void commit(current => updateCalendar(current, value, { destination: true }), "Destination Calendar updated.")}>{allCalendars(state).filter(calendar => calendar.writable).map(calendar => <SelectItem value={calendar.id} key={calendar.id}>{calendar.name}</SelectItem>)}</CalendarSelect></label><div className="field"><span>Viewer time zone</span><div className="viewer-time-zone"><Globe2 /><span><strong>Automatic</strong><small>{detectedTimeZone()}</small></span></div><small>Calendar views follow this device. Availability schedules have their own configurable time zone.</small></div><label className="setting-row"><span><strong>Offline read-only</strong><small>Keep the last safe calendar view available</small></span><span className="switch"><input type="checkbox" defaultChecked /><span /></span></label></section><section className="panel privacy-card"><ShieldCheck /><div><span className="eyebrow">Privacy boundary</span><h3>Busy by default</h3><p>Shared calendars and team views expose free/busy unless every viewer can read event details. Work Blocks never copy private task or message content to a provider.</p></div></section>{preview ? <section className="panel danger-card"><span className="eyebrow">Local preview</span><h3>Clear local Calendar data</h3><p>Remove locally configured accounts, events, availability, booking pages, and channels.</p><button type="button" className="secondary-button" onClick={() => { resetPreviewCalendar(gateway.principalId); announce("Local Calendar data cleared."); globalThis.location.reload(); }}><RefreshCw /> Clear local data</button></section> : null}</aside>
       </div>
       {editingAccount ? (
         <EditCalendarAccountDialog
@@ -5737,7 +5737,7 @@ function DisconnectCalendarAccountDialog({
         <div className="disconnect-summary"><Unplug /><div><strong>{account.calendars.length} {account.calendars.length === 1 ? "calendar" : "calendars"} will be removed from this surface</strong><p>{projectedEvents} cached {projectedEvents === 1 ? "event" : "events"} will disappear from TAP Calendar. Provider events are untouched.</p></div></div>
         {removesDestination ? (
           replacementCalendars.length > 0 ? (
-            <label className="field"><span>New Destination Calendar</span><select value={replacementId} onChange={event => setReplacementId(event.currentTarget.value)}>{replacementCalendars.map(calendar => <option value={calendar.id} key={calendar.id}>{calendar.name}</option>)}</select><small>Event Types using this account will move to the selected writable calendar.</small></label>
+            <label className="field"><span>New Destination Calendar</span><CalendarSelect value={replacementId} onValueChange={value => setReplacementId(value)}>{replacementCalendars.map(calendar => <SelectItem value={calendar.id} key={calendar.id}>{calendar.name}</SelectItem>)}</CalendarSelect><small>Event Types using this account will move to the selected writable calendar.</small></label>
           ) : (
             <div className="dialog-warning" role="status"><AlertTriangle /><span>This removes the last writable calendar. Scheduling will stay unavailable, and affected Event Types will pause until you add another Destination Calendar.</span></div>
           )
@@ -5797,7 +5797,7 @@ function RemoveCalendarDialog({
         <div className="disconnect-summary"><Unplug /><div><strong>This calendar will leave the sidebar and stop syncing into this view</strong><p>{cachedEvents} cached {cachedEvents === 1 ? "event" : "events"} will be removed from TAP Calendar. Hiding only suppresses display; removal also suppresses future provider discovery for this connection.</p></div></div>
         {calendar.destination ? (
           replacementCalendars.length > 0 ? (
-            <label className="field"><span>New Destination Calendar</span><select value={replacementId} onChange={event => setReplacementId(event.currentTarget.value)}>{replacementCalendars.map(candidate => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select><small>Event Types using this calendar will move to the selected writable calendar.</small></label>
+            <label className="field"><span>New Destination Calendar</span><CalendarSelect value={replacementId} onValueChange={value => setReplacementId(value)}>{replacementCalendars.map(candidate => <SelectItem value={candidate.id} key={candidate.id}>{candidate.name}</SelectItem>)}</CalendarSelect><small>Event Types using this calendar will move to the selected writable calendar.</small></label>
           ) : (
             <div className="dialog-warning" role="status"><AlertTriangle /><span>This removes the last writable calendar. Scheduling will stay unavailable, and affected Event Types will pause until you add another Destination Calendar.</span></div>
           )
@@ -6190,37 +6190,37 @@ function ScheduleMeetingEditor({
             </Field>
             <Field>
               <FieldLabel htmlFor="schedule-duration">Duration</FieldLabel>
-              <NativeSelect
+              <CalendarSelect
                 id="schedule-duration"
                 name="schedule-duration"
                 value={String(durationMinutes)}
-                onChange={event => setDurationMinutes(Number(event.currentTarget.value))}
+                onValueChange={value => setDurationMinutes(Number(value))}
               >
-                <NativeSelectOption value="15">15 minutes</NativeSelectOption>
-                <NativeSelectOption value="30">30 minutes</NativeSelectOption>
-                <NativeSelectOption value="45">45 minutes</NativeSelectOption>
-                <NativeSelectOption value="60">1 hour</NativeSelectOption>
-                <NativeSelectOption value="90">90 minutes</NativeSelectOption>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="45">45 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+                <SelectItem value="90">90 minutes</SelectItem>
                 {mode === "workspace" ? <>
-                  <NativeSelectOption value="120">2 hours</NativeSelectOption>
-                  <NativeSelectOption value="240">4 hours</NativeSelectOption>
-                  <NativeSelectOption value="480">8 hours</NativeSelectOption>
+                  <SelectItem value="120">2 hours</SelectItem>
+                  <SelectItem value="240">4 hours</SelectItem>
+                  <SelectItem value="480">8 hours</SelectItem>
                 </> : null}
-              </NativeSelect>
+              </CalendarSelect>
             </Field>
           </div>
           <Field>
             <FieldLabel htmlFor="schedule-location">Location</FieldLabel>
-            <NativeSelect
+            <CalendarSelect
               id="schedule-location"
               name="schedule-location"
               value={location ?? "none"}
-              onChange={event => setLocation(event.currentTarget.value === "none" ? null : event.currentTarget.value as MeetingLocation)}
+              onValueChange={value => setLocation(value === "none" ? null : value as MeetingLocation)}
             >
-              {mode === "workspace" ? <NativeSelectOption value="none">No video call</NativeSelectOption> : null}
-              <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
-              <NativeSelectOption value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</NativeSelectOption>
-            </NativeSelect>
+              {mode === "workspace" ? <SelectItem value="none">No video call</SelectItem> : null}
+              <SelectItem value="google-meet">Google Meet</SelectItem>
+              <SelectItem value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</SelectItem>
+            </CalendarSelect>
             <FieldDescription>{location === null ? "This event marks you as busy. Add a video call if you need one." : meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
           </Field>
         </FieldGroup>
@@ -6670,15 +6670,15 @@ export function ConnectCalendarDialog({
           <div className="form-grid provider-account-fields">
             <Field>
               <FieldLabel htmlFor="calendar-account-provider">Provider</FieldLabel>
-              <NativeSelect id="calendar-account-provider" name="calendar-account-provider" value={provider} disabled={submitting || oauthPendingId !== null} onChange={event => {
-                if (event.currentTarget.value === "zoom") onConnectZoom();
-                else setProvider(event.currentTarget.value as CalendarProvider);
+              <CalendarSelect id="calendar-account-provider" name="calendar-account-provider" value={provider} disabled={submitting || oauthPendingId !== null} onValueChange={value => {
+                if (value === "zoom") onConnectZoom();
+                else setProvider(value as CalendarProvider);
               }}>
                 {providerStatuses.length > 0
-                  ? providerStatuses.map(status => <NativeSelectOption value={status.id} key={status.id}>{providerNames[status.id]}</NativeSelectOption>)
-                  : <NativeSelectOption value={provider}>{providerNames[provider]}</NativeSelectOption>}
-                <NativeSelectOption value="zoom">Zoom</NativeSelectOption>
-              </NativeSelect>
+                  ? providerStatuses.map(status => <SelectItem value={status.id} key={status.id}>{providerNames[status.id]}</SelectItem>)
+                  : <SelectItem value={provider}>{providerNames[provider]}</SelectItem>}
+                <SelectItem value="zoom">Zoom</SelectItem>
+              </CalendarSelect>
             </Field>
             <Field>
               <FieldLabel htmlFor="calendar-account-label">{connectionCapabilities.localConnectorAvailable ? "Account name or email" : "Account label (optional)"}</FieldLabel>
@@ -6719,7 +6719,7 @@ export function ConnectCalendarDialog({
                     {calendars.length > 1 ? <button type="button" className="icon-button calendar-draft-remove" aria-label={`Remove calendar ${index + 1}`} onClick={() => setCalendars(current => current.filter(item => item.key !== calendar.key))}><X /></button> : null}
                     <div className="form-grid">
                       <label className="field"><span>Calendar name</span><input name={`calendar-name-${index}`} autoComplete="off" value={calendar.name} required onChange={event => updateDraft(calendar.key, { name: event.currentTarget.value })} /></label>
-                      <label className="field"><span>Access</span><select value={role} disabled={effectiveProvider === "ics"} onChange={event => { const nextRole = event.currentTarget.value as CalendarRole; const nextWritable = nextRole === "owner" || nextRole === "writer"; updateDraft(calendar.key, { role: nextRole, ...(nextWritable ? {} : { destination: false }) }); }}><option value="owner">I own this calendar</option><option value="writer">Shared · can edit</option><option value="reader">Shared · read only</option><option value="free-busy">Shared · free/busy only</option></select></label>
+                      <label className="field"><span>Access</span><CalendarSelect value={role} disabled={effectiveProvider === "ics"} onValueChange={value => { const nextRole = value as CalendarRole; const nextWritable = nextRole === "owner" || nextRole === "writer"; updateDraft(calendar.key, { role: nextRole, ...(nextWritable ? {} : { destination: false }) }); }}><SelectItem value="owner">I own this calendar</SelectItem><SelectItem value="writer">Shared · can edit</SelectItem><SelectItem value="reader">Shared · read only</SelectItem><SelectItem value="free-busy">Shared · free/busy only</SelectItem></CalendarSelect></label>
                     </div>
                     <div className="calendar-draft-options">
                       <label><input type="checkbox" checked={calendar.visible} onChange={event => updateDraft(calendar.key, { visible: event.currentTarget.checked })} /><span>Show in Calendar</span></label>
@@ -6846,14 +6846,14 @@ function WorkBlockDialog({ state, principalAccess, platform, workspaceId, onClos
         <FieldGroup className="calendar-form-fields">
           <Field data-disabled={taskSourceDisabled}>
             <FieldLabel htmlFor="work-block-task">TAP task</FieldLabel>
-            <NativeSelect
+            <CalendarSelect
               id="work-block-task"
               name="work-block-task"
-              value={source}
+              value={source || "unselected-task"}
               disabled={taskSourceDisabled}
               aria-describedby="work-block-task-description"
-              onChange={event => {
-                const nextSourceId = event.currentTarget.value;
+              onValueChange={value => {
+                const nextSourceId = value === "unselected-task" ? "" : value;
                 const nextSource = tapSources.find(item => item.sourceId === nextSourceId);
                 setSource(nextSourceId);
                 if (nextSource !== undefined) {
@@ -6865,11 +6865,11 @@ function WorkBlockDialog({ state, principalAccess, platform, workspaceId, onClos
                 }
               }}
             >
-              <NativeSelectOption value="">
+              <SelectItem value="unselected-task">
                 {taskSourcesLoading ? "Loading TAP tasks…" : taskSourcesError !== null ? "TAP tasks unavailable" : availableSources.length === 0 ? "No TAP tasks available" : "Choose a task"}
-              </NativeSelectOption>
-              {availableSources.map(item => <NativeSelectOption value={item.id} key={item.id}>{item.label}</NativeSelectOption>)}
-            </NativeSelect>
+              </SelectItem>
+              {availableSources.map(item => <SelectItem value={item.id} key={item.id}>{item.label}</SelectItem>)}
+            </CalendarSelect>
             <FieldDescription id="work-block-task-description">Choose any task visible to you in this TAP workspace.</FieldDescription>
           </Field>
         </FieldGroup>
@@ -6908,17 +6908,17 @@ function WorkBlockDialog({ state, principalAccess, platform, workspaceId, onClos
             </Field>
             <Field>
               <FieldLabel htmlFor="work-block-duration">Duration</FieldLabel>
-              <NativeSelect
+              <CalendarSelect
                 id="work-block-duration"
                 name="work-block-duration"
                 value={String(durationMinutes)}
                 disabled={submitting}
-                onChange={event => setDurationMinutes(Number(event.currentTarget.value))}
+                onValueChange={value => setDurationMinutes(Number(value))}
               >
-                <NativeSelectOption value="30">30 minutes</NativeSelectOption>
-                <NativeSelectOption value="60">1 hour</NativeSelectOption>
-                <NativeSelectOption value="90">90 minutes</NativeSelectOption>
-              </NativeSelect>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+                <SelectItem value="90">90 minutes</SelectItem>
+              </CalendarSelect>
             </Field>
           </div>
         </FieldGroup>
@@ -7107,12 +7107,13 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
     const previouslyFocused = globalThis.document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === "Escape") {
         close();
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = [...(overlayRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') ?? [])].filter(element => element.offsetParent !== null);
+      const focusable = [...(overlayRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]):not([aria-hidden="true"]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') ?? [])].filter(element => element.offsetParent !== null);
       if (focusable.length === 0) return;
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
@@ -7524,12 +7525,13 @@ function Modal({ title, description, onClose, children }: { readonly title: stri
     );
     (initialFocus ?? closeRef.current)?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === "Escape") {
         close();
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = [...(cardRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') ?? [])].filter(element => element.offsetParent !== null);
+      const focusable = [...(cardRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]):not([aria-hidden="true"]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') ?? [])].filter(element => element.offsetParent !== null);
       if (focusable.length === 0) return;
       const first = focusable[0]!;
       const last = focusable.at(-1)!;

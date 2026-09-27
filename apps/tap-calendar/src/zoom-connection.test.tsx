@@ -113,18 +113,29 @@ const click = async (text: string) => {
   expect(button, `Missing button: ${text}`).toBeDefined();
   await act(async () => button!.click());
 };
-const select = async (name: string, value: string) => act(async () => {
-  const element = container.querySelector<HTMLSelectElement>(`[name="${name}"]`)!;
-  element.value = value;
-  element.dispatchEvent(new Event("change", { bubbles: true }));
+const openSelect = async (name: string) => act(async () => {
+  const trigger = container.querySelector<HTMLButtonElement>(`#${name}`)!;
+  trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
 });
+const select = async (name: string, label: string) => {
+  await openSelect(name);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    .find(element => element.textContent === label)!;
+  await act(async () => option.click());
+};
+const expectZoomDisabled = async () => {
+  await openSelect("schedule-location");
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    .find(element => element.textContent?.startsWith("Zoom"));
+  expect(option?.hasAttribute("data-disabled")).toBe(true);
+};
 const requestsTo = (path: string) => requests.filter(([url]) => new URL(url).pathname === path);
 
 describe("Zoom account connection", () => {
   it("connects from the account chooser and makes Zoom usable for a scheduled meeting", async () => {
     await render();
     expect(container.textContent).toContain("Add an account");
-    await select("calendar-account-provider", "zoom");
+    await select("calendar-account-provider", "Zoom");
     expect(container.textContent).toContain("Connect Zoom");
     expect(container.querySelector('[name="account-label"]')).toBeNull();
     await click("Connect Zoom");
@@ -149,8 +160,7 @@ describe("Zoom account connection", () => {
     expect(announce).toHaveBeenCalledWith("Zoom connected.");
     expect(submitAccount).not.toHaveBeenCalled();
     await click("Close");
-    expect(container.querySelector<HTMLOptionElement>('option[value="zoom"]')?.disabled).toBe(false);
-    await select("schedule-location", "zoom");
+    await select("schedule-location", "Zoom");
     await act(async () => {
       const title = container.querySelector<HTMLInputElement>('[name="meeting-title"]')!;
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Zoom planning");
@@ -164,7 +174,7 @@ describe("Zoom account connection", () => {
     calendarServiceUnavailable = true;
     await render();
     expect(container.textContent).toContain("Calendar service unavailable");
-    await select("calendar-account-provider", "zoom");
+    await select("calendar-account-provider", "Zoom");
     await click("Connect Zoom");
     expect(requestsTo("/v1/oauth/zoom/start")).toHaveLength(1);
   });
@@ -172,12 +182,12 @@ describe("Zoom account connection", () => {
   it("shows an existing Zoom account without starting a duplicate authorization", async () => {
     connections = [zoomConnection("connected")];
     await render();
-    await select("calendar-account-provider", "zoom");
+    await select("calendar-account-provider", "Zoom");
     expect(container.textContent).toContain("Manage Zoom");
     expect(requestsTo("/v1/oauth/zoom/start")).toHaveLength(0);
     await click("Disconnect Zoom");
     expect(announce).toHaveBeenCalledWith("Zoom disconnected.");
-    expect(container.querySelector<HTMLOptionElement>('option[value="zoom"]')?.disabled).toBe(true);
+    await expectZoomDisabled();
   });
 
   it("requires calendar management permission before starting Zoom authorization", async () => {
@@ -195,7 +205,7 @@ describe("Zoom account connection", () => {
     expect(container.textContent).toContain("Zoom isn't available right now");
     expect(sdk.navigation.openExternal).not.toHaveBeenCalled();
     await click("Close");
-    expect(container.querySelector<HTMLOptionElement>('option[value="zoom"]')?.disabled).toBe(true);
+    await expectZoomDisabled();
   });
 
   it("rejects an unsafe authorization link and can restart with a fresh link", async () => {
