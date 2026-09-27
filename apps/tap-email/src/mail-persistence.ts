@@ -14,29 +14,76 @@ export async function persistCommandSnapshot(
 
 /** One active state and one replaceable latest state; a fixed timer cannot be starved by renders. */
 export class MailPersistenceQueue {
-  private latest: MailState | null = null;
+  private latest: { state: MailState; version: number } | null = null;
+  private requestedVersion = 0;
+  private persistedVersion = 0;
+  private failure: { error: unknown } | null = null;
+  private waiters: { version: number; resolve: () => void; reject: (error: unknown) => void }[] = [];
   private running: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   constructor(private readonly write: (state: MailState) => Promise<void>, private readonly delayMs = 250) {}
 
   request(state: MailState): void {
-    this.latest = state;
-    if (!this.running && this.timer === null) {
-      this.timer = setTimeout(() => { this.timer = null; void this.flush(); }, this.delayMs);
+    this.latest = { state, version: ++this.requestedVersion };
+    this.schedule();
+  }
+
+  private schedule(): void {
+    if (this.latest && !this.running && this.timer === null) {
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        void this.flush().catch(() => undefined);
+      }, this.delayMs);
     }
   }
 
+  /** Reads wait for existing writes, without waiting for future sync updates. */
+  flushCurrent(): Promise<void> {
+    if (this.persistedVersion >= this.requestedVersion) return Promise.resolve();
+    if (!this.latest && this.failure) return Promise.reject(this.failure.error);
+    let failed!: (error: unknown) => void;
+    const result = new Promise<void>((resolve, reject) => {
+      const waiter = { version: this.requestedVersion, resolve, reject };
+      this.waiters.push(waiter);
+      failed = error => {
+        this.waiters = this.waiters.filter(item => item !== waiter);
+        reject(error);
+      };
+    });
+    // The drain reports failures to the waiters as well as callers of flush().
+    void this.flush().catch(failed);
+    return result;
+  }
+
+  /** Shutdown still waits until every queued write has finished. */
   async flush(): Promise<void> {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
     if (this.running) return this.running;
     const run = async () => {
-      while (this.latest) {
-        const snapshot = this.latest;
-        this.latest = null;
-        await this.write(snapshot);
+      try {
+        while (this.latest) {
+          const snapshot = this.latest;
+          this.latest = null;
+          await this.write(snapshot.state);
+          this.persistedVersion = snapshot.version;
+          this.failure = null;
+          this.waiters = this.waiters.filter(waiter => {
+            if (waiter.version > this.persistedVersion) return true;
+            waiter.resolve();
+            return false;
+          });
+        }
+      } catch (error) {
+        this.failure = { error };
+        for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+        throw error;
       }
     };
-    this.running = run().finally(() => { this.running = null; });
+    this.running = run().finally(() => {
+      this.running = null;
+      // A read waiter may request another snapshot before this finalizer runs.
+      this.schedule();
+    });
     return this.running;
   }
 }

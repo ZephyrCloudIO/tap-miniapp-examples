@@ -229,6 +229,105 @@ print('native SQL limits passed')
     expect(written).toEqual([template, latest]);
   });
 
+  it('lets navigation read once its snapshot is saved while later history writes continue', async () => {
+    rs.useFakeTimers();
+    let releaseFirst!: () => void;
+    let releaseLater!: () => void;
+    const first = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const later = new Promise<void>(resolve => { releaseLater = resolve; });
+    const written: string[] = [];
+    const queue = new MailPersistenceQueue(async state => {
+      written.push(state.selectedThreadKey!);
+      await (written.length === 1 ? first : later);
+    });
+    try {
+      queue.request({ ...template, selectedThreadKey: 'navigation' });
+      let ready = false;
+      const navigation = queue.flushCurrent().then(() => { ready = true; });
+      queue.request({ ...template, selectedThreadKey: 'later_history' });
+      let drained = false;
+      const shutdown = queue.flush().then(() => { drained = true; });
+      releaseFirst();
+      await rs.advanceTimersByTimeAsync(0);
+      expect(written).toEqual(['navigation', 'later_history']);
+      expect(ready).toBe(true);
+      expect(drained).toBe(false);
+      await navigation;
+      releaseLater();
+      await shutdown;
+      expect(drained).toBe(true);
+    } finally {
+      releaseFirst();
+      releaseLater();
+      await queue.flush();
+      rs.useRealTimers();
+    }
+  });
+
+  it('includes the pending navigation snapshot when another write is already running', async () => {
+    rs.useFakeTimers();
+    const releases: (() => void)[] = [];
+    const written: string[] = [];
+    const queue = new MailPersistenceQueue(async state => {
+      written.push(state.selectedThreadKey!);
+      await new Promise<void>(resolve => { releases.push(resolve); });
+    });
+    try {
+      queue.request({ ...template, selectedThreadKey: 'first' });
+      const first = queue.flushCurrent();
+      queue.request({ ...template, selectedThreadKey: 'navigation' });
+      let ready = false;
+      const navigation = queue.flushCurrent().then(() => { ready = true; });
+      queue.request({ ...template, selectedThreadKey: 'coalesced_navigation' });
+      releases[0]!();
+      await rs.advanceTimersByTimeAsync(0);
+      await first;
+      expect(ready).toBe(false);
+      expect(written).toEqual(['first', 'coalesced_navigation']);
+      queue.request({ ...template, selectedThreadKey: 'future_history' });
+      releases[1]!();
+      await rs.advanceTimersByTimeAsync(0);
+      expect(ready).toBe(true);
+      expect(written).toEqual(['first', 'coalesced_navigation', 'future_history']);
+      await navigation;
+    } finally {
+      for (const release of releases) release();
+      await queue.flush();
+      rs.useRealTimers();
+    }
+  });
+
+  it('rejects waiting reads on a write failure and permits a later retry', async () => {
+    const write = rs.fn<(state: MailState) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('device unavailable'))
+      .mockResolvedValue(undefined);
+    const queue = new MailPersistenceQueue(write);
+    queue.request(template);
+    await expect(queue.flushCurrent()).rejects.toThrow('device unavailable');
+    await queue.flush().catch(() => undefined);
+    await expect(queue.flushCurrent()).rejects.toThrow('device unavailable');
+    queue.request(template);
+    await queue.flushCurrent();
+    await queue.flush();
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  it('persists an update requested as a read barrier completes', async () => {
+    rs.useFakeTimers();
+    const written: string[] = [];
+    const queue = new MailPersistenceQueue(async state => { written.push(state.selectedThreadKey!); });
+    try {
+      queue.request({ ...template, selectedThreadKey: 'first' });
+      await queue.flushCurrent();
+      queue.request({ ...template, selectedThreadKey: 'after_read' });
+      await rs.advanceTimersByTimeAsync(250);
+      expect(written).toEqual(['first', 'after_read']);
+    } finally {
+      await queue.flush();
+      rs.useRealTimers();
+    }
+  });
+
   it('recovers a single record larger than the native SQLite row limit using bounded parts', async () => {
     // Exercise the real SQLite 16 MiB limit, not only a transport-size mock.
     const result = execFileSync('python3', ['-c', `
