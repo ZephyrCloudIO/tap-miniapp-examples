@@ -19,9 +19,8 @@ use disposable localStorage and do not represent the production durability path.
   escaping in UTF-8. Insert batches include SQL, parameters, and a 4 KiB host
   envelope allowance and stay below 512 KiB and 900 parameters. This is below
   both the host's 24 MiB request limit and SQLite's 16 MiB row/value limit.
-  Reads also return at most four record parts at a time.
-- Metadata has no thread-count eviction limit. The UI reads keyset pages of 100
-  threads, plus at most one selected thread. Search scans disk pages and can find
+  Single-record reads return at most four parts at a time. Batched thread/message metadata reads return at most 64 parts (4 MiB of escaped payload), with a keyset cursor across responses.
+- Metadata has no thread-count eviction limit. Startup reads 20 threads for the saved account and folder. The UI fills keyset pages of 100 threads in batches of 20, plus at most one selected thread. List reads use message previews; only the selected conversation loads hydrated bodies. Search scans disk pages and can find
   matches anywhere in history. Meaning search indexes those pages incrementally
   and returns its usual bounded ranked results. Sidebar counts come from disk.
 - Hydrated bodies have an 8 MiB UI budget and a 32 MiB disk LRU budget. A single
@@ -59,7 +58,9 @@ UI persistence has one active write and one replaceable pending state. A fixed
 barriers are released from the exact snapshot committed to the journal, including
 on retry. Cache failure does not retract a committed journal or release a newer,
 unsaved command. Selection-only saves update UI state, not every mailbox row.
-Delayed UI writes also cannot replace a newer provider revision.
+Delayed UI writes also cannot replace a newer provider revision. Navigation reads use current pending intents without flushing the UI write queue. Unsaved row edits are staged independently until their successful cache commit, even if navigation replaces the visible window. Commands still pass the durable journal barrier before dispatch.
+
+Queued navigation reads run after the active atomic transaction and before queued background operations. Sync revision checks and prior thread metadata are read in bounded batches. Recent views retain rows in a 12-page, 8 MiB memory cache (including any already-loaded bodies); returning to a view renders that cache immediately while refreshing disk results. Incremental refreshes retain existing rows until the complete replacement arrives. Account changes invalidate cache membership, and privacy wipes clear retained pages.
 
 ## Migration and recovery
 

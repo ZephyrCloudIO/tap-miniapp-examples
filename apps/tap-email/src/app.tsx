@@ -1,7 +1,7 @@
 import { activityCommandFromReceipt } from './activity';
 import { EmailToolAccessPanel } from './email-tool-access-panel';
-import { boundMailWindow, type MailWindowCursor } from './bounded-mail-replica';
-import { MailWindowRefresh, retainMailWindow } from './mail-window-refresh';
+import { boundMailWindow, journalOf, type MailWindowCursor } from './bounded-mail-replica';
+import { MailWindowCache, MailWindowRefresh, mergeMailWindow, retainMailWindow } from './mail-window-refresh';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
 import { isMailDraftPayload } from '@tap-examples/tap-email-protocol';
@@ -793,6 +793,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [windowKeys, setWindowKeys] = useState<ReadonlySet<string> | null>(null);
   const windowSelected = useRef(false);
   const windowRefresh = useRef<MailWindowRefresh | null>(null);
+  const windowCache = useRef(new MailWindowCache());
+  const [windowEpoch, setWindowEpoch] = useState(0);
   const windowScope = JSON.stringify([state.selectedAccountId, state.selectedSplit, query, windowCursor]);
   const [windowRead, setWindowRead] = useState<{ scope: string; status: 'loading' | 'ready' | 'error'; pending: boolean } | null>(null);
   const windowReady = !store.queryThreads || semanticSearch?.query === query.trim() ||
@@ -1044,7 +1046,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           await waitForHostAuthority(surfaceContext);
           diagnostics?.breadcrumb('authority.ready');
           diagnostics?.breadcrumb('cache.loading');
-          const cacheRequest = store.load().then(
+          const cacheRequest = store.load({ initialWindow: true }).then(
             mail => ({ mail, error: null }),
             async error => {
               const journal = await store.loadJournal?.().catch(() => null);
@@ -1058,6 +1060,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           if (!active) return;
           diagnostics?.breadcrumb(cached.error ? 'cache.failed' : 'cache.loaded');
           cachedMailAvailable = cached.mail !== null;
+          if (cached.mail) windowCache.current.set(JSON.stringify([cached.mail.selectedAccountId, cached.mail.selectedSplit, '', null]), cached.mail.threads);
           setJournalRecovered(!cached.error || cached.mail !== null);
           commandPersistenceBarrier.current.seedFromCache(
             cached.mail ?? { commands: [] },
@@ -1147,8 +1150,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   }), [store]);
 
   useEffect(() => {
-    if (hydrated && journalRecovered && store.capability !== 'unavailable') persistenceQueue.request(state);
+    if (hydrated && journalRecovered && store.capability !== 'unavailable') {
+      store.stageCache?.(state);
+      persistenceQueue.request(state);
+    }
   }, [hydrated, journalRecovered, state, store, persistenceQueue]);
+
+  useEffect(() => {
+    if (windowRead?.scope === windowScope && windowRead.status === 'ready' && windowKeys) {
+      windowCache.current.set(windowScope, state.threads.filter(thread => windowKeys.has(emailThreadKey(thread))));
+    }
+  }, [state.threads, windowRead?.scope, windowRead?.status, windowScope, windowKeys]);
+
 
   useEffect(() => {
     activitySettlementActive.current = true;
@@ -1329,50 +1342,57 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   useEffect(() => {
     if (!hydrated || !store.queryThreads || semanticSearch?.query === query.trim()) return;
-    setWindowRead({ scope: windowScope, status: 'loading', pending: true });
+    const cached = windowCache.current.get(windowScope);
+    let displayed = cached ?? [];
+    const showRows = (threads: readonly EmailThread[], pending: boolean) => {
+      displayed = threads;
+      windowSelected.current = true;
+      setWindowRead({ scope: windowScope, status: 'ready', pending });
+      setWindowKeys(new Set(threads.map(emailThreadKey)));
+      setState(current => boundMailWindow(mergeMailWindow(current, threads)));
+    };
+    if (cached) showRows(cached, true);
+    else setWindowRead({ scope: windowScope, status: 'loading', pending: true });
     setNextWindowCursor(null);
     const refresh = new MailWindowRefresh(async signal => {
       setWindowRead(current => ({ scope: windowScope, pending: true,
         status: current?.scope === windowScope && current.status === 'ready' ? 'ready' : 'loading' }));
-      // Flush local overlays/corrections before replacing the displayed window.
-      await persistenceQueue.flushCurrent();
-      signal.throwIfAborted();
+      // UI overlays project immediately. Reading mail must never wait for cache
+      // persistence; the independent journal barrier still gates command dispatch.
       const result = await store.queryThreads!({ accountId: state.selectedAccountId,
-        split: state.selectedSplit, query, after: windowCursor, signal, bodies: true,
-        context: { now: new Date(), timeZone: mailSearchTimeZone } });
+        split: state.selectedSplit, query, after: windowCursor, signal,
+        journal: journalOf(stateRef.current),
+        context: { now: new Date(), timeZone: mailSearchTimeZone },
+        onProgress: threads => {
+          if (!signal.aborted) {
+            const keys = new Set(threads.map(emailThreadKey));
+            showRows([...threads, ...displayed.filter(item => !keys.has(emailThreadKey(item)))].slice(0, 100), true);
+          }
+        } });
       signal.throwIfAborted();
-      const selectedBeforeRead = stateRef.current.threads.find(item => emailThreadKey(item) === stateRef.current.selectedThreadKey);
-      const retainedSelection = selectedBeforeRead && store.loadThread
-        ? await store.loadThread(selectedBeforeRead.accountId, selectedBeforeRead.threadId)
-        : selectedBeforeRead;
-      if (signal.aborted) return;
-      windowSelected.current = true;
-      setWindowRead({ scope: windowScope, status: 'ready', pending: false });
+      windowCache.current.set(windowScope, result.threads);
+      showRows(result.threads, false);
       setNextWindowCursor(result.next);
-      setWindowKeys(new Set(result.threads.map(emailThreadKey)));
-      setState(current => {
-        const selected = retainedSelection && emailThreadKey(retainedSelection) === current.selectedThreadKey ? retainedSelection : undefined;
-        const threads = result.threads.map(item => {
-          const existing = current.threads.find(candidate => emailThreadKey(candidate) === emailThreadKey(item));
-          return existing?.providerRevision === item.providerRevision &&
-            (existing as EmailThread & { localReplicaRevision?: number }).localReplicaRevision ===
-            (item as EmailThread & { localReplicaRevision?: number }).localReplicaRevision ? existing : item;
-        });
-        if (selected && !threads.some(item => emailThreadKey(item) === current.selectedThreadKey)) threads.push(selected);
-        return boundMailWindow({ ...current, threads });
-      });
     }, error => {
-      setWindowRead({ scope: windowScope, status: 'error', pending: false });
+      setWindowRead(current => ({ scope: windowScope, pending: false,
+        status: current?.scope === windowScope && current.status === 'ready' ? 'ready' : 'error' }));
       setCacheError(`Local history could not load: ${String(error)}`);
     });
     windowRefresh.current = refresh;
     refresh.refresh();
     return () => { refresh.dispose(); windowRefresh.current = null; };
-  }, [hydrated, store, persistenceQueue, query, state.selectedAccountId, state.selectedSplit, windowCursor, windowScope, semanticSearch]);
+  }, [hydrated, store, query, state.selectedAccountId, state.selectedSplit, windowCursor, windowScope, windowEpoch, semanticSearch]);
 
   useEffect(() => {
     windowRefresh.current?.refresh();
   }, [replicaVersion, state.pendingThreadIntents]);
+
+  const cacheAccountScope = state.accounts.map(account => account.accountId).sort().join('\0');
+  const previousCacheAccounts = useRef(cacheAccountScope);
+  useEffect(() => {
+    if (previousCacheAccounts.current && previousCacheAccounts.current !== cacheAccountScope) windowCache.current.clear();
+    previousCacheAccounts.current = cacheAccountScope;
+  }, [cacheAccountScope]);
 
   const rows = useMemo(() => {
     if (!windowReady) return [];
@@ -1432,6 +1452,19 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const poppedReplyDraft = poppedReplyKey ? replyDrafts[poppedReplyKey] ?? null : null;
   const selectedThreadAccountId = thread?.accountId ?? null;
   const selectedThreadId = thread?.threadId ?? null;
+  const selectedThreadRevision = thread?.providerRevision ?? null;
+  useEffect(() => {
+    if (!selectedThreadAccountId || !selectedThreadId || !store.loadThread) return;
+    const abort = new AbortController();
+    void store.loadThread(selectedThreadAccountId, selectedThreadId, true, abort.signal).then(cached => {
+      if (abort.signal.aborted || !cached) return;
+      setState(current => selectedThread(current)?.threadId === cached.threadId &&
+        selectedThread(current)?.accountId === cached.accountId &&
+        current.threads.find(item => emailThreadKey(item) === emailThreadKey(cached))?.providerRevision === cached.providerRevision
+        ? boundMailWindow(mergeThreadMessages(current, cached.accountId, cached.threadId, cached.messages)) : current);
+    }).catch(() => undefined);
+    return () => abort.abort();
+  }, [selectedThreadAccountId, selectedThreadId, selectedThreadRevision, store]);
   const activeConversationHandoff = thread &&
     conversationHandoff?.threadKey === emailThreadKey(thread)
     ? conversationHandoff
@@ -1456,12 +1489,12 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     if (!hydrated || !store.summarize) return;
     let active = true;
     const timer = setTimeout(() => {
-      void persistenceQueue.flushCurrent().then(() => store.summarize!(state.selectedAccountId)).then(summary => {
+      void store.summarize!(state.selectedAccountId, journalOf(stateRef.current)).then(summary => {
         if (active) setReplicaSummary({ accountId: state.selectedAccountId, value: summary });
       }).catch(() => undefined);
     }, 250);
     return () => { active = false; clearTimeout(timer); };
-  }, [hydrated, store, persistenceQueue, replicaVersion, state.commands, state.pendingThreadIntents, state.outbox, state.selectedAccountId]);
+  }, [hydrated, store, replicaVersion, state.commands, state.pendingThreadIntents, state.outbox, state.selectedAccountId]);
 
   const outboxItems = useMemo(() => recoverableImmediateSends(state)
     .filter(item => {
@@ -2049,13 +2082,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   }, [coordinatorNetworkReady, dispatchTick, flash, hydrated, initialLoadSettled, notify, preview, recordCommittedEmailActivity, refreshMailbox, state.commands, state.undo, store.capability, surfaceContext?.userId, surfaceContext?.workspaceId]);
 
   const openThread = useCallback((target: EmailThread) => {
-    if (store.loadThread) void store.loadThread(target.accountId, target.threadId).then(cached => {
-      if (!cached) return;
-      setState(current => current.selectedThreadKey === emailThreadKey(cached) &&
-        current.threads.find(item => emailThreadKey(item) === emailThreadKey(cached))?.providerRevision === cached.providerRevision
-        ? boundMailWindow(mergeThreadMessages(current, cached.accountId, cached.threadId, cached.messages)) : current);
-    }).catch(() => undefined);
-
     const commandId = `cmd_${idFactory()}`;
     const now = new Date().toISOString();
     setState(current => {
@@ -2072,7 +2098,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         now,
       );
     });
-  }, [idFactory, query, store]);
+  }, [idFactory, query]);
 
   const askChloe = useCallback((intent: ChloeEmailIntent) => {
     if (!thread) return;
@@ -3268,6 +3294,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           onChange={updatePreferences}
           onClose={() => setOverlay('none')}
           onWipe={receipt => {
+            windowCache.current.clear();
+            windowRefresh.current?.dispose();
+            setWindowEpoch(value => value + 1);
             remoteImageCache.current = { entries: new Map(), sizeBytes: 0 };
             setState(current => receipt.scope === 'device'
               ? emptyMailState()

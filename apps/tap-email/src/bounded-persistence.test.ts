@@ -215,6 +215,119 @@ print('native SQL limits passed')
     expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM local_mail_threads').get()?.n).toBe(300);
   });
 
+  it('opens only the first 20 rows of the saved account and folder without reading bodies', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 130 }, (_, index) => ({ ...thread(index, 1000), providerResources: ['sent'] as const }));
+    await store.save({ ...template, selectedAccountId: threads[0]!.accountId, selectedSplit: 'sent', threads });
+    fixture.statements.length = 0;
+    const state = await new ProfileSqliteMailStore(fixture.profile).load({ initialWindow: true });
+    expect(state!.threads.map(item => item.threadId)).toEqual(threads.slice(0, 20).map(item => item.threadId));
+    expect(fixture.statements.some(sql => /local_mail_bodies/.test(sql))).toBe(false);
+  });
+
+  it('keeps local corrections after navigation drops the edited thread before a coalesced save', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...template, threads: [thread(0), thread(1)] });
+    const loaded = (await store.queryThreads({})).threads;
+    const edited = { ...loaded[0]!, attentionCorrection: { critical: false, correctedAt: '2026-09-27T00:00:00.000Z' } };
+    store.stageCache({ ...template, threads: [edited] });
+    expect((await store.queryThreads({ split: 'critical' })).threads.some(item => item.threadId === edited.threadId)).toBe(false);
+    await store.saveCache({ ...template, threads: [loaded[1]!] });
+    expect((await store.loadThread(edited.accountId, edited.threadId))!.attentionCorrection).toEqual(edited.attentionCorrection);
+    fixture.statements.length = 0;
+    const page = await store.queryThreads({ onProgress: threads => store.stageCache({ ...template, threads }) });
+    await store.saveCache({ ...template, threads: page.threads });
+    expect(fixture.statements.some(sql => /INSERT OR REPLACE INTO local_mail_threads/.test(sql))).toBe(false);
+  });
+
+  it('reassembles metadata that crosses a response batch and rejects missing parts', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const item = { ...thread(0), messages: Array.from({ length: 70 }, (_, index) => ({ ...thread(0).messages[0]!, messageId: `long_message_${index}`, bodyText: 'x'.repeat(8000) })) };
+    await store.save({ ...template, threads: [item] });
+    expect((await store.queryThreads({})).threads[0]!.messages).toHaveLength(70);
+    fixture.sqlite.exec("DELETE FROM local_mail_records WHERE kind = 'message' AND entity_id = 'long_message_20'");
+    await expect(store.queryThreads({})).rejects.toThrow('incomplete');
+  });
+
+  it('shows 20 cached rows in two bridge calls and adds rows before pagination finishes, without touching bodies', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 130 }, (_, index) => thread(index, 1000));
+    await store.save({ ...template, threads });
+    fixture.statements.length = 0;
+    const progress: { count: number; calls: number }[] = [];
+    const page = await store.queryThreads({ journal: { commands: [], undo: null }, onProgress: rows => {
+      progress.push({ count: rows.length, calls: fixture.statements.length });
+    } });
+    expect(progress[0]).toEqual({ count: 20, calls: 2 });
+    expect(progress.map(item => item.count)).toEqual([20, 40, 60, 80, 100]);
+    expect(fixture.statements.length).toBeLessThanOrEqual(8);
+    expect(fixture.statements.some(sql => /local_mail_bodies|UPDATE|INSERT|DELETE/.test(sql))).toBe(false);
+    expect(page.threads).toHaveLength(100);
+    expect(page.next).not.toBeNull();
+    expect(page.threads[0]!.messages[0]!.bodyHtml).toBeUndefined();
+    expect((await store.loadThread(threads[0]!.accountId, threads[0]!.threadId))!.messages[0]!.bodyHtml).toHaveLength(1000);
+  });
+
+  it('cancels after the first visible batch without reading the rest of history', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...template, threads: Array.from({ length: 130 }, (_, index) => thread(index)) });
+    const abort = new AbortController();
+    fixture.statements.length = 0;
+    await expect(store.queryThreads({ signal: abort.signal, journal: { commands: [], undo: null },
+      onProgress: () => abort.abort(),
+    })).rejects.toThrow();
+    expect(fixture.statements).toHaveLength(2);
+  });
+
+  it('serves navigation after the active transaction, ahead of queued history writes', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...template, threads: [thread(0)] });
+    const firstGate = fixture.pauseOnce(sql => sql.startsWith('INSERT OR REPLACE INTO local_mail_threads'));
+    const first = store.saveCache({ ...template, threads: [thread(1)] });
+    await firstGate.entered;
+    const secondGate = fixture.pauseOnce(sql => sql.startsWith('INSERT OR REPLACE INTO local_mail_threads'));
+    const second = store.saveCache({ ...template, threads: [thread(2)] });
+    const read = store.queryThreads({});
+    firstGate.release();
+    try {
+      const winner = await Promise.race([read.then(() => 'navigation'), secondGate.entered.then(() => 'background')]);
+      expect(winner).toBe('navigation');
+      expect((await read).threads.map(item => item.threadId)).toEqual([thread(0).threadId, thread(1).threadId]);
+    } finally { secondGate.release(); await Promise.all([first, second, read]); }
+  });
+
+  it('projects unsaved folder actions without waiting for a journal save', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const inbox = { ...thread(0), providerResources: ['inbox'] as const };
+    await store.save({ ...template, threads: [inbox] });
+    const journal = { commands: [], undo: null, pendingThreadIntents: [{ commandId: 'local', accountId: inbox.accountId,
+      threadId: inbox.threadId, patch: { status: 'done' as const, providerResources: [] as const } }] };
+    const page = await store.queryThreads({ split: 'done', journal });
+    expect(page.threads.map(item => item.threadId)).toEqual([inbox.threadId]);
+    expect((await store.queryThreads({ split: 'inbox', journal })).threads).toEqual([]);
+    expect((await store.loadJournal())!.pendingThreadIntents).toEqual(template.pendingThreadIntents);
+  });
+
+  it('batches sync revision guards and prior metadata instead of reading every thread separately', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...template, threads: [] });
+    const threads = Array.from({ length: 100 }, (_, index) => thread(index));
+    const page = { mailbox: { schemaVersion: 1 as const, accounts: template.accounts, threads }, nextCursor: 'older', revision: 10 };
+    await store.commitMailboxUpdate(page);
+    fixture.statements.length = 0;
+    await store.commitMailboxUpdate({ ...page, revision: 11 });
+    expect(fixture.statements.length).toBeLessThan(50);
+    expect((await store.queryThreads({})).threads).toHaveLength(100);
+  });
+
   it('retains only one pending state while a write is paused', async () => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -274,6 +387,22 @@ print('native SQL limits passed')
     expect(page.threads.map(item => item.threadId)).toEqual([inbox.threadId]);
     const search = await store.queryThreads({ accountId: inbox.accountId, split: 'sent', query: 'History 0' });
     expect(search.threads.map(item => item.threadId)).toEqual([inbox.threadId]);
+  });
+
+  it('bounds SQL parameters and avoids unrelated history scans with hundreds of local folder overrides', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 450 }, (_, index) => ({ ...thread(index), providerResources: ['inbox'] as const }));
+    await store.save({ ...template, threads });
+    fixture.statements.length = 0;
+    const journal = { commands: [], undo: null, pendingThreadIntents: threads.slice(0, 420).map(item => ({
+      accountId: item.accountId, threadId: item.threadId, commandId: `local_${item.threadId}`, patch: { providerResources: ['sent'] as const },
+    })) };
+    const first = await store.queryThreads({ split: 'sent', journal });
+    const second = await store.queryThreads({ split: 'sent', journal, after: first.next });
+    expect([...first.threads, ...second.threads].map(item => item.threadId)).toEqual(threads.slice(0, 200).map(item => item.threadId));
+    expect(fixture.statements.length).toBeLessThanOrEqual(20);
+    expect(fixture.statements.every(sql => (sql.match(/\?/g) ?? []).length <= 900)).toBe(true);
   });
 
   it('lets navigation read once its snapshot is saved while later history writes continue', async () => {
