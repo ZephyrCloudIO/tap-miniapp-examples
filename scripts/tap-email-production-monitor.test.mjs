@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { runTapEmailProductionMonitor } from './tap-email-production-monitor.mjs';
+import { monitorReport, runTapEmailProductionMonitor } from './tap-email-production-monitor.mjs';
 
 const now = new Date('2026-09-15T04:00:00.000Z');
 
@@ -77,7 +77,7 @@ function createFetch({
   return { fetchImpl, calls };
 }
 
-async function run(fake) {
+async function run(fake, overrides = {}) {
   return runTapEmailProductionMonitor({
     fetchImpl: fake.fetchImpl,
     sleep: async () => {},
@@ -85,6 +85,8 @@ async function run(fake) {
     accountId: 'account_id',
     apiToken: 'api_token',
     databaseId: 'database_id',
+    monotonicTime: () => 0,
+    ...overrides,
   });
 }
 
@@ -101,7 +103,7 @@ test('healthy monitor paginates queues and uses the official consumer field', as
   ), true);
   const query = fake.calls.find(call => call.method === 'POST');
   const body = JSON.parse(query.body);
-  assert.match(body.sql, /^WITH anomalies/u);
+  assert.match(body.sql, /^WITH event_anomalies/u);
   assert.match(body.sql, /recent_sync_not_requested/u);
   assert.match(body.sql, /last_sync_requested_at/u);
   assert.doesNotMatch(body.sql, /\b(?:INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER)\b/iu);
@@ -155,4 +157,105 @@ test('API failures fail closed without preventing independent service checks', a
   assert.equal(result.issues.some(value => value.code === 'queues_monitor_unavailable'), true);
   assert.equal(result.observations.includes('/health: healthy'), true);
   assert.equal(result.observations.includes('/ready: healthy'), true);
+});
+
+test('unknown sync age is visible telemetry uncertainty only after durable checks pass', async () => {
+  for (const backlog_bytes of [0, 303]) {
+    const result = await run(createFetch({ metrics: { sync_id: { backlog_count: 1, backlog_bytes } } }));
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.issues, []);
+    assert.deepEqual(result.warnings.map(value => value.code), ['sync_queue_backlog_age_unknown']);
+    const report = monitorReport(result);
+    assert.match(report, /operational checks passed; telemetry incomplete/u);
+    assert.match(report, /Queue age remains unverified/u);
+    assert.doesNotMatch(report, /\*\*healthy\*\*|recovered/iu);
+  }
+});
+
+test('unknown command age stays fatal even with healthy durable sync checks', async () => {
+  const result = await run(createFetch({ metrics: { commands_id: { backlog_count: 1, backlog_bytes: 100 } } }));
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map(value => value.code), ['command_queue_backlog_age_unknown']);
+  assert.deepEqual(result.warnings, []);
+});
+
+test('unknown sync age cannot hide durable anomalies or an unavailable or malformed D1 read', async () => {
+  for (const failure of ['anomaly', 'unavailable', 'malformed']) {
+    const fake = createFetch({
+      metrics: { sync_id: { backlog_count: 1, backlog_bytes: 303 } },
+      anomalyRows: [{ signal: 'unresolved_sync_dead_letters', affected_count: 1, oldest_observed_at: now.toISOString() }],
+    });
+    if (failure !== 'anomaly') {
+      const original = fake.fetchImpl;
+      fake.fetchImpl = (input, init) => new URL(input).pathname.endsWith('/query')
+        ? Promise.resolve(failure === 'unavailable' ? json({}, 503) : json({ success: true, result: [{ success: true, results: null }] }))
+        : original(input, init);
+    }
+    const result = await run(fake);
+    assert.equal(result.ok, false, failure);
+    assert.deepEqual(result.warnings, []);
+    assert.equal(result.issues.some(value => value.code === 'sync_queue_backlog_age_unknown'), true);
+    assert.equal(result.issues.some(value => value.code === (failure === 'anomaly' ? 'unresolved_sync_dead_letters' : 'durable_progress_monitor_unavailable')), true);
+  }
+});
+
+test('a telemetry warning does not suppress delivery, routing, dead-letter or service failures', async () => {
+  const fake = createFetch({
+    syncQueue: queue('sync', { settings: { delivery_paused: true }, producers: [], consumers: [] }),
+    metrics: { sync_id: { backlog_count: 1, backlog_bytes: 303 }, sync_dlq_id: { backlog_count: 1, backlog_bytes: 100 } },
+  });
+  const original = fake.fetchImpl;
+  fake.fetchImpl = (input, init) => new URL(input).pathname.endsWith('/ready')
+    ? Promise.resolve(json({}, 503)) : original(input, init);
+  const result = await run(fake);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map(value => value.code), [
+    'sync_queue_delivery_inactive', 'sync_queue_producer_missing', 'sync_queue_consumer_missing',
+    'sync_dead_letters_present', 'ready_check_failed',
+  ]);
+  assert.equal(result.warnings.length, 1);
+});
+
+test('negative, missing, nonfinite and implausibly future metrics fail closed', async () => {
+  for (const malformed of [
+    { backlog_count: -1 }, { backlog_count: undefined }, { backlog_bytes: -1 },
+    { backlog_bytes: Number.POSITIVE_INFINITY },
+    { oldest_message_timestamp_ms: -1 }, { oldest_message_timestamp_ms: null },
+    { oldest_message_timestamp_ms: Number.POSITIVE_INFINITY },
+    { oldest_message_timestamp_ms: now.getTime() + 60_001 },
+  ]) {
+    const result = await run(createFetch({ metrics: { sync_id: { backlog_count: 1, ...malformed } } }));
+    assert.equal(result.ok, false, JSON.stringify(malformed));
+    assert.equal(result.issues.some(value => value.code === 'queues_monitor_unavailable'), true);
+    assert.deepEqual(result.warnings, []);
+  }
+});
+
+test('accepts finite nonnegative approximate metrics without an undocumented integer restriction', async () => {
+  const result = await run(createFetch({ metrics: { sync_id: { backlog_count: 1.5, backlog_bytes: 303.5 } } }));
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings.length, 1);
+});
+
+test('accounts for time spent awaiting API requests when validating future timestamps and stale age', async () => {
+  for (const stale of [false, true]) {
+    let elapsed = 0;
+    const fake = createFetch({ metrics: { sync_id: { backlog_count: 1, backlog_bytes: 303,
+      oldest_message_timestamp_ms: now.getTime() + (stale ? -19 * 60_000 : 90_000) } } });
+    const original = fake.fetchImpl;
+    fake.fetchImpl = (input, init) => {
+      elapsed = 90_000;
+      return original(input, init);
+    };
+    const result = await run(fake, { monotonicTime: () => elapsed });
+    assert.equal(result.ok, !stale);
+    assert.deepEqual(result.issues.map(value => value.code), stale ? ['sync_queue_backlog_stalled'] : []);
+  }
+});
+
+test('allows a fresh timestamp acquired shortly after the observation started', async () => {
+  const result = await run(createFetch({ metrics: { sync_id: { backlog_count: 1, backlog_bytes: 303,
+    oldest_message_timestamp_ms: now.getTime() + 30_000 } } }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.warnings, []);
 });
