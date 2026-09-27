@@ -18,7 +18,6 @@ export function PullToSync({ enabled, syncing, onSync, role, label, children }: 
   const [distance, setDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [announcement, setAnnouncement] = useState('');
-  const busy = syncing || refreshing;
   useEffect(() => { syncingRef.current = syncing; }, [syncing]);
 
   useEffect(() => {
@@ -89,12 +88,14 @@ export function PullToSync({ enabled, syncing, onSync, role, label, children }: 
     };
   }, [enabled, onSync]);
 
-  const offset = enabled ? busy ? 52 : distance : 0;
+  // Background and toolbar sync already have a header indicator; only a pull
+  // should move the list so automatic sync never shifts mail under the reader.
+  const offset = enabled ? refreshing ? 52 : distance : 0;
   const ready = distance >= releaseDistance;
-  return <div className={`mail-pull-sync${distance > 0 ? ' is-pulling' : ''}${busy ? ' is-syncing' : ''}`}>
+  return <div className={`mail-pull-sync${distance > 0 ? ' is-pulling' : ''}${refreshing ? ' is-syncing' : ''}`}>
     <div className="mail-pull-sync-indicator" aria-hidden="true" style={{ height: offset, opacity: offset > 0 ? 1 : 0 }}>
-      {busy ? <RefreshCw /> : <ArrowDown className={ready ? 'is-ready' : ''} />}
-      <span>{busy ? 'Syncing email…' : ready ? 'Release to sync' : 'Pull to sync'}</span>
+      {refreshing ? <RefreshCw /> : <ArrowDown className={ready ? 'is-ready' : ''} />}
+      <span>{refreshing ? 'Syncing email…' : ready ? 'Release to sync' : 'Pull to sync'}</span>
     </div>
     <span className="sr-only" role="status">{announcement}</span>
     <div ref={listRef} className="thread-list" role={role} aria-label={label} style={enabled ? { transform: `translateY(${offset}px)` } : undefined}>
