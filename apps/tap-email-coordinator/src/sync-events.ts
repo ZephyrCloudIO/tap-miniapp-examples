@@ -1,6 +1,6 @@
 import { isSafeMailIdentifier } from '@tap-examples/tap-email-protocol';
 
-export type MailboxSyncMode = 'newest' | 'continue' | 'partial';
+export type MailboxSyncMode = 'newest' | 'continue' | 'partial' | 'bodies';
 
 export interface MailboxSyncRequest {
   readonly profileId: string;
@@ -49,7 +49,8 @@ export function isSyncQueueMessage(value: unknown): value is SyncQueueMessage {
     isSafeMailIdentifier(candidate.accountId) &&
     (candidate.mode === 'newest' ||
       candidate.mode === 'continue' ||
-      candidate.mode === 'partial') &&
+      candidate.mode === 'partial' ||
+      (candidate.mode === 'bodies' && typeof candidate.syncGeneration === 'string')) &&
     optionalBoundedString(candidate.pageToken, 4_096) &&
     optionalBoundedString(candidate.startHistoryId, 512) &&
     optionalBoundedString(candidate.syncGeneration, 128)

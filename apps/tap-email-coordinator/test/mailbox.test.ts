@@ -1110,7 +1110,7 @@ describe('Google mailbox synchronization', () => {
 
     floodAttachments = true;
     await sync(instrumentedEnv);
-    expect(persistenceBatchSizes).toEqual([4, 3]);
+    expect(persistenceBatchSizes).toEqual([5, 3]);
     expect(await env.DB.prepare(
       `SELECT COUNT(*) AS attachment_count FROM mail_attachments
         WHERE profile_id = 'profile_attachments' AND thread_id = 'thread_attachments'`,

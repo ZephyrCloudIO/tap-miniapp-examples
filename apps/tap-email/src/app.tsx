@@ -1,3 +1,4 @@
+import { BodyCoveragePanel } from './body-coverage-panel';
 import { useComposerServices } from './use-composer-services';
 import { NativeHeader, useCompactLayout } from '@tap-examples/tap-mobile-ui';
 import { localSentRecipients } from './recipient-history';
@@ -706,6 +707,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
         <div className="settings-note">Rich HTML stays in an isolated frame. Images are validated through the coordinator, then cached privately on this device for repeat opens; message scripts cannot access TAP or other messages. Remote scripts, form submissions, and direct sender requests remain blocked.</div>
         <div className="settings-note">Meaning search embeds and indexes mail with an installed local model in private profile zvec storage. Email content is not sent to a remote embedding service.</div>
         {!preview ? <EmailToolAccessPanel senderContext={senderContext} openSettings={openToolSettings} /> : null}
+        {!preview ? <BodyCoveragePanel accounts={accounts} /> : null}
         <StoragePrivacyPanel accounts={accounts} onWipe={onWipe} store={store} />
         <div className="settings-note">Shortcut remapping will move to the host keybinding registry when the SDK capability lands.</div>
       </DialogContent>

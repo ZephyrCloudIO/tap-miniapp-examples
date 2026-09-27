@@ -58,6 +58,24 @@ describe('TAP Email coordinator client', () => {
     await expect(client.searchRecipients('bad')).rejects.toMatchObject({ code: 'invalid_response' });
   });
 
+  it('validates body coverage counts and sends account-scoped controls with the platform credential', async () => {
+    const calls: unknown[] = [];
+    let total = 3;
+    const client = createCoordinatorClient({ request(input, options) {
+      calls.push({ input, options });
+      return { finalUrl: input.url, status: 200, statusText: 'OK', headers: [], bodyBase64: null,
+        bodyKind: 'text', bodyTruncated: false, sizeBytes: 300, elapsedMs: 5, contentType: 'application/json',
+        bodyText: JSON.stringify({ accounts: [{ accountId: 'acct_1', enabled: true, total, downloaded: 1,
+          pending: 1, unavailable: 1, metadataThreads: 0, providerHistoryComplete: false, updatedAt: null, errorCode: null }] }),
+      };
+    } });
+    await expect(client.setBodyBackfill('acct_1', true)).resolves.toMatchObject([{ pending: 1, unavailable: 1 }]);
+    expect(calls[0]).toMatchObject({ input: { method: 'POST', url: `${coordinatorOrigin}/v1/accounts/acct_1/body-backfill`,
+      headers: [{ name: 'Content-Type', value: 'application/json' }], body: '{"enabled":true}' }, options: { credentialRef: 'platform-session' } });
+    total = 0;
+    await expect(client.getBodyCoverage()).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
   it('pins credential creation to the verified sending context in both body and host request', async () => {
     const sender = { userId: 'user_1', workspaceId: 'workspace_1' };
     let calls = 0;

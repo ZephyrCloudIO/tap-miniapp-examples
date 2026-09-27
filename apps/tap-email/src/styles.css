@@ -934,3 +934,7 @@ kbd {
 .booking-links-picker li + li { margin-top: 6px; }
 .booking-links-picker li button { width: 100%; display: flex; align-items: flex-start; flex-direction: column; text-align: left; }
 .booking-links-picker small { overflow-wrap: anywhere; white-space: normal; color: var(--mail-muted); }
+
+.body-coverage-account { padding-block: 12px; border-top: 1px solid var(--mail-border); overflow-wrap: anywhere; }
+.body-coverage-account button { margin-inline-end: 8px; margin-block-end: 8px; }
+.body-coverage-account small { display: block; }

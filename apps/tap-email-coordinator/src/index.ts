@@ -1,3 +1,4 @@
+import { listBodyCoverage, setBodyBackfill, enqueueBodyBackfills, processBodyBackfill } from './body-backfill';
 import { searchSentRecipients } from './recipient-history';
 import { createEmailMcpCredential, emailMcpCredentialStatus, revokeEmailMcpCredential, verifyEmailMcpCredential } from './mcp-auth';
 import { createTapEmailLiveMcpHandler } from './mcp';
@@ -2036,7 +2037,8 @@ async function processSyncMessage(
     return;
   }
   try {
-    await syncMailbox(env, message.body, now);
+    if (message.body.mode === 'bodies') await processBodyBackfill(env, message.body, now);
+    else await syncMailbox(env, message.body, now);
     const account = await env.DB.prepare(
       `SELECT newest_history_id FROM google_accounts
         WHERE profile_id = ? AND account_id = ?`,
@@ -2466,6 +2468,17 @@ export function createTapEmailCoordinator(
           const result = await (dependencies.loadRemoteImages ?? proxyRemoteImages)(allowedUrls);
           return json({ images: result.images, blocked: result.blocked }, 200, cors);
         }
+        if (request.method === 'GET' && url.pathname === '/v1/body-coverage') {
+          return json({ accounts: await listBodyCoverage(env, identity.profileId) }, 200, cors);
+        }
+        const bodyBackfillMatch = /^\/v1\/accounts\/([^/]+)\/body-backfill$/u.exec(url.pathname);
+        if (request.method === 'POST' && bodyBackfillMatch?.[1]) {
+          const accountId = decodeURIComponent(bodyBackfillMatch[1]);
+          const input = await readBoundedJson(request);
+          if (!isSafeMailIdentifier(accountId) || !input || typeof input !== 'object' ||
+            !('enabled' in input) || typeof input.enabled !== 'boolean') throw new ApiError(400, 'invalid_body_backfill', 'Choose an exact account and whether body downloading is enabled.');
+          return json({ accounts: await setBodyBackfill(env, identity.profileId, accountId, input.enabled, now()) }, 200, cors);
+        }
         const syncMatch = /^\/v1\/accounts\/([^/]+)\/sync$/u.exec(url.pathname);
         if (request.method === 'POST' && syncMatch?.[1]) {
           const accountId = decodeURIComponent(syncMatch[1]);
@@ -2609,6 +2622,7 @@ export function createTapEmailCoordinator(
         redispatchSyncEvents(env, current),
         markDueReminders(env, current.toISOString()),
         enqueueScheduledSyncs(env, current),
+        enqueueBodyBackfills(env, current),
         deleteExpiredOutboundAttachments(env, current),
         env.DB.prepare('DELETE FROM google_oauth_states WHERE expires_at <= ?')
           .bind(current.toISOString())
