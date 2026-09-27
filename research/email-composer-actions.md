@@ -79,3 +79,8 @@ draft preservation, scheduling validation, delivery reconciliation, reminder
 idempotency, channel snapshot retry behavior, AI proposal review, and live owner
 changes. Browser checks use the local preview with fixture emails; live sending,
 channel posting, model invocation, and deployment are not part of verification.
+
+The Test Lab descriptor names the inference capabilities and records temporary
+coverage waivers expiring 2026-12-31: its surface profile lacks an owning
+conversation and deterministic inference fixture. Host inference integration
+remains unverified; these waivers do not grant runtime permissions.

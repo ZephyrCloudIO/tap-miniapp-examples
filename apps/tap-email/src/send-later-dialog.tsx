@@ -68,7 +68,7 @@ export function SendLaterDialog({
       <DialogContent className="send-later-dialog composer-tool-dialog" data-composer-tool hideCloseButton>
         <header>
           <div>
-            
+
             <DialogTitle>Send later</DialogTitle>
             <DialogDescription>
               Your message stays saved as a draft until it is time to send.

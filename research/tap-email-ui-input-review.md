@@ -160,4 +160,3 @@ No app-authored file, range, number, password, or contenteditable input was foun
 3. Remove conflicting visual resets, restore reply focus, and lay out send-later choices.
 4. Fix palette focus/activation and account selection semantics; standardize remaining buttons.
 5. Add regression coverage for those behaviors and visual checks in the mounted host at desktop and compact widths.
-
