@@ -5,7 +5,7 @@ import {
   calendarLivePort,
 } from "../src/index";
 import { createCalendarLiveTools } from "../src/calendar-live-mcp";
-import { requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "../src/calendar-mcp-store";
+import { requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, readMcpConfiguration, type CalendarMcpProps } from "../src/calendar-mcp-store";
 import { D1PublicBookingEmailOutbox } from "../src/public-booking-email";
 import { verifyPublicSlotToken } from "../src/public-booking-read";
 
@@ -321,7 +321,7 @@ describe("anonymous public booking reads", () => {
     const props: CalendarMcpProps = { workspace, principal, grantId: crypto.randomUUID(), scopes: ["calendar.read", "calendar.analytics", "calendar.write"] };
     await env.CALENDAR_DB.prepare("INSERT INTO calendar_mcp_grants (id, workspace_id, principal_id, client_name, scopes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(props.grantId, workspace, principal, "Chloe", JSON.stringify(props.scopes), new Date().toISOString()).run();
-    await saveMcpConfiguration(env.CALENDAR_DB, props, { sourceRevision: 1, configuration: { conflictCalendarIds: [calendarId], eventTypes: [] } });
+    await saveMcpConfiguration(env.CALENDAR_DB, props, { expectedRevision: null, configuration: { conflictCalendarIds: [calendarId], eventTypes: [] } });
     const tools = createCalendarLiveTools(env.CALENDAR_DB, props, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async scope => { await requireMcpGrant(env.CALENDAR_DB, props, scope); });
     const input = { idempotencyKey: crypto.randomUUID(), destinationCalendarId: calendarId, title: "Chloe meeting", start: "2026-08-18T15:00:00Z", end: "2026-08-18T15:30:00Z", attendeeEmails: ["guest@example.com"] };
     const result = await tools.call("create_event", input);
@@ -474,7 +474,7 @@ describe("anonymous public booking reads", () => {
       requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1,
     } });
     const specialist: CalendarMcpProps = { workspace, principal, grantId: "test-status-analytics", scopes: ["calendar.analytics"] };
-    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { sourceRevision: 3, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { expectedRevision: (await readMcpConfiguration(env.CALENDAR_DB, specialist)).revision, configuration: { conflictCalendarIds: [], eventTypes: [] } });
     const tools = createCalendarLiveTools(env.CALENDAR_DB, specialist, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async () => {});
     const expected = { requests: 4, confirmed: 1, lifetimeConfirmed: 2, cancelled: 1, pending: 1, declined: 1 };
     expect(await tools.call("event_type_analytics", {})).toMatchObject({ totals: expected, trafficSince: expect.any(String), conversionSince: expect.any(String), generatedAt: expect.any(String) });
@@ -839,7 +839,7 @@ describe("anonymous public booking reads", () => {
     // The specialist surface uses the same immutable booking identity for
     // individual details, date-filtered scheduled time, and lifetime funnels.
     const specialist: CalendarMcpProps = { workspace, principal, grantId: "test-public-analytics", scopes: ["calendar.read", "calendar.analytics"] };
-    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { sourceRevision: 2, configuration: { conflictCalendarIds: [], eventTypes: [] } });
+    await saveMcpConfiguration(env.CALENDAR_DB, specialist, { expectedRevision: (await readMcpConfiguration(env.CALENDAR_DB, specialist)).revision, configuration: { conflictCalendarIds: [], eventTypes: [] } });
     const tools = createCalendarLiveTools(env.CALENDAR_DB, specialist, calendarLivePort(workerEnv(), providerFetch(() => freeBusyMode)), async () => {});
     const providerCalendarId = await env.CALENDAR_DB.prepare("SELECT id FROM provider_calendars WHERE connection_id = ?").bind(connectionId).first<string>("id");
     const query = { timeMin: slot!.start, timeMax: slot!.end, calendarIds: [providerCalendarId!] };

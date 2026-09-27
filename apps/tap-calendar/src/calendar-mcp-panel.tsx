@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CalendarState } from "./domain";
 import type { CalendarGatewayClient } from "./gateway";
 import { calendarMcpConfiguration } from "./calendar-mcp-configuration";
+import { CalendarMcpSync } from "./calendar-mcp-sync";
 import type { CalendarMcpConfiguration, CalendarMcpConsent, CalendarMcpGrant, CalendarMcpScope } from "./mcp-contract";
 
 const permissionLabels: Record<CalendarMcpScope, string> = {
@@ -13,10 +14,12 @@ const permissionLabels: Record<CalendarMcpScope, string> = {
 export function useCalendarMcpSync(gateway: CalendarGatewayClient, state: CalendarState | null, revision: number | null, enabled: boolean) {
   const configurationJson = state ? JSON.stringify(calendarMcpConfiguration(state)) : null;
   const [error, setError] = useState<string | null>(null);
-  const sync = useCallback(async () => {
-    if (!enabled || !configurationJson || revision === null) throw new Error("Load TAP Calendar in the desktop app before connecting a specialist.");
-    await gateway.saveMcpConfiguration(revision, JSON.parse(configurationJson) as CalendarMcpConfiguration);
-  }, [configurationJson, enabled, gateway, revision]);
+  const synchronizer = useMemo(() => new CalendarMcpSync(gateway), [gateway]);
+  const sync = useCallback(async (replaceRemote = false) => {
+    if (!enabled || !configurationJson || revision === null) throw new Error("Load TAP Calendar before connecting a specialist.");
+    await synchronizer.sync(JSON.parse(configurationJson) as CalendarMcpConfiguration, replaceRemote);
+    setError(null);
+  }, [configurationJson, enabled, synchronizer, revision]);
   useEffect(() => {
     if (!enabled || !configurationJson || revision === null) return;
     let current = true;
@@ -59,6 +62,7 @@ export function CalendarMcpPanel({ gateway, authorize, configuration, preview, a
     {activityError ? <p role="status">Calendar activity is waiting to synchronize: {activityError}</p> : null}
     <p>Access applies to all calendars connected to this TAP account. Free/busy calendars and private Work Blocks keep their details hidden. Analytics report scheduled time and booking activity.</p>
     {configuration.error || error ? <p role="alert" className="form-error">{error ?? configuration.error}</p> : null}
+    {configuration.error && !preview ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(async () => { await authorize(); await configuration.sync(true); setMessage("Shared specialist settings now match this device."); })}>Replace shared settings with this device’s settings</button> : null}
     {message ? <p role="status">{message}</p> : null}
     <form className="schedule-form" aria-busy={busy} onSubmit={event => { event.preventDefault(); void run(async () => { await authorize(); await configuration.sync(); const review = await gateway.reviewMcpAuthorization(code.trim()); setConsent(review); setScopes(review.scopes); }); }}>
       <label className="field"><span>Connection code</span><input value={code} placeholder="0000-0000-0000-0000" maxLength={19} required autoComplete="off" disabled={preview || busy || consent !== null} onChange={event => setCode(event.currentTarget.value)} /></label>

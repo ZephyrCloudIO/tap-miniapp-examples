@@ -12,6 +12,18 @@ export interface CalendarMcpConfiguration {
     readonly approvalRequired: boolean;
   }[];
 }
+export interface CalendarMcpConfigurationSnapshot {
+  readonly revision: number | null;
+  readonly configuration: CalendarMcpConfiguration | null;
+}
+
+export function isCalendarMcpConfiguration(value: unknown): value is CalendarMcpConfiguration {
+  if (!value || typeof value !== "object" || !("conflictCalendarIds" in value) || !("eventTypes" in value)) return false;
+  return Array.isArray(value.conflictCalendarIds) && value.conflictCalendarIds.every(id => typeof id === "string") &&
+    Array.isArray(value.eventTypes) && value.eventTypes.every(item => item && typeof item === "object" &&
+      ["profileId", "id", "title", "description"].every(key => typeof Reflect.get(item, key) === "string") &&
+      Number.isSafeInteger(item.durationMinutes) && typeof item.active === "boolean" && typeof item.approvalRequired === "boolean");
+}
 export interface CalendarMcpConsent {
   readonly clientName: string;
   readonly redirectOrigin: string;

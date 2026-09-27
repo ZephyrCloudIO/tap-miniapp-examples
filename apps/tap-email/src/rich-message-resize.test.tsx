@@ -9,6 +9,28 @@ import { RichMessageBody } from './rich-message';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('rich-message late layout measurement', () => {
+  it('tolerates a frame whose document root is not yet available during a theme change', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => { errors.push(event.error); event.preventDefault(); };
+    window.addEventListener('error', onError);
+    try {
+      await act(async () => root.render(<RichMessageBody html="<p>Message</p>" title="Rich email" />));
+      const frame = container.querySelector<HTMLIFrameElement>('iframe')!;
+      const frameDocument = frame.contentDocument!;
+      frameDocument.documentElement.remove();
+      await act(async () => { frame.dispatchEvent(new Event('load')); });
+      expect(errors).toEqual([]);
+      expect(frame.style.height).toBe('140px');
+    } finally {
+      await act(async () => root.unmount());
+      window.removeEventListener('error', onError);
+      container.remove();
+    }
+  });
+
   it('keeps a host-guarded message usable and replaces its frame when the document changes', async () => {
     const container = document.createElement('div');
     container.className = 'message-body';

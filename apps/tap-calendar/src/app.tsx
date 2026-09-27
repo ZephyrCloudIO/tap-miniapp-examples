@@ -1,4 +1,5 @@
 import { useCalendarActivitySync } from "./use-calendar-activity-sync";
+import { NativeHeader, useMobileDismiss, useCompactLayout } from '@tap-examples/tap-mobile-ui';
 import { appendAvailabilityActivity } from "./activity-journal";
 import { AttendeeResponseBadge, EventResponseBadge, eventResponseClassName } from "./attendee-response-badge";
 import { mergeProviderEvent } from "./provider-event-merge";
@@ -237,6 +238,7 @@ type Section =
   | "settings";
 
 interface TapCalendarAppProps {
+  readonly nativeHeader?: boolean;
   readonly preview?: boolean;
   readonly context?: TapFederatedSurfaceMountContext;
 }
@@ -1280,7 +1282,8 @@ function publicSelectionFromPath(
     : null;
 }
 
-export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps) {
+export function TapCalendarApp({ preview = false, context, nativeHeader = false }: TapCalendarAppProps) {
+  const compact = useCompactLayout();
   const channelSchedulerSurface =
     context?.contributionId === CHANNEL_SCHEDULER_SURFACE_ID;
   const calendarPrincipalId = preview
@@ -1296,8 +1299,9 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
   const workspaceContentRef = useRef<HTMLDivElement>(null);
   const [section, setSection] = useState<Section>("calendar");
   const [anchorDate, setAnchorDate] = useState(() => calendarDateKey(new Date()));
-  const [optimisticActiveView, setOptimisticActiveView] = useState<CalendarView | null>(null);
+  const [optimisticActiveView, setOptimisticActiveView] = useState<CalendarView | null>(() => nativeHeader && compact ? "agenda" : null);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  useMobileDismiss(nativeHeader && mobileRailOpen, () => setMobileRailOpen(false), ".calendar-rail");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1438,9 +1442,12 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
   }, [calendarGateway]);
 
   useEffect(() => {
-    void refreshMeetingProviderConnections().catch(() => {
+    const refresh = () => { void refreshMeetingProviderConnections().catch(() => {
       // Settings exposes a scoped retry without blocking Calendar reads.
-    });
+    }); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, [refreshMeetingProviderConnections]);
 
   const zoomConnected = meetingProviderConnections.status === "ready" &&
@@ -1469,7 +1476,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         cancelled = true;
       };
     }
-    void calendarGateway.listConnections()
+    const refresh = () => { void calendarGateway.listConnections()
       .then(connections => {
         if (cancelled) return;
         setProviderPrincipalAccess({
@@ -1489,9 +1496,12 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
             ? cause.message
             : "TAP could not verify your Calendar connections.",
         });
-      });
+      }); };
+    refresh();
+    window.addEventListener("focus", refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refresh);
     };
   }, [calendarGateway, context?.userId, gatewayAccountSignature, preview]);
 
@@ -2805,7 +2815,8 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
     <div className="tap-calendar-app">
       <a className="skip-link" href="#calendar-main">Skip to calendar content</a>
       <div className="live-region" aria-live="polite" aria-atomic="true">{notice}</div>
-      <aside className={`calendar-rail${mobileRailOpen ? " mobile-open" : ""}`} aria-label="TAP Calendar navigation">
+      {nativeHeader && mobileRailOpen ? <div className="mobile-rail-backdrop" onClick={() => setMobileRailOpen(false)} /> : null}
+      <aside role={nativeHeader && mobileRailOpen ? "dialog" : undefined} aria-modal={nativeHeader && mobileRailOpen ? true : undefined} className={`calendar-rail${mobileRailOpen ? " mobile-open" : ""}`} aria-label="TAP Calendar navigation">
         <div className="calendar-brand">
           <span className="calendar-logo"><CalendarCheck2 /></span>
           <div><strong>TAP Calendar</strong><small>One place for your time</small></div>
@@ -2871,14 +2882,18 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         </button>
       </aside>
 
-      <main className="calendar-workspace" id="calendar-main">
+      <main className="calendar-workspace" id="calendar-main" inert={nativeHeader && mobileRailOpen}>
         {preview ? (
           <div className="simulation-banner" role="status">
             <Sparkles />
             <span><strong>Local development</strong> · Calendar connections, cached reads, and Google provider writes use Wrangler + D1; Zephyr publication, reminder delivery, and channel rosters remain service adapters.</span>
           </div>
         ) : null}
-        <header className="workspace-header">
+        {nativeHeader && context ? <NativeHeader context={context} title={copy.title} back={section !== 'calendar' ? { label: 'Back to calendar', onPress: () => setSection('calendar') } : undefined} actions={[
+          { id: 'navigation', label: 'Open Calendar navigation', icon: 'menu', primary: true, onPress: () => setMobileRailOpen(open => !open) },
+          { id: 'schedule', label: 'Schedule meeting', icon: 'plus', primary: true, disabled: !writableDestination, onPress: () => setScheduleStart('') },
+          { id: 'block-task', label: 'Block task', icon: 'check', disabled: !writableDestination, onPress: () => setWorkBlockOpen(true) },
+        ]} /> : <header className="workspace-header">
           <button className="icon-button mobile-only" type="button" onClick={() => setMobileRailOpen(true)} aria-label="Open navigation"><Menu /></button>
           <div className="workspace-title">
             <span className="eyebrow">TAP Calendar</span>
@@ -2890,7 +2905,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
             <button className="primary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setScheduleStart("")}><Plus /> Schedule</button>
             <button className="avatar-button" type="button" aria-label="Open profile menu" disabled title="Profile actions are provided by the TAP host."><CircleUserRound /></button>
           </div>
-        </header>
+        </header>}
 
         {error ? (
           <div className="error-banner" role="alert"><AlertTriangle /><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X /></button></div>
@@ -7458,6 +7473,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
 }
 
 function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent; readonly state: CalendarState; readonly onClose: () => void }) {
+  useMobileDismiss(true, onClose, ".event-drawer");
   const calendar = allCalendars(state).find(item => item.id === event.calendarId);
   return (
     <aside className={`event-drawer ${eventResponseClassName(event)}`} role="dialog" aria-modal="false" aria-labelledby="event-drawer-title">

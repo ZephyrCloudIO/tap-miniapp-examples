@@ -5,7 +5,7 @@ import { readCalendarActivity, syncAvailabilityActivity } from "./calendar-activ
 import { CALENDAR_MCP_SCOPES, type CalendarMcpScope } from "../../tap-calendar/src/mcp-contract";
 import { createCalendarLiveMcpServer, type CalendarLivePort } from "./calendar-live-mcp";
 import { approveCalendarMcpAuthorization, calendarMcpOAuthRoute, reviewCalendarMcpAuthorization } from "./calendar-mcp-oauth";
-import { CalendarMcpError, listMcpGrants, loadMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "./calendar-mcp-store";
+import { CalendarMcpError, listMcpGrants, loadMcpConfiguration, readMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, saveV1McpConfiguration, type CalendarMcpProps } from "./calendar-mcp-store";
 import type { CollectiveHost } from "./collective-types";
 import { listPublishedBookingLinks } from "./booking-links";
 import {
@@ -10241,9 +10241,11 @@ async function route(
   }
   const oauthResponse = await calendarMcpOAuthRoute(request, env);
   if (oauthResponse) return oauthResponse;
-  if (path.startsWith("/v1/mcp/")) {
+  if (path.startsWith("/v1/mcp/") || path === "/v2/mcp/configuration") {
     const owner = await principalScope(request, env);
-    if (request.method === "POST" && path === "/v1/mcp/configuration") return json(await saveMcpConfiguration(env.CALENDAR_DB, owner, await readJson(request)));
+    if (request.method === "GET" && path === "/v2/mcp/configuration") return json(await readMcpConfiguration(env.CALENDAR_DB, owner));
+    if (request.method === "POST" && path === "/v2/mcp/configuration") return json(await saveMcpConfiguration(env.CALENDAR_DB, owner, await readJson(request)));
+    if (request.method === "POST" && path === "/v1/mcp/configuration") return json(await saveV1McpConfiguration(env.CALENDAR_DB, owner, await readJson(request)));
     if (request.method === "GET" && path === "/v1/mcp/grants") return json(await listMcpGrants(env.CALENDAR_DB, owner));
     if (request.method === "DELETE" && /^\/v1\/mcp\/grants\/[0-9a-f-]{36}$/u.test(path)) return json(await revokeMcpGrant(env.CALENDAR_DB, owner, path.split("/").at(-1)!));
     if (request.method === "POST" && path === "/v1/mcp/authorizations/review") return json(await reviewCalendarMcpAuthorization(env, (await readJson(request)).code));

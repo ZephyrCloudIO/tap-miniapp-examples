@@ -1,0 +1,57 @@
+:root[data-tap-mobile] { --calendar-accent: var(--primary); --calendar-accent-strong: var(--foreground); }
+:root[data-tap-mobile] .tap-calendar-app { display: block; background: var(--background); font-family: var(--tap-font-family); }
+:root[data-tap-mobile] .calendar-workspace { background: var(--background); }
+:root[data-tap-mobile] .workspace-content:has(> .calendar-screen) { overflow: hidden; }
+:root[data-tap-mobile] .calendar-surface { grid-template-columns: minmax(0, 1fr); }
+:root[data-tap-mobile] .next-up-panel { display: none; }
+:root[data-tap-mobile] .calendar-toolbar { flex: 0 0 auto; gap: 8px; padding: 8px 16px; background: var(--background); }
+:root[data-tap-mobile] .date-navigation { flex-wrap: wrap; }
+:root[data-tap-mobile] .date-navigation h2 { font-size: .875rem; white-space: normal; flex-basis: 100%; margin: 4px 0; }
+:root[data-tap-mobile] .today-button { min-height: 48px; font-size: .875rem; }
+:root[data-tap-mobile] .view-switcher { background: var(--muted); border: 0; border-radius: var(--tap-radius); }
+:root[data-tap-mobile] .view-switcher button { min-height: 44px; font-size: .8125rem; padding: 0 10px; }
+:root[data-tap-mobile] .view-switcher button.active { background: var(--background); }
+:root[data-tap-mobile] .agenda-view { background: var(--background); padding: 0; }
+:root[data-tap-mobile] .agenda-day { width: 100%; max-width: none; margin: 0 0 12px; }
+:root[data-tap-mobile] .agenda-day > header { padding: 16px; margin: 0; font-size: .8125rem; background: var(--soft, var(--muted)); }
+:root[data-tap-mobile] .agenda-day > header strong { font-size: .75rem; }
+:root[data-tap-mobile] .agenda-day > div { border: 0; border-radius: 0; }
+:root[data-tap-mobile] .agenda-day button { display: grid; grid-template-columns: 6px 66px minmax(0, 1fr); column-gap: 12px; row-gap: 6px; min-height: 80px; padding: 16px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: var(--background); }
+:root[data-tap-mobile] .agenda-day time { width: auto; font-size: .8125rem; }
+:root[data-tap-mobile] .agenda-copy strong { font-size: .9375rem; line-height: 1.35; }
+:root[data-tap-mobile] .agenda-copy small { font-size: .8125rem; }
+:root[data-tap-mobile] .agenda-day button > :last-child:not(.agenda-copy) { grid-column: 3; justify-self: start; font-size: .75rem; }
+:root[data-tap-mobile] .calendar-rail { position: fixed; inset: 0 auto 0 var(--tap-inset-left); width: min(340px, 90%); max-height: 100%; padding-bottom: var(--tap-inset-bottom); background: var(--background); transform: translateX(-110%); visibility: hidden; pointer-events: none; box-shadow: none; transition: none; }
+:root[data-tap-mobile] .calendar-rail.mobile-open { transform: none; visibility: visible; pointer-events: auto; }
+:root[data-tap-mobile] .calendar-rail .mobile-only { display: inline-grid; }
+:root[data-tap-mobile] .mobile-rail-backdrop { position: fixed; z-index: 49; inset: 0; background: var(--tap-overlay); }
+:root[data-tap-mobile] .calendar-nav button { min-height: 48px; font-size: 1rem; }
+:root[data-tap-mobile] .calendar-brand { min-height: 64px; }
+:root[data-tap-mobile] .calendar-brand strong { font-size: 1rem; }
+:root[data-tap-mobile] .calendar-brand small { font-size: .75rem; }
+:root[data-tap-mobile] .calendar-list-heading { font-size: .75rem; }
+:root[data-tap-mobile] .calendar-toggle { min-height: 48px; }
+:root[data-tap-mobile] .calendar-name { font-size: .875rem; }
+:root[data-tap-mobile] .account-group > header { font-size: .75rem; }
+:root[data-tap-mobile] .rail-status > strong { font-size: .8125rem; }
+:root[data-tap-mobile] .content-stack { padding: 16px; }
+:root[data-tap-mobile] .event-drawer { width: 100%; border: 0; box-shadow: none; padding: 16px; padding-bottom: max(16px, var(--tap-inset-bottom)); }
+:root[data-tap-mobile] .primary-button { color: var(--primary-foreground); box-shadow: none; }
+:root[data-tap-mobile] :is(.primary-button, .secondary-button, .text-button) { font-size: .875rem; }
+:root[data-tap-mobile] .modal-card > header h2 { font-size: 1.125rem; }
+:root[data-tap-mobile] :is(.modal-card > header p, .field > span, .field-label) { font-size: .875rem; }
+:root[data-tap-mobile] .dialog-actions { position: sticky; bottom: -16px; padding: 12px 0; background: var(--popover); }
+@media (max-width: 700px), (max-height: 500px) {
+  :root[data-tap-mobile] .calendar-toolbar { display: grid; grid-template-columns: minmax(0,1fr) auto; }
+  :root[data-tap-mobile] .view-switcher { grid-column: 1 / -1; width: 100%; overflow-x: auto; }
+  :root[data-tap-mobile] .view-switcher button { flex: 1; min-width: max-content; }
+  :root[data-tap-mobile] .toolbar-more { grid-column: 2; grid-row: 1; }
+}
+
+:root[data-tap-mobile] .toolbar-more { display: none; }
+:root[data-tap-mobile] .status-confirmed, :root[data-tap-mobile] .rsvp-badge-accepted { color: var(--tap-positive); }
+:root[data-tap-mobile] .status-pending { color: var(--tap-warning); }
+:root[data-tap-mobile] .status-declined, :root[data-tap-mobile] .status-cancelled { color: var(--destructive); }
+:root[data-tap-mobile] :is(.product-empty-state p, .calendar-first-run p, .participant-picker-note) { font-size: .875rem; }
+:root[data-tap-mobile] input[type="datetime-local"] { display: block; min-height: 48px; width: 100%; max-width: 100%; appearance: none; -webkit-appearance: none; border: 1px solid var(--border); color: var(--foreground); background: var(--background); }
+:root[data-tap-mobile] input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; }

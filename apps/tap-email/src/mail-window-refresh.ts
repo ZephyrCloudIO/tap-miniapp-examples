@@ -74,9 +74,12 @@ export function mergeMailWindow(current: MailState, incoming: readonly EmailThre
   const existing = new Map(current.threads.map(thread => [emailThreadKey(thread), thread]));
   const threads = incoming.map(item => {
     const previous = existing.get(emailThreadKey(item));
-    return previous?.providerRevision === item.providerRevision &&
-      (previous as typeof item & { localReplicaRevision?: number }).localReplicaRevision ===
-      (item as typeof item & { localReplicaRevision?: number }).localReplicaRevision ? previous : item;
+    if (previous?.providerRevision !== item.providerRevision) return item;
+    if ((previous as typeof item & { localReplicaRevision?: number }).localReplicaRevision ===
+        (item as typeof item & { localReplicaRevision?: number }).localReplicaRevision) return previous;
+    // A local commit can advance metadata while its list rows omit bodies.
+    // The provider revision still owns the same conversation content.
+    return { ...item, messages: previous.messages };
   });
   const selected = current.selectedThreadKey ? existing.get(current.selectedThreadKey) : undefined;
   if (selected && !threads.some(item => emailThreadKey(item) === current.selectedThreadKey)) threads.push(selected);

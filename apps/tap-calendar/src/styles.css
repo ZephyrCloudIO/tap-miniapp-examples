@@ -1001,8 +1001,11 @@ p { text-wrap: pretty; }
   .header-actions { gap: 5px; }
   .header-actions .primary-button { width: 36px; padding: 0; font-size: 0; }
   .header-actions .primary-button svg { width: 16px; }
-  .calendar-toolbar { min-height: 92px; }
-  .date-navigation { min-width: 0; }
+  .calendar-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; min-height: 92px; }
+  .date-navigation { grid-column: 1; grid-row: 1; min-width: 0; }
+  .toolbar-more { grid-column: 2; grid-row: 1; }
+  .calendar-toolbar > .status-chip { grid-column: 1 / -1; justify-self: start; }
+  .view-switcher { grid-column: 1 / -1; min-width: 0; }
   .date-navigation h2 { font-size: 11px; }
   .today-button { min-height: 32px; padding-inline: 10px; }
   .calendar-surface { min-height: 0; }
@@ -1044,7 +1047,10 @@ p { text-wrap: pretty; }
   .participant-picker label b { display: none; }
   .mutual-slot-summary { align-items: flex-start; flex-wrap: wrap; }
   .mutual-slot-summary .text-button { width: 100%; justify-content: flex-start; }
-  .dialog-actions { position: sticky; bottom: -14px; background: var(--popover); padding-bottom: 12px; }
+  .dialog-actions { position: sticky; bottom: -14px; flex-wrap: wrap; background: var(--popover); padding-bottom: 12px; }
+  .dialog-actions > button { min-width: 0; max-width: 100%; }
+  .schedule-form { min-width: 0; }
+  .schedule-form [data-slot="alert"] { min-width: 0; overflow-wrap: anywhere; }
   .public-booking-shell { display: block; padding: 0; background: white; }
   .public-booking-shell::before { display: none; }
   .public-booking-close { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); background: rgb(255 255 255 / 94%); }

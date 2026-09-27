@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CALENDAR_MCP_SCOPES, type CalendarMcpConfiguration, type CalendarMcpScope } from "../../tap-calendar/src/mcp-contract";
+import { CALENDAR_MCP_SCOPES, type CalendarMcpConfiguration, type CalendarMcpConfigurationSnapshot, type CalendarMcpScope } from "../../tap-calendar/src/mcp-contract";
 
 export type McpOwner = { readonly workspace: string; readonly principal: string };
 export interface CalendarMcpProps extends McpOwner {
@@ -21,19 +21,54 @@ const configurationSchema = z.strictObject({
 });
 
 export async function saveMcpConfiguration(db: D1Database, owner: McpOwner, value: unknown) {
-  const parsed = z.strictObject({ sourceRevision: z.number().int().nonnegative(), configuration: configurationSchema }).safeParse(value);
+  const parsed = z.strictObject({ expectedRevision: z.number().int().nonnegative().safe().nullable(), configuration: configurationSchema }).safeParse(value);
   if (!parsed.success) throw new CalendarMcpError(400, "invalid_mcp_configuration", "Calendar specialist configuration is invalid.");
-  const { sourceRevision, configuration } = parsed.data;
+  const { expectedRevision, configuration } = parsed.data;
   if (new Set(configuration.eventTypes.map(type => JSON.stringify([type.profileId, type.id]))).size !== configuration.eventTypes.length) {
     throw new CalendarMcpError(400, "duplicate_event_type", "Event Type identifiers must be unique within a profile.");
   }
-  await db.prepare(`INSERT INTO calendar_mcp_configuration
-    (workspace_id, principal_id, source_revision, configuration_json, updated_at) VALUES (?, ?, ?, ?, ?)
+  // Keep existing rows and their revision values. The historically named column
+  // is now incremented only by this server; device counters are never authority.
+  const session = db.withSession("first-primary");
+  const configurationJson = JSON.stringify(configuration);
+  const updatedAt = new Date().toISOString();
+  const row = expectedRevision === null
+    ? await session.prepare(`INSERT INTO calendar_mcp_configuration
+        (workspace_id, principal_id, source_revision, configuration_json, updated_at, configuration_protocol) VALUES (?, ?, 1, ?, ?, 2)
+        ON CONFLICT (workspace_id, principal_id) DO NOTHING RETURNING source_revision`)
+        .bind(owner.workspace, owner.principal, configurationJson, updatedAt).first<{ source_revision: number }>()
+    : await session.prepare(`UPDATE calendar_mcp_configuration SET source_revision = source_revision + 1,
+        configuration_json = ?, updated_at = ?, configuration_protocol = 2 WHERE workspace_id = ? AND principal_id = ? AND source_revision = ?
+        RETURNING source_revision`)
+        .bind(configurationJson, updatedAt, owner.workspace, owner.principal, expectedRevision).first<{ source_revision: number }>();
+  if (!row) throw new CalendarMcpError(409, "configuration_conflict", "Calendar settings changed on another device. Review the current settings before replacing them.");
+  return { saved: true as const, revision: row.source_revision };
+}
+
+/** Published v1 clients use device counters. Keep their existing behavior only
+ * until an owner adopts v2; then refuse old writes instead of overwriting a
+ * newer device's settings. This is the deployed HTTP version boundary. */
+export async function saveV1McpConfiguration(db: D1Database, owner: McpOwner, value: unknown) {
+  const parsed = z.strictObject({ sourceRevision: z.number().int().nonnegative().safe(), configuration: configurationSchema }).safeParse(value);
+  if (!parsed.success) throw new CalendarMcpError(400, "invalid_mcp_configuration", "Calendar specialist configuration is invalid.");
+  const { sourceRevision, configuration } = parsed.data;
+  if (new Set(configuration.eventTypes.map(type => JSON.stringify([type.profileId, type.id]))).size !== configuration.eventTypes.length) throw new CalendarMcpError(400, "duplicate_event_type", "Event Type identifiers must be unique within a profile.");
+  const session = db.withSession("first-primary");
+  await session.prepare(`INSERT INTO calendar_mcp_configuration
+    (workspace_id, principal_id, source_revision, configuration_json, updated_at, configuration_protocol) VALUES (?, ?, ?, ?, ?, 1)
     ON CONFLICT (workspace_id, principal_id) DO UPDATE SET
       source_revision = excluded.source_revision, configuration_json = excluded.configuration_json, updated_at = excluded.updated_at
-    WHERE excluded.source_revision > calendar_mcp_configuration.source_revision`)
+    WHERE calendar_mcp_configuration.configuration_protocol = 1 AND excluded.source_revision > calendar_mcp_configuration.source_revision`)
     .bind(owner.workspace, owner.principal, sourceRevision, JSON.stringify(configuration), new Date().toISOString()).run();
-  return { saved: true };
+  const row = await session.prepare("SELECT configuration_protocol FROM calendar_mcp_configuration WHERE workspace_id = ? AND principal_id = ?").bind(owner.workspace, owner.principal).first<{ configuration_protocol: number }>();
+  if (row?.configuration_protocol !== 1) throw new CalendarMcpError(409, "calendar_update_required", "Update TAP Calendar on this device before changing settings shared with mobile.");
+  return { saved: true as const };
+}
+
+export async function readMcpConfiguration(db: D1Database, owner: McpOwner): Promise<CalendarMcpConfigurationSnapshot> {
+  const row = await db.withSession("first-primary").prepare("SELECT source_revision, configuration_json FROM calendar_mcp_configuration WHERE workspace_id = ? AND principal_id = ?")
+    .bind(owner.workspace, owner.principal).first<{ source_revision: number; configuration_json: string }>();
+  return row ? { revision: row.source_revision, configuration: configurationSchema.parse(JSON.parse(row.configuration_json)) } : { revision: null, configuration: null };
 }
 
 export async function loadMcpConfiguration(db: D1Database, owner: McpOwner): Promise<CalendarMcpConfiguration> {
