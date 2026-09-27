@@ -1,3 +1,4 @@
+import PostalMime from 'postal-mime';
 import { env } from 'cloudflare:workers';
 import { TAP_EMAIL_PROTOCOL_VERSION, type MailCommand } from '@tap-examples/tap-email-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -263,9 +264,76 @@ describe('Google attachment reads', () => {
 });
 
 describe('Google provider writes', () => {
+  it('refuses cached provider credentials after the account is deactivated', async () => {
+    await env.DB.prepare(`UPDATE google_accounts SET connection_state = 'reauthorization_required'
+      WHERE profile_id = ? AND account_id = ?`).bind(scope.profileId, scope.accountId).run();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(accessTokenFor(env, scope, now)).rejects.toMatchObject({
+      code: 'google_connection_required',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('decorates authoritative Gmail draft edits only in the final send request', async () => {
+    const url = `https://theaiplatform.app/refer/${'c'.repeat(32)}?utm_source=tap_email&utm_medium=email&utm_campaign=sent_with&utm_content=signature`;
+    let savedRaw = '';
+    let finalRaw = '';
+    let sent = false;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const target = new URL(String(input));
+      if (target.pathname.endsWith('/messages')) return Response.json({});
+      if (target.pathname.endsWith('/drafts') && init?.method !== 'POST') return Response.json({});
+      if (target.pathname.endsWith('/drafts') && init?.method === 'POST') {
+        savedRaw = JSON.parse(String(init.body)).message.raw;
+        expect((await PostalMime.parse(decodeBase64Url(savedRaw, 100_000))).html).not.toContain('Sent with TAP Email');
+        return Response.json({ id: 'edited_draft' });
+      }
+      if (target.pathname.endsWith('/drafts/edited_draft')) {
+        expect(target.searchParams.get('format')).toBe('raw');
+        const mime = [
+          'To: edited@example.com', 'Subject: Edited in Gmail',
+          'Message-ID: <draft_edited@tap-email.local>', 'In-Reply-To: <original@example.com>',
+          'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="edited"', '',
+          '--edited', 'Content-Type: text/html; charset=UTF-8', '', '<p>Gmail edit</p><p>My signature</p>',
+          '--edited', 'Content-Type: application/octet-stream',
+          'Content-Disposition: attachment; filename="binary.dat"', 'Content-Transfer-Encoding: base64', '', 'AID/',
+          '--edited--', '',
+        ].join('\r\n');
+        return Response.json({ id: 'edited_draft', message: { raw: btoa(mime).replaceAll('+', '-').replaceAll('/', '_'), threadId: 'authoritative_thread' } });
+      }
+      if (target.pathname.endsWith('/drafts/send')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.id).toBe('edited_draft');
+        expect(body.message.threadId).toBe('authoritative_thread');
+        finalRaw = body.message.raw;
+        sent = true;
+        return Response.json({ id: 'sent_edited', historyId: 'history_edited' });
+      }
+      throw new Error(`Unexpected Google request: ${target}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const payload = { draftKey: 'draft_edited', draftRevision: 1, to: 'old@example.com', subject: 'Old', bodyText: 'Local body' };
+    await expect(provider.execute(scope, command({ kind: 'save_draft', payload }))).resolves.toMatchObject({ outcome: 'acknowledged' });
+    await expect(provider.execute({ ...scope, referralUrl: url }, command({ kind: 'send_draft', commandId: 'send_edited', payload })))
+      .resolves.toMatchObject({ outcome: 'acknowledged' });
+    expect(sent).toBe(true);
+    const parsed = await PostalMime.parse(decodeBase64Url(finalRaw, 100_000));
+    expect(parsed.subject).toBe('Edited in Gmail');
+    expect(parsed.inReplyTo).toBe('<original@example.com>');
+    expect(parsed.html).toContain('My signature</p><div data-tap-sent-with');
+    expect(parsed.html).toContain('The AI Platform</a>');
+    expect(parsed.html).not.toContain('Local body');
+    expect(new Uint8Array(parsed.attachments[0]!.content as ArrayBuffer)).toEqual(Uint8Array.from([0, 128, 255]));
+  });
+
   it('maps Done to an idempotent INBOX label removal', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
+      if (init?.method !== 'POST') {
+        expect(url.pathname).toBe('/gmail/v1/users/me/threads/thread_1');
+        expect(url.searchParams.get('format')).toBe('minimal');
+        return Response.json({ id: 'thread_1', historyId: 'history_9' });
+      }
       expect(url.pathname).toBe('/gmail/v1/users/me/threads/thread_1/modify');
       expect(init?.method).toBe('POST');
       expect(JSON.parse(String(init?.body))).toEqual({
@@ -279,6 +347,20 @@ describe('Google provider writes', () => {
       outcome: 'acknowledged',
       providerRevision: 'history_10',
     });
+  });
+
+  it('does not archive a thread that changed after the reviewed projection', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      id: 'thread_1',
+      historyId: 'history_new_reply',
+    }));
+    const provider = createGoogleProvider(env, () => now);
+
+    await expect(provider.execute(scope, command())).resolves.toEqual({
+      outcome: 'failed',
+      errorCode: 'provider_revision_conflict',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -324,7 +406,10 @@ describe('Google provider writes', () => {
         const mime = decodeBase64Url(body.message.raw, 100_000);
         expect(mime).toContain('Message-ID: <draft_reply_1@tap-email.local>');
         expect(mime).toContain(`X-TAP-Draft-Revision: ${writes}`);
-        expect(mime).toContain(writes === 1 ? 'First version' : 'Second version');
+        const parsed = await PostalMime.parse(mime);
+        expect(parsed.text).toContain(writes === 1 ? 'First version' : 'Second version');
+        expect(parsed.html).toContain(writes === 1 ? 'First version' : 'Second version');
+        expect(parsed.html).not.toContain('Sent with TAP Email');
         return Response.json({
           id: 'draft_1',
           message: { historyId: `history_${writes}` },
@@ -370,6 +455,56 @@ describe('Google provider writes', () => {
       provider_draft_id: 'draft_1',
       latest_revision: 2,
       state: 'active',
+    });
+  });
+
+  it('does not recreate a provider draft deleted outside TAP Email', async () => {
+    let creates = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname === '/gmail/v1/users/me/drafts' && init?.method !== 'POST') {
+        return Response.json({});
+      }
+      if (url.pathname === '/gmail/v1/users/me/drafts' && init?.method === 'POST') {
+        creates += 1;
+        return Response.json({ id: 'draft_deleted_elsewhere', message: { historyId: 'history_1' } });
+      }
+      if (url.pathname === '/gmail/v1/users/me/drafts/draft_deleted_elsewhere') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 });
+      }
+      throw new Error(`Unexpected Google request: ${url}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const save = (revision: number) => command({
+      commandId: `cmd_deleted_${revision}`,
+      idempotencyKey: `tap-email:google_1:deleted:${revision}`,
+      kind: 'save_draft',
+      payload: {
+        draftKey: 'draft_deleted',
+        draftRevision: revision,
+        to: 'maya@example.com',
+        subject: 'Deleted elsewhere',
+        bodyText: `Revision ${revision}`,
+      },
+    });
+
+    await expect(provider.execute(scope, save(1))).resolves.toMatchObject({
+      outcome: 'acknowledged',
+    });
+    await expect(provider.execute(scope, save(2))).resolves.toEqual({
+      outcome: 'failed',
+      errorCode: 'provider_draft_deleted',
+    });
+    expect(creates).toBe(1);
+    await expect(env.DB.prepare(
+      `SELECT provider_draft_id, latest_revision, state
+         FROM provider_drafts
+        WHERE profile_id = 'profile_1' AND account_id = 'google_1'
+          AND draft_key = 'draft_deleted'`,
+    ).first()).resolves.toEqual({
+      provider_draft_id: null,
+      latest_revision: 2,
+      state: 'discarded',
     });
   });
 
@@ -495,7 +630,7 @@ describe('Google provider writes', () => {
         const mime = decodeBase64Url(body.message.raw, 100_000);
         expect(mime).toContain('Message-ID: <draft_send@tap-email.local>');
         expect(mime).toContain('To: maya@example.com');
-        expect(mime).toContain('Ship it.');
+        expect((await PostalMime.parse(mime)).html).toContain('Ship it.');
         return Response.json({ id: 'draft_1' });
       }
       if (url.pathname === '/gmail/v1/users/me/drafts/send') {
@@ -644,5 +779,82 @@ describe('Google provider writes', () => {
     ).bind(scope.profileId, ready.attachment.stageId).first()).resolves.toEqual({
       count: 0,
     });
+  });
+});
+
+describe('send-linked follow-up reminders', () => {
+  const followUp = { delayMinutes: 2_880, condition: 'if_no_reply' } as const;
+  const payload = { draftKey: 'draft_followup', draftRevision: 1, to: 'maya@example.com', subject: '', bodyText: 'Follow up', followUp };
+  const send = () => command({ threadId: null, kind: 'send_draft', payload });
+
+  it('starts exactly once on the provider thread after successful delivery, not draft save', async () => {
+    let sends = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/messages')) return Response.json({});
+      if (url.pathname.endsWith('/drafts/send')) { sends++; return Response.json({ id: 'sent_followup', threadId: 'actual_thread', historyId: '10' }); }
+      if (url.pathname.endsWith('/drafts') && init?.method === 'POST') return Response.json({ id: 'provider_draft' });
+      if (url.pathname.endsWith('/drafts')) return Response.json({});
+      throw new Error(`Unexpected request ${url}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    expect((await provider.execute(scope, command({ kind: 'save_draft', threadId: null, payload }))).outcome).toBe('acknowledged');
+    expect(await env.DB.prepare('SELECT * FROM tap_reminders').all()).toMatchObject({ results: [] });
+    expect((await provider.execute(scope, send())).outcome).toBe('acknowledged');
+    const row = await env.DB.prepare('SELECT * FROM tap_reminders').first();
+    expect(row).toMatchObject({ thread_id: 'actual_thread', state: 'pending', created_at: now.toISOString(), due_at: '2026-08-20T15:30:00.000Z', condition: 'if_no_reply' });
+    expect((await createGoogleProvider(env, () => new Date('2026-08-18T16:00:00.000Z')).execute(scope, send())).outcome).toBe('acknowledged');
+    expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([row]);
+    expect(sends).toBe(1);
+    await env.DB.prepare("UPDATE tap_reminders SET state = 'cancelled'").run();
+    await provider.execute(scope, send());
+    expect(await env.DB.prepare('SELECT state FROM tap_reminders').first()).toEqual({ state: 'cancelled' });
+  });
+
+  it.each(['if_no_reply', 'regardless'] as const)('reconciles an uncertain send using its original timestamp (%s)', async condition => {
+    let observed = false;
+    let sends = 0;
+    const sentAt = new Date(now.getTime() - 60_000).toISOString();
+    await env.DB.prepare(`INSERT INTO mail_threads
+      (profile_id, account_id, thread_id, history_id, subject, snippet, participants_json,
+       received_at, unread, starred, important, in_inbox, needs_response, waiting_on_others, label_ids_json, updated_at)
+      VALUES ('profile_1', 'google_1', 'actual_thread', '1', '', '', '[]', ?, 0, 0, 0, 1, 0, 0, '[]', ?)`)
+      .bind(now.toISOString(), now.toISOString()).run();
+    await env.DB.prepare(`INSERT INTO mail_messages
+      (profile_id, account_id, thread_id, message_id, sender_json, recipients_json, sent_at, body_text_ciphertext, ordinal, updated_at)
+      VALUES ('profile_1', 'google_1', 'actual_thread', 'reply', '{"address":"maya@example.com"}', '[]', ?, '', 1, ?)`)
+      .bind(now.toISOString(), now.toISOString()).run();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/messages')) return Response.json(observed ? { messages: [{ id: 'sent_followup' }] } : {});
+      if (url.pathname.endsWith('/messages/sent_followup')) {
+        expect(url.searchParams.get('format')).toBe('full');
+        expect(url.searchParams.get('fields')).toBe('id,threadId,labelIds,internalDate,historyId');
+        return Response.json({ id: 'sent_followup', threadId: 'actual_thread', labelIds: ['SENT'], internalDate: String(Date.parse(sentAt)), historyId: '11' });
+      }
+      if (url.pathname.endsWith('/drafts/send')) { sends++; throw new TypeError('Lost response'); }
+      if (url.pathname.endsWith('/drafts') && init?.method === 'POST') return Response.json({ id: 'provider_draft' });
+      if (url.pathname.endsWith('/drafts')) return Response.json({});
+      throw new Error(`Unexpected request ${url}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const outgoing = command({ threadId: null, kind: 'send_draft', payload: { ...payload, followUp: { ...followUp, condition } } });
+    expect((await provider.execute(scope, outgoing)).outcome).toBe('uncertain');
+    expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([]);
+    observed = true;
+    expect((await provider.execute(scope, outgoing)).outcome).toBe('acknowledged');
+    expect(await env.DB.prepare('SELECT thread_id, due_at, state FROM tap_reminders').first()).toEqual({
+      thread_id: 'actual_thread', due_at: '2026-08-20T15:29:00.000Z', state: condition === 'if_no_reply' ? 'satisfied' : 'pending',
+    });
+    expect(sends).toBe(1);
+  });
+
+  it('saves a body before recipients or subject are entered, but rejects sending it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => Response.json(init?.method === 'POST' ? { id: 'incomplete_draft' } : {}));
+    const provider = createGoogleProvider(env, () => now);
+    const incomplete = { ...payload, to: '', subject: '' };
+    expect((await provider.execute(scope, command({ kind: 'save_draft', payload: incomplete }))).outcome).toBe('acknowledged');
+    expect((await provider.execute(scope, command({ kind: 'send_draft', payload: incomplete }))).outcome).toBe('failed');
+    expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([]);
   });
 });

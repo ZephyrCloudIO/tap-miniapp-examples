@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, rs } from "@rstest/core";
 import {
   cancelPublicBookingManagement,
   createPublicBooking,
+  trackPublicBookingFunnel,
   loadPublicBookingManagement,
   loadPublicBookingProfile,
   loadPublicAvailability,
@@ -24,6 +25,16 @@ afterEach(() => {
 });
 
 describe("public Calendar API client", () => {
+  it("sends only an ephemeral visit ID and funnel stage, without guest data or credentials", async () => {
+    const fetchMock = rs.fn<typeof fetch>().mockResolvedValue(Response.json({ recorded: true }));
+    Reflect.set(globalThis, "fetch", fetchMock);
+    const visitId = "450414f6-93ca-42df-88a7-7d9d0cb8a925";
+    await trackPublicBookingFunnel({ profileSlug: "alex-morgan", eventTypeSlug: "30min", visitId, stage: "starts" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/public/pages/alex-morgan/30min/analytics", expect.objectContaining({
+      method: "POST", credentials: "omit", keepalive: true,
+      body: JSON.stringify({ visitId, stage: "starts" }),
+    }));
+  });
   const managementToken = `tapm_v1_${"a".repeat(43)}`;
   const management = {
     schemaVersion: PUBLIC_MANAGEMENT_SCHEMA_VERSION,

@@ -1,3 +1,4 @@
+import { sqliteStoreFixture } from './sqlite-store-fixture';
 import { describe, expect, it, rs } from '@rstest/core';
 import type {
   MiniAppPrivateStorageAccess,
@@ -142,6 +143,22 @@ const receipt: MailCommandReceipt = {
 };
 
 describe('private email activity ledger', () => {
+  it('retains counts across reopen and starts complete coverage only when all activity types are tracked', async () => {
+    const fixture = sqliteStoreFixture();
+    let time = Date.parse('2026-09-14T00:00:00Z');
+    let ledger = new ProfileSqliteEmailActivityLedger(fixture.profile, () => time);
+    await ledger.record(command, receipt);
+    await ledger.close();
+    time += 60_000;
+    ledger = new ProfileSqliteEmailActivityLedger(fixture.profile, () => time);
+    await ledger.recordView('view_1', new Date(time).toISOString());
+    const projection = await ledger.snapshot();
+    expect(projection.entries).toHaveLength(2);
+    expect(projection.coverage.trackingStartedAt).toBe('2026-09-14T00:00:00.000Z');
+    await ledger.close();
+    fixture.sqlite.close();
+  });
+
   it('deduplicates receipt replay and publishes only content-free entries', async () => {
     const fixture = profileStorageFixture();
     const ledger = new ProfileSqliteEmailActivityLedger(
@@ -155,6 +172,7 @@ describe('private email activity ledger', () => {
     const projection = await ledger.record(command, receipt);
     await publishEmailActivityProjection(
       projection,
+      'user_1',
       { get: sharedGet, set: sharedSet } as never,
     );
 
@@ -254,47 +272,18 @@ describe('private email activity ledger', () => {
     await ledger.close();
   });
 
-  it('makes autosave receipts a private-ledger and public-projection no-op', async () => {
+  it('counts one durable draft across autosaves and one view per view identity', async () => {
     const fixture = profileStorageFixture();
-    const ledger = new ProfileSqliteEmailActivityLedger(
-      fixture.profileStorage,
-      () => Date.parse('2026-09-14T00:00:00.000Z'),
-    );
-    const sharedGet = rs.fn(async () => {
-      throw new Error('Autosave must not read shared projection storage.');
-    });
-    const sharedSet = rs.fn(async () => {
-      throw new Error('Autosave must not write shared projection storage.');
-    });
-
-    const projection = await ledger.record({
-      ...command,
-      kind: 'save_draft',
-      payload: {
-        draftKey: 'draft_1',
-        draftRevision: 3,
-        to: 'recipient@example.test',
-        subject: 'Private subject',
-        bodyText: 'Private body',
-      },
-    }, receipt);
-    await publishEmailActivityProjection(
-      projection,
-      { get: sharedGet, set: sharedSet } as never,
-    );
-
-    expect(fixture.events.size).toBe(0);
-    expect(projection.entries).toEqual([]);
-    expect(fixture.profileStorage.open).not.toHaveBeenCalled();
-    expect(fixture.storage.sqlite.open).not.toHaveBeenCalled();
-    expect(fixture.database.migrate).not.toHaveBeenCalled();
-    expect(fixture.database.execute).not.toHaveBeenCalled();
-    expect(fixture.database.query).not.toHaveBeenCalled();
-    expect(fixture.database.checkpoint).not.toHaveBeenCalled();
-    expect(sharedGet).not.toHaveBeenCalled();
-    expect(sharedSet).not.toHaveBeenCalled();
+    const ledger = new ProfileSqliteEmailActivityLedger(fixture.profileStorage, () => Date.parse('2026-09-14T00:00:00Z'));
+    const draft: MailCommand = { ...command, kind: 'save_draft', payload: { draftKey: 'draft_1', draftRevision: 3, to: 'recipient@example.test', subject: 'Private subject', bodyText: 'Private body' } };
+    await ledger.record(draft, receipt);
+    await ledger.record({ ...draft, commandId: 'cmd_2', idempotencyKey: 'key_2', payload: { ...draft.payload, draftRevision: 4 } }, { ...receipt, commandId: 'cmd_2', idempotencyKey: 'key_2' });
+    await ledger.recordView('view_1', '2026-09-13T12:30:00Z');
+    await ledger.recordView('view_1', '2026-09-13T12:30:00Z');
+    const projection = await ledger.recordView('view_2', '2026-09-13T13:00:00Z');
+    expect(projection.entries.filter(e => e.action === 'draft_created')).toHaveLength(1);
+    expect(projection.entries.filter(e => e.action === 'thread_viewed')).toHaveLength(2);
+    expect(JSON.stringify(projection)).not.toContain('Private');
     await ledger.close();
-    expect(fixture.database.close).not.toHaveBeenCalled();
-    expect(fixture.storage.close).not.toHaveBeenCalled();
   });
 });

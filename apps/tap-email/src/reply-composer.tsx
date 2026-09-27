@@ -4,7 +4,7 @@ import type { ComposerServices } from './composer-services';
 import { recipientError } from './recipient-validation';
 import type { MailDraftAttachment, MailFollowUp } from '@tap-examples/tap-email-protocol';
 import { Button } from '@theaiplatform/miniapp-sdk/ui';
-import { Clock3, PanelBottom, PanelRightOpen, Paperclip, X } from 'lucide-react';
+import { PanelBottom, PanelRightOpen, Paperclip, X } from 'lucide-react';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { MessageEditor } from './message-editor';
 import { RecipientInput } from './recipient-input';
@@ -262,7 +262,7 @@ export function ReplyComposer({
           onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')} />
       </footer>
       {tool === 'remind' ? <FollowUpDialog value={followUp} onChange={value => onFollowUpChange?.(value)} onClose={() => setTool(null)} /> : null}
-      {tool === 'share' ? <ShareDraftDialog services={services} draft={{ draftKey, subject, to, cc, bodyText }} onClose={() => setTool(null)} /> : null}
+      {tool === 'share' ? <ShareDraftDialog key={services?.workspaceId} services={services} draft={{ draftKey, subject, to, cc, bodyText }} onClose={() => setTool(null)} /> : null}
       {sendLaterOpen ? (
         <SendLaterDialog
           cancelIfReplyDefault

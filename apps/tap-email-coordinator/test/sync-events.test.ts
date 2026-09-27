@@ -124,6 +124,66 @@ describe('durable mailbox sync events', () => {
     });
   });
 
+  it('keeps account coverage stale while an older durable event remains unresolved', async () => {
+    await env.DB.prepare(
+      `INSERT INTO provider_events
+         (profile_id, account_id, event_id, history_id, state, payload_json,
+          dispatch_pending, error_code, received_at, updated_at)
+       VALUES ('profile_sync', 'google_sync', 'sync_dead_letter', 'history_9',
+               'dead_letter', '{}', 0, 'google_temporarily_unavailable', ?, ?)`,
+    ).bind(now.toISOString(), now.toISOString()).run();
+    const queued = await enqueueSyncEvent(env, {
+      profileId: 'profile_sync',
+      accountId: 'google_sync',
+      mode: 'partial',
+      startHistoryId: 'history_10',
+    }, now);
+    const worker = createTapEmailCoordinator({
+      now: () => now,
+      async syncMailbox() {},
+    });
+
+    const message = fakeMessage(queued);
+    await worker.queue(batch(message.message), env);
+
+    expect(message.result()).toEqual({ disposition: 'ack', delaySeconds: 0 });
+    expect(await env.DB.prepare(
+      `SELECT coverage_state, unresolved_failures
+         FROM google_accounts
+        WHERE profile_id = 'profile_sync' AND account_id = 'google_sync'`,
+    ).first()).toEqual({
+      coverage_state: 'stale',
+      unresolved_failures: 1,
+    });
+
+    const repairedAt = new Date(now.getTime() + 30_000);
+    await env.DB.prepare(
+      `UPDATE google_accounts SET last_full_sync_completed_at = ?
+        WHERE profile_id = 'profile_sync' AND account_id = 'google_sync'`,
+    ).bind(repairedAt.toISOString()).run();
+    const later = new Date(now.getTime() + 60_000);
+    const afterRepair = await enqueueSyncEvent(env, {
+      profileId: 'profile_sync',
+      accountId: 'google_sync',
+      mode: 'partial',
+      startHistoryId: 'history_10',
+    }, later);
+    const repairedWorker = createTapEmailCoordinator({
+      now: () => later,
+      async syncMailbox() {},
+    });
+    const repairedMessage = fakeMessage(afterRepair);
+    await repairedWorker.queue(batch(repairedMessage.message), env);
+    expect(await env.DB.prepare(
+      `SELECT coverage_state, unresolved_failures
+         FROM google_accounts
+        WHERE profile_id = 'profile_sync' AND account_id = 'google_sync'`,
+    ).first()).toEqual({
+      coverage_state: 'current',
+      unresolved_failures: 0,
+    });
+  });
+
   it('acknowledges duplicate deliveries without overtaking an active sync', async () => {
     const queued = await enqueueSyncEvent(env, {
       profileId: 'profile_sync',
@@ -292,6 +352,14 @@ describe('durable mailbox sync events', () => {
       state: 'dead_letter',
       dispatch_pending: 0,
       error_code: 'invalid_event_payload',
+    });
+    expect(await env.DB.prepare(
+      `SELECT coverage_state, unresolved_failures
+         FROM google_accounts
+        WHERE profile_id = 'profile_sync' AND account_id = 'google_sync'`,
+    ).first()).toEqual({
+      coverage_state: 'stale',
+      unresolved_failures: 1,
     });
   });
 });

@@ -31,12 +31,6 @@ export interface EmailTaskSource {
   readonly reminderDueAt: string | null;
 }
 
-export interface EmailTaskDestination {
-  readonly projectId?: string;
-  readonly channelIds?: readonly string[];
-  readonly assigneeUserIds?: readonly string[];
-}
-
 export interface EmailTaskReceiptRecord {
   readonly schemaVersion: 1;
   readonly workspaceId: string;
@@ -159,33 +153,6 @@ function assertEmailTaskSource(source: EmailTaskSource, workspaceId: string): vo
   }
 }
 
-function boundedOpaqueIds(values: readonly string[] | undefined): string[] | undefined {
-  if (!values) return undefined;
-  const normalized = [...new Set(values.map(value => value.trim()))];
-  if (
-    normalized.length > 50 ||
-    normalized.some(value => value.length === 0 || value.length > 512)
-  ) {
-    throw new InvalidEmailTaskSourceError();
-  }
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function taskDestination(destination: EmailTaskDestination | undefined) {
-  if (!destination) return {};
-  const projectId = destination.projectId?.trim();
-  if (projectId !== undefined && (projectId.length === 0 || projectId.length > 512)) {
-    throw new InvalidEmailTaskSourceError();
-  }
-  const channelIds = boundedOpaqueIds(destination.channelIds);
-  const assigneeUserIds = boundedOpaqueIds(destination.assigneeUserIds);
-  return {
-    ...(projectId ? { projectId } : {}),
-    ...(channelIds ? { channelIds } : {}),
-    ...(assigneeUserIds ? { assigneeUserIds } : {}),
-  };
-}
-
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -300,7 +267,6 @@ export async function createEmailTask({
   platform,
   workspaceId,
   source,
-  destination,
   priority = defaultPriority(source),
   dueDate = finiteTimestamp(source.reminderDueAt),
   persistReceipt = persistEmailTaskReceipt,
@@ -309,7 +275,6 @@ export async function createEmailTask({
   readonly platform: EmailTaskPlatform;
   readonly workspaceId: string;
   readonly source: EmailTaskSource;
-  readonly destination?: EmailTaskDestination;
   readonly priority?: MiniAppTaskPriority;
   readonly dueDate?: number;
   readonly persistReceipt?: ReceiptWriter;
@@ -322,12 +287,11 @@ export async function createEmailTask({
     throw new InvalidEmailTaskSourceError();
   }
   const idempotencyKey = await emailTaskIdempotencyKey(source, workspaceId);
-  const destinationOptions = taskDestination(destination);
   const { receipt } = await tasks.createWithReceipt({
     workspaceId,
     title: emailTaskTitle(source),
     description: emailTaskMetadata(source),
-    ...destinationOptions,
+    initialPhase: 'inbox',
     idempotencyKey,
   });
 
@@ -376,10 +340,9 @@ export async function createEmailTask({
     const update = {
       workspaceId,
       taskId,
-      status: 'toDo' as const,
       priority,
-      ...(dueDate === undefined ? {} : { dueDate }),
-    };
+      ...(dueDate === undefined ? {} : { dueAt: dueDate }),
+    } satisfies Parameters<typeof tasks.update>[0];
     ({ task } = await tasks.update(update));
   } catch (error) {
     await persistReceipt({

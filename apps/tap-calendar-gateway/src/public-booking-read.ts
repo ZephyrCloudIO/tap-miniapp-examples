@@ -1,3 +1,5 @@
+import type { CollectiveHost } from "./collective-types";
+import { assertHostsCurrent } from "./collective-store";
 import type {
   PublicationAvailabilityOverride,
   PublicationAvailabilityWindow,
@@ -22,7 +24,7 @@ const MIN_SIGNING_KEY_BYTES = 32;
 const MILLISECONDS_PER_MINUTE = 60_000;
 const MILLISECONDS_PER_DAY = 86_400_000;
 
-export type PublicBookingPageRouteResource = "page" | "availability" | "bookings";
+export type PublicBookingPageRouteResource = "page" | "availability" | "bookings" | "analytics";
 
 export interface PublicBookingPageRoute {
   readonly profileSlug: string;
@@ -42,7 +44,7 @@ export interface PublicPageSnapshot {
   readonly title: string;
   readonly description: string;
   readonly durationMinutes: number;
-  readonly location: "google-meet" | "phone" | "in-person" | "custom";
+  readonly location: "google-meet" | "zoom" | "phone" | "in-person" | "custom";
   readonly locationLabel: string;
   readonly approvalRequired: boolean;
 }
@@ -60,6 +62,7 @@ export interface PublicAvailabilityScheduleSnapshot {
 }
 
 export interface PrivatePageSnapshot {
+  readonly collectiveHosts?: readonly CollectiveHost[];
   readonly schemaVersion: typeof PRIVATE_PAGE_SNAPSHOT_SCHEMA_VERSION;
   readonly workspaceId: string;
   readonly principalId: string;
@@ -94,6 +97,7 @@ export interface ProjectedPublicBookingPage {
     readonly initials: string;
   };
   readonly eventType: {
+    readonly hosts?: readonly { readonly displayName: string }[];
     readonly title: string;
     readonly description?: string;
     readonly durationMinutes: number;
@@ -192,6 +196,7 @@ export interface PublicBookingAvailability {
 }
 
 interface PublishedPageRow {
+  readonly owner_kind: "individual" | "workspace";
   readonly profile_id: string;
   readonly workspace_id: string;
   readonly principal_id: string;
@@ -291,7 +296,7 @@ function parsePublicSnapshot(value: unknown): PublicPageSnapshot {
     typeof value.description !== "string" ||
     value.description.length > 2_000 ||
     !validInteger(value.durationMinutes, 5, 1_440) ||
-    !["google-meet", "phone", "in-person", "custom"].includes(String(value.location)) ||
+    !["google-meet", "zoom", "phone", "in-person", "custom"].includes(String(value.location)) ||
     !validIdentifier(value.locationLabel, 160) ||
     typeof value.approvalRequired !== "boolean"
   ) return invalidStoredSnapshot();
@@ -386,6 +391,23 @@ function parsePrivateSnapshot(value: unknown): PrivatePageSnapshot {
   if (new Set(overrides.map(override => override.date)).size !== overrides.length) {
     return invalidStoredSnapshot();
   }
+  let collectiveHosts: readonly CollectiveHost[] | undefined;
+  if (value.collectiveHosts !== undefined) {
+    if (!Array.isArray(value.collectiveHosts) || value.collectiveHosts.length < 1 || value.collectiveHosts.length > 10) return invalidStoredSnapshot();
+    collectiveHosts = value.collectiveHosts.map((host: unknown): CollectiveHost => {
+      if (!isRecord(host) || !validIdentifier(host.principalId) || !validIdentifier(host.displayName, 160) ||
+        typeof host.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(host.email) || !validInteger(host.version, 1, 2_147_483_647)) return invalidStoredSnapshot();
+      const policy = parsePrivateSnapshot({ schemaVersion: PRIVATE_PAGE_SNAPSHOT_SCHEMA_VERSION,
+        workspaceId: value.workspaceId, principalId: host.principalId, location: value.location,
+        destinationCalendarId: host.destinationCalendarId, conflictCalendarIds: host.conflictCalendarIds,
+        sourceAvailabilityScheduleId: host.sourceAvailabilityScheduleId, schedule: host.schedule });
+      return { principalId: host.principalId, version: host.version, displayName: host.displayName, email: host.email,
+        destinationCalendarId: policy.destinationCalendarId, conflictCalendarIds: policy.conflictCalendarIds,
+        sourceAvailabilityScheduleId: policy.sourceAvailabilityScheduleId, schedule: policy.schedule };
+    });
+    if (new Set(collectiveHosts.map(host => host.principalId)).size !== collectiveHosts.length ||
+      collectiveHosts[0]?.principalId !== value.principalId || collectiveHosts[0]?.destinationCalendarId !== value.destinationCalendarId) return invalidStoredSnapshot();
+  }
   return {
     schemaVersion: PRIVATE_PAGE_SNAPSHOT_SCHEMA_VERSION,
     workspaceId: value.workspaceId,
@@ -393,6 +415,7 @@ function parsePrivateSnapshot(value: unknown): PrivatePageSnapshot {
     destinationCalendarId: value.destinationCalendarId,
     conflictCalendarIds,
     sourceAvailabilityScheduleId: value.sourceAvailabilityScheduleId,
+    ...(collectiveHosts ? { collectiveHosts } : {}),
     location: value.location,
     schedule: {
       timeZone: scheduleTimeZone,
@@ -412,12 +435,12 @@ const validSlug = (value: string): boolean =>
   value.length >= 2 && value.length <= 64 && SLUG_PATTERN.test(value);
 
 export function parsePublicBookingPagePath(pathname: string): PublicBookingPageRoute | null {
-  const match = /^\/api\/public\/pages\/([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(availability|bookings))?$/u.exec(pathname);
+  const match = /^\/api\/public\/pages\/([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(availability|bookings|analytics))?$/u.exec(pathname);
   if (!match?.[1] || !match[2] || !validSlug(match[1]) || !validSlug(match[2])) return null;
   return {
     profileSlug: match[1],
     eventTypeSlug: match[2],
-    resource: match[3] === "availability" || match[3] === "bookings" ? match[3] : "page",
+    resource: match[3] === "availability" || match[3] === "bookings" || match[3] === "analytics" ? match[3] : "page",
   };
 }
 
@@ -476,6 +499,7 @@ export async function resolvePublishedPublicBookingProfile(
   }
   const rows = (await database.prepare(
     `SELECT profiles.id AS profile_id,
+            profiles.owner_kind,
             profile_slugs.slug AS profile_slug,
             profiles.display_name,
             published_pages.event_type_slug,
@@ -554,6 +578,7 @@ export async function resolvePublishedPublicBookingPage(
   }
   const row = await database.prepare(
     `SELECT profiles.id AS profile_id,
+            profiles.owner_kind,
             profiles.workspace_id,
             profiles.principal_id,
             pages.id AS page_id,
@@ -590,7 +615,8 @@ export async function resolvePublishedPublicBookingPage(
   const privateSnapshot = parsePrivateSnapshot(parseSnapshotJson(row.private_snapshot_json));
   if (
     privateSnapshot.workspaceId !== row.workspace_id ||
-    privateSnapshot.principalId !== row.principal_id
+    (row.owner_kind !== "workspace" && privateSnapshot.principalId !== row.principal_id) ||
+    (row.owner_kind === "workspace" && !privateSnapshot.collectiveHosts)
   ) return invalidStoredSnapshot();
   return {
     profileId: row.profile_id,
@@ -608,6 +634,7 @@ export async function assertPublicPageStillCurrent(
   database: PublicBookingReadDatabase,
   resolved: ResolvedPublishedPublicBookingPage,
 ): Promise<void> {
+  if (resolved.privateSnapshot.collectiveHosts) await assertHostsCurrent(database, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
   const current = await database.prepare(
     `SELECT 1 AS current
        FROM public_booking_profiles AS profiles
@@ -830,6 +857,7 @@ export function projectPublicBookingPage(
     profile: { displayName: snapshot.displayName, initials: initials(snapshot.displayName) },
     eventType: {
       title: snapshot.title,
+      ...(resolved.privateSnapshot.collectiveHosts ? { hosts: resolved.privateSnapshot.collectiveHosts.map(host => ({ displayName: host.displayName })) } : {}),
       ...(snapshot.description ? { description: snapshot.description } : {}),
       durationMinutes: snapshot.durationMinutes,
       location: snapshot.location,
@@ -842,6 +870,29 @@ export function projectPublicBookingPage(
     },
     turnstile: { siteKey: options.turnstileSiteKey },
   };
+}
+
+/** Evaluate containment rather than intersecting separately aligned slot grids. */
+export function hostScheduleAllowsInterval(
+  schedule: PublicAvailabilityScheduleSnapshot, start: number, end: number, now: number,
+  cache: FormatterCache = new Map(),
+): boolean {
+  if (start < now + schedule.minimumNoticeMinutes * MILLISECONDS_PER_MINUTE || end <= start) return false;
+  const today = calendarDateInTimeZone(now, schedule.timeZone, cache);
+  const last = addCalendarDays(today, schedule.bookingHorizonDays - 1);
+  const anchor = calendarDateInTimeZone(start, schedule.timeZone, cache);
+  for (let offset = -2; offset <= 2; offset += 1) {
+    const date = addCalendarDays(anchor, offset);
+    if (date < today || date > last) continue;
+    const available = windowsForHostDate(schedule, date);
+    for (const window of available.windows) {
+      const from = zonedWallClockInstant(date, minutesFromMidnight(window.start), available.timeZone, cache);
+      const to = zonedWallClockInstant(date, minutesFromMidnight(window.end), available.timeZone, cache);
+      if (from !== null && to !== null && start >= from && end <= to &&
+        offsetMinutesAtInstant(start, available.timeZone, cache) === offsetMinutesAtInstant(end, available.timeZone, cache)) return true;
+    }
+  }
+  return false;
 }
 
 function candidateHostDateRange(
@@ -972,6 +1023,7 @@ function generateCandidates(
         if (start === null || start < earliestStart) continue;
         const end = start + resolved.publicSnapshot.durationMinutes * MILLISECONDS_PER_MINUTE;
         if (end > windowEnd) continue;
+        if (resolved.privateSnapshot.collectiveHosts?.some(host => !hostScheduleAllowsInterval(host.schedule, start, end, now, cache))) continue;
         // Avoid displaying an elapsed-duration slot whose local end clock moves
         // across a DST transition (especially backward through a repeated hour).
         if (
@@ -1205,8 +1257,11 @@ export async function buildPublicAvailability(
   busyIntervals: readonly PublicBusyInterval[],
   signingKey: string | CryptoKey,
   now: number,
+  acceptsSlot?: (slot: PublicAvailabilityCandidate) => boolean,
 ): Promise<PublicBookingAvailability> {
-  const grouped = generatePublicAvailabilityCandidates({ resolved, query, busyIntervals, now });
+  const grouped = generatePublicAvailabilityCandidates({ resolved, query, busyIntervals, now })
+    .map(group => ({ ...group, slots: acceptsSlot ? group.slots.filter(acceptsSlot) : group.slots }))
+    .filter(group => group.slots.length > 0);
   const preparedSigningKey = typeof signingKey === "string"
     ? await preparePublicSlotSigningKey(signingKey)
     : signingKey;

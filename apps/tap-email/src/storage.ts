@@ -27,10 +27,10 @@ export const operationalAddress = {
   namespace: 'tap-email',
   key: 'operational/v1',
 } as const;
-export const activityAddress = {
-  namespace: 'tap-email',
-  key: 'activity/v1',
-} as const;
+export function activityAddress(userId: string) {
+  if (!userId || userId.length > 512) throw new Error('Email activity requires a trusted user.');
+  return { namespace: 'tap-email', key: `users/${userId}/activity/v1` } as const;
+}
 
 export interface OperationalProjection {
   readonly schemaVersion: 1;
@@ -73,6 +73,7 @@ export async function publishOperationalProjection(
 
 export async function publishEmailActivityProjection(
   projection: EmailActivityProjection,
+  userId: string,
   storage: Pick<MiniAppStorageApi, 'get' | 'set'> = sdk.storage,
 ): Promise<void> {
   if (isNoOpEmailActivityProjection(projection)) return;
@@ -82,7 +83,7 @@ export async function publishEmailActivityProjection(
   const value = JSON.parse(JSON.stringify(projection)) as MiniAppJsonValue;
   let latestFailure: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const current = await storage.get(activityAddress);
+    const current = await storage.get(activityAddress(userId));
     if (
       isEmailActivityProjection(current.value) &&
       (
@@ -100,7 +101,7 @@ export async function publishEmailActivityProjection(
     }
     try {
       await storage.set({
-        ...activityAddress,
+        ...activityAddress(userId),
         expectedRevision: current.revision,
         value,
       });

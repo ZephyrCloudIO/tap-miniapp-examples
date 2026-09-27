@@ -10,8 +10,8 @@ receives a Google refresh token or calls Gmail directly.
 `GET /v1/recipients?q=...` requires `tap-email.view` and searches the current
 profile's sent recipients across connected accounts. It returns up to 20
 deduplicated name/address matches, ranked by prefix match and recency. To, Cc,
-and Bcc metadata from Gmail messages marked SENT is indexed before the reader's
-20-message retention limit. Drafts and incoming senders are excluded. Account
+and Bcc metadata from Gmail messages marked SENT is indexed independently of
+the reader's body hydration window. Drafts and incoming senders are excluded. Account
 deletion cascades to the index; revoked accounts are excluded from searches.
 
 Apply migration `0017_recipient_history.sql` before deploying the coordinator.
@@ -22,6 +22,16 @@ projection. Suggestions become more complete as the paginated backfill runs;
 new sends enter history when Gmail sync observes them. Deploy the coordinator
 before the miniapp. While offline, the miniapp can suggest outgoing recipients
 already in its local cache and always permits manual address entry.
+
+## Composer follow-ups
+
+Apply `0018_sent_follow_up.sql` after `0017_recipient_history.sql`, then deploy
+the coordinator before the miniapp. Follow-up intent is stored with the draft
+and scheduled send. The provider's acknowledged message ID, thread ID, and sent
+time are checkpointed together with a single reminder. Its timer begins after
+actual delivery, including when reconciling an uncertain send. Retries do not
+restart or resurrect a cancelled reminder. Saving, cancelling, or undoing an
+unsent draft does not activate a reminder.
 
 ## Google setup
 
@@ -86,11 +96,37 @@ Missing grants, a different audience, malformed fields, or an unavailable
 introspection service fail closed. Local development remains an explicit
 `ALLOW_DEV_IDENTITY=true` grant and must never be enabled in production.
 
+Introspection and Directory requests use `redirect: 'manual'` and reject 3xx
+responses without following `Location`, so authorization headers stay at the
+configured authority. The pinned Workers runtime rejects `redirect: 'error'`
+during request construction, before any network request. Auth tests construct
+real Workers `Request` objects to catch this class of runtime incompatibility.
+
 `GET /health` is a process-liveness probe. `GET /ready` additionally validates
 non-secret runtime configuration, queue bindings, encryption-key shape, and D1
 connectivity. Neither route returns configuration or secret values.
 
 ## Production
+
+Conversation detail reads use `GET /v1/accounts/:accountId/threads/:threadId`
+with an optional `cursor` query parameter. Each response includes
+`thread.providerRevision` and `thread.pageInfo: { nextCursor, complete }`.
+Pages visit newest messages first, with messages inside each page in chronological
+order. Cursors bind the profile, account, thread, and provider revision; a
+`409 thread_changed` requires restarting at the first page.
+
+Pages contain at most 20 messages and target 2 MiB of serialized UTF-8 JSON,
+including the response envelope and cursor. One heavily escaped message may
+exceed the target, up to the shared 8 MiB producer/client ceiling. Bodies and
+attachment metadata are preserved. Oversized provider threads retain all message
+identities and fetch older bodies on demand. Failed body reads return actionable
+errors rather than successful empty messages.
+
+Apply migration `0014_conversation_history.sql` before deploying this coordinator,
+then release the matching email client. The migration marks previously cached
+conversations for refresh on their next read because earlier versions may have
+discarded messages beyond the newest 20. The new client requires explicit page
+information and provides “Load older messages” and retry controls.
 
 The production environment binds the custom domain
 `tap-email-coordinator.theaiplatform.app`. Confirm that domain is in the target
@@ -194,6 +230,42 @@ with `GET /v1/mailbox?cursor=<opaque cursor>`. An optional `limit` from 1 throug
 ordering, so equal timestamps and multiple connected accounts remain stable
 without relying on Gmail-specific identifiers in the client.
 
+Every page is additive and includes a `pageInfo.revision` watermark. Connection
+polls use the same page merge. Head refresh runs independently of historical
+loading, including when a device resumes a saved history cursor. A completed
+timestamp-ordered traversal alone is **not** proof that absent rows were deleted:
+provider writes can move rows between those pages.
+
+`GET /v1/mailbox/changes?after=0` bootstraps a complete reconciliation. Each
+response includes `mailbox`, `pageInfo.revision`, and `changes` containing
+`nextRevision`, `hasMore`, and account-scoped `deletedThreads`. Follow
+`nextRevision` until `hasMore` is false; subsequent polls start from that revision.
+The same optional `limit` bounds the number of change identities to 100. Account
+metadata markers consume slots even when no thread is returned. Accounts are a
+complete list on every response. Rows, previews, tombstones, and the watermark
+are read together in a [D1 batch transaction](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch).
+
+Migration `0013_mailbox_changes.sql` seeds existing threads and records projection
+writes in the same transaction as their source rows. The stream retains the
+latest revision of each identity and durable deletion tombstones; it does not
+expire cursors or discard tombstones. Repeated changes move an identity forward
+in revision order, so replay catches mutations during traversal. Only a finished
+bootstrap may remove unseen cached rows, and it preserves rows received from a
+newer concurrent head response. Per-identity revision guards prevent late history
+pages from reverting metadata or restoring deleted threads. Local commands and
+their optimistic intents remain separate from the provider projection.
+
+Change cursors are session-only: interruption retries the last applied revision,
+and app restart replays from zero. This costs one bounded traversal per startup
+but prevents a durable cursor from skipping rows after a failed cache save. A
+future durable delta checkpoint must commit rows and cursor together. Historical
+page checkpoints capture the corresponding React state and serialize the row
+save before the cursor save; a failed save leaves the prior checkpoint intact.
+
+Rollout order: apply migration 0013, deploy the coordinator, then publish the
+miniapp. The new client rejects unversioned coordinator pages and retains its
+device cache. Older clients can continue reading the existing page endpoint.
+
 ## Provider-visible drafts and scheduled delivery
 
 `save_draft`, `send_draft`, and `schedule_send` share one stable TAP draft key
@@ -236,36 +308,47 @@ expire automatically; their R2 chunks and D1 metadata are deleted after a
 confirmed provider send. An uncertain send keeps them available for exact
 provider-draft reconciliation.
 
-## Platform MCP staging
+## HTML and referral attribution
 
-`src/mcp.ts` and `src/mcp-mail.ts` contain the tested, read-only MCP substrate
-for account discovery, structured thread search, thread metadata, exact bounded
-plaintext reads, and command receipts. It is intentionally not mounted by the
-Worker and is not declared as a hosted package MCP server yet.
+TAP drafts default to preferred HTML with a plain-text MIME alternative. The
+generated `Sent with TAP Email on The AI Platform` footer is added only to the
+final send. Reused Gmail drafts retain provider-side edits and attachments.
 
-The transport calls the shared, profile-bound `MailReadPort`; the current D1
-adapter maps Google-backed rows to extensible provider keys and provider-neutral
-coverage revisions. Future provider adapters retain the same account-scoped port
-instead of adding provider-specific tool schemas.
+New production send/schedule commands require the SDK 0.19 `expectedContext`.
+Session/action verification plus authenticated Directory lookups establish the
+canonical sender/workspace. Migration 0015 stores the profile/user binding and
+immutable command attribution. Apply it before deploying this coordinator.
 
-The ordinary TAP platform session currently proves a profile but does not
-attest an MCP audience or metadata/content scopes. Mount the server only after
-the host supplies a remotely verifiable `tap-email-mcp` principal with explicit
-`email.metadata.read` and `email.content.read` grants. The five hosted-tool input
-schemas are already staged and source-validated in
-[`../tap-email/schemas/mcp`](../tap-email/schemas/mcp). They remain outside the
-current signed artifact because no active contribution references them;
-activation must add manifest tool contributions that reference and therefore
-sign those assets. Do not forward the platform session as a package MCP header
-credential or add an unlisted `/mcp` route.
+The `WEBSITE_REFERRALS` Service Binding targets the website's named
+`WebsiteReferralsPublisher` entrypoint. It must be deployed in the same account:
+`tap-website-referrals-production` in production, `tap-website-referrals-dev`
+locally. Returned links are persisted before sending and reused on retries.
+Website owns `/refer/:token`, redirects, and `tap_email_referral_clicked` PostHog
+events; this coordinator does not generate click events on send. Referral
+unavailability leaves sends pending for retry.
 
-## Attachments
+Production rollout still needs deployed session/Directory verification and the
+background TAP send-permission recheck tracked in upstream #11055. Current
+execution checks the connected Gmail account but does not recheck revoked TAP
+workspace/action grants. See [implementation and rollout notes](../../research/tap-email-sent-with-attribution.md).
 
-Mailbox and thread snapshots contain bounded attachment metadata only. The
-provider locator stays encrypted in D1, and attachment bytes are fetched only
-after an authenticated request to
-`GET /v1/accounts/:accountId/threads/:threadId/messages/:messageId/attachments/:resourceId`.
-The complete tuple is authorized before Gmail is contacted. Responses are
-private, non-cacheable, exact-size binary bodies capped at 8 MiB; the desktop
-app places successful downloads in its integrity-checked private profile cache
-and exports them only through the host-owned Save picker.
+## Platform MCP
+
+`src/mcp.ts` and `src/mcp-mail.ts` expose the authenticated live Email MCP.
+It includes account listing, coverage-aware metadata search, exact plaintext reads,
+provider draft saves, sends through the existing command queue, and receipt lookup.
+SDK 0.19 packages register this server and its signed input schemas.
+
+The `/mcp` route accepts only the scoped, expiring token created in TAP Email
+settings, supplied through TAP's host-held `tap-email-access-token` credential.
+Ordinary platform sessions cannot access MCP. The authenticated platform session
+can create, inspect, or revoke its own credential at `/v1/mcp/credential`; token
+creation/revocation requires `tap-email.manage`. MCP tokens cannot use that route.
+Write-enabled tokens also capture the Session/Directory-verified sending user and
+workspace at creation; sends preserve that attribution and the existing referral pipeline.
+
+Apply migration `0016_mcp_credentials.sql` before deploying this version. The
+`/v1/activity/receipts` route supplies bounded, profile-scoped command receipts to
+Email's local activity ledger without returning mail content. Draft payloads are
+read one at a time to bound memory. See [ADR 0005](../tap-email/docs/adr/0005-sdk-019-activity-and-email-tools.md)
+for release, host connection, permissions, and activity coverage details.

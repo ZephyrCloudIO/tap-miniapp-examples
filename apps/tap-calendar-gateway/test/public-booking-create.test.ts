@@ -133,6 +133,8 @@ class MemoryAttemptStore implements PublicBookingAttemptStore {
       providerOperationId: input.providerOperationId,
       bookingReference: `booking_ref_${String(this.referenceSequence).padStart(8, "0")}`,
       guest: input.guest,
+      ...(input.notes ? { notes: input.notes } : {}),
+      ...(input.additionalGuests ? { additionalGuests: input.additionalGuests } : {}),
       approvalExpiresAt: input.approvalExpiresAt,
       state: "pending",
       response: null,
@@ -282,6 +284,42 @@ describe("public booking request boundary", () => {
     })).toThrowError(expect.objectContaining({ code: "invalid_booking_request" }));
   });
 
+  it("validates and normalizes notes and additional invitees", () => {
+    const body = {
+      schemaVersion: "tap.calendar.public-booking.v1", requestId,
+      slotToken: "signed-slot-token-for-public-create-1",
+      guest: { name: "Guest Person", email: "guest@example.com" },
+      turnstileToken: "turnstile-token",
+    };
+    expect(parsePublicBookingRequest({ ...body, notes: "  Discuss the launch.  ",
+      additionalGuests: [" TEAM@Example.com ", "team@example.com", "GUEST@example.com"],
+    })).toMatchObject({ notes: "Discuss the launch.", additionalGuests: ["team@example.com"] });
+    expect(parsePublicBookingRequest({ ...body, notes: "  ", additionalGuests: [] })).toEqual(body);
+    for (const details of [
+      { notes: "x".repeat(2001) }, { notes: null }, { notes: 42 },
+      { additionalGuests: ["invalid"] }, { additionalGuests: [null] },
+      { additionalGuests: "team@example.com" }, { additionalGuests: null },
+      { additionalGuests: Array.from({ length: 11 }, (_, index) => `guest${index}@example.com`) },
+    ]) {
+      expect(() => parsePublicBookingRequest({ ...body, ...details }))
+        .toThrowError(expect.objectContaining({ code: "invalid_booking_request" }));
+    }
+  });
+
+  it("binds notes and invitees to idempotency while preserving legacy request hashes", async () => {
+    const input = { page: pageFixture(), slotClaims: inputFixture().slotProof.claims, guest: inputFixture().guest };
+    const legacy = await publicBookingRequestHash(input);
+    expect(await publicBookingRequestHash({ ...input, notes: " ", additionalGuests: [] })).toBe(legacy);
+    const details = { notes: "Launch agenda", additionalGuests: ["b@example.com", "a@example.com"] };
+    const hash = await publicBookingRequestHash({ ...input, ...details });
+    expect(hash).not.toBe(legacy);
+    expect(await publicBookingRequestHash({ ...input, notes: " Launch agenda ",
+      additionalGuests: ["A@example.com", "b@example.com", "a@example.com", "guest@example.com"],
+    })).toBe(hash);
+    expect(await publicBookingRequestHash({ ...input, ...details, notes: "Changed agenda" })).not.toBe(hash);
+    expect(await publicBookingRequestHash({ ...input, ...details, additionalGuests: ["a@example.com"] })).not.toBe(hash);
+  });
+
   it("hashes the business request but not replaceable security tokens", async () => {
     const page = pageFixture();
     const first = await publicBookingRequestHash({
@@ -344,6 +382,22 @@ describe("public booking request boundary", () => {
 });
 
 describe("public booking commit core", () => {
+  it.each([false, true])("keeps notes and invitees through retries (approval required: %s)", async approvalRequired => {
+    const setup = harness({ page: pageFixture({ publicSnapshot: { ...publicSnapshot, approvalRequired } }) });
+    const input = inputFixture({ notes: "Discuss <launch> & next steps.", additionalGuests: ["TEAM@example.com"] });
+    const first = await createPublicBooking(setup.page, input, setup.dependencies);
+    expect(first.status).toBe(approvalRequired ? "pending" : "confirmed");
+    expect(setup.commit).toHaveBeenCalledWith(expect.objectContaining({
+      description: `${publicSnapshot.description}\n\nAdditional notes from Guest Person:\nDiscuss &lt;launch&gt; &amp; next steps.`,
+      additionalGuests: ["team@example.com"],
+      bookingKind: approvalRequired ? "approval-hold" : "meeting",
+    }));
+    expect(await createPublicBooking(setup.page, input, setup.dependencies)).toEqual(first);
+    expect(setup.commit).toHaveBeenCalledTimes(1);
+    await expect(createPublicBooking(setup.page, { ...input, additionalGuests: ["other@example.com"] }, setup.dependencies))
+      .rejects.toMatchObject({ code: "idempotency_key_reused" });
+  });
+
   it("checks the buffer-expanded range but writes the original event interval", async () => {
     const setup = harness();
     const result = await createPublicBooking(setup.page, inputFixture(), setup.dependencies);

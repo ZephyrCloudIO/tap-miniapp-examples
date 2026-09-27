@@ -33,6 +33,30 @@ describe("public booking publication projection", () => {
     );
   });
 
+  it("still enforces the Event Type destination when every global conflict calendar is disabled", () => {
+    const initial = createInitialCalendarState();
+    const state = {
+      ...initial,
+      accounts: initial.accounts.map(account => ({
+        ...account,
+        calendars: account.calendars.map(calendar => ({
+          ...calendar,
+          conflicts: false,
+        })),
+      })),
+    };
+    const profile = state.bookingProfiles[0]!;
+    const eventType = profile.eventTypes[0]!;
+
+    const result = buildPublicBookingPublication(state, profile, eventType);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.publication.conflictCalendarIds).toEqual([
+      eventType.destinationCalendarId,
+    ]);
+  });
+
   it("fails closed for unsupported owners, drafts, and missing schedules", () => {
     const state = createInitialCalendarState();
     const individual = state.bookingProfiles[0]!;

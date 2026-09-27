@@ -1,4 +1,9 @@
+import { isCalendarActivityProjection, type CalendarActivityProjection, type AvailabilityActivityReceipt } from "./activity-contract";
+import { isAttendeeResponse } from "./attendee-response";
+import type { CalendarMcpConfiguration, CalendarMcpConsent, CalendarMcpGrant, CalendarMcpScope } from "./mcp-contract";
+import type { WorkspaceBookings, SharedHostInput, WorkspaceBookingProfileInput } from "./workspace-bookings";
 import type { MiniAppHttpApi } from "@theaiplatform/miniapp-sdk/sdk";
+import { isPublicBookingAnalytics, type PublicBookingAnalytics } from "./public-booking-analytics";
 import type {
   CalendarEvent,
   CalendarProvider,
@@ -131,7 +136,19 @@ export type CalendarGatewayBookingKind =
   | "approval-hold"
   | "work-block";
 
-export type CalendarGatewayConferenceProvider = "none" | "google-meet";
+export type CalendarGatewayConferenceProvider = "none" | "google-meet" | "zoom";
+
+export interface CalendarGatewayMeetingProviderConnection {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly ownerPrincipalId: string;
+  readonly provider: "zoom";
+  readonly mode: "oauth";
+  readonly label: string;
+  readonly status: "pending" | "connected" | "attention";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
 
 export interface CalendarGatewayCommittedBooking {
   readonly state: "committed";
@@ -558,6 +575,22 @@ const isGoogleMeetJoinUrl = (value: unknown): value is string =>
     url => url.hostname === "meet.google.com" && url.pathname !== "/",
   );
 
+const isZoomJoinUrl = (value: unknown): value is string =>
+  isTrustedGoogleHttpsUrl(
+    value,
+    url => {
+      if (
+        !(url.hostname === "zoom.us" || url.hostname.endsWith(".zoom.us")) ||
+        url.hash ||
+        !/^\/j\/\d{9,11}\/?$/u.test(url.pathname)
+      ) return false;
+      return [...url.searchParams.keys()].every(key => key === "pwd" || key === "omn");
+    },
+  );
+
+const isConferenceJoinUrl = (value: unknown): value is string =>
+  isGoogleMeetJoinUrl(value) || isZoomJoinUrl(value);
+
 const isGatewayEventError = (value: unknown): value is CalendarGatewayEventError =>
   isRecord(value) &&
   typeof value.calendarId === "string" &&
@@ -595,12 +628,12 @@ const isGatewayCalendarEvent = (value: unknown): value is CalendarEvent =>
     typeof attendee.name === "string" &&
     typeof attendee.email === "string" &&
     (attendee.kind === "tap" || attendee.kind === "external") &&
-    typeof attendee.required === "boolean"
+    typeof attendee.required === "boolean" && isAttendeeResponse(attendee)
   ) &&
   (value.busy === undefined || typeof value.busy === "boolean") &&
   (value.allDay === undefined || typeof value.allDay === "boolean") &&
   (value.providerHtmlLink === undefined || isGoogleCalendarHtmlUrl(value.providerHtmlLink)) &&
-  (value.providerJoinUrl === undefined || isGoogleMeetJoinUrl(value.providerJoinUrl)) &&
+  (value.providerJoinUrl === undefined || isConferenceJoinUrl(value.providerJoinUrl)) &&
   (value.source === undefined || (
     isRecord(value.source) &&
     (value.source.kind === "task" || value.source.kind === "channel" ||
@@ -702,7 +735,7 @@ export function isCalendarGatewayBookingCommit(
     isStringArray(booking.pendingAttendeeEmails) &&
     (booking.approvalExpiresAt === null || isIsoDateTime(booking.approvalExpiresAt)) &&
     (booking.providerHtmlLink === null || isGoogleCalendarHtmlUrl(booking.providerHtmlLink)) &&
-    (booking.providerJoinUrl === null || isGoogleMeetJoinUrl(booking.providerJoinUrl)) &&
+    (booking.providerJoinUrl === null || isConferenceJoinUrl(booking.providerJoinUrl)) &&
     (booking.conferenceStatus === "none" ||
       booking.conferenceStatus === "pending" ||
       booking.conferenceStatus === "ready") &&
@@ -762,7 +795,7 @@ export function isCalendarGatewayBookingResolution(
     typeof resolution.providerEventId === "string" &&
     resolution.providerEventId.length > 0 &&
     typeof resolution.providerEventRemoved === "boolean" &&
-    (resolution.providerJoinUrl === null || isGoogleMeetJoinUrl(resolution.providerJoinUrl)) &&
+    (resolution.providerJoinUrl === null || isConferenceJoinUrl(resolution.providerJoinUrl)) &&
     (resolution.event === null || isGatewayCalendarEvent(resolution.event)) &&
     isIsoDateTime(value.resolvedAt) &&
     typeof value.idempotentReplay === "boolean"
@@ -859,10 +892,21 @@ export function createTapCalendarGatewayTransport(
 }
 
 export interface CalendarGatewayClient {
+  activity(): Promise<CalendarActivityProjection>;
+  syncAvailabilityActivity(entries: readonly Omit<AvailabilityActivityReceipt, "workspaceId">[]): Promise<void>;
+  saveMcpConfiguration(sourceRevision: number, configuration: CalendarMcpConfiguration): Promise<void>;
+  reviewMcpAuthorization(code: string): Promise<CalendarMcpConsent>;
+  approveMcpAuthorization(code: string, scopes: readonly CalendarMcpScope[]): Promise<void>;
+  listMcpGrants(): Promise<readonly CalendarMcpGrant[]>;
+  revokeMcpGrant(grantId: string): Promise<void>;
   readonly baseUrl: string;
   readonly principalId: string;
+  workspaceBookings(): Promise<WorkspaceBookings>;
+  saveSharedHost(input: SharedHostInput): Promise<void>;
+  saveWorkspaceBookingProfile(input: WorkspaceBookingProfileInput): Promise<void>;
   health(): Promise<{ readonly ok: boolean; readonly localDevelopment: boolean }>;
   providers(): Promise<CalendarGatewayProviderCatalog>;
+  publicBookingAnalytics(): Promise<PublicBookingAnalytics>;
   publishPublicBookingProfile(
     input: PublicBookingProfilePublicationInput,
   ): Promise<CalendarGatewayPublishedBookingProfile>;
@@ -891,13 +935,18 @@ export interface CalendarGatewayClient {
   ): Promise<CalendarGatewayConnection>;
   startOAuth(input: {
     readonly id: string;
-    readonly provider: "google" | "microsoft";
+    readonly provider: "google" | "microsoft" | "zoom";
     readonly label?: string;
   }): Promise<{
     readonly connectionId: string;
     readonly authorizationUrl: string;
     readonly expiresAt: string;
   }>;
+  listMeetingProviderConnections(): Promise<readonly CalendarGatewayMeetingProviderConnection[]>;
+  verifyMeetingProviderConnection(
+    connectionId: string,
+  ): Promise<CalendarGatewayMeetingProviderConnection>;
+  deleteMeetingProviderConnection(connectionId: string): Promise<void>;
   syncConnection(connectionId: string): Promise<CalendarGatewayConnection>;
   queryEvents(input: {
     readonly timeMin: string;
@@ -1102,6 +1151,34 @@ export function createCalendarGatewayClient(input: {
     return value as unknown as CalendarGatewayConnection;
   };
 
+  const ownedMeetingProviderConnection = (
+    value: unknown,
+  ): CalendarGatewayMeetingProviderConnection => {
+    if (
+      !isRecord(value) ||
+      value.workspaceId !== workspaceId ||
+      value.ownerPrincipalId !== principalId ||
+      typeof value.id !== "string" ||
+      !value.id.trim() ||
+      value.provider !== "zoom" ||
+      value.mode !== "oauth" ||
+      typeof value.label !== "string" ||
+      !value.label.trim() ||
+      (value.status !== "pending" &&
+        value.status !== "connected" &&
+        value.status !== "attention") ||
+      !isIsoDateTime(value.createdAt) ||
+      !isIsoDateTime(value.updatedAt)
+    ) {
+      throw new CalendarGatewayError(
+        502,
+        "gateway_owner_mismatch",
+        "The Calendar gateway returned a meeting-provider connection outside the mounted TAP owner boundary.",
+      );
+    }
+    return value as unknown as CalendarGatewayMeetingProviderConnection;
+  };
+
   const connection = async (
     method: "POST" | "GET",
     path: string,
@@ -1118,6 +1195,28 @@ export function createCalendarGatewayClient(input: {
   return {
     baseUrl,
     principalId,
+    async activity() {
+      const result = await request<unknown>("GET", "/v1/activity");
+      if (!isCalendarActivityProjection(result) || result.userId !== principalId || result.workspaceId !== workspaceId) {
+        throw new CalendarGatewayError(502, "invalid_activity", "Calendar activity could not be verified for this account.");
+      }
+      return result;
+    },
+    async syncAvailabilityActivity(entries) { await request("POST", "/v1/activity/availability", { entries }); },
+    async saveMcpConfiguration(sourceRevision, configuration) { await request("POST", "/v1/mcp/configuration", { sourceRevision, configuration }); },
+    async reviewMcpAuthorization(code) { return request<CalendarMcpConsent>("POST", "/v1/mcp/authorizations/review", { code }); },
+    async approveMcpAuthorization(code, scopes) { await request("POST", "/v1/mcp/authorizations/approve", { code, scopes }); },
+    async listMcpGrants() { return (await request<{ grants: readonly CalendarMcpGrant[] }>("GET", "/v1/mcp/grants")).grants; },
+    async revokeMcpGrant(grantId) { await request("DELETE", `/v1/mcp/grants/${encodeURIComponent(grantId)}`); },
+    async workspaceBookings() {
+      return request<WorkspaceBookings>("GET", "/v1/workspace-bookings");
+    },
+    async saveSharedHost(value) {
+      await request("POST", "/v1/workspace-bookings/host", value);
+    },
+    async saveWorkspaceBookingProfile(value) {
+      await request("POST", "/v1/workspace-bookings/profile", value);
+    },
     async health() {
       return request("GET", "/health");
     },
@@ -1129,6 +1228,14 @@ export function createCalendarGatewayClient(input: {
           "gateway_response_invalid",
           "The Calendar gateway returned an invalid provider catalog.",
         );
+      }
+      return result;
+    },
+    async publicBookingAnalytics() {
+      const result = await request<unknown>("GET", "/v2/publications/analytics");
+      if (!isPublicBookingAnalytics(result)) {
+        throw new CalendarGatewayError(502, "gateway_response_invalid",
+          "The Calendar gateway returned invalid booking analytics.");
       }
       return result;
     },
@@ -1208,6 +1315,33 @@ export function createCalendarGatewayClient(input: {
         "POST",
         `/v1/oauth/${provider}/start`,
         body,
+      );
+    },
+    async listMeetingProviderConnections() {
+      const result = await request<{
+        readonly connections: unknown;
+      }>("GET", "/v1/meeting-providers/connections");
+      if (!Array.isArray(result.connections)) {
+        throw new CalendarGatewayError(
+          502,
+          "gateway_response_invalid",
+          "The Calendar gateway returned an invalid meeting-provider connection list.",
+        );
+      }
+      return result.connections.map(ownedMeetingProviderConnection);
+    },
+    async verifyMeetingProviderConnection(connectionId) {
+      const result = await request<{ readonly connection: unknown }>(
+        "POST",
+        `/v1/meeting-providers/connections/${encodeURIComponent(connectionId)}/verify`,
+        {},
+      );
+      return ownedMeetingProviderConnection(result.connection);
+    },
+    async deleteMeetingProviderConnection(connectionId) {
+      await request(
+        "DELETE",
+        `/v1/meeting-providers/connections/${encodeURIComponent(connectionId)}`,
       );
     },
     async syncConnection(connectionId) {

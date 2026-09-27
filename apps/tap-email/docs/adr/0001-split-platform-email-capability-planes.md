@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; live-read plane is staged behind an unresolved platform-auth boundary
+Superseded for activation and writes by [ADR 0005](0005-sdk-019-activity-and-email-tools.md). The split between content-free package snapshots and authenticated live mail remains.
 
 ## Date
 

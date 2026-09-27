@@ -5,6 +5,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   buildRichMessageDocument,
+  hasEmbeddedMessageScripts,
+  plainTextFromRichMessage,
   extractRemoteImageUrls,
   hasKnownQuotedContent,
   isLikelyTrackingImage,
@@ -22,6 +24,28 @@ function parse(value: string): Document {
 }
 
 describe('TAP Email rich-message isolation', () => {
+  it('keeps embedded scripts and handlers only for the active isolated renderer', () => {
+    const html = `<p id="result" data-count="0">Hello</p><button onclick="document.getElementById('result').textContent = 'clicked'">Run</button>
+      <script>document.getElementById('result').textContent = 'ready'</script>
+      <script src="https://sender.test/code.js"></script>`;
+    const active = parse(buildRichMessageDocument(html, {}, { scriptsEnabled: true }));
+    expect(active.querySelector('script')?.textContent).toContain("getElementById('result')");
+    expect(active.querySelectorAll('script')).toHaveLength(1);
+    expect(active.querySelector('button')?.getAttribute('onclick')).toContain('clicked');
+    expect(active.querySelector('#result')?.getAttribute('data-count')).toBe('0');
+    expect(active.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("script-src 'unsafe-inline'");
+    const disabled = parse(buildRichMessageDocument(html));
+    expect(disabled.querySelector('script, [onclick]')).toBeNull();
+    expect(disabled.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("script-src 'none'");
+    expect(hasEmbeddedMessageScripts(html)).toBe(true);
+    expect(hasEmbeddedMessageScripts('<p>Plain HTML</p>')).toBe(false);
+  });
+
+  it('provides a readable plain-text fallback for HTML-only mail without active content', () => {
+    expect(plainTextFromRichMessage('<p>Hello <b>world</b></p><p>Second line</p><script>bad()</script><style>p{color:red}</style>'))
+      .toBe('Hello world\nSecond line');
+  });
+
   it('preserves static email layout while removing active content and remote loads', () => {
     const sanitized = parse(sanitizeRichMessageHtml(`
       <!doctype html>

@@ -28,6 +28,7 @@ export default defineTapMiniapp({
     quickjs: {
       remoteName: manifest.targets.quickjs.remoteName,
       exposes: {
+        './activity/tap-email-committed-actions': { source: './src/activity-source.ts', runtime: 'quickjs' },
         './mcp/tap-email-mcp': {
           source: './src/mcp.ts',
           runtime: 'quickjs',

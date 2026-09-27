@@ -1,3 +1,4 @@
+import { isAttendeeResponse, isCalendarResponseStatus } from "./attendee-response";
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
 import type {
   MiniAppJsonValue,
@@ -60,7 +61,7 @@ export interface ProviderBookingScheduleReconciliation {
   readonly calendarId: string;
   readonly start: string;
   readonly end: string;
-  readonly location: MeetingLocation;
+  readonly location: MeetingLocation | null;
   readonly attendees: readonly CalendarAttendee[];
   readonly approvalRequired: boolean;
   readonly eventTypeId?: string;
@@ -372,6 +373,7 @@ const bookingKinds = new Set<CalendarGatewayBookingKind>([
 const conferenceProviders = new Set<CalendarGatewayConferenceProvider>([
   "none",
   "google-meet",
+  "zoom",
 ]);
 
 const normalizeStringList = (
@@ -408,6 +410,9 @@ const normalizeAttendee = (value: unknown): CalendarAttendee => {
   if (value.kind !== "tap" && value.kind !== "external") {
     throw new ProviderBookingOutboxInvariantError("A reconciliation attendee kind is invalid.");
   }
+  if (!isAttendeeResponse(value)) {
+    throw new ProviderBookingOutboxInvariantError("An attendee response is invalid.");
+  }
   if (typeof value.required !== "boolean") {
     throw new ProviderBookingOutboxInvariantError("A reconciliation attendee requirement is invalid.");
   }
@@ -421,6 +426,8 @@ const normalizeAttendee = (value: unknown): CalendarAttendee => {
     email,
     kind: value.kind,
     required: value.required,
+    ...(isCalendarResponseStatus(value.responseStatus) ? { responseStatus: value.responseStatus } : {}),
+    ...(typeof value.isCurrentUser === "boolean" ? { isCurrentUser: value.isCurrentUser } : {}),
   };
 };
 
@@ -551,7 +558,7 @@ const normalizeReconciliation = (
   if (value.kind !== "schedule-meeting" && value.kind !== "public-booking") {
     throw new ProviderBookingOutboxInvariantError("The local reconciliation kind is invalid.");
   }
-  if (!meetingLocations.has(value.location as MeetingLocation)) {
+  if (value.location !== null && !meetingLocations.has(value.location as MeetingLocation)) {
     throw new ProviderBookingOutboxInvariantError("The reconciliation meeting location is invalid.");
   }
   if (!Array.isArray(value.attendees) || value.attendees.length > MAX_ATTENDEES) {
@@ -574,7 +581,7 @@ const normalizeReconciliation = (
     calendarId,
     start,
     end,
-    location: value.location as MeetingLocation,
+    location: value.location as MeetingLocation | null,
     attendees: value.attendees.map(normalizeAttendee),
     approvalRequired: value.approvalRequired,
     ...(eventTypeId !== undefined ? { eventTypeId } : {}),
@@ -645,9 +652,17 @@ const assertPreparationMatches = (
     }
     return;
   }
+  if (reconciliation.location === "zoom" && request.bookingKind === "meeting") {
+    if (conferenceProvider !== "zoom" || request.location !== undefined) {
+      throw new ProviderBookingOutboxInvariantError(
+        "A Zoom reconciliation requires a Zoom provider conference.",
+      );
+    }
+    return;
+  }
   if (
     conferenceProvider !== "none" ||
-    request.location !== providerMeetingLocationNames[reconciliation.location]
+    request.location !== (reconciliation.location === null ? undefined : providerMeetingLocationNames[reconciliation.location])
   ) {
     throw new ProviderBookingOutboxInvariantError(
       "The provider location does not match local reconciliation.",
@@ -802,14 +817,18 @@ const assertCommitMatchesRequest = (
     ? booking.conferenceStatus === "ready"
       ? "google-meet"
       : null
+    : request.conferenceProvider === "zoom"
+      ? "zoom"
     : request.location === undefined
       ? null
       : "physical";
-  const googleMeetConferenceValid = request.conferenceProvider === "google-meet"
+  const conferenceValid = request.conferenceProvider === "google-meet"
     ? (
         (booking.conferenceStatus === "ready" && booking.providerJoinUrl !== null) ||
         (booking.conferenceStatus === "pending" && booking.providerJoinUrl === null)
       )
+    : request.conferenceProvider === "zoom"
+      ? booking.conferenceStatus === "ready" && booking.providerJoinUrl !== null
     : booking.conferenceStatus === "none" && booking.providerJoinUrl === null;
   const eventLinksAgree =
     (booking.event.providerHtmlLink === undefined ||
@@ -820,7 +839,7 @@ const assertCommitMatchesRequest = (
     JSON.stringify(committedAttendeeEmails) !==
       JSON.stringify(expectedProviderAttendeeEmails) ||
     booking.event.location !== expectedProviderLocation ||
-    !googleMeetConferenceValid ||
+    !conferenceValid ||
     !eventLinksAgree
   ) {
     throw new ProviderBookingOutboxInvariantError(
@@ -1017,9 +1036,11 @@ const normalizeApprovalResolutionPreparation = (
     ].sort();
     const expectedConference = expected.location === "google-meet"
       ? "google-meet"
-      : "none";
+      : expected.location === "zoom"
+        ? "zoom"
+        : "none";
     const expectedLocation = expected.location === null ||
-        expected.location === "google-meet"
+        expected.location === "google-meet" || expected.location === "zoom"
       ? undefined
       : providerMeetingLocationNames[expected.location];
     if (

@@ -30,14 +30,15 @@ function atLocalHour(date: Date, days: number, hour: number): Date {
 
 export function sendLaterChoices(now: Date): readonly SendLaterChoice[] {
   const tonight = atLocalHour(now, 0, 18);
-  if (tonight.getTime() <= now.getTime()) tonight.setDate(tonight.getDate() + 1);
+  const eveningIsTomorrow = tonight.getTime() <= now.getTime();
+  if (eveningIsTomorrow) tonight.setDate(tonight.getDate() + 1);
   const tomorrow = atLocalHour(now, 1, 8);
   const nextWeekday = atLocalHour(now, 1, 8);
   while (nextWeekday.getDay() === 0 || nextWeekday.getDay() === 6) {
     nextWeekday.setDate(nextWeekday.getDate() + 1);
   }
   return [
-    { label: 'Tonight', at: tonight },
+    { label: eveningIsTomorrow ? 'Tomorrow evening' : 'Tonight', at: tonight },
     { label: 'Tomorrow morning', at: tomorrow },
     { label: 'Next weekday', at: nextWeekday },
   ];
@@ -70,7 +71,7 @@ export function SendLaterDialog({
             
             <DialogTitle>Send later</DialogTitle>
             <DialogDescription>
-              The message remains a provider-visible draft until its delivery time.
+              Your message stays saved as a draft until it is time to send.
             </DialogDescription>
           </div>
           <Button aria-label="Close send later" onClick={onClose} size="icon-sm" type="button" variant="ghost">×</Button>

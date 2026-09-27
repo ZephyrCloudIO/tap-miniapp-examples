@@ -168,6 +168,7 @@ export function ComposeDialog({
           hideCloseButton
           onEscapeKeyDown={event => {
             if (event.target instanceof Element && (
+              event.target.closest('.ai-writer') ||
               event.target.matches('[data-recipient-input][aria-expanded="true"]') ||
               event.target.closest('[data-recipient-options]')?.querySelector('[aria-expanded="true"]')
             )) event.preventDefault();
@@ -264,10 +265,10 @@ export function ComposeDialog({
               onSchedule={() => { const error = recipientError({ to, cc, bcc }); if (error) setValidationError(error); else setSendLaterOpen(true); }}
               onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')} />
           </footer>
-          {tool === 'remind' ? <FollowUpDialog value={followUp} onChange={value => change(() => setFollowUp(value))} onClose={() => setTool(null)} /> : null}
-          {tool === 'share' ? <ShareDraftDialog services={services} draft={message()} onClose={() => setTool(null)} /> : null}
         </DialogContent>
       </Dialog>
+      {tool === 'remind' ? <FollowUpDialog value={followUp} onChange={value => change(() => setFollowUp(value))} onClose={() => setTool(null)} /> : null}
+      {tool === 'share' ? <ShareDraftDialog key={services?.workspaceId} services={services} draft={message()} onClose={() => setTool(null)} /> : null}
       {sendLaterOpen ? (
         <SendLaterDialog
           cancelIfReplyDefault={false}

@@ -1,0 +1,10 @@
+.public-booking-guests, .public-booking-guest-list { display: grid; gap: 14px; }
+.public-booking-guest-row { display: flex; align-items: center; gap: 8px; }
+.public-booking-guest-row input { flex: 1; min-width: 0; }
+.public-booking-guest-row button { flex-shrink: 0; min-width: 44px; min-height: 44px; }
+.public-booking-add-guests { justify-self: start; color: var(--public-accent-strong); }
+.public-booking-guest-help, .public-booking-privacy-notice, .public-booking-retry-notice { margin: 0; color: var(--public-muted); font-size: 12px; line-height: 1.65; }
+.public-booking-optional { color: var(--public-muted); font-weight: 400; }
+.public-booking-details textarea { min-height: 100px; resize: vertical; font-size: 14px; }
+.public-booking-privacy-notice a { color: var(--public-accent-strong); text-decoration: underline; text-underline-offset: 3px; }
+.public-booking-back:disabled { opacity: .6; cursor: default; }

@@ -21,6 +21,7 @@
         "effect:external-network:https://calendar-api.theaiplatform.app",
         "effect:external-navigation:https://accounts.google.com",
         "effect:external-navigation:https://login.microsoftonline.com",
+        "effect:external-navigation:https://zoom.us",
         "effect:credentials:http",
         "effect:storage:tap-calendar",
         "effect:user-notification:os",
@@ -113,6 +114,34 @@
         "theme": "dark",
         "reducedMotion": true,
         "seed": 8142,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-desktop-zoom-navigation-all-denied": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-navigation:https://zoom.us"
+      ],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8148,
         "fixedNow": "2026-08-14T15:00:00Z"
       },
       "artifacts": {
@@ -288,6 +317,7 @@
         "effect:external-network:https://calendar-api.theaiplatform.app",
         "effect:external-navigation:https://accounts.google.com",
         "effect:external-navigation:https://login.microsoftonline.com",
+        "effect:external-navigation:https://zoom.us",
         "effect:storage:tap-calendar",
         "effect:user-notification:os",
         "effect:host-api:tap.channels:create",
@@ -315,6 +345,16 @@
       "profile": "tap-calendar-desktop-storage-denied",
       "testMatch": ["tests/e2e/tap-calendar-storage-denied.test.ts"],
       "capabilities": ["effect:storage:tap-calendar"]
+    },
+    {
+      "id": "tap-calendar-desktop-zoom-navigation-all-denied",
+      "profile": "tap-calendar-desktop-zoom-navigation-all-denied",
+      "testMatch": [
+        "tests/e2e/tap-calendar-zoom-navigation-all-denied.test.ts"
+      ],
+      "capabilities": [
+        "effect:external-navigation:https://zoom.us"
+      ]
     },
     {
       "id": "tap-calendar-desktop-credentials-use-denied",

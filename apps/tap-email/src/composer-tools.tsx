@@ -1,6 +1,6 @@
 import type { MailFollowUp } from '@tap-examples/tap-email-protocol';
 import type { MiniAppChannel } from '@theaiplatform/miniapp-sdk/sdk';
-import { Button, Dialog, DialogContent, DialogDescription, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@theaiplatform/miniapp-sdk/ui';
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@theaiplatform/miniapp-sdk/ui';
 import { Paperclip, WandSparkles, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { listConversationHandoffChannels } from './conversation-handoff';
@@ -53,22 +53,24 @@ export function FollowUpDialog({ value, onChange, onClose }: {
   readonly onChange: (value: MailFollowUp) => void;
   readonly onClose: () => void;
 }) {
+  const daysRef = useRef<HTMLInputElement>(null);
   const [days, setDays] = useState(String((value?.delayMinutes ?? 2_880) / 1_440));
+  const [returnFocus] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const [condition, setCondition] = useState<MailFollowUp['condition']>(value?.condition ?? 'if_no_reply');
   const delayMinutes = Number(days) * 1_440;
   const valid = days.trim() !== '' && Number.isInteger(Number(days)) && Number(days) >= 1 && Number(days) <= 365;
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent className="composer-tool-dialog" data-composer-tool>
+    <DialogContent className="composer-tool-dialog" data-composer-tool onOpenAutoFocus={event => { event.preventDefault(); daysRef.current?.focus(); }} onCloseAutoFocus={event => { event.preventDefault(); requestAnimationFrame(() => { if (returnFocus?.isConnected) returnFocus.focus(); }); }}>
       <DialogTitle>Remind me</DialogTitle>
       <DialogDescription>Follow up after this email is sent.</DialogDescription>
       <div className="composer-time-presets">{[1, 2, 3, 7].map(day => <Button key={day} type="button" variant="outline" aria-pressed={Number(days) === day} onClick={() => setDays(String(day))}>{day === 1 ? '1 day' : `${day} days`}</Button>)}</div>
-      <label>Days after sending<Input type="number" name="follow-up-days" min={1} max={365} step={1} value={days} onChange={event => setDays(event.target.value)} /></label>
+      <label>Days after sending<Input ref={daysRef} type="number" name="follow-up-days" min={1} max={365} step={1} value={days} onChange={event => setDays(event.target.value)} /></label>
       <Select value={condition} onValueChange={next => setCondition(next as MailFollowUp['condition'])}>
         <SelectTrigger aria-label="Reminder condition"><SelectValue /></SelectTrigger>
         <SelectContent><SelectItem value="if_no_reply">If no reply</SelectItem><SelectItem value="regardless">Regardless</SelectItem></SelectContent>
       </Select>
       {!valid ? <p role="alert">Choose between 1 and 365 days.</p> : null}
-      <div className="composer-dialog-actions"><Button variant="ghost" type="button" onClick={onClose}>Cancel</Button><Button type="button" disabled={!valid} onClick={() => { if (valid) { onChange({ delayMinutes, condition }); onClose(); } }}>Set reminder</Button></div>
+      <DialogFooter className="composer-dialog-actions"><Button variant="ghost" type="button" onClick={onClose}>Cancel</Button><Button type="button" disabled={!valid} onClick={() => { if (valid) { onChange({ delayMinutes, condition }); onClose(); } }}>Set reminder</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
@@ -78,7 +80,10 @@ export function ShareDraftDialog({ services, draft, onClose }: {
   readonly draft: DraftSnapshot;
   readonly onClose: () => void;
 }) {
+  const searchRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const [snapshot] = useState(draft);
+  const [returnFocus] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const [channels, setChannels] = useState<readonly MiniAppChannel[]>([]);
   const [query, setQuery] = useState('');
   const [channelId, setChannelId] = useState('');
@@ -108,11 +113,11 @@ export function ShareDraftDialog({ services, draft, onClose }: {
   };
   const matches = channels.filter(channel => (channel.title || channel.description || channel.roomId).toLowerCase().includes(query.toLowerCase()));
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
-    <DialogContent className="composer-tool-dialog share-draft-dialog" data-composer-tool onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}>
+    <DialogContent className="composer-tool-dialog share-draft-dialog" data-composer-tool onOpenAutoFocus={event => { event.preventDefault(); (searchRef.current ?? cancelRef.current)?.focus(); }} onCloseAutoFocus={event => { event.preventDefault(); requestAnimationFrame(() => { if (returnFocus?.isConnected) returnFocus.focus(); }); }} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}>
       <DialogTitle>Share draft</DialogTitle>
       <DialogDescription>Post this snapshot for discussion. Bcc and attachments are not included.</DialogDescription>
       {!services?.workspaceId ? <p role="status">Open Email in a TAP workspace to share a draft.</p> : <>
-        <Input aria-label="Find a channel" placeholder="Find a channel…" value={query} onChange={event => setQuery(event.target.value)} disabled={busy || shared} />
+        <Input ref={searchRef} aria-label="Find a channel" placeholder="Find a channel…" value={query} onChange={event => { setQuery(event.target.value); setChannelId(''); }} disabled={busy || shared} />
         <Select value={channelId} onValueChange={setChannelId} disabled={loading || busy || shared}>
           <SelectTrigger aria-label="Share to channel"><SelectValue placeholder={loading ? 'Loading channels…' : 'Choose a channel'} /></SelectTrigger>
           <SelectContent>{matches.map(channel => <SelectItem key={channel.roomId} value={channel.roomId}>{channel.title || channel.description || channel.roomId}</SelectItem>)}</SelectContent>
@@ -122,9 +127,9 @@ export function ShareDraftDialog({ services, draft, onClose }: {
       <pre className="draft-share-preview" aria-label="Draft snapshot">{draftSnapshotText(snapshot)}</pre>
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
-      <div className="composer-dialog-actions"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{shared ? 'Done' : 'Cancel'}</Button>
+      <DialogFooter className="composer-dialog-actions"><Button ref={cancelRef} type="button" variant="ghost" disabled={busy} onClick={onClose}>{shared ? 'Done' : 'Cancel'}</Button>
         {!shared ? <Button type="button" disabled={!channelId || busy} onClick={() => { void share(); }}>{busy ? 'Sharing…' : 'Share to channel'}</Button> : null}
-      </div>
+      </DialogFooter>
     </DialogContent>
   </Dialog>;
 }

@@ -1,4 +1,5 @@
 import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
+import { isCalendarActivityJournal } from "./activity-contract";
 import {
   createEmptyCalendarState,
   isCalendarState,
@@ -22,6 +23,23 @@ export interface LoadedCalendarState {
 }
 
 export class CalendarStorageConflictError extends Error {}
+
+async function initializeActivityJournal(state: CalendarState, revision: number | null, principalId: string, attempt = 0): Promise<LoadedCalendarState> {
+  if (state.activityJournal !== undefined) {
+    if (!isCalendarActivityJournal(state.activityJournal)) throw new Error("Calendar activity journal is malformed.");
+    return { state, revision };
+  }
+  const initialized = { ...state, activityJournal: { startedAt: new Date().toISOString(), droppedBefore: null, entries: [] } };
+  try {
+    const nextRevision = await saveCalendarState(initialized, false, revision, principalId);
+    return { state: initialized, revision: nextRevision };
+  } catch (cause) {
+    if (attempt >= 2) throw cause;
+    const raced = await sdk.storage.get(calendarPrincipalStorageAddresses(principalId).state);
+    if (!isCalendarState(raced.value)) throw cause;
+    return initializeActivityJournal(migrateLegacyEventTypeAvailabilitySchedules(raced.value), raced.revision, principalId, attempt + 1);
+  }
+}
 
 export async function loadCalendarState(
   preview: boolean,
@@ -51,10 +69,7 @@ export async function loadCalendarState(
 
   const entry = await sdk.storage.get(address);
   if (isCalendarState(entry.value)) {
-    return {
-      state: migrateLegacyEventTypeAvailabilitySchedules(entry.value),
-      revision: entry.revision,
-    };
+    return initializeActivityJournal(migrateLegacyEventTypeAvailabilitySchedules(entry.value), entry.revision, principalId);
   }
   if (entry.value === null && mayAdoptLegacyCalendarStorage(principalId)) {
     const legacy = await sdk.storage.get(legacyCalendarStorageAddresses.state);
@@ -66,14 +81,11 @@ export async function loadCalendarState(
           expectedRevision: null,
           value: JSON.parse(JSON.stringify(migratedLegacy)),
         });
-        return { state: migratedLegacy, revision: adopted.revision };
+        return initializeActivityJournal(migratedLegacy, adopted.revision, principalId);
       } catch {
         const raced = await sdk.storage.get(address);
         if (isCalendarState(raced.value)) {
-          return {
-            state: migrateLegacyEventTypeAvailabilitySchedules(raced.value),
-            revision: raced.revision,
-          };
+          return initializeActivityJournal(migrateLegacyEventTypeAvailabilitySchedules(raced.value), raced.revision, principalId);
         }
         throw new CalendarStorageConflictError(
           "TAP Calendar could not safely adopt the legacy owner state.",
@@ -81,7 +93,8 @@ export async function loadCalendarState(
       }
     }
   }
-  return { state: createEmptyCalendarState(), revision: entry.revision };
+  if (entry.value !== null) throw new Error("Saved Calendar state is invalid; it has not been overwritten.");
+  return initializeActivityJournal(createEmptyCalendarState(), entry.revision, principalId);
 }
 
 export async function saveCalendarState(

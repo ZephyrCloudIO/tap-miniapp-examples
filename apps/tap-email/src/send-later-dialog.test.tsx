@@ -29,7 +29,7 @@ describe('SendLaterDialog', () => {
             confirmations.push({ scheduledFor, cancelIfReply })}
         />,
       ));
-      expect(document.body.textContent).toContain('provider-visible draft');
+      expect(document.body.textContent).toContain('stays saved as a draft');
       const schedule = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
         .find(button => button.textContent?.includes('Schedule send'))!;
       await act(async () => schedule.click());
@@ -41,5 +41,27 @@ describe('SendLaterDialog', () => {
       await act(async () => root.unmount());
       container.remove();
     }
+  });
+});
+
+describe('custom delivery time validation', () => {
+  it('does not schedule the previous preset after the custom time is cleared', async () => {
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container);
+    const confirmations: string[] = [];
+    try {
+      await act(async () => root.render(<SendLaterDialog cancelIfReplyDefault={false} now={new Date('2026-09-26T12:00:00Z')}
+        onClose={() => {}} onConfirm={value => confirmations.push(value)} />));
+      const input = document.body.querySelector<HTMLInputElement>('[name="send-later-time"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const schedule = [...document.body.querySelectorAll('button')].find(button => button.textContent === 'Schedule send')!;
+      expect(schedule.disabled).toBe(true);
+      await act(async () => schedule.click());
+      expect(confirmations).toEqual([]);
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+    } finally { await act(async () => root.unmount()); container.remove(); }
   });
 });

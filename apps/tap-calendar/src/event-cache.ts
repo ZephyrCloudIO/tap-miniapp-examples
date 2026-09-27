@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "./domain";
+import { isAttendeeResponse } from "./attendee-response";
 import type { CalendarGatewayEventQueryResult } from "./gateway";
 
 export const CALENDAR_EVENT_CACHE_SCHEMA_VERSION = 1 as const;
@@ -96,7 +97,7 @@ const isCalendarEvent = (value: unknown): value is CalendarEvent => {
       typeof attendee.name === "string" &&
       typeof attendee.email === "string" &&
       (attendee.kind === "tap" || attendee.kind === "external") &&
-      typeof attendee.required === "boolean") &&
+      typeof attendee.required === "boolean" && isAttendeeResponse(attendee)) &&
     (value.busy === undefined || typeof value.busy === "boolean") &&
     (value.allDay === undefined || typeof value.allDay === "boolean") &&
     sourceValid

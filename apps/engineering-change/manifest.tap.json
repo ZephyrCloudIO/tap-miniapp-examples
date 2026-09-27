@@ -9,8 +9,8 @@
     "slug": "engineering-change"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_engineering_change_0001@0.1.0",
-    "version": "0.1.0",
+    "releaseId": "tap_pkg_examples_engineering_change_0001@0.2.0",
+    "version": "0.2.0",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -136,7 +136,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/engineering-change-specialist/0.1.0.json"
+        "manifest": "specialists/engineering-change-specialist/0.2.0.json"
       }
     },
     {

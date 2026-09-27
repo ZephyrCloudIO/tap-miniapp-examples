@@ -44,17 +44,19 @@ function receipt(
 
 const task: MiniAppTask = {
   id: 'task_7',
+  number: 7,
   title: 'Follow up: Approve the launch plan',
   description: '',
-  status: 'toDo',
+  phase: 'inbox',
+  currentPhaseVisitId: 'phase_visit_7',
   priority: 'urgent',
-  assignees: [],
   workspaceId: 'workspace_1',
-  channelIds: [],
   createdAt: 1,
   updatedAt: 2,
-  dueDate: Date.parse(source.reminderDueAt!),
+  dueAt: Date.parse(source.reminderDueAt!),
   archived: false,
+  ownedByThisMiniapp: true,
+  extensions: [],
 };
 
 describe('email to canonical TAP Task', () => {
@@ -99,11 +101,6 @@ describe('email to canonical TAP Task', () => {
       },
       workspaceId: 'workspace_1',
       source,
-      destination: {
-        projectId: 'project_1',
-        channelIds: ['channel_1', 'channel_1'],
-        assigneeUserIds: ['user_1'],
-      },
       persistReceipt: async record => { records.push(record); },
       now: () => '2026-09-14T14:00:00.000Z',
     });
@@ -113,16 +110,13 @@ describe('email to canonical TAP Task', () => {
     expect(creates[0]).toMatchObject({
       workspaceId: 'workspace_1',
       title: 'Follow up: Approve the launch plan',
-      projectId: 'project_1',
-      channelIds: ['channel_1'],
-      assigneeUserIds: ['user_1'],
+      initialPhase: 'inbox',
     });
     expect(updates).toEqual([{
       workspaceId: 'workspace_1',
       taskId: 'task_7',
-      status: 'toDo',
       priority: 'urgent',
-      dueDate: Date.parse(source.reminderDueAt!),
+      dueAt: Date.parse(source.reminderDueAt!),
     }]);
     expect(records).toEqual([expect.objectContaining({
       accountId: 'google_work',

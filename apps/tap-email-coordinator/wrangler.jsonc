@@ -21,6 +21,7 @@
       "ATTACHMENT_STAGING_ENCRYPTION_KEY"
     ]
   },
+  "services": [{ "binding": "WEBSITE_REFERRALS", "service": "tap-website-referrals-dev", "entrypoint": "WebsiteReferralsPublisher" }],
   "d1_databases": [
     {
       "binding": "DB",
@@ -85,6 +86,7 @@
           "ATTACHMENT_STAGING_ENCRYPTION_KEY"
         ]
       },
+      "services": [{ "binding": "WEBSITE_REFERRALS", "service": "tap-website-referrals-production", "entrypoint": "WebsiteReferralsPublisher" }],
       "d1_databases": [
         {
           "binding": "DB",

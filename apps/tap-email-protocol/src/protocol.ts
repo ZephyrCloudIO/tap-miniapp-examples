@@ -112,10 +112,30 @@ export interface MailDraftAttachment {
   readonly sha256Base64Url: string;
 }
 
+/** Captured identity intent, never an authorization claim. */
+export interface MailSenderContext {
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+function isCanonicalSenderIdentifier(value: unknown): value is string {
+  // Match the TAP host's expected-context contract. Directory identities can
+  // contain provider separators (for example, google-oauth2|123); mail record
+  // identifiers use a different, narrower alphabet.
+  return typeof value === 'string' && value.length > 0 && value.length <= 1024 &&
+    value.trim() === value && !/[\u0000-\u001f\u007f-\u009f]/u.test(value) &&
+    new TextEncoder().encode(value).byteLength <= 1024;
+}
+
+export function isMailSenderContext(value: unknown): value is MailSenderContext {
+  return isRecord(value) && isCanonicalSenderIdentifier(value.userId) &&
+    isCanonicalSenderIdentifier(value.workspaceId);
+}
+
 /**
- * Reviewable plain-text draft content shared by UI, coordinator, provider, and
- * future workflow/tool callers. `draftKey` is TAP-owned and stable across
- * autosave revisions; provider draft identifiers never cross this boundary.
+ * Reviewable text authored by UI and workflow callers; the provider renders
+ * HTML for delivery. `draftKey` stays stable across autosave revisions.
+ * Provider draft identifiers never cross this boundary.
  */
 export interface MailDraftPayload extends Readonly<Record<string, unknown>> {
   readonly draftKey: string;
@@ -125,6 +145,8 @@ export interface MailDraftPayload extends Readonly<Record<string, unknown>> {
   readonly bcc?: string;
   readonly subject: string;
   readonly bodyText: string;
+  /** Captured send intent; independently verified by the coordinator. */
+  readonly expectedContext?: MailSenderContext;
   readonly replyToMessageId?: string;
   readonly attachments?: readonly MailDraftAttachment[];
   /** Client-held undo-send deadline. This is not a scheduled-send policy. */
@@ -526,6 +548,7 @@ export function isMailDraftPayload(value: unknown): value is MailDraftPayload {
     (value.bcc === undefined || isSafeHeaderString(value.bcc, 2_000)) &&
     isSafeHeaderString(value.subject, 998) &&
     isBoundedString(value.bodyText, 500_000) &&
+    (value.expectedContext === undefined || isMailSenderContext(value.expectedContext)) &&
     (value.replyToMessageId === undefined ||
       isSafeHeaderString(value.replyToMessageId, 998, false)) &&
     (value.sendAfter === undefined || isIsoDate(value.sendAfter)) &&
@@ -767,3 +790,36 @@ const commandKinds = new Set<MailCommandKind>([
   'create_reminder',
   'cancel_reminder',
 ]);
+
+// A valid message can expand to 6 MB when both 500k-character alternatives
+// contain JSON-escaped control characters. Pages normally target 2 MiB, but
+// allow one such message up to the shared transport ceiling without truncation.
+export const MAXIMUM_THREAD_RESPONSE_BYTES = 8 * 1_024 * 1_024;
+export const TARGET_THREAD_PAGE_BYTES = 2 * 1_024 * 1_024;
+export const MAXIMUM_THREAD_PAGE_MESSAGES = 20;
+export const MAXIMUM_THREAD_CURSOR_LENGTH = 4_096;
+
+export function serializedUtf8Bytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+/** Private activity reconciliation, never a message-content or executable-command API. */
+export interface MailActivityReceipt {
+  readonly commandId: string;
+  readonly accountId: string;
+  readonly threadId: string | null;
+  readonly kind: MailCommandKind;
+  readonly draftKey: string | null;
+  readonly isReply: boolean;
+  readonly receipt: MailCommandReceipt;
+}
+export function isMailActivityReceipt(value: unknown): value is MailActivityReceipt {
+  if (!isRecord(value)) return false;
+  return Object.keys(value).every(key => ['commandId', 'accountId', 'threadId', 'kind', 'draftKey', 'isReply', 'receipt'].includes(key)) &&
+    isSafeMailIdentifier(value.commandId) && isSafeMailIdentifier(value.accountId) &&
+    (value.threadId === null || isSafeMailIdentifier(value.threadId)) &&
+    commandKinds.has(value.kind as MailCommandKind) &&
+    (value.draftKey === null || isSafeMailIdentifier(value.draftKey)) && typeof value.isReply === 'boolean' &&
+    isMailCommandReceipt(value.receipt) && value.receipt.commandId === value.commandId &&
+    value.receipt.accountId === value.accountId && ['applied', 'failed', 'uncertain', 'cancelled'].includes(value.receipt.state);
+}

@@ -1,5 +1,16 @@
+import { useCalendarActivitySync } from "./use-calendar-activity-sync";
+import { appendAvailabilityActivity } from "./activity-journal";
+import { AttendeeResponseBadge, EventResponseBadge, eventResponseClassName } from "./attendee-response-badge";
+import { mergeProviderEvent } from "./provider-event-merge";
+import { normalizePublicBookingDetails, publicBookingDescription } from "./public-booking-details";
+import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-booking-fields";
+
+import { CalendarMcpPanel, useCalendarMcpSync } from "./calendar-mcp-panel";
+import { WorkspaceBookingPanel } from "./workspace-booking-panel";
+import { applyPublicBookingAnalytics, publicBookingPageMetrics, publicBookingConversion, type PublicBookingAnalytics } from "./public-booking-analytics";
+import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
-import { sdk } from "@theaiplatform/miniapp-sdk/sdk";
+import { isMiniAppHostActionError, sdk } from "@theaiplatform/miniapp-sdk/sdk";
 import {
   Alert,
   AlertDescription,
@@ -76,6 +87,7 @@ import {
 } from "react";
 import { CalendarBoard } from "./calendar-board";
 import { CalendarContextMenu } from "./calendar-context-menu";
+import { copyTextToClipboard } from "./clipboard";
 import {
   horizontalCalendarWheelDelta,
   shiftCalendarAnchor,
@@ -110,6 +122,7 @@ import {
   isEventTypePublicationLive,
   enforceImmutablePublicationSlugs,
   findAvailableSlotsAcrossWindows,
+  preferredDestinationCalendar,
   publicBookingUrl,
   removeCalendarFromTap,
   renameCalendarAccount,
@@ -166,6 +179,7 @@ import {
   type CalendarGatewayBookingStatus,
   type CalendarGatewayCommittedBooking,
   type CalendarGatewayConnection,
+  type CalendarGatewayMeetingProviderConnection,
   type CalendarGatewayPrincipalAccess,
   type CalendarGatewayProviderCatalog,
   type LocalCalendarGatewayInput,
@@ -274,7 +288,26 @@ type CalendarConnectionTarget =
   | { readonly kind: "account" }
   | { readonly kind: "calendars"; readonly accountId: string };
 
+type MeetingProviderConnectionsState =
+  | {
+      readonly status: "loading" | "ready";
+      readonly connections: readonly CalendarGatewayMeetingProviderConnection[];
+      readonly message: null;
+    }
+  | {
+      readonly status: "error";
+      readonly connections: readonly CalendarGatewayMeetingProviderConnection[];
+      readonly message: string;
+    };
+
+type RefreshMeetingProviderConnections = () => Promise<
+  readonly CalendarGatewayMeetingProviderConnection[]
+>;
+
+type RequireCalendarManage = () => Promise<void>;
+
 interface ProviderBookingReservationInput {
+  readonly description?: string;
   readonly actionId: CalendarAuthorityAction;
   readonly idempotencyKey: string;
   readonly destinationCalendarId: string;
@@ -284,7 +317,7 @@ interface ProviderBookingReservationInput {
   readonly conflictTimeMin?: string;
   readonly conflictTimeMax?: string;
   readonly bookingKind: "meeting" | "approval-hold" | "work-block";
-  readonly location?: MeetingLocation;
+  readonly location?: MeetingLocation | null;
   readonly attendees?: readonly CalendarAttendee[];
   readonly expiresAt?: string;
   readonly reconciliation: ProviderBookingReconciliation;
@@ -1072,15 +1105,78 @@ const meetingLocationNames: Readonly<Record<MeetingLocation, string>> = {
   custom: "Custom link or instructions",
 };
 
+const meetingProviderConnectionDescription = (zoomConnected: boolean): string =>
+  zoomConnected
+    ? "Google Meet is included with your Google Destination Calendar. Zoom is connected in Settings."
+    : "Google Meet is included with your Google Destination Calendar. Connect Zoom in Settings to use it.";
+
+const isZoomAuthorizationUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.port === "" &&
+      url.origin === "https://zoom.us" &&
+      url.pathname === "/oauth/authorize" &&
+      url.href === value;
+  } catch {
+    return false;
+  }
+};
+
+const zoomExternalNavigationErrorMessage = (cause: unknown): string => {
+  if (!isMiniAppHostActionError(cause)) {
+    return providerExternalNavigationErrorMessage("native-open-failed", "Zoom");
+  }
+  switch (cause.code) {
+    case "authorization-denied":
+      return providerExternalNavigationErrorMessage("authorization-denied", "Zoom");
+    case "authorization-unavailable":
+      return providerExternalNavigationErrorMessage("authorization-unavailable", "Zoom");
+    case "origin-rejected":
+      return providerExternalNavigationErrorMessage("origin-rejected", "Zoom");
+    case "request-expired":
+      return providerExternalNavigationErrorMessage("request-expired", "Zoom");
+    case "stale-installation":
+      return providerExternalNavigationErrorMessage("stale-installation", "Zoom");
+    case "unsupported-host":
+      return providerExternalNavigationErrorMessage("unsupported-host", "Zoom");
+    case "user-gesture-required":
+      return providerExternalNavigationErrorMessage("user-gesture-required", "Zoom");
+    case "native-open-failed":
+    default:
+      return providerExternalNavigationErrorMessage("native-open-failed", "Zoom");
+  }
+};
+
+const openZoomAuthorization = async (
+  navigation: ProviderExternalNavigationApi,
+  url: string,
+): Promise<string | null> => {
+  if (!isZoomAuthorizationUrl(url)) {
+    return providerExternalNavigationErrorMessage("origin-rejected", "Zoom");
+  }
+  if (typeof navigation.openExternal !== "function") {
+    return providerExternalNavigationErrorMessage("unsupported-host", "Zoom");
+  }
+  try {
+    await navigation.openExternal({ url });
+    return null;
+  } catch (cause: unknown) {
+    return zoomExternalNavigationErrorMessage(cause);
+  }
+};
+
 const providerLocationConfiguration = (
-  location: MeetingLocation | undefined,
+  location: MeetingLocation | null | undefined,
   bookingKind: ProviderBookingReservationInput["bookingKind"],
 ): {
   readonly location?: string;
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
 } => {
-  if (location === "google-meet" && bookingKind === "meeting") {
-    return { conferenceProvider: "google-meet" };
+  if (bookingKind === "meeting" && (location === "google-meet" || location === "zoom")) {
+    return { conferenceProvider: location };
   }
   return {
     ...(location ? { location: meetingLocationNames[location] } : {}),
@@ -1089,13 +1185,17 @@ const providerLocationConfiguration = (
 };
 
 const providerLocationError = (
-  location: MeetingLocation | undefined,
+  location: MeetingLocation | null | undefined,
+  zoomConnected: boolean,
 ): string | null => {
-  if (location === undefined || location === "google-meet") return null;
-  if (location === "phone" || location === "physical" || location === "custom") {
-    return `${meetingLocationNames[location]} needs connection details before TAP can commit it. Choose Google Meet for this local Google connection.`;
+  if (location == null || location === "google-meet") return null;
+  if (location === "zoom") {
+    return zoomConnected ? null : "Connect Zoom in Settings before scheduling a Zoom meeting.";
   }
-  return `${meetingLocationNames[location]} is not connected to this Google destination yet. Choose Google Meet or connect that meeting provider first.`;
+  if (location === "phone" || location === "physical" || location === "custom") {
+    return `${meetingLocationNames[location]} details are not supported for Google Calendar bookings yet. Choose Google Meet.`;
+  }
+  return `${meetingLocationNames[location]} is not supported for Google Calendar bookings yet. Choose Google Meet.`;
 };
 
 const calendarGatewayWriteError = (cause: unknown): string => {
@@ -1202,7 +1302,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState<string | null>(null);
   const [workBlockOpen, setWorkBlockOpen] = useState(false);
   const [connectionTarget, setConnectionTarget] = useState<CalendarConnectionTarget | null>(null);
   const [calendarRemovalTarget, setCalendarRemovalTarget] = useState<ConnectedCalendar | null>(null);
@@ -1219,6 +1319,12 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
     useState<ProviderPrincipalAccessState>({
       status: "loading",
       value: EMPTY_PRINCIPAL_ACCESS,
+    });
+  const [meetingProviderConnections, setMeetingProviderConnections] =
+    useState<MeetingProviderConnectionsState>({
+      status: "loading",
+      connections: [],
+      message: null,
     });
   const providerRecoveryRunningRef = useRef(false);
   const providerRecoveryRerunRef = useRef(false);
@@ -1294,10 +1400,53 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       transport,
     });
   }, [calendarPrincipalId, context, preview]);
+  const calendarActivitySync = useCalendarActivitySync(calendarGateway, context?.workspaceId, state, !preview);
+  const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview);
+  const bookingAnalytics = usePublicBookingAnalytics(
+    calendarGateway, !preview && state !== null && section === "booking-pages",
+  );
+  const bookingAnalyticsState = useMemo(() => state && !preview
+    ? applyPublicBookingAnalytics(state, bookingAnalytics.data)
+    : state, [state, preview, bookingAnalytics.data]);
+  const bookingAnalyticsAvailable = preview || bookingAnalytics.data !== null;
+
   const providerBookingOutbox = useMemo(
     () => createProviderBookingOutbox(preview, calendarPrincipalId),
     [calendarPrincipalId, preview],
   );
+  const refreshMeetingProviderConnections = useCallback<
+    RefreshMeetingProviderConnections
+  >(async () => {
+    setMeetingProviderConnections(current => ({
+      status: "loading",
+      connections: current.connections,
+      message: null,
+    }));
+    try {
+      const connections = await calendarGateway.listMeetingProviderConnections();
+      setMeetingProviderConnections({ status: "ready", connections, message: null });
+      return connections;
+    } catch (cause: unknown) {
+      const message = "TAP Calendar couldn't check your meeting-provider connections. Try again.";
+      setMeetingProviderConnections(current => ({
+        status: "error",
+        connections: current.connections,
+        message,
+      }));
+      throw cause;
+    }
+  }, [calendarGateway]);
+
+  useEffect(() => {
+    void refreshMeetingProviderConnections().catch(() => {
+      // Settings exposes a scoped retry without blocking Calendar reads.
+    });
+  }, [refreshMeetingProviderConnections]);
+
+  const zoomConnected = meetingProviderConnections.status === "ready" &&
+    meetingProviderConnections.connections.some(connection =>
+      connection.provider === "zoom" && connection.status === "connected"
+    );
 
   const gatewayAccountSignature = state?.accounts
     .map(account => account.id)
@@ -1462,7 +1611,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         retrySameAttempt: false,
       };
     }
-    const locationError = providerLocationError(input.location);
+    const locationError = providerLocationError(input.location, zoomConnected);
     if (locationError) {
       return { ok: false, error: locationError, retrySameAttempt: false };
     }
@@ -1475,6 +1624,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       conflictCalendarIds,
       idempotencyKey: input.idempotencyKey,
       title: input.title,
+      ...(input.description ? { description: input.description } : {}),
       start: input.start,
       end: input.end,
       conflictTimeMin: input.conflictTimeMin ?? input.start,
@@ -1531,7 +1681,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         retrySameAttempt,
       };
     }
-  }, [calendarGateway, context, preview, providerBookingOutbox, scheduleProviderRecovery]);
+  }, [calendarGateway, context, preview, providerBookingOutbox, scheduleProviderRecovery, zoomConnected]);
 
   const announce = useCallback((message: string) => {
     setNotice(message);
@@ -1636,7 +1786,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       if (!current) return false;
       const mutated = mutation(current);
       if (mutated === current) return false;
-      const next = preview
+      const publicationState = preview
         ? mutated
         : markChangedPublicBookingProfilesPending(
           current,
@@ -1645,6 +1795,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         );
       setSaving(true);
       try {
+        const next = preview ? publicationState : appendAvailabilityActivity(current, publicationState, context?.workspaceId ?? "");
         const revision = await saveCalendarState(
           next,
           preview,
@@ -2329,7 +2480,9 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       await finishProviderBookingReconciliation(input.id, reserved.booking);
       announce(bookingRequestId
         ? "Meeting request saved with a provider Tentative Hold."
-        : "Meeting committed to the provider calendar.");
+        : input.attendees.length === 0
+          ? "Time blocked on your calendar."
+          : "Meeting committed to the provider calendar.");
       providerEventCache.refresh();
       return { error: null, retrySameAttempt: false };
     }
@@ -2374,7 +2527,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       return;
     }
     if (decision === "approve") {
-      const locationError = providerLocationError(event.location ?? undefined);
+      const locationError = providerLocationError(event.location ?? undefined, zoomConnected);
       if (locationError) {
         setError(locationError);
         return;
@@ -2555,35 +2708,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       if (!calendarIds.has(event.calendarId)) continue;
       const localEvent = merged.get(event.id);
       if (localEvent) {
-        // Provider fields are authoritative for active committed Events. TAP's
-        // approval lifecycle remains authoritative while a Hold is pending or
-        // after TAP has declined/expired it.
-        if (
-          localEvent.status === "confirmed" &&
-          localEvent.kind !== "hold" &&
-          event.status === localEvent.status &&
-          event.kind === localEvent.kind
-        ) {
-          const localAttendeesByEmail = new Map(
-            localEvent.attendees.map(attendee => [attendee.email.toLowerCase(), attendee]),
-          );
-          merged.set(event.id, {
-            ...event,
-            attendees: event.attendees.map(attendee => {
-              const local = localAttendeesByEmail.get(attendee.email.toLowerCase());
-              return local
-                ? { ...attendee, id: local.id, name: local.name, kind: local.kind }
-                : attendee;
-            }),
-            ...(localEvent.source ? { source: localEvent.source } : {}),
-            ...(event.providerHtmlLink ?? localEvent.providerHtmlLink
-              ? { providerHtmlLink: event.providerHtmlLink ?? localEvent.providerHtmlLink }
-              : {}),
-            ...(event.providerJoinUrl ?? localEvent.providerJoinUrl
-              ? { providerJoinUrl: event.providerJoinUrl ?? localEvent.providerJoinUrl }
-              : {}),
-          });
-        }
+        merged.set(event.id, mergeProviderEvent(localEvent, event));
         continue;
       }
       const duplicatesLocalEvent = state.events.some(localEvent =>
@@ -2652,6 +2777,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
         <ChannelSchedulerSurface
           state={state}
           principalAccess={providerPrincipalAccess}
+          zoomConnected={zoomConnected}
           channelId={context?.channelId}
           roster={channelParticipantRoster}
           error={error}
@@ -2720,7 +2846,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
             }}
           />
         ) : (
-          <RailContext section={section} state={state} />
+          <RailContext section={section} state={bookingAnalyticsState!} snapshot={bookingAnalytics.data} analyticsAvailable={bookingAnalyticsAvailable} />
         )}
         <button
           className={`rail-status status-${eventSyncState.status}`}
@@ -2761,7 +2887,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           </div>
           <div className="header-actions">
             <button className="secondary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setWorkBlockOpen(true)}><SquareCheckBig /> Block task</button>
-            <button className="primary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setScheduleOpen(true)}><Plus /> Schedule</button>
+            <button className="primary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setScheduleStart("")}><Plus /> Schedule</button>
             <button className="avatar-button" type="button" aria-label="Open profile menu" disabled title="Profile actions are provided by the TAP host."><CircleUserRound /></button>
           </div>
         </header>
@@ -2770,6 +2896,14 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           <div className="error-banner" role="alert"><AlertTriangle /><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X /></button></div>
         ) : null}
 
+        {section === "booking-pages" && !preview ? (
+          <div className="analytics-status" role={bookingAnalytics.error ? "alert" : "status"}>
+            <span>{bookingAnalytics.error
+              ? `${bookingAnalytics.error}${bookingAnalytics.data ? ` Showing totals from ${new Date(bookingAnalytics.data.generatedAt).toLocaleString()}.` : ""}`
+              : bookingAnalytics.loading ? "Refreshing booking analytics…" : bookingAnalytics.data ? `Updated ${new Date(bookingAnalytics.data.generatedAt).toLocaleString()}. Refreshes every minute.` : "Waiting for public booking analytics…"}</span>
+            <button type="button" className="text-button" disabled={bookingAnalytics.loading} onClick={bookingAnalytics.refresh}>Refresh analytics</button>
+          </div>
+        ) : null}
         <div className="workspace-content" ref={workspaceContentRef}>
           {section === "calendar" ? (
             <CalendarScreen
@@ -2784,17 +2918,24 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
                   .finally(() => setOptimisticActiveView(null));
               }}
               onSelectEvent={setSelectedEventId}
-              onSchedule={() => setScheduleOpen(true)}
+              onSchedule={start => setScheduleStart(start ?? "")}
               onAddAccount={() => setConnectionTarget({ kind: "account" })}
             />
           ) : null}
           {section === "availability" ? (
             <AvailabilityScreen state={state} commit={commit} />
           ) : null}
+          {section === "booking-pages" && !preview ? <WorkspaceBookingPanel gateway={calendarGateway} state={state} authorize={action => requireCalendarAuthority(context, false, action)} /> : null}
           {section === "booking-pages" ? (
             <BookingPagesScreen
               state={state}
+              analyticsState={bookingAnalyticsState!}
+              snapshot={bookingAnalytics.data}
+              analyticsAvailable={bookingAnalyticsAvailable}
+              liveAnalytics={!preview}
               commit={commit}
+              onNavigate={navigate}
+              zoomConnected={zoomConnected}
               onSyncPublication={syncPublicBookingProfile}
               onPreview={(profileId, eventTypeId) => {
                 void commit(
@@ -2833,12 +2974,17 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
               onDeclineBooking={requestId => resolveBookingApproval(requestId, "decline")}
             />
           ) : null}
-          {section === "automations" ? <AutomationsScreen state={state} /> : null}
+          {section === "automations" ? <AutomationsScreen state={state} specialistPanel={<CalendarMcpPanel activityError={calendarActivitySync.error} gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
           {section === "settings" ? (
             <SettingsScreen
               state={state}
               commit={commit}
               gateway={calendarGateway}
+              meetingProviderConnections={meetingProviderConnections}
+              onRefreshMeetingProviderConnections={refreshMeetingProviderConnections}
+              onRequireManage={() =>
+                requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)
+              }
               preview={preview}
               announce={announce}
               onAddAccount={() => setConnectionTarget({ kind: "account" })}
@@ -2851,15 +2997,17 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
       {selectedEvent ? (
         <EventDrawer event={selectedEvent} state={displayState} onClose={() => setSelectedEventId(null)} />
       ) : null}
-      {scheduleOpen ? (
+      {scheduleStart !== null ? (
         <ScheduleDialog
           state={state}
           principalAccess={providerPrincipalAccess}
-          onClose={() => setScheduleOpen(false)}
+          zoomConnected={zoomConnected}
+          initialStart={scheduleStart}
+          onClose={() => setScheduleStart(null)}
           onSubmit={async input => {
             const result = await submitScheduledMeeting(input);
             if (!result.error) {
-              setScheduleOpen(false);
+              setScheduleStart(null);
             }
             return result;
           }}
@@ -3146,11 +3294,11 @@ function CalendarList({
   );
 }
 
-function RailContext({ section, state }: { readonly section: Section; readonly state: CalendarState }) {
+function RailContext({ section, state, snapshot, analyticsAvailable }: { readonly section: Section; readonly state: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean }) {
   const activeSchedule = state.availability.find(
     item => item.id === state.activeAvailabilityId,
   );
-  const confirmedBookings = state.bookingProfiles
+  const confirmedBookings = snapshot?.totals.confirmed ?? state.bookingProfiles
     .flatMap(profile => profile.eventTypes)
     .reduce((total, eventType) => total + eventType.analytics.confirmed, 0);
   const content: Readonly<Record<Exclude<Section, "calendar">, { label: string; value: string; icon: ReactNode }[]>> = {
@@ -3160,7 +3308,7 @@ function RailContext({ section, state }: { readonly section: Section; readonly s
     ],
     "booking-pages": [
       { label: "Published profiles", value: String(state.bookingProfiles.filter(profile => profile.published).length), icon: <Globe2 /> },
-      { label: "Confirmed bookings", value: String(confirmedBookings), icon: <CheckCircle2 /> },
+      { label: "Confirmed bookings", value: analyticsAvailable ? String(confirmedBookings) : "—", icon: <CheckCircle2 /> },
     ],
     notifications: [
       { label: "Pending approvals", value: String(state.bookingRequests.filter(request => request.status === "pending").length), icon: <Bell /> },
@@ -3168,7 +3316,7 @@ function RailContext({ section, state }: { readonly section: Section; readonly s
     ],
     automations: [
       { label: "Workflow nodes", value: String(state.workflowNodes.length), icon: <Workflow /> },
-      { label: "Specialist tools", value: "3", icon: <Bot /> },
+      { label: "Live specialist tools", value: "8", icon: <Bot /> },
     ],
     settings: [
       { label: "Connections", value: String(state.accounts.length), icon: <Cloud /> },
@@ -3259,7 +3407,7 @@ function CalendarScreen({
   readonly saving: boolean;
   readonly onSetView: (view: CalendarView) => void;
   readonly onSelectEvent: (eventId: string) => void;
-  readonly onSchedule: () => void;
+  readonly onSchedule: (start?: string) => void;
   readonly onAddAccount: () => void;
 }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -3383,7 +3531,7 @@ function CalendarScreen({
         </div>
       ) : <div className="calendar-surface">
         <div className="calendar-board-gesture-surface" ref={surfaceRef}>
-          <CalendarBoard state={state} anchorDate={anchorDate} onSelectEvent={onSelectEvent} />
+          <CalendarBoard state={state} anchorDate={anchorDate} onSelectEvent={onSelectEvent} onSelectSlot={onSchedule} />
         </div>
         <aside className="next-up-panel">
           <header><span><Activity /> Next up</span><small>{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "short", day: "numeric" }).format(parseCalendarDate(anchorDate))}</small></header>
@@ -3397,7 +3545,7 @@ function CalendarScreen({
           {canSchedule ? <div className="focus-suggestion">
             <Sparkles />
             <div><strong>Protect time for focused work</strong><small>Create a meeting or Work Block on your Destination Calendar.</small></div>
-            <button type="button" onClick={onSchedule}>Schedule</button>
+            <button type="button" onClick={() => onSchedule()}>Schedule</button>
           </div> : null}
         </aside>
       </div>}
@@ -3626,6 +3774,9 @@ function AvailabilityScreen({ state, commit }: { readonly state: CalendarState; 
       else next.delete(calendar.id);
       return next;
     });
+  };
+  const disableAllConflictCalendars = () => {
+    setConflictDraftIds(new Set());
   };
   const resetPolicyDraft = () => {
     setPolicyDrafts(current => {
@@ -3976,7 +4127,10 @@ function AvailabilityScreen({ state, commit }: { readonly state: CalendarState; 
                 </fieldset>
                 <fieldset className="availability-policy-card availability-conflict-policy" ref={conflictPolicyRef}>
                   <legend>Conflict calendars</legend>
-                  <p>Busy events on checked calendars remove slots. These choices apply to every Availability Schedule and are independent of calendar visibility. Each Event Type also checks its own Destination Calendar.</p>
+                  <div className="availability-conflict-heading">
+                    <p>Busy events on checked calendars remove slots. These choices apply to every Availability Schedule and are independent of calendar visibility. Each Event Type also checks its own Destination Calendar.</p>
+                    <Button type="button" variant="outline" size="sm" disabled={selectedConflictCount === 0 || policySaving} onClick={disableAllConflictCalendars}><ShieldOff data-icon="inline-start" /> Disable all</Button>
+                  </div>
                   {state.accounts.length > 0 ? <div className="availability-conflict-groups">
                     {state.accounts.map(account => <section aria-label={`${account.label} conflict calendars`} key={account.id}>
                       <header><strong>{account.label}</strong><span>{providerNames[account.provider]}</span></header>
@@ -4275,11 +4429,36 @@ function AvailabilityOverrideDialog({
   );
 }
 
-function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, announce }: { readonly state: CalendarState; readonly commit: CommitCalendarState; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void }) {
+function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailable, liveAnalytics, commit, onNavigate, onSyncPublication, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly analyticsState: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
   const [profileEditor, setProfileEditor] = useState<BookingProfile | "new" | null>(null);
   const [eventTypeProfileId, setEventTypeProfileId] = useState<string | null>(null);
   const [insights, setInsights] = useState<{ profile: BookingProfile; eventType: EventType } | null>(null);
-  const totals = state.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => ({ views: sum.views + eventType.analytics.views, confirmed: sum.confirmed + eventType.analytics.confirmed }), { views: 0, confirmed: 0 });
+  const insightsProfile = analyticsState.bookingProfiles.find(profile => profile.id === insights?.profile.id);
+  const insightsEventType = insightsProfile?.eventTypes.find(eventType => eventType.id === insights?.eventType.id);
+  const [publishingProfileId, setPublishingProfileId] = useState<string | null>(null);
+  const [publicationErrors, setPublicationErrors] = useState<Record<string, string | null>>({});
+  const copyBookingPageUrl = useCallback(async (profileSlug: string, eventType: EventType): Promise<void> => {
+    try {
+      await copyTextToClipboard(publicBookingUrl(profileSlug, eventType.slug));
+      announce("Booking link copied.");
+    } catch {
+      announce("TAP couldn’t copy the booking link. Select the URL and copy it manually.");
+    }
+  }, [announce]);
+  useEffect(() => {
+    setPublicationErrors(current => {
+      const unsettledProfileIds = new Set(
+        state.bookingProfiles
+          .filter(profile => deriveBookingProfilePublicationState(profile).pending)
+          .map(profile => profile.id),
+      );
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([profileId]) => unsettledProfileIds.has(profileId)),
+      );
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+  }, [state.bookingProfiles]);
+  const totals = snapshot?.totals ?? analyticsState.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => ({ views: sum.views + eventType.analytics.views, confirmed: sum.confirmed + eventType.analytics.confirmed }), { views: 0, confirmed: 0 });
   const liveProfiles = state.bookingProfiles.filter(profile =>
     deriveBookingProfilePublicationState(profile).liveStatus === "published");
   const liveEventPageCount = liveProfiles.reduce(
@@ -4296,6 +4475,12 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
     : !hasAvailabilitySchedule
       ? "Create an Availability Schedule before creating an Event Type."
       : undefined;
+  const eventTypePrerequisiteSection: Section = hasWritableDestination
+    ? "availability"
+    : "settings";
+  const eventTypePrerequisiteAction = hasWritableDestination
+    ? "Create Availability Schedule"
+    : "Connect Google Calendar";
   const availabilityNames = useMemo(
     () => new Map(state.availability.map(schedule => [schedule.id, schedule.name])),
     [state.availability],
@@ -4359,14 +4544,56 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
     }
     return domainError ?? (changed ? null : "The Event Type could not be created.");
   };
+  const publishProfile = useCallback(async (profile: BookingProfile): Promise<void> => {
+    if (publishingProfileId === profile.id) return;
+    setPublishingProfileId(profile.id);
+    setPublicationErrors(current => ({ ...current, [profile.id]: null }));
+    try {
+      if (!profile.published) {
+        const saved = await commit(current => {
+          const currentProfile = current.bookingProfiles.find(candidate => candidate.id === profile.id);
+          if (!currentProfile || currentProfile.published) return current;
+          return {
+            ...current,
+            bookingProfiles: current.bookingProfiles.map(candidate =>
+              candidate.id === profile.id
+                ? { ...candidate, published: true }
+                : candidate
+            ),
+          };
+        }, undefined, CALENDAR_PUBLISH_ACTION);
+        if (!saved) {
+          setPublicationErrors(current => ({
+            ...current,
+            [profile.id]: "TAP couldn't save the publication request. Try again.",
+          }));
+          return;
+        }
+      }
+      if (!await onSyncPublication(profile.id)) {
+        setPublicationErrors(current => ({
+          ...current,
+          [profile.id]: "TAP couldn't publish this profile to cal.with-tap.ai. Try again.",
+        }));
+      }
+    } finally {
+      setPublishingProfileId(current => current === profile.id ? null : current);
+    }
+  }, [commit, onSyncPublication, publishingProfileId]);
   return (
     <div className="content-stack">
       <section className="summary-grid">
-        <MetricCard icon={<Eye />} label="Page views" value={totals.views.toLocaleString()} detail="Privacy-preserving, no fingerprinting" tone="blue" />
-        <MetricCard icon={<MousePointerClick />} label="Confirmed bookings" value={totals.confirmed.toLocaleString()} detail={`${((totals.confirmed / Math.max(1, totals.views)) * 100).toFixed(1)}% view-to-booking conversion`} tone="green" />
-        <MetricCard icon={<Link2 />} label="Published URLs" value={String(liveUrlCount)} detail="Profile and Event Type URLs confirmed by the server" tone="violet" />
-        <MetricCard icon={<ShieldCheck />} label="Public protection" value="Managed" detail="Cloudflare Turnstile verification plus gateway rate limits" tone="green" />
+        <MetricCard icon={<Eye />} label="Page views" value={analyticsAvailable ? totals.views.toLocaleString() : "—"} detail={liveAnalytics ? snapshot ? `Since ${new Date(snapshot.trafficSince).toLocaleDateString()}; one per page visit` : "Waiting for public tracking data" : "Local preview activity"} tone="blue" />
+        <MetricCard icon={<MousePointerClick />} label="Confirmed bookings" value={analyticsAvailable ? totals.confirmed.toLocaleString() : "—"} detail={liveAnalytics ? "Confirmed now; excludes cancellations" : `${((totals.confirmed / Math.max(1, totals.views)) * 100).toFixed(1)}% view-to-booking conversion`} tone="green" />
+        <MetricCard icon={<MousePointerClick />} label="Starts" value={analyticsAvailable ? (snapshot?.totals.starts ?? analyticsState.bookingProfiles.flatMap(profile => profile.eventTypes).reduce((sum, eventType) => sum + eventType.analytics.starts, 0)).toLocaleString() : "—"} detail="Visits that reached guest details" tone="violet" />
+        <MetricCard icon={<BarChart3 />} label="View-to-booking conversion" value={snapshot ? publicBookingConversion(snapshot.totals) : "—"} detail={snapshot ? `${snapshot.totals.convertedVisits.toLocaleString()} confirmed visits / ${snapshot.totals.conversionViews.toLocaleString()} tracked visits` : "Waiting for matched visit and booking data"} tone="green" />
       </section>
+      {liveAnalytics ? <div className="booking-metric-breakdown" aria-label="Booking status totals">
+        <span>Lifetime confirmations <strong>{snapshot?.totals.lifetimeConfirmed.toLocaleString() ?? "—"}</strong></span>
+        <span>Cancelled <strong>{snapshot?.totals.cancelled.toLocaleString() ?? "—"}</strong></span>
+        <span>Awaiting approval <strong>{snapshot?.totals.pending.toLocaleString() ?? "—"}</strong></span>
+        <span>Published URLs <strong>{liveUrlCount}</strong></span>
+      </div> : null}
       <div className="section-heading"><div><span className="eyebrow">Public scheduling</span><h2>Booking Profiles & Event Types</h2><p>Public booking v1 supports individual profiles with globally reserved slugs.</p></div><button type="button" className="primary-button" onClick={() => setProfileEditor("new")}><Plus /> New Booking Profile</button></div>
       {state.bookingProfiles.length === 0 ? (
         <ProductEmptyState
@@ -4379,8 +4606,26 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
       {state.bookingProfiles.map(profile => {
         const publicationState = deriveBookingProfilePublicationState(profile);
         const serverPublished = publicationState.liveStatus === "published";
+        const activeEventTypes = profile.eventTypes.filter(eventType => eventType.active);
         const liveEventTypes = profile.eventTypes.filter(eventType =>
           isEventTypePublicationLive(profile, eventType));
+        const publicationError = publicationErrors[profile.id] ?? null;
+        const isPublishing = publishingProfileId === profile.id;
+        const isUnpublishing = publicationState.pending &&
+          publicationState.desiredStatus === "unpublished";
+        const publicationNeedsAction = !isUnpublishing && (
+          !serverPublished ||
+          (publicationState.pending && publicationState.desiredStatus === "published")
+        );
+        const publicationActionLabel = isPublishing
+          ? activeEventTypes.length === 0 ? "Claiming…" : "Publishing…"
+          : publicationError
+            ? "Retry publish"
+            : serverPublished
+              ? "Publish changes"
+              : activeEventTypes.length === 0
+                ? "Claim profile"
+                : "Publish booking pages";
         const statusLabel = publicationState.pending
           ? publicationState.desiredStatus === "unpublished"
             ? "Unpublishing"
@@ -4398,36 +4643,89 @@ function BookingPagesScreen({ state, commit, onSyncPublication, onPreview, annou
             <div className="profile-identity"><span>{profile.displayName.split(" ").map(word => word[0]).join("")}</span><div><span className="eyebrow">{profile.ownerType} booking profile</span><h2>{profile.displayName}</h2><p>cal.with-tap.ai/<strong>{profile.slug}</strong></p></div></div>
             <div className="profile-actions">
               <span className={serverPublished && !publicationState.pending ? "published-badge" : "status-chip status-pending"}><span /> {statusLabel}</span>
-              {publicationState.pending ? (
+              {isUnpublishing ? (
                 <button type="button" className="secondary-button" onClick={() => void onSyncPublication(profile.id)}>
-                  <RefreshCw /> {publicationState.desiredStatus === "published" ? (serverPublished ? "Publish changes" : "Publish profile") : "Retry unpublish"}
+                  <RefreshCw /> Retry unpublish
                 </button>
               ) : null}
               <button type="button" className="secondary-button" onClick={() => setProfileEditor(profile)}><Settings2 /> Profile settings</button>
-              <button type="button" className="primary-button" disabled={!canCreateEventType} title={eventTypeCreationHint} onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button>
+              <button type="button" className="primary-button" title={eventTypeCreationHint} aria-describedby={!canCreateEventType && profile.eventTypes.length === 0 ? `event-type-guidance-${profile.id}` : undefined} onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button>
             </div>
           </header>
+          {publicationNeedsAction ? (
+            <Alert
+              className="profile-publication-guidance"
+              variant={publicationError ? "destructive" : "info"}
+              role={publicationError ? "alert" : "status"}
+            >
+              {publicationError ? <AlertTriangle aria-hidden="true" /> : <Globe2 aria-hidden="true" />}
+              <div className="profile-publication-guidance-layout">
+                <div className="profile-publication-guidance-copy">
+                  <AlertTitle>
+                    {publicationError
+                      ? "Booking pages couldn’t publish"
+                      : serverPublished
+                        ? "Your latest booking page changes are not live yet."
+                        : activeEventTypes.length === 0
+                          ? `Claim cal.with-tap.ai/${profile.slug} now. You can add Event Types later.`
+                          : "Your active Event Types are ready, but their booking pages are not live yet."}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {publicationError
+                      ? publicationError
+                      : serverPublished
+                        ? "Publish changes to update every active Event Type in this profile."
+                        : activeEventTypes.length === 0
+                          ? "This reserves your public profile URL before you are ready to accept bookings."
+                          : "Publishing makes every active Event Type in this profile public."}
+                  </AlertDescription>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={publicationError ? "outline" : "default"}
+                  disabled={isPublishing}
+                  aria-busy={isPublishing}
+                  onClick={() => void publishProfile(profile)}
+                >
+                  {publicationError
+                    ? <RefreshCw data-icon="inline-start" />
+                    : <Globe2 data-icon="inline-start" />}
+                  {publicationActionLabel}
+                </Button>
+              </div>
+            </Alert>
+          ) : null}
           <div className="event-type-grid">
             {profile.eventTypes.map(eventType => {
+              const analytics = analyticsState.bookingProfiles.find(item => item.id === profile.id)!
+                .eventTypes.find(item => item.id === eventType.id)!.analytics;
+              const publicMetrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
               const pageIsLive = isEventTypePublicationLive(profile, eventType);
+              const eventTypeStatus = !eventType.active
+                ? "Paused"
+                : pageIsLive
+                  ? "Live"
+                  : "Ready to publish";
               return (
               <article className="event-type-card" key={eventType.id} style={{ "--event-type-color": eventType.color } as React.CSSProperties}>
                 <div className="event-type-stripe" />
-                <header><div><span className="event-type-icon"><CalendarClock /></span><span className={`status-chip ${eventType.active ? "status-confirmed" : "status-pending"}`}>{eventType.active ? "Active" : "Paused"}</span></div><button type="button" className="icon-button" aria-label={`More options for ${eventType.title}`} disabled title="Editing an existing Event Type will use the same publish contract."><MoreHorizontal /></button></header>
+                <header><div><span className="event-type-icon"><CalendarClock /></span><span className={`status-chip ${pageIsLive ? "status-confirmed" : "status-pending"}`}>{eventTypeStatus}</span></div></header>
                 <h3>{eventType.title}</h3><p>{eventType.description}</p>
                 <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><Video /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
-                <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span><button type="button" disabled={!pageIsLive} title={pageIsLive ? undefined : "Publish this Booking Profile before sharing its URL."} onClick={() => { void navigator.clipboard?.writeText(publicBookingUrl(profile.slug, eventType.slug)); announce("Public URL copied."); }} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button></div>
-                <div className="conversion-row"><div><span>Views</span><strong>{eventType.analytics.views.toLocaleString()}</strong></div><ArrowRight /><div><span>Starts</span><strong>{eventType.analytics.starts.toLocaleString()}</strong></div><ArrowRight /><div><span>Confirmed</span><strong>{eventType.analytics.confirmed.toLocaleString()}</strong></div><b>{(conversionRate(eventType.analytics) * 100).toFixed(1)}%</b></div>
+                <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span>{pageIsLive ? <button type="button" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button> : null}</div>
+                <div className="conversion-row"><div><span>Views</span><strong>{analyticsAvailable ? analytics.views.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Starts</span><strong>{analyticsAvailable ? analytics.starts.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Confirmed</span><strong>{analyticsAvailable ? analytics.confirmed.toLocaleString() : "—"}</strong></div><b title="Share of tracked visits that produced a confirmed booking">{liveAnalytics ? snapshot ? publicBookingConversion(publicMetrics) : "—" : `${(conversionRate(analytics) * 100).toFixed(1)}%`}</b></div>
+                {liveAnalytics ? <div className="booking-metric-breakdown compact"><span>Lifetime confirmed <strong>{snapshot ? publicMetrics.lifetimeConfirmed.toLocaleString() : "—"}</strong></span><span>Cancelled <strong>{snapshot ? publicMetrics.cancelled.toLocaleString() : "—"}</strong></span></div> : null}
                 <footer><button type="button" className="secondary-button" onClick={() => onPreview(profile.id, eventType.id)}><Eye /> Preview page</button><button type="button" className="secondary-button" onClick={() => setInsights({ profile, eventType })}><BarChart3 /> Insights</button></footer>
               </article>
             );})}
-            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span>{serverPublished ? "Your profile URL is claimed and live. Add an Event Type when you’re ready to accept bookings." : canCreateEventType ? "Claim this profile URL now, then add an Event Type when you’re ready." : eventTypeCreationHint}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button> : null}</div> : null}
+            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span id={`event-type-guidance-${profile.id}`}>{!canCreateEventType ? eventTypeCreationHint : serverPublished ? "Your profile URL is claimed and live. Add an Event Type when you’re ready to accept bookings." : "Claim this profile URL now, then add an Event Type when you’re ready."}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button> : <Button type="button" onClick={() => onNavigate(eventTypePrerequisiteSection)}>{hasWritableDestination ? <CalendarClock data-icon="inline-start" /> : <Settings2 data-icon="inline-start" />}{eventTypePrerequisiteAction}</Button>}</div> : null}
           </div>
         </section>
       );})}
       {profileEditor ? <BookingProfileDialog state={state} profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} /> : null}
-      {eventTypeProfileId ? <EventTypeDialog state={state} profileId={eventTypeProfileId} onClose={() => setEventTypeProfileId(null)} onSubmit={saveEventType} /> : null}
-      {insights ? <BookingInsightsDialog profile={insights.profile} eventType={insights.eventType} onClose={() => setInsights(null)} /> : null}
+      {eventTypeProfileId ? <EventTypeDialog state={state} profileId={eventTypeProfileId} zoomConnected={zoomConnected} onClose={() => setEventTypeProfileId(null)} onNavigate={onNavigate} onSubmit={saveEventType} /> : null}
+      {insightsProfile && insightsEventType ? <BookingInsightsDialog snapshot={snapshot} analyticsAvailable={analyticsAvailable} liveAnalytics={liveAnalytics} profile={insightsProfile} eventType={insightsEventType} onClose={() => setInsights(null)} /> : null}
     </div>
   );
 }
@@ -4472,12 +4770,16 @@ function BookingProfileDialog({
 function EventTypeDialog({
   state,
   profileId,
+  zoomConnected,
   onClose,
+  onNavigate,
   onSubmit,
 }: {
   readonly state: CalendarState;
   readonly profileId: string;
+  readonly zoomConnected: boolean;
   readonly onClose: () => void;
+  readonly onNavigate: (section: Section) => void;
   readonly onSubmit: (profileId: string, eventType: NewEventType) => Promise<string | null>;
 }) {
   const createEntityId = useEntityId();
@@ -4485,7 +4787,7 @@ function EventTypeDialog({
   const writableCalendars = allCalendars(state).filter(calendar =>
     supportsProviderBookingWrites(state, calendar)
   );
-  const defaultDestination = writableCalendars.find(calendar => calendar.destination) ?? writableCalendars[0];
+  const defaultDestination = preferredDestinationCalendar(writableCalendars);
   const defaultAvailabilitySchedule = state.availability.find(
     schedule => schedule.id === state.activeAvailabilityId,
   ) ?? state.availability[0];
@@ -4504,14 +4806,15 @@ function EventTypeDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   if (!profile || !defaultDestination || !defaultAvailabilitySchedule) {
-    const availabilityMissing = state.availability.length === 0;
+    const destinationMissing = !defaultDestination;
+    const prerequisiteSection: Section = destinationMissing ? "settings" : "availability";
     return (
-      <Modal title={availabilityMissing ? "Availability Schedule required" : "Google Destination Calendar required"} description={availabilityMissing ? "Every Event Type needs explicit booking hours." : "Provider-backed Event Types currently need a writable Google Calendar."} onClose={onClose}>
+      <Modal title={destinationMissing ? "Google Destination Calendar required" : "Availability Schedule required"} description={destinationMissing ? "Every Event Type needs a writable calendar for confirmed bookings." : "Every Event Type needs explicit booking hours."} onClose={onClose}>
         <ProductEmptyState
-          icon={<CalendarClock />}
-          title={availabilityMissing ? "Create an Availability Schedule" : "Authorize a writable Google Calendar"}
-          description={availabilityMissing ? "Return to Availability, create reusable booking hours, then select them for this Event Type." : "Return to Calendar settings, authorize Google, and make an owner or writer calendar the Destination Calendar."}
-          action={<Button type="button" onClick={onClose}>Return to booking pages</Button>}
+          icon={destinationMissing ? <Settings2 /> : <CalendarClock />}
+          title={destinationMissing ? "Connect Google Calendar" : "Create an Availability Schedule"}
+          description={destinationMissing ? "Open Calendar settings, authorize Google, and make an owner or writer calendar the Destination Calendar." : "Open Availability and create reusable booking hours. Your first schedule becomes the default automatically."}
+          action={<Button type="button" onClick={() => { onClose(); onNavigate(prerequisiteSection); }}>{destinationMissing ? <Settings2 data-icon="inline-start" /> : <CalendarClock data-icon="inline-start" />}{destinationMissing ? "Open Calendar settings" : "Create Availability Schedule"}</Button>}
         />
       </Modal>
     );
@@ -4568,8 +4871,10 @@ function EventTypeDialog({
             <Field>
               <FieldLabel htmlFor="event-type-provider">Meeting provider</FieldLabel>
               <NativeSelect id="event-type-provider" name="event-type-provider" value={location} disabled={submitting} onChange={event => setLocation(event.currentTarget.value as MeetingLocation)}>
-                {Object.entries(meetingLocationNames).map(([value, label]) => <NativeSelectOption value={value} key={value} disabled={value !== "google-meet"}>{label}{value === "google-meet" ? "" : " · not connected"}</NativeSelectOption>)}
+                <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
+                {zoomConnected ? <NativeSelectOption value="zoom">Zoom</NativeSelectOption> : null}
               </NativeSelect>
+              <FieldDescription>{meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
             </Field>
           </div>
           <div className="form-grid">
@@ -4593,19 +4898,26 @@ function EventTypeDialog({
   );
 }
 
-function BookingInsightsDialog({ profile, eventType, onClose }: { readonly profile: BookingProfile; readonly eventType: EventType; readonly onClose: () => void }) {
+function BookingInsightsDialog({ profile, eventType, snapshot, analyticsAvailable, liveAnalytics, onClose }: { readonly profile: BookingProfile; readonly eventType: EventType; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly onClose: () => void }) {
+  const metrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
   const steps = [
     ["Views", eventType.analytics.views],
     ["Slot views", eventType.analytics.slotViews],
     ["Starts", eventType.analytics.starts],
-    ["Requests", eventType.analytics.requests],
-    ["Confirmed", eventType.analytics.confirmed],
+    ["Accepted requests", eventType.analytics.requests],
+    ["Currently confirmed", eventType.analytics.confirmed],
   ] as const;
   return (
     <Modal title={`${eventType.title} insights`} description={`Privacy-preserving funnel analytics for cal.with-tap.ai/${profile.slug}/${eventType.slug}.`} onClose={onClose}>
       <div className="content-stack insights-dialog">
-        <div className="conversion-row">{steps.map(([label, value], index) => <div key={label}><span>{label}</span><strong>{value.toLocaleString()}</strong>{index < steps.length - 1 ? <ArrowRight /> : null}</div>)}</div>
-        <div className="privacy-preview"><BarChart3 /><div><strong>{(conversionRate(eventType.analytics) * 100).toFixed(1)}% view-to-confirmed conversion</strong><p>Counts are aggregated by Event Type without cross-site fingerprinting.</p><small>Production ingestion is owned by the cal.with-tap.ai gateway.</small></div></div>
+        <div className="conversion-row">{steps.map(([label, value], index) => <div key={label}><span>{label}</span><strong>{analyticsAvailable ? value.toLocaleString() : "—"}</strong>{index < steps.length - 1 ? <ArrowRight /> : null}</div>)}</div>
+        {liveAnalytics ? <div className="booking-metric-breakdown" aria-label="Booking outcomes">
+          {([['Lifetime confirmed', metrics.lifetimeConfirmed], ['Cancelled', metrics.cancelled], ['Awaiting approval', metrics.pending], ['Declined', metrics.declined], ['Expired', metrics.expired]] as const).map(([label, value]) => <span key={label}>{label} <strong>{snapshot ? value.toLocaleString() : "—"}</strong></span>)}
+        </div> : null}
+        <div className="privacy-preview"><BarChart3 /><div><strong>{liveAnalytics ? `${snapshot ? publicBookingConversion(metrics) : "—"} view-to-booking conversion` : `${(conversionRate(eventType.analytics) * 100).toFixed(1)}% view-to-confirmed conversion`}</strong>
+          <p>A view is one booking-page visit. A start is a visit that reaches guest details. Reloading starts a new visit; retries and back navigation do not.</p>
+          <small>{liveAnalytics ? snapshot ? `Views and starts are recorded since ${new Date(snapshot.trafficSince).toLocaleString()}. Earlier traffic is unavailable. Conversion uses ${metrics.convertedVisits} confirmed visits out of ${metrics.conversionViews} visits since ${new Date(snapshot.conversionSince).toLocaleString()}. Each visit converts at most once, even if it produces several bookings. Later cancellations do not erase that conversion. Booking status totals include historical bookings. Updated ${new Date(snapshot.generatedAt).toLocaleString()}.` : "Public analytics are unavailable. No local preview counts are included." : "Local preview activity only."}</small>
+        </div></div>
         <button type="button" className="primary-button full-width" onClick={onClose}>Done</button>
       </div>
     </Modal>
@@ -4764,12 +5076,21 @@ function AddNotificationChannelDialog({
   );
 }
 
-function AutomationsScreen({ state }: { readonly state: CalendarState }) {
+function AutomationsScreen({ state, specialistPanel }: { readonly state: CalendarState; readonly specialistPanel: ReactNode }) {
   return (
     <div className="content-stack">
+      {specialistPanel}
       <section className="automation-hero panel"><div><span className="automation-icon"><Workflow /></span><div><span className="eyebrow">TAP Workflow Builder</span><h2>Build on calendar events and actions</h2><p>The package contributes pure, schema-bound nodes today. Durable event triggers will connect through the Zephyr Calendar gateway rather than pretending the mounted miniapp is a background service.</p></div></div><button type="button" className="primary-button" disabled title="The TAP SDK does not expose a workflow-builder navigation action."><ExternalLink /> Host opens Workflow Builder</button></section>
       <section><div className="section-heading"><div><span className="eyebrow">Node library</span><h2>Calendar workflow nodes</h2><p>Drag these into customer-owned TAP workflows.</p></div><span className="status-chip status-pending">Gateway bridge required for triggers</span></div><div className="node-grid">{state.workflowNodes.map(node => <article className="node-card panel" key={node.id}><span className={`node-kind ${node.kind}`}>{node.kind === "trigger" ? <Zap /> : <GitBranch />}</span><div><span>{node.kind}</span><h3>{node.name}</h3><p>{node.description}</p><code>{node.id}</code></div></article>)}</div></section>
-      <section><div className="section-heading"><div><span className="eyebrow">Specialist surface</span><h2>MCP calendar tools</h2><p>Read-only and draft-only tools keep specialists useful without granting a direct customer API.</p></div><span className="status-chip status-confirmed"><ShieldCheck /> Human-governed</span></div><div className="tool-grid"><ToolCard name="list_events" description="Lists a bounded, permission-safe view of visible upcoming calendar items." output="Event summaries · no provider credentials" /><ToolCard name="summarize_day" description="Adds privacy-safe meeting and focused-work totals to daily summaries." output="Aggregate minutes · no event details" /><ToolCard name="find_available_slots" description="Computes candidate times from named availability and fresh Conflict Calendars." output="Ranked ISO time ranges" /><ToolCard name="draft_meeting" description="Prepares a meeting draft for a human to review in TAP Calendar." output="Draft only · never books" /></div></section>
+      <section><div className="section-heading"><div><span className="eyebrow">Specialist surface</span><h2>Live MCP calendar tools</h2><p>Connect an account above and select these tools for Chloe in TAP.</p></div><span className="status-chip status-pending">Account and specialist grants required</span></div><div className="tool-grid">
+        <ToolCard name="list_calendars · list_events" description="Read connected calendars and current event details directly from the provider." output="Live reads · scoped to your account" />
+        <ToolCard name="get_event" description="Inspect one event, including its recorded booking Event Type." output="Individual details · privacy rules apply" />
+        <ToolCard name="find_available_slots" description="Check free intervals against live calendars and your configured Conflict Calendars." output="Conflicts rechecked when creating" />
+        <ToolCard name="create_event" description="Create meetings and Work Blocks directly with granted write access." output="Real bookings · retry-safe creation" />
+        <ToolCard name="list_event_types" description="Understand configured Event Types, their duration, and approval settings." output="Published types and drafts" />
+        <ToolCard name="calendar_analytics" description="Compare counts and scheduled minutes across calendars, kinds, or one booking Event Type." output="Date-filtered totals · no attendance inference" />
+        <ToolCard name="event_type_analytics" description="Read booking-page views, requests, and confirmations for all Event Types or one type." output="Lifetime funnel activity" />
+      </div><p>The separate local Calendar tools read the app’s saved snapshot and prepare drafts. Use Calendar live tools for current information and event creation.</p></section>
       <section className="slash-command panel"><span className="command-mark">↗</span><div><span className="eyebrow">Channel scheduling</span><h2>Mini Apps → Schedule</h2><p>The channel app opens a dedicated scheduler with trusted TAP members when the host exposes its participant roster. Manual external guests remain available when the roster capability is unavailable.</p></div><span className="status-chip status-confirmed">Available</span></section>
     </div>
   );
@@ -4779,6 +5100,9 @@ function SettingsScreen({
   state,
   commit,
   gateway,
+  meetingProviderConnections,
+  onRefreshMeetingProviderConnections,
+  onRequireManage,
   preview,
   announce,
   onAddAccount,
@@ -4787,6 +5111,9 @@ function SettingsScreen({
   readonly state: CalendarState;
   readonly commit: CommitCalendarState;
   readonly gateway: CalendarGatewayClient;
+  readonly meetingProviderConnections: MeetingProviderConnectionsState;
+  readonly onRefreshMeetingProviderConnections: RefreshMeetingProviderConnections;
+  readonly onRequireManage: RequireCalendarManage;
   readonly preview: boolean;
   readonly announce: (message: string) => void;
   readonly onAddAccount: () => void;
@@ -4794,8 +5121,28 @@ function SettingsScreen({
 }) {
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [disconnectingAccountId, setDisconnectingAccountId] = useState<string | null>(null);
+  const [zoomDialogOpen, setZoomDialogOpen] = useState(false);
   const editingAccount = state.accounts.find(account => account.id === editingAccountId) ?? null;
   const disconnectingAccount = state.accounts.find(account => account.id === disconnectingAccountId) ?? null;
+  const zoomConnection = meetingProviderConnections.status === "ready"
+    ? preferredZoomConnection(meetingProviderConnections.connections)
+    : null;
+  const zoomStatusLabel = meetingProviderConnections.status === "loading"
+    ? "Checking"
+    : meetingProviderConnections.status === "error"
+      ? "Unavailable"
+      : zoomConnection?.status === "connected"
+        ? "Connected"
+        : zoomConnection?.status === "attention"
+          ? "Needs attention"
+          : zoomConnection?.status === "pending"
+            ? "Setup pending"
+            : "Not connected";
+  const zoomStatusClass = meetingProviderConnections.status === "error" || zoomConnection?.status === "attention"
+    ? "status-declined"
+    : zoomConnection?.status === "connected"
+      ? "status-confirmed"
+      : "status-pending";
 
   const saveAccountLabel = async (accountId: string, label: string): Promise<string | null> => {
     let domainError: string | null = null;
@@ -4871,6 +5218,41 @@ function SettingsScreen({
               onEdit={() => setEditingAccountId(account.id)}
             />
           ))}
+          <div className="meeting-provider-settings" aria-labelledby="meeting-provider-settings-title">
+            <header>
+              <div>
+                <span className="eyebrow">Conferencing</span>
+                <h3 id="meeting-provider-settings-title">Meeting providers</h3>
+                <p>Choose which service creates the join link when TAP Calendar books a meeting.</p>
+              </div>
+            </header>
+            {meetingProviderConnections.status === "error" ? (
+              <Alert variant="destructive" role="alert">
+                <AlertTriangle aria-hidden="true" />
+                <AlertTitle>Zoom status unavailable</AlertTitle>
+                <AlertDescription>{meetingProviderConnections.message}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="meeting-provider-row">
+              <span className="provider-icon provider-google"><Video /></span>
+              <span className="meeting-provider-copy">
+                <strong>Google Meet</strong>
+                <small>Included automatically with your Google Destination Calendar.</small>
+              </span>
+              <span className="status-chip status-confirmed"><CheckCircle2 /> Available</span>
+            </div>
+            <div className="meeting-provider-row">
+              <span className="provider-icon provider-zoom"><Video /></span>
+              <span className="meeting-provider-copy">
+                <strong>Zoom</strong>
+                <small>{zoomConnection?.status === "connected" ? zoomConnection.label : "Connect your Zoom account to create real Zoom meeting links."}</small>
+              </span>
+              <span className={`status-chip ${zoomStatusClass}`}>{zoomConnection?.status === "connected" ? <CheckCircle2 /> : zoomConnection?.status === "attention" || meetingProviderConnections.status === "error" ? <AlertTriangle /> : null}{zoomStatusLabel}</span>
+              <Button type="button" variant="outline" size="sm" disabled={meetingProviderConnections.status === "loading"} onClick={() => setZoomDialogOpen(true)}>
+                {zoomConnection?.status === "connected" ? "Manage" : zoomConnection ? "Continue" : meetingProviderConnections.status === "error" ? "Review" : "Connect Zoom"}
+              </Button>
+            </div>
+          </div>
         </section>
         <aside className="settings-aside"><section className="panel"><span className="eyebrow">Default behavior</span><h2>Scheduling</h2><label className="field"><span>Destination calendar</span><select value={allCalendars(state).find(calendar => calendar.destination)?.id ?? ""} disabled={!allCalendars(state).some(calendar => calendar.writable)} onChange={event => void commit(current => updateCalendar(current, event.currentTarget.value, { destination: true }), "Destination Calendar updated.")}><option value="" disabled>No writable calendar</option>{allCalendars(state).filter(calendar => calendar.writable).map(calendar => <option value={calendar.id} key={calendar.id}>{calendar.name}</option>)}</select></label><div className="field"><span>Viewer time zone</span><div className="viewer-time-zone"><Globe2 /><span><strong>Automatic</strong><small>{detectedTimeZone()}</small></span></div><small>Calendar views follow this device. Availability schedules have their own configurable time zone.</small></div><label className="setting-row"><span><strong>Offline read-only</strong><small>Keep the last safe calendar view available</small></span><span className="switch"><input type="checkbox" defaultChecked /><span /></span></label></section><section className="panel privacy-card"><ShieldCheck /><div><span className="eyebrow">Privacy boundary</span><h3>Busy by default</h3><p>Shared calendars and team views expose free/busy unless every viewer can read event details. Work Blocks never copy private task or message content to a provider.</p></div></section>{preview ? <section className="panel danger-card"><span className="eyebrow">Local preview</span><h3>Clear local Calendar data</h3><p>Remove locally configured accounts, events, availability, booking pages, and channels.</p><button type="button" className="secondary-button" onClick={() => { resetPreviewCalendar(gateway.principalId); announce("Local Calendar data cleared."); globalThis.location.reload(); }}><RefreshCw /> Clear local data</button></section> : null}</aside>
       </div>
@@ -4889,7 +5271,233 @@ function SettingsScreen({
           onSubmit={replacementId => disconnectAccount(disconnectingAccount.id, replacementId)}
         />
       ) : null}
+      {zoomDialogOpen ? (
+        <ZoomConnectionDialog
+          gateway={gateway}
+          connectionsState={meetingProviderConnections}
+          onRefresh={onRefreshMeetingProviderConnections}
+          onRequireManage={onRequireManage}
+          onClose={() => setZoomDialogOpen(false)}
+          announce={announce}
+        />
+      ) : null}
     </>
+  );
+}
+
+const preferredZoomConnection = (
+  connections: readonly CalendarGatewayMeetingProviderConnection[],
+): CalendarGatewayMeetingProviderConnection | null =>
+  connections.find(connection => connection.provider === "zoom" && connection.status === "connected") ??
+  connections.find(connection => connection.provider === "zoom" && connection.status === "attention") ??
+  connections.find(connection => connection.provider === "zoom" && connection.status === "pending") ??
+  null;
+
+const isMissingMeetingProviderConnection = (cause: unknown): boolean =>
+  cause instanceof CalendarGatewayError &&
+  (cause.code === "meeting_provider_connection_not_found" || cause.code === "connection_not_found");
+
+function ZoomConnectionDialog({
+  gateway,
+  connectionsState,
+  onRefresh,
+  onRequireManage,
+  onClose,
+  announce,
+}: {
+  readonly gateway: CalendarGatewayClient;
+  readonly connectionsState: MeetingProviderConnectionsState;
+  readonly onRefresh: RefreshMeetingProviderConnections;
+  readonly onRequireManage: RequireCalendarManage;
+  readonly onClose: () => void;
+  readonly announce: (message: string) => void;
+}) {
+  const connection = connectionsState.status === "ready"
+    ? preferredZoomConnection(connectionsState.connections)
+    : null;
+  const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
+  const [pendingConnectionId, setPendingConnectionId] = useState<string | null>(connection?.id ?? null);
+  const [busy, setBusy] = useState<"start" | "open" | "check" | "disconnect" | "refresh" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const beginConnection = async (): Promise<void> => {
+    if (busy !== null || connection?.status === "connected") return;
+    setBusy("start");
+    setError(null);
+    setNotice(null);
+    try {
+      await onRequireManage();
+      const result = await gateway.startOAuth({
+        id: `zoom-${globalThis.crypto.randomUUID()}`,
+        provider: "zoom",
+        label: "Zoom",
+      });
+      setPendingConnectionId(result.connectionId);
+      setAuthorizationUrl(result.authorizationUrl);
+      setNotice("Zoom is ready to authorize. Open Zoom, approve access, then return here.");
+      void onRefresh().catch(() => {
+        // The authorization link remains usable; the status can be checked after returning.
+      });
+    } catch (cause: unknown) {
+      setError(providerConnectionErrorMessage(cause, "Zoom", "connect"));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const launchAuthorization = async (): Promise<void> => {
+    if (!authorizationUrl || busy !== null) return;
+    setBusy("open");
+    setError(null);
+    const message = await openZoomAuthorization(
+      sdk.navigation as ProviderExternalNavigationApi,
+      authorizationUrl,
+    );
+    if (message) setError(message);
+    else setNotice("Zoom opened in your browser. Approve access there, then return and check the connection.");
+    setBusy(null);
+  };
+
+  const checkConnection = async (): Promise<void> => {
+    if (busy !== null) return;
+    setBusy("check");
+    setError(null);
+    setNotice(null);
+    try {
+      await onRequireManage();
+      const connectionId = pendingConnectionId ?? connection?.id;
+      if (connectionId) {
+        await gateway.verifyMeetingProviderConnection(connectionId);
+      }
+      const connections = await onRefresh();
+      const refreshed = preferredZoomConnection(connections);
+      if (refreshed?.status === "connected") {
+        setAuthorizationUrl(null);
+        setPendingConnectionId(refreshed.id);
+        setNotice(`${refreshed.label} is connected and ready for new meetings.`);
+        announce("Zoom connected.");
+      } else if (refreshed?.status === "attention") {
+        setError("Zoom needs to be connected again before TAP Calendar can create meeting links.");
+      } else {
+        setNotice("Zoom is still waiting for authorization. Finish approving access in your browser, then check again.");
+      }
+    } catch {
+      setError("TAP Calendar couldn't check your Zoom connection. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const refreshStatus = async (): Promise<void> => {
+    if (busy !== null) return;
+    setBusy("refresh");
+    setError(null);
+    try {
+      await onRefresh();
+    } catch {
+      setError("TAP Calendar couldn't check your Zoom connection. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const disconnect = async (): Promise<void> => {
+    if (!connection || busy !== null) return;
+    setBusy("disconnect");
+    setError(null);
+    try {
+      await onRequireManage();
+      try {
+        await gateway.deleteMeetingProviderConnection(connection.id);
+      } catch (cause: unknown) {
+        if (!isMissingMeetingProviderConnection(cause)) {
+          throw cause;
+        }
+      }
+      await onRefresh();
+      announce("Zoom disconnected.");
+      onClose();
+    } catch {
+      setError("TAP Calendar couldn't disconnect Zoom. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const authorizationPending = authorizationUrl !== null;
+  const connected = connection?.status === "connected";
+  return (
+    <Modal title={connected ? "Manage Zoom" : "Connect Zoom"} description="Authorize your Zoom account so TAP Calendar can create real Zoom meeting links." onClose={onClose}>
+      <div className="zoom-connection-dialog" aria-busy={busy !== null}>
+        {error ? (
+          <Alert variant="destructive" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <AlertTitle>Zoom couldn’t connect</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {notice ? (
+          <Alert variant="info" role="status">
+            <ExternalLink aria-hidden="true" />
+            <AlertTitle>{connected ? "Zoom connected" : "Finish connecting Zoom"}</AlertTitle>
+            <AlertDescription>{notice}</AlertDescription>
+          </Alert>
+        ) : null}
+        {connected ? (
+          <div className="meeting-provider-dialog-summary">
+            <span className="provider-icon provider-zoom"><Video /></span>
+            <span><strong>{connection.label}</strong><small>Zoom · connected</small></span>
+            <span className="status-chip status-confirmed"><CheckCircle2 /> Ready</span>
+          </div>
+        ) : authorizationPending ? (
+          <div className="meeting-provider-dialog-summary">
+            <span className="provider-icon provider-zoom"><ExternalLink /></span>
+            <span><strong>Authorization waiting</strong><small>Connection {pendingConnectionId ?? "pending"}</small></span>
+            <span className="status-chip status-pending">Pending</span>
+          </div>
+        ) : connection ? (
+          <Alert variant="warning" role="status">
+            <AlertTriangle aria-hidden="true" />
+            <AlertTitle>{connection.status === "attention" ? "Zoom needs attention" : "Zoom setup is unfinished"}</AlertTitle>
+            <AlertDescription>{connection.status === "pending" ? "If you already approved access in Zoom, check the connection. Otherwise restart to get a fresh authorization link." : "Reconnect Zoom before TAP Calendar creates another meeting link."}</AlertDescription>
+          </Alert>
+        ) : connectionsState.status === "loading" ? (
+          <p className="provider-connection-status" role="status">Checking your Zoom connection…</p>
+        ) : connectionsState.status === "error" ? (
+          <Alert variant="warning" role="status">
+            <AlertTriangle aria-hidden="true" />
+            <AlertTitle>Connection status unavailable</AlertTitle>
+            <AlertDescription>Check the Calendar service before starting a Zoom connection.</AlertDescription>
+          </Alert>
+        ) : (
+          <div className="meeting-provider-dialog-summary">
+            <span className="provider-icon provider-zoom"><Video /></span>
+            <span><strong>Zoom isn’t connected</strong><small>Google Meet remains available without separate setup.</small></span>
+          </div>
+        )}
+        <div className="dialog-actions">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy !== null}>Close</Button>
+          {connected ? (
+            <Button type="button" variant="outline" onClick={() => void disconnect()} disabled={busy !== null}><Unplug data-icon="inline-start" />{busy === "disconnect" ? "Disconnecting…" : "Disconnect Zoom"}</Button>
+          ) : authorizationPending ? (
+            <>
+              <Button type="button" variant="outline" onClick={() => void launchAuthorization()} disabled={busy !== null}><ExternalLink data-icon="inline-start" />{busy === "open" ? "Opening…" : "Open Zoom"}</Button>
+              <Button type="button" onClick={() => void checkConnection()} disabled={busy !== null}><RefreshCw data-icon="inline-start" className={busy === "check" ? "is-spinning" : undefined} />Check connection</Button>
+            </>
+          ) : connection?.status === "pending" ? (
+            <>
+              <Button type="button" variant="outline" onClick={() => void checkConnection()} disabled={busy !== null}><RefreshCw data-icon="inline-start" className={busy === "check" ? "is-spinning" : undefined} />Check connection</Button>
+              <Button type="button" onClick={() => void beginConnection()} disabled={busy !== null}><ExternalLink data-icon="inline-start" />Restart connection</Button>
+            </>
+          ) : connectionsState.status === "error" ? (
+            <Button type="button" onClick={() => void refreshStatus()} disabled={busy !== null}><RefreshCw data-icon="inline-start" className={busy === "refresh" ? "is-spinning" : undefined} />Try again</Button>
+          ) : (
+            <Button type="button" onClick={() => void beginConnection()} disabled={busy !== null || connectionsState.status === "loading"}><ExternalLink data-icon="inline-start" />{connection ? "Restart connection" : "Connect Zoom"}</Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -5171,8 +5779,14 @@ function CalendarControlRow({ calendar, commit }: { readonly calendar: Connected
   return (
     <div className="connection-row">
       <span className="connection-name"><span style={{ background: calendar.color }} /><span><strong>{calendar.name}</strong><small>{calendar.role} · {calendar.freshness}</small></span></span>
-      <label className="switch"><input type="checkbox" checked={calendar.visible} onChange={event => void commit(current => updateCalendar(current, calendar.id, { visible: event.currentTarget.checked }))} aria-label={`Show ${calendar.name}`} /><span /></label>
-      <label className="switch"><input type="checkbox" checked={calendar.conflicts} disabled={calendar.freshness === "stale"} onChange={event => void commit(current => updateCalendar(current, calendar.id, { conflicts: event.currentTarget.checked }))} aria-label={`Use ${calendar.name} for conflicts`} /><span /></label>
+      <label className="switch"><input type="checkbox" checked={calendar.visible} onChange={event => {
+        const visible = event.currentTarget.checked;
+        void commit(current => updateCalendar(current, calendar.id, { visible }));
+      }} aria-label={`Show ${calendar.name}`} /><span /></label>
+      <label className="switch"><input type="checkbox" checked={calendar.conflicts} disabled={calendar.freshness === "stale"} onChange={event => {
+        const conflicts = event.currentTarget.checked;
+        void commit(current => updateCalendar(current, calendar.id, { conflicts }));
+      }} aria-label={`Use ${calendar.name} for conflicts`} /><span /></label>
       <label className="radio-control"><input type="radio" name="destination-calendar" checked={calendar.destination} disabled={!calendar.writable} onChange={() => void commit(current => updateCalendar(current, calendar.id, { destination: true }))} aria-label={`Use ${calendar.name} as destination`} /><span /></label>
     </div>
   );
@@ -5206,6 +5820,7 @@ function participantInitials(displayName: string): string {
 function ChannelSchedulerSurface({
   state,
   principalAccess,
+  zoomConnected,
   channelId,
   roster,
   error,
@@ -5215,6 +5830,7 @@ function ChannelSchedulerSurface({
 }: {
   readonly state: CalendarState;
   readonly principalAccess: ProviderPrincipalAccessState;
+  readonly zoomConnected: boolean;
   readonly channelId: string | undefined;
   readonly roster: ChannelParticipantRoster;
   readonly error: string | null;
@@ -5261,6 +5877,7 @@ function ChannelSchedulerSurface({
             <ScheduleMeetingEditor
               state={state}
               principalAccess={principalAccess}
+              zoomConnected={zoomConnected}
               mode="channel"
               roster={roster}
               onSubmit={onSubmit}
@@ -5276,7 +5893,9 @@ function ChannelSchedulerSurface({
 function ScheduleMeetingEditor({
   state,
   principalAccess,
+  zoomConnected,
   mode,
+  initialStart = "",
   roster = { status: "unavailable", participants: [] },
   onCancel,
   onSubmit,
@@ -5284,7 +5903,9 @@ function ScheduleMeetingEditor({
 }: {
   readonly state: CalendarState;
   readonly principalAccess: ProviderPrincipalAccessState;
+  readonly zoomConnected: boolean;
   readonly mode: "workspace" | "channel";
+  readonly initialStart?: string;
   readonly roster?: ChannelParticipantRoster;
   readonly onCancel?: () => void;
   readonly onSubmit: SubmitScheduledMeeting;
@@ -5297,15 +5918,11 @@ function ScheduleMeetingEditor({
     readonly requestedAt: string;
   } | null>(null);
   const [title, setTitle] = useState("");
-  const [attendeeDrafts, setAttendeeDrafts] = useState<readonly AttendeeDraft[]>(
-    () => mode === "workspace"
-      ? [{ key: createEntityId("attendee"), name: "", email: "", required: true }]
-      : [],
-  );
+  const [attendeeDrafts, setAttendeeDrafts] = useState<readonly AttendeeDraft[]>([]);
   const [selectedParticipantIds, setSelectedParticipantIds] =
     useState<ReadonlySet<string>>(() => new Set());
-  const [location, setLocation] = useState<MeetingLocation>("google-meet");
-  const [slot, setSlot] = useState("");
+  const [location, setLocation] = useState<MeetingLocation | null>(mode === "channel" ? "google-meet" : null);
+  const [slot, setSlot] = useState(initialStart);
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [approvalRequired, setApprovalRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -5339,12 +5956,13 @@ function ScheduleMeetingEditor({
     }
   }
   const attendees = [...attendeesByEmail.values()];
-  const compatibility = validateGuestCompatibility(location, attendees);
+  const compatibility = location ? validateGuestCompatibility(location, attendees) : null;
+  const personalEvent = mode === "workspace" && attendees.length === 0 && attendeeDrafts.length === 0;
   const destination = principalWritableDestination(state, principalAccess);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting) return;
-    if (attendees.length === 0) {
+    if (mode === "channel" && attendees.length === 0) {
       setError("Select at least one attendee.");
       return;
     }
@@ -5352,6 +5970,11 @@ function ScheduleMeetingEditor({
     setSubmitting(true);
     setError(null);
     const start = new Date(slot);
+    if (!Number.isFinite(start.getTime())) {
+      setError("Choose a valid start time.");
+      setSubmitting(false);
+      return;
+    }
     const draft = {
       title: title.trim(),
       calendarId: destination.id,
@@ -5359,7 +5982,7 @@ function ScheduleMeetingEditor({
       end: new Date(start.getTime() + durationMinutes * 60_000).toISOString(),
       location,
       attendees,
-      approvalRequired,
+      approvalRequired: !personalEvent && approvalRequired,
     };
     const canonical = JSON.stringify(draft);
     const attempt = bookingAttemptRef.current?.canonical === canonical
@@ -5380,7 +6003,7 @@ function ScheduleMeetingEditor({
       setError(result.error);
       if (!result.error) {
         bookingAttemptRef.current = null;
-        onSuccess?.({ title: draft.title, approvalRequired });
+        onSuccess?.({ title: draft.title, approvalRequired: draft.approvalRequired });
       }
     } finally {
       setSubmitting(false);
@@ -5413,10 +6036,11 @@ function ScheduleMeetingEditor({
         {error || compatibility ? <div className="dialog-warning" role={error ? "alert" : "status"}><AlertTriangle /><span>{error ?? compatibility}</span></div> : null}
         <FieldGroup className="calendar-form-fields">
           <Field>
-            <FieldLabel htmlFor="meeting-title">Meeting title</FieldLabel>
+            <FieldLabel htmlFor="meeting-title">{mode === "workspace" ? "Event title" : "Meeting title"}</FieldLabel>
             <Input
               id="meeting-title"
               name="meeting-title"
+              data-modal-initial-focus={mode === "workspace" ? true : undefined}
               autoComplete="off"
               value={title}
               required
@@ -5461,7 +6085,7 @@ function ScheduleMeetingEditor({
         ) : null}
         {attendeeDrafts.length > 0 ? (
           <fieldset className="attendee-editor">
-            <legend>{mode === "channel" ? "External guests" : "Attendees"}</legend>
+            <legend>{mode === "channel" ? "External guests" : "Guests (optional)"}</legend>
             {attendeeDrafts.map((attendee, index) => {
               const nameId = `attendee-name-${attendee.key}`;
               const emailId = `attendee-email-${attendee.key}`;
@@ -5491,8 +6115,7 @@ function ScheduleMeetingEditor({
                     />
                   </Field>
                   <span className="attendee-account-type">External guest</span>
-                  {mode === "channel" || attendeeDrafts.length > 1 ? (
-                    <Button
+                  <Button
                       type="button"
                       className="attendee-remove-button"
                       variant="ghost"
@@ -5501,8 +6124,7 @@ function ScheduleMeetingEditor({
                       onClick={() => setAttendeeDrafts(current => current.filter(item => item.key !== attendee.key))}
                     >
                       <X aria-hidden="true" />
-                    </Button>
-                  ) : null}
+                  </Button>
                 </div>
               );
             })}
@@ -5517,6 +6139,7 @@ function ScheduleMeetingEditor({
           <Plus data-icon="inline-start" />
           Add external guest
         </Button>
+        {mode === "workspace" ? <p className="participant-picker-note">Guests are optional. With no guests, this event blocks time on your calendar.</p> : null}
         <FieldGroup className="calendar-form-fields">
           <div className="form-grid date-duration-grid">
             <Field>
@@ -5544,6 +6167,11 @@ function ScheduleMeetingEditor({
                 <NativeSelectOption value="45">45 minutes</NativeSelectOption>
                 <NativeSelectOption value="60">1 hour</NativeSelectOption>
                 <NativeSelectOption value="90">90 minutes</NativeSelectOption>
+                {mode === "workspace" ? <>
+                  <NativeSelectOption value="120">2 hours</NativeSelectOption>
+                  <NativeSelectOption value="240">4 hours</NativeSelectOption>
+                  <NativeSelectOption value="480">8 hours</NativeSelectOption>
+                </> : null}
               </NativeSelect>
             </Field>
           </div>
@@ -5552,36 +6180,37 @@ function ScheduleMeetingEditor({
             <NativeSelect
               id="schedule-location"
               name="schedule-location"
-              value={location}
-              onChange={event => setLocation(event.currentTarget.value as MeetingLocation)}
+              value={location ?? "none"}
+              onChange={event => setLocation(event.currentTarget.value === "none" ? null : event.currentTarget.value as MeetingLocation)}
             >
-              {Object.entries(meetingLocationNames).map(([value, label]) => (
-                <NativeSelectOption value={value} key={value} disabled={value !== "google-meet"}>
-                  {label}{value === "google-meet" ? "" : " · not connected"}
-                </NativeSelectOption>
-              ))}
+              {mode === "workspace" ? <NativeSelectOption value="none">No video call</NativeSelectOption> : null}
+              <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
+              {zoomConnected ? <NativeSelectOption value="zoom">Zoom</NativeSelectOption> : null}
             </NativeSelect>
+            <FieldDescription>{location === null ? "This event marks you as busy. Add a video call if you need one." : meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
           </Field>
         </FieldGroup>
-        <label className="approval-check"><input type="checkbox" checked={approvalRequired} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require approval</strong><small>Creates an expiring Tentative Booking Hold for approval.</small></span></label>
-        <div className="mutual-slot-summary"><CheckCircle2 /><span><strong>{attendees.length > 0 ? "Ready to review" : "Add attendees"}</strong><small>{attendees.length} {attendees.length === 1 ? "attendee" : "attendees"} · {durationMinutes} minutes · {destination.name}</small></span></div>
+        {!personalEvent ? <label className="approval-check"><input type="checkbox" checked={approvalRequired} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require approval</strong><small>Creates an expiring Tentative Booking Hold for approval.</small></span></label> : null}
+        <div className="mutual-slot-summary"><CheckCircle2 /><span><strong>{personalEvent ? "Block your calendar" : attendees.length > 0 ? "Ready to review" : "Add attendees"}</strong><small>{personalEvent ? "Just you · Busy" : `${attendees.length} ${attendees.length === 1 ? "attendee" : "attendees"}`} · {durationMinutes} minutes · {destination.name}</small></span></div>
         <div className="dialog-actions">
           {onCancel ? <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>Cancel</Button> : null}
-          <Button type="submit" disabled={submitting || attendees.length === 0 || !title.trim() || !slot}>
-            {approvalRequired ? "Send request" : "Schedule meeting"}
+          <Button type="submit" disabled={submitting || (mode === "channel" && attendees.length === 0) || !title.trim() || !slot}>
+            {submitting ? "Saving…" : personalEvent ? "Save event" : approvalRequired ? "Send request" : "Schedule meeting"}
           </Button>
         </div>
       </form>
   );
 }
 
-function ScheduleDialog({ state, principalAccess, onClose, onSubmit }: { readonly state: CalendarState; readonly principalAccess: ProviderPrincipalAccessState; readonly onClose: () => void; readonly onSubmit: SubmitScheduledMeeting }) {
+export function ScheduleDialog({ state, principalAccess, zoomConnected, initialStart, onClose, onSubmit }: { readonly state: CalendarState; readonly principalAccess: ProviderPrincipalAccessState; readonly zoomConnected: boolean; readonly initialStart: string; readonly onClose: () => void; readonly onSubmit: SubmitScheduledMeeting }) {
   return (
-    <Modal title="Schedule a meeting" description="Invite several people and choose when and where to meet." onClose={onClose}>
+    <Modal title="Create an event" description="Block time for yourself or invite people to a meeting." onClose={onClose}>
       <ScheduleMeetingEditor
         state={state}
         principalAccess={principalAccess}
+        zoomConnected={zoomConnected}
         mode="workspace"
+        initialStart={initialStart}
         onCancel={onClose}
         onSubmit={onSubmit}
       />
@@ -5697,8 +6326,11 @@ function ConnectCalendarDialog({
     connection: CalendarGatewayConnection,
     preferences: ReadonlyMap<string, CalendarDraft> = new Map(),
   ): readonly ConnectedCalendarInput[] => {
-    const automaticDestinationId = !destinationExists
-      ? connection.calendars.find(calendar => calendar.writable)?.id
+    const preferredDestinationId = connection.calendars.find(calendar =>
+      calendar.writable && preferences.get(calendar.id)?.destination
+    )?.id;
+    const automaticDestinationId = !destinationExists && !preferredDestinationId
+      ? preferredDestinationCalendar(connection.calendars)?.id
       : undefined;
     return connection.calendars.map(calendar => {
       const preference = preferences.get(calendar.id);
@@ -5711,8 +6343,9 @@ function ConnectCalendarDialog({
         conflicts: preference?.conflicts ?? calendar.freshness !== "stale",
         writable: calendar.writable,
         destination:
-          Boolean(preference?.destination && calendar.writable) ||
+          calendar.id === preferredDestinationId ||
           calendar.id === automaticDestinationId,
+        primary: calendar.primary,
         freshness: calendar.freshness,
       };
     });
@@ -6296,6 +6929,8 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [additionalGuests, setAdditionalGuests] = useState<{ id: string; email: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const bookingAttemptRef = useRef<{
@@ -6493,6 +7128,13 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       setStep("slot");
       return;
     }
+    let details;
+    try {
+      details = normalizePublicBookingDetails({ notes, additionalGuests: additionalGuests.map(guest => guest.email.trim()).filter(Boolean) }, email);
+    } catch (reason) {
+      setError((reason as Error).message);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     if (!profile.published || !eventType.active) {
@@ -6529,6 +7171,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       location: eventType.location,
       guestName: name.trim(),
       guestEmail: email.trim().toLowerCase(),
+      ...details,
     });
     const attempt = bookingAttemptRef.current?.canonical === canonical
       ? bookingAttemptRef.current
@@ -6547,7 +7190,12 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       kind: "external",
       required: true,
     };
+    const attendees: CalendarAttendee[] = [attendee, ...(details.additionalGuests ?? []).map((guestEmail, index) => ({
+      id: `${bookingAttemptId}-guest-${index + 1}`, name: guestEmail, email: guestEmail,
+      kind: "external" as const, required: true,
+    }))];
     const reserved = await onReserveBooking({
+      description: publicBookingDescription(eventType.description, name.trim(), details.notes),
       actionId: CALENDAR_PUBLISH_ACTION,
       idempotencyKey: bookingAttemptId,
       destinationCalendarId: eventType.destinationCalendarId,
@@ -6558,7 +7206,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
       conflictTimeMax,
       bookingKind: eventType.approvalRequired ? "approval-hold" : "meeting",
       location: eventType.location,
-      attendees: [attendee],
+      attendees,
       reconciliation: {
         kind: "public-booking",
         title: eventType.title,
@@ -6566,7 +7214,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
         start: selectedSlot,
         end,
         location: eventType.location,
-        attendees: [attendee],
+        attendees,
         approvalRequired: eventType.approvalRequired,
         eventTypeId: eventType.id,
         requestedAt,
@@ -6607,7 +7255,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
           start: selectedSlot,
           end,
           location: eventType.location,
-          attendees: [attendee],
+          attendees,
           approvalRequired,
           eventTypeId: eventType.id,
           requestedAt,
@@ -6661,7 +7309,6 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
                 <li><Video aria-hidden="true" /><span>{meetingLocationNames[eventType.location]}</span></li>
                 {eventType.approvalRequired ? <li><ShieldCheck aria-hidden="true" /><span>Host approval required</span></li> : null}
               </ul>
-              <div className="public-booking-note"><CircleUserRound aria-hidden="true" /><span>No TAP account is required to book.</span></div>
             </aside>
             <section className="public-booking-main">
               {step === "date" ? (
@@ -6775,7 +7422,7 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
               ) : (
                 <form className="public-details public-booking-details" onSubmit={submit}>
                   <button type="button" className="public-booking-back" onClick={() => setStep("slot")}><ArrowLeft aria-hidden="true" /> Choose another time</button>
-                  <header className="public-booking-step-header"><span className="eyebrow">Your details</span><h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2><p>We use this information only for this booking and its notifications.</p></header>
+                  <header className="public-booking-step-header"><span className="eyebrow">Your details</span><h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2><p>Your details are shared with the host to arrange this meeting.</p></header>
                   <div className="public-booking-selected-time"><CalendarCheck2 aria-hidden="true" /><span><strong>{selectedSlot ? viewerDateTimeFormatter.format(new Date(selectedSlot)) : ""}</strong><small>{eventType.durationMinutes} minutes · {meetingLocationNames[eventType.location]}</small></span></div>
                   {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
                   <FieldGroup className="public-booking-fields">
@@ -6788,7 +7435,9 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
                       <Input id="public-booking-email" name="email" type="email" autoComplete="email" spellCheck={false} value={email} required disabled={submitting} onChange={event => setEmail(event.currentTarget.value)} />
                       <FieldDescription>No email verification step is required.</FieldDescription>
                     </Field>
+                    <PublicBookingExtraFields notes={notes} additionalGuests={additionalGuests} disabled={submitting} onNotesChange={setNotes} onGuestsChange={setAdditionalGuests} />
                   </FieldGroup>
+                  <PublicBookingPrivacyNotice />
                   <div className="public-booking-actions"><Button type="submit" size="lg" disabled={submitting || !selectedSlotIsAvailable}>{submitting ? "Reserving…" : eventType.approvalRequired ? "Request meeting" : "Confirm booking"}</Button></div>
                 </form>
               )}
@@ -6796,9 +7445,9 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
           </div>
         )}
         <footer className="public-footer public-booking-footer">
-          <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by TAP — visit The AI Platform homepage (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>TAP</strong></a>
+          <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by The AI Platform (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>The AI Platform</strong></a>
           <nav className="public-booking-footer-links" aria-label="Booking page links">
-            <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy</a>
+            <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
             <span aria-hidden="true">·</span>
             <a href="mailto:abuse@theaiplatform.app">Report abuse</a>
           </nav>
@@ -6811,12 +7460,13 @@ function PublicBookingPreview({ state, busyEvents, selection, availabilityCacheA
 function EventDrawer({ event, state, onClose }: { readonly event: CalendarEvent; readonly state: CalendarState; readonly onClose: () => void }) {
   const calendar = allCalendars(state).find(item => item.id === event.calendarId);
   return (
-    <aside className="event-drawer" role="dialog" aria-modal="false" aria-labelledby="event-drawer-title">
+    <aside className={`event-drawer ${eventResponseClassName(event)}`} role="dialog" aria-modal="false" aria-labelledby="event-drawer-title">
       <header><span className="eyebrow">{event.kind.replace("-", " ")}</span><button className="icon-button" type="button" onClick={onClose} aria-label="Close event details"><X /></button></header>
       <span className="event-drawer-color" style={{ background: calendar?.color }} />
-      <h2 id="event-drawer-title">{event.title}</h2>
+      <h2 id="event-drawer-title" className="rsvp-event-title">{event.title}</h2>
+      <EventResponseBadge event={event} />
       <div className="event-detail-list"><p><CalendarDays /><span><strong>{dateTimeFormatter.format(new Date(event.start))}</strong><small>Ends {timeFormatter.format(new Date(event.end))}</small></span></p><p><Video /><span><strong>{event.location ? meetingLocationNames[event.location] : "No meeting location"}</strong><small>{event.location?.startsWith("tap-") ? "External guest access is confirmed at booking" : "Guest policy checked at booking"}</small></span></p><p><Cloud /><span><strong>{calendar?.name}</strong><small>{calendar?.role} · {calendar?.freshness}</small></span></p>{event.source ? <p><Link2 /><span><strong>{event.source.label}</strong><small>Private TAP context stays in TAP</small></span></p> : null}</div>
-      <section className="attendee-list"><span className="eyebrow">Attendees</span>{event.attendees.map(attendee => <div key={attendee.id}><span>{attendee.name.split(" ").map(word => word[0]).join("")}</span><p><strong>{attendee.name}</strong><small>{attendee.email} · {attendee.kind}</small></p><CheckCircle2 /></div>)}</section>
+      <section className="attendee-list"><span className="eyebrow">Attendees</span>{event.attendees.map(attendee => <div key={attendee.id}><span>{attendee.name.split(" ").map(word => word[0]).join("")}</span><p><strong>{attendee.name}{attendee.isCurrentUser ? " (you)" : ""}</strong><small>{attendee.email} · {attendee.kind}</small></p><AttendeeResponseBadge response={attendee.responseStatus ?? "unknown"} /></div>)}</section>
       <footer>{event.providerJoinUrl ? <a className="primary-button" href={event.providerJoinUrl} target="_blank" rel="noreferrer"><Video /> Join meeting</a> : null}{event.providerHtmlLink ? <a className="secondary-button" href={event.providerHtmlLink} target="_blank" rel="noreferrer"><ExternalLink /> Open in provider</a> : null}<button type="button" className="secondary-button" disabled title="Secure rescheduling is completed by the Calendar gateway.">Reschedule</button><button type="button" className="text-button danger-text" disabled title="Secure cancellation is completed by the Calendar gateway.">Cancel</button></footer>
     </aside>
   );
@@ -6879,7 +7529,7 @@ function MetricCard({ icon, label, value, detail, tone, actionLabel, onAction }:
 }
 
 function ToolCard({ name, description, output }: { readonly name: string; readonly description: string; readonly output: string }) {
-  return <article className="tool-card panel"><header><span><Bot /></span><code>{name}</code><span className="status-chip status-confirmed">Available</span></header><p>{description}</p><footer><ShieldCheck /><span>{output}</span></footer></article>;
+  return <article className="tool-card panel"><header><span><Bot /></span><code>{name}</code><span className="status-chip status-pending">Requires grant</span></header><p>{description}</p><footer><ShieldCheck /><span>{output}</span></footer></article>;
 }
 
 function MoonIcon() {

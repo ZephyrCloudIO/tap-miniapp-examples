@@ -5,6 +5,8 @@ import {
   isMailCommand,
   isMailDraftAttachment,
   isMailDraftPayload,
+  isMailSenderContext,
+  isSafeMailIdentifier,
   isMailSchedulePayload,
   isScheduledSendSummary,
   type MailAccountDescriptor,
@@ -13,6 +15,37 @@ import {
 } from './protocol';
 
 describe('TAP Email protocol', () => {
+  it('accepts canonical TAP sender identities independently of mail record identifiers', () => {
+    for (const userId of ['user_1', 'google-oauth2|123456789', 'auth0|abc123', 'a'.repeat(1024), 'é'.repeat(512)]) {
+      expect(isMailSenderContext({ userId, workspaceId: 'org_workspace' })).toBe(true);
+    }
+    expect(isSafeMailIdentifier('google-oauth2|123456789')).toBe(false);
+    for (const invalid of ['', ' user_1', 'user_1 ', 'user\n1', 'user\u00001', 'user\u007f1', 'user\u00851', 'a'.repeat(1025), 'é'.repeat(513)]) {
+      expect(isMailSenderContext({ userId: invalid, workspaceId: 'org_workspace' })).toBe(false);
+      expect(isMailSenderContext({ userId: 'google-oauth2|123456789', workspaceId: invalid })).toBe(false);
+    }
+  });
+
+  it('bounds follow-up intent and allows incomplete saves without allowing incomplete sends', () => {
+    const payload = { draftKey: 'draft_followup', draftRevision: 1, to: '', subject: '', bodyText: 'Start writing',
+      followUp: { delayMinutes: 2880, condition: 'if_no_reply' } };
+    const command = { v: TAP_EMAIL_PROTOCOL_VERSION, commandId: 'cmd_followup', idempotencyKey: 'followup',
+      accountId: 'acct_1', threadId: null, expectedProviderRevision: null, createdAt: '2026-09-26T12:00:00.000Z', payload };
+    expect(isMailDraftPayload(payload)).toBe(true);
+    expect(isMailCommand({ ...command, kind: 'save_draft' })).toBe(true);
+    expect(isMailCommand({ ...command, kind: 'send_draft' })).toBe(false);
+    expect(isMailCommand({ ...command, kind: 'send_draft', payload: { ...payload, to: 'maya@example.com' } })).toBe(true);
+    const schedule = { ...payload, scheduledFor: '2026-09-27T12:00:00.000Z', cancelIfReply: false };
+    expect(isMailSchedulePayload(schedule)).toBe(false);
+    expect(isMailSchedulePayload({ ...schedule, to: 'maya@example.com' })).toBe(true);
+    for (const followUp of [null, {}, { delayMinutes: 0, condition: 'if_no_reply' },
+      { delayMinutes: 525601, condition: 'regardless' }, { delayMinutes: 1.5, condition: 'if_no_reply' },
+      { delayMinutes: 60, condition: 'unknown' }]) {
+      expect(isMailDraftPayload({ ...payload, followUp })).toBe(false);
+    }
+    expect(isMailDraftPayload({ ...payload, followUp: { delayMinutes: 525600, condition: 'regardless' } })).toBe(true);
+  });
+
   it('requires complete, failure-free account coverage for Operational Zero', () => {
     expect(
       operationalZeroAllowed([
@@ -68,6 +101,11 @@ describe('TAP Email protocol', () => {
       replyToMessageId: '<message-1@example.com>',
     };
     expect(isMailDraftPayload(payload)).toBe(true);
+    expect(isMailDraftPayload({ ...payload, expectedContext: { userId: 'user_1', workspaceId: 'workspace_a' } })).toBe(true);
+    expect(isMailDraftPayload({ ...payload, expectedContext: { userId: 'google-oauth2|123456789', workspaceId: 'workspace_a' } })).toBe(true);
+    for (const expectedContext of [null, {}, { userId: 'user_1' }, { userId: 'user_1', workspaceId: '' }, { userId: 'user\n1', workspaceId: 'workspace_a' }]) {
+      expect(isMailDraftPayload({ ...payload, expectedContext })).toBe(false);
+    }
     expect(isMailDraftPayload({
       ...payload,
       sendAfter: '2026-08-18T12:00:05.000Z',

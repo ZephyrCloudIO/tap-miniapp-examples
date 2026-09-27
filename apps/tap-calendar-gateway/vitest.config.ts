@@ -29,6 +29,9 @@ export default defineConfig({
     })),
   ],
   test: {
+    // Each file boots workerd and applies the D1 migrations. Avoid competing
+    // runtimes starving the provider/cache integration tests on CI runners.
+    fileParallelism: false,
     setupFiles: ["./test/apply-migrations.ts"],
   },
 });

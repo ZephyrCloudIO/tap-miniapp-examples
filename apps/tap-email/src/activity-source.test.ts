@@ -1,198 +1,63 @@
 import { describe, expect, it, rs } from '@rstest/core';
+import type { ActivitySourceRequest } from '@theaiplatform/miniapp-sdk/activity';
 import type { MiniAppJsonValue } from '@theaiplatform/miniapp-sdk/sdk';
-import {
-  createEmailActivitySourceRuntime,
-  TAP_EMAIL_ACTIVITY_SOURCE_ID,
-  type ReadOnlyEmailActivitySourceStorage,
-} from './activity-source';
+import { createEmailActivitySource, TAP_EMAIL_ACTIVITY_SOURCE_ID } from './activity-source-runtime';
+import { emailActivityActions } from './activity';
 import { activityAddress } from './storage';
 
 const projection: MiniAppJsonValue = {
-  schemaVersion: 1,
-  generatedAt: '2026-09-14T00:00:00.000Z',
+  schemaVersion: 1, generatedAt: '2026-09-14T00:00:00.000Z',
   entries: [
-    {
-      action: 'reply_sent',
-      outcome: 'applied',
-      occurredAt: '2026-09-13T14:00:00.000Z',
-      timeSource: 'provider_acknowledged_at',
-    },
-    {
-      action: 'thread_archived',
-      outcome: 'failed',
-      occurredAt: '2026-09-13T15:00:00.000Z',
-      timeSource: 'coordinator_accepted_at',
-    },
+    { action: 'reply_sent', outcome: 'applied', occurredAt: '2026-09-13T14:00:00.000Z', timeSource: 'provider_acknowledged_at' },
+    { action: 'thread_archived', outcome: 'failed', occurredAt: '2026-09-13T15:00:00.000Z', timeSource: 'coordinator_accepted_at' },
+    { action: 'thread_viewed', outcome: 'applied', occurredAt: '2026-09-14T00:00:00.000Z', timeSource: 'ui_observed_at' },
   ],
-  coverage: {
-    scope: 'installation',
-    source: 'private-profile-sqlite',
-    trackingStartedAt: '2026-09-01T00:00:00.000Z',
-    retainedAfter: '2026-09-01T00:00:00.000Z',
-    availableFrom: '2026-09-01T00:00:00.000Z',
-    truncated: false,
-    warnings: [],
-  },
+  coverage: { scope: 'installation', source: 'private-profile-sqlite', trackingStartedAt: '2026-09-01T00:00:00.000Z', retainedAfter: '2026-09-01T00:00:00.000Z', availableFrom: '2026-09-01T00:00:00.000Z', truncated: false, warnings: [] },
+};
+const request: ActivitySourceRequest = {
+  userId: 'user_1', workspaceId: 'workspace_1', scope: 'self',
+  sourceId: TAP_EMAIL_ACTIVITY_SOURCE_ID, packageId: 'package_1', installationId: 'install_1', releaseId: 'release_1', consumerSpecialistId: 'chloe',
+  startAt: '2026-09-13T00:00:00.000Z', endAtExclusive: '2026-09-14T00:00:00.000Z',
+};
+const fixture = (value: MiniAppJsonValue | null = projection) => {
+  const get = rs.fn(async () => ({ value, revision: 1 }));
+  return { get, source: createEmailActivitySource({ get }) };
 };
 
-const trustedContext = Object.freeze({
-  userId: 'user_1',
-  workspaceId: 'workspace_1',
-  sourceId: TAP_EMAIL_ACTIVITY_SOURCE_ID,
-});
-
-const request = {
-  startAt: '2026-09-13T00:00:00.000Z',
-  endAtExclusive: '2026-09-14T00:00:00.000Z',
-  timeZone: 'UTC',
-} as const;
-
-function storageFixture(
-  value: MiniAppJsonValue | null = projection,
-  revision: number | null = 42,
-) {
-  const reads: Array<Readonly<{ namespace: string; key: string }>> = [];
-  const read = rs.fn(async (address: Readonly<{
-    namespace: string;
-    key: string;
-  }>) => {
-    expect(Object.isFrozen(address)).toBe(true);
-    reads.push(address);
-    return { value, revision };
+describe('registered email activity source', () => {
+  it('returns every declared count/status including zeros and respects the exclusive end', async () => {
+    const { get, source } = fixture();
+    const result = await source.get(request);
+    expect(get).toHaveBeenCalledWith(activityAddress('user_1'));
+    expect(result.coverage).toBe('complete');
+    expect(result.activities).toHaveLength(emailActivityActions.length * 4);
+    expect(result.activities.find(a => a.activityId === 'reply-sent' && a.statusId === 'applied')?.value).toBe(1);
+    expect(result.activities.find(a => a.activityId === 'thread-archived' && a.statusId === 'failed')?.value).toBe(1);
+    expect(result.activities.find(a => a.activityId === 'thread-viewed' && a.statusId === 'applied')?.value).toBe(0);
+    expect(Object.keys(result).sort()).toEqual(['activities', 'coverage']);
+    for (const aggregate of result.activities) expect(Object.keys(aggregate).sort()).toEqual(['activityId', 'statusId', 'unit', 'value']);
   });
-  return {
-    reads,
-    read,
-    storage: { read } as ReadOnlyEmailActivitySourceStorage,
-  };
-}
-
-describe('future host-governed email activity source', () => {
-  it('returns a content-free exact-range summary with source provenance', async () => {
-    const fixture = storageFixture();
-    const runtime = createEmailActivitySourceRuntime(fixture.storage);
-
-    const result = await runtime.execute(trustedContext, request);
-
-    expect(Object.isFrozen(runtime)).toBe(true);
-    expect(result).toEqual(expect.objectContaining({
-      sourceId: TAP_EMAIL_ACTIVITY_SOURCE_ID,
-      sourceRevision: '42',
-      summary: expect.objectContaining({
-        kind: 'email-activity-summary',
-        counts: expect.objectContaining({ total: 2, applied: 1 }),
-        failures: { total: 1, failed: 1, uncertain: 0, cancelled: 0 },
-        coverage: expect.objectContaining({
-          complete: true,
-          scope: 'installation',
-        }),
-      }),
-    }));
-    expect(Object.keys(result).toSorted()).toEqual([
-      'sourceId',
-      'sourceRevision',
-      'summary',
-    ]);
-    expect(fixture.reads).toEqual([activityAddress]);
-    const serialized = JSON.stringify(result);
-    for (const forbidden of [
-      'occurredAt',
-      'user_1',
-      'workspace_1',
-      'subject',
-      'bodyText',
-      'recipient',
-      'threadId',
-    ]) {
-      expect(serialized).not.toContain(forbidden);
+  it('uses the host user key and refuses workspace totals or invalid ranges before reads', async () => {
+    const { source, get } = fixture();
+    await source.get({ ...request, userId: 'user_2' });
+    expect(get).toHaveBeenCalledWith(activityAddress('user_2'));
+    get.mockClear();
+    for (const changed of [{ scope: 'workspace' as const }, { userId: '' }, { sourceId: 'other' }, { startAt: 'invalid' }, { endAtExclusive: request.startAt }]) {
+      await expect(source.get({ ...request, ...changed })).rejects.toThrow();
     }
+    expect(get).not.toHaveBeenCalled();
   });
-
-  it('rejects missing, mutable, substituted, or extended host scope before reading', async () => {
-    const invalidContexts: unknown[] = [
-      null,
-      {
-        userId: 'user_1',
-        workspaceId: 'workspace_1',
-        sourceId: TAP_EMAIL_ACTIVITY_SOURCE_ID,
-      },
-      Object.freeze({
-        userId: '',
-        workspaceId: 'workspace_1',
-        sourceId: TAP_EMAIL_ACTIVITY_SOURCE_ID,
-      }),
-      Object.freeze({
-        userId: 'user_1',
-        sourceId: TAP_EMAIL_ACTIVITY_SOURCE_ID,
-      }),
-      Object.freeze({
-        userId: 'user_1',
-        workspaceId: 'workspace_1',
-        sourceId: 'another-source',
-      }),
-      Object.freeze({
-        ...trustedContext,
-        callerSelectedAccountId: 'account_private',
-      }),
-    ];
-
-    for (const context of invalidContexts) {
-      const fixture = storageFixture();
-      const runtime = createEmailActivitySourceRuntime(fixture.storage);
-      await expect(runtime.execute(context, request)).rejects.toThrow(
-        'immutable trusted user, workspace, and source scope',
-      );
-      expect(fixture.read).not.toHaveBeenCalled();
-    }
+  it('marks the range partial when coordinator reconciliation has not reached its end', async () => {
+    const bounded = { ...projection as Record<string, MiniAppJsonValue>, coverage: {
+      ...((projection as Record<string, MiniAppJsonValue>).coverage as Record<string, MiniAppJsonValue>),
+      availableThrough: '2026-09-13T12:00:00.000Z',
+    } };
+    expect((await fixture(bounded).source.get(request)).coverage).toBe('partial');
   });
-
-  it('accepts only the exact host range shape before reading', async () => {
-    const invalidRequests: unknown[] = [
-      null,
-      { ...request, userId: 'substitute_user' },
-      {
-        start_at: request.startAt,
-        end_at_exclusive: request.endAtExclusive,
-        timezone: request.timeZone,
-      },
-      {
-        startAt: request.startAt,
-        endAtExclusive: request.endAtExclusive,
-      },
-      { ...request, startAt: 'yesterday' },
-      { ...request, endAtExclusive: request.startAt },
-      { ...request, timeZone: 'Mars/Olympus_Mons' },
-    ];
-
-    for (const invalidRequest of invalidRequests) {
-      const fixture = storageFixture();
-      const runtime = createEmailActivitySourceRuntime(fixture.storage);
-      await expect(runtime.execute(trustedContext, invalidRequest)).rejects.toThrow();
-      expect(fixture.read).not.toHaveBeenCalled();
-    }
-  });
-
-  it('rejects malformed projections and missing source revisions', async () => {
-    const malformedProjection = {
-      ...(projection as Record<string, MiniAppJsonValue>),
-      subject: 'Private subject must never cross the source boundary',
-    };
-    const malformed = storageFixture(malformedProjection, 42);
-    await expect(
-      createEmailActivitySourceRuntime(malformed.storage).execute(
-        trustedContext,
-        request,
-      ),
-    ).rejects.toThrow('projection is unavailable or malformed');
-    expect(malformed.read).toHaveBeenCalledTimes(1);
-
-    const missingRevision = storageFixture(projection, null);
-    await expect(
-      createEmailActivitySourceRuntime(missingRevision.storage).execute(
-        trustedContext,
-        request,
-      ),
-    ).rejects.toThrow('trusted source revision');
-    expect(missingRevision.read).toHaveBeenCalledTimes(1);
+  it('keeps absent or unavailable history distinct from a complete zero', async () => {
+    await expect(fixture(null).source.get(request)).rejects.toThrow('unavailable');
+    const result = await fixture().source.get({ ...request, startAt: '2026-08-01T00:00:00Z' });
+    expect(result.coverage).toBe('partial');
+    await expect(fixture({ ...projection as object, subject: 'must not escape' }).source.get(request)).rejects.toThrow('malformed');
   });
 });

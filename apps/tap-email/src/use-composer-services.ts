@@ -9,7 +9,7 @@ export function useComposerServices(context: TapFederatedSurfaceMountContext | u
   const owner = useSyncExternalStore(subscribe, snapshot, snapshot);
   // A retained workspace surface can change its selected conversation without
   // remounting. Never reuse an earlier owner's inference context.
-  const workspaceId = preview ? null : owner?.workspaceId ?? context?.workspaceId ?? null;
+  const workspaceId = preview ? null : owner ? owner.workspaceId : context?.workspaceId ?? null;
   const conversationId = preview ? null : owner ? owner.conversationId : context?.conversationId ?? null;
   return useMemo(() => ({ platform: sdk, workspaceId, conversationId }), [workspaceId, conversationId]);
 }

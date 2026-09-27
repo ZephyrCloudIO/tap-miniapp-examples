@@ -80,8 +80,11 @@ export function createTapEmailMcpServer(
   };
   const readOperational = async () =>
     parseProjection(await readStorage(operationalAddress));
-  const readActivity = async () =>
-    parseActivityProjection(await readStorage(activityAddress));
+  const readActivity = async () => {
+    const context = await runtime.getExecutionContext();
+    if (!context.userId) throw new Error('TAP Email MCP requires a trusted user scope.');
+    return parseActivityProjection(await readStorage(activityAddress(context.userId)));
+  };
   return defineMcpServer({
     tools: {
       get_mailbox_summary: {

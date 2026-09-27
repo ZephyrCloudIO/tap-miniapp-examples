@@ -65,7 +65,7 @@ export function expectExactProvenance(
     surfaceId: tap.surfaceId,
     target: tap.target,
   }).toEqual({
-    adapterVersion: "0.16.0",
+    adapterVersion: "0.19.0",
     allowedNetworkOrigins: [
       "http://127.0.0.1:8787",
       "https://calendar-api.theaiplatform.app",

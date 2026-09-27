@@ -29,7 +29,7 @@ export interface ScopeFirstGoogleBookingCommitInput {
   readonly location: string | null;
   readonly bookingKind: "meeting" | "approval-hold";
   readonly attendeeEmails: readonly string[];
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
   readonly expiresAt: string | null;
 }
 
@@ -82,7 +82,7 @@ export const createPublicGoogleBookingProvider = (
       description: input.description || null,
       location: input.location || null,
       bookingKind: input.bookingKind,
-      attendeeEmails: [input.guest.email],
+      attendeeEmails: [...new Set([...(input.hostEmails ?? []), input.guest.email, ...(input.additionalGuests ?? [])])],
       conferenceProvider: input.conferenceProvider,
       expiresAt: input.expiresAt,
     });

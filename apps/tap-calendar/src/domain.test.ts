@@ -24,6 +24,7 @@ import {
   isEventTypePublicationLive,
   markPublicBookingProfilePublicationPending,
   migrateLegacyEventTypeAvailabilitySchedules,
+  preferredDestinationCalendar,
   publicBookingUrl,
   renameCalendarAccount,
   removeCalendarFromTap,
@@ -534,6 +535,56 @@ describe("TAP Calendar domain", () => {
     });
   });
 
+  it("prefers the provider primary calendar for an automatic destination", () => {
+    const connected = addConnectedAccount(createEmptyCalendarState(), {
+      id: "acct-google",
+      provider: "google",
+      label: "me@example.com",
+      status: "connected",
+      calendars: [
+        {
+          id: "cal-transferred",
+          name: "Transferred team calendar",
+          color: "#a78bfa",
+          role: "owner",
+          visible: true,
+          conflicts: true,
+          writable: true,
+          destination: false,
+          primary: false,
+          freshness: "live",
+        },
+        {
+          id: "cal-primary",
+          name: "me@example.com",
+          color: "#4285f4",
+          role: "owner",
+          visible: true,
+          conflicts: true,
+          writable: true,
+          destination: false,
+          primary: true,
+          freshness: "live",
+        },
+      ],
+    });
+
+    expect(connected.ok).toBe(true);
+    expect(allCalendars(connected.state)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "cal-transferred", destination: false }),
+      expect.objectContaining({ id: "cal-primary", destination: true, primary: true }),
+    ]));
+    expect(preferredDestinationCalendar(allCalendars(connected.state))?.id).toBe("cal-primary");
+    expect(isCalendarState(connected.state)).toBe(true);
+  });
+
+  it("keeps an explicit destination ahead of the provider primary calendar", () => {
+    expect(preferredDestinationCalendar([
+      { id: "cal-primary", writable: true, destination: false, primary: true },
+      { id: "cal-selected", writable: true, destination: true, primary: false },
+    ])?.id).toBe("cal-selected");
+  });
+
   it("adds several calendars to an existing account with independent preferences", () => {
     const initialAccount = addConnectedAccount(createEmptyCalendarState(), {
       id: "acct-google",
@@ -822,6 +873,28 @@ describe("TAP Calendar domain", () => {
     });
     expect(result.error).toBeNull();
     expect(result.state.events.at(-1)?.location).toBe("tap-huddle");
+  });
+
+  it("blocks the calendar without guests or a meeting location, including after replay", () => {
+    const input = {
+      id: "personal-event",
+      title: "Focus time",
+      calendarId: "cal-work",
+      start: "2026-08-17T14:00:00-04:00",
+      end: "2026-08-17T15:00:00-04:00",
+      location: null,
+      attendees: [],
+      approvalRequired: false,
+      requestedAt: "2026-08-14T12:00:00-04:00",
+    } as const;
+    const result = scheduleMeeting(createInitialCalendarState(), input);
+    expect(result.error).toBeNull();
+    expect(result.bookingRequestId).toBeNull();
+    expect(result.state.events.at(-1)).toMatchObject({
+      title: "Focus time", attendees: [], location: null, busy: true, status: "confirmed",
+    });
+    expect(result.state.notificationChannels[0]?.entries[0]?.summary).toBe("Just you · Focus time");
+    expect(scheduleMeeting(result.state, input).state).toBe(result.state);
   });
 
   it("creates an approval hold and actionable channel entry", () => {

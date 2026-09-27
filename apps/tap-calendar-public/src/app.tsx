@@ -1,3 +1,4 @@
+import { useFunnelTracking } from "./use-funnel-tracking";
 import {
   Button,
   Field,
@@ -10,12 +11,12 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
   CalendarCheck2,
   CalendarClock,
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleUserRound,
   Clock3,
   Globe2,
   RefreshCw,
@@ -62,6 +63,8 @@ import {
   parseCalendarDate,
   viewerBookingMonthBounds,
 } from "./date";
+import { normalizePublicBookingDetails } from "../../tap-calendar/src/public-booking-details";
+import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "../../tap-calendar/src/public-booking-fields";
 import { TurnstileVerification } from "./turnstile";
 import { PublicBookingManagementApp } from "./management";
 
@@ -131,6 +134,7 @@ export function PublicBookingApp() {
 }
 
 function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
+  const [visitId] = useState(() => crypto.randomUUID());
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState<PublicBookingPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -146,7 +150,7 @@ function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
     const abort = new AbortController();
     setLoading(true);
     setError(null);
-    void loadPublicBookingPage(route.profileSlug, route.eventTypeSlug, abort.signal)
+    void loadPublicBookingPage(route.profileSlug, route.eventTypeSlug, abort.signal, visitId)
       .then(next => {
         setPage(next);
         globalThis.document.title = `${next.eventType.title} with ${next.profile.displayName} · TAP Calendar`;
@@ -160,7 +164,7 @@ function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [attempt, route]);
+  }, [attempt, route, visitId]);
 
   useEffect(() => page ? setCanonicalUrl(page.canonicalUrl) : undefined, [page]);
 
@@ -176,6 +180,7 @@ function PublicBookingRoute({ route }: { readonly route: PublicPageRoute }) {
   }
   return (
     <BookingExperience
+      visitId={visitId}
       route={route}
       page={page}
       onPublishedPageChanged={reloadPublishedPage}
@@ -305,7 +310,8 @@ function PublicPageState({ title, message, loading = false, action }: {
   );
 }
 
-function BookingExperience({ route, page, onPublishedPageChanged }: {
+function BookingExperience({ route, page, visitId, onPublishedPageChanged }: {
+  readonly visitId: string;
   readonly route: PublicPageRoute;
   readonly page: PublicBookingPage;
   readonly onPublishedPageChanged: () => void;
@@ -322,10 +328,14 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [step, setStep] = useState<"date" | "slot" | "details" | "success">("date");
+  useFunnelTracking(route.profileSlug, route.eventTypeSlug, visitId, step);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicBookingSlot | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [additionalGuests, setAdditionalGuests] = useState<{ id: string; email: string }[]>([]);
+  const [retryRequired, setRetryRequired] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -374,6 +384,15 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
       const currentDate = selectedDateRef.current;
       const currentSlot = selectedSlotRef.current;
       const reconciliation = reconcileAvailabilitySelection(next, currentDate, currentSlot);
+      // Keep an unresolved booking on its original time, while accepting a fresh
+      // proof for that same time if it is still available.
+      if (requestIdRef.current) {
+        if (currentSlot && reconciliation.slot) {
+          selectedSlotRef.current = reconciliation.slot;
+          setSelectedSlot(reconciliation.slot);
+        }
+        return;
+      }
       if (currentDate && !reconciliation.dateAvailable) {
         selectedDateRef.current = null;
         selectedSlotRef.current = null;
@@ -482,6 +501,16 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedSlot || !turnstileToken || submitting) return;
+    let details;
+    try {
+      details = normalizePublicBookingDetails({
+        notes,
+        additionalGuests: additionalGuests.map(guest => guest.email.trim()).filter(Boolean),
+      }, email);
+    } catch (reason) {
+      setBookingError((reason as Error).message);
+      return;
+    }
     const requestId = requestIdRef.current ?? globalThis.crypto.randomUUID();
     requestIdRef.current = requestId;
     setSubmitting(true);
@@ -493,11 +522,13 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
         request: {
           schemaVersion: PUBLIC_BOOKING_SCHEMA_VERSION,
           requestId,
+          visitId,
           slotToken: selectedSlot.token,
           guest: {
             name: name.trim(),
             email: email.trim().toLowerCase(),
           },
+          ...details,
           turnstileToken,
         },
       });
@@ -513,7 +544,12 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
       // the server may already have committed the booking. Retain the same
       // request ID so a guest retry remains idempotent. Only a definitive
       // application rejection can safely rotate it.
-      if (apiError && !apiError.retryable) requestIdRef.current = null;
+      if (apiError && !apiError.retryable) {
+        requestIdRef.current = null;
+        setRetryRequired(false);
+      } else {
+        setRetryRequired(true);
+      }
       setBookingError(errorMessage(reason));
       setTurnstileToken(null);
       setTurnstileResetKey(value => value + 1);
@@ -537,10 +573,32 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
                 : "Your meeting is confirmed. Keep the secure management link below in case plans change."}</p>
               <div className="public-booking-confirmation">
                 <strong>{page.eventType.title}</strong>
-                <span>{dateTimeFormatter.format(new Date(result.startsAt))}</span>
+                <span>With {page.eventType.hosts?.length
+                  ? page.eventType.hosts.map(host => host.displayName).join(", ")
+                  : page.profile.displayName}</span>
+                <span>{dateTimeFormatter.formatRange(new Date(result.startsAt), new Date(result.endsAt))}</span>
                 <span>{page.eventType.locationLabel}</span>
               </div>
-              <Button asChild size="lg"><a href={result.managementUrl}>Manage booking</a></Button>
+              <div className="public-booking-success-actions">
+                <Button asChild size="lg"><a href={result.managementUrl}>Manage booking</a></Button>
+                <Button type="button" variant="outline" size="lg" onClick={onPublishedPageChanged}>
+                  Book another meeting
+                </Button>
+              </div>
+            </section>
+            <section className="public-booking-signup" aria-labelledby="public-booking-signup-title">
+              <span className="public-booking-signup-brand"><CalendarCheck2 aria-hidden="true" /> The AI Platform</span>
+              <h2 id="public-booking-signup-title">Schedule your own meetings for free</h2>
+              <p>Create a free account on The AI Platform, connect your calendar, and let people book a time that works.</p>
+              <Button asChild size="lg">
+                <a
+                  href="https://theaiplatform.app/?utm_source=tap-calendar&utm_medium=booking-confirmation&utm_campaign=free-scheduling"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Get started free with The AI Platform (opens in a new tab)"
+                >Get started free <ArrowUpRight aria-hidden="true" /></a>
+              </Button>
+              <small>Download the app, then create your free account.</small>
             </section>
           </div>
           <PublicFooter />
@@ -559,13 +617,13 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
               <strong>{page.profile.displayName}</strong>
             </div>
             <h1 id="public-booking-title" className="public-booking-title">{page.eventType.title}</h1>
+            {page.eventType.hosts ? <p className="public-booking-description">With {page.eventType.hosts.map(host => host.displayName).join(" and ")}. Every host attends.</p> : null}
             {page.eventType.description ? <p className="public-booking-description">{page.eventType.description}</p> : null}
             <ul className="public-booking-meta">
               <li><Clock3 aria-hidden="true" /><span>{page.eventType.durationMinutes} minutes</span></li>
               <li><Video aria-hidden="true" /><span>{page.eventType.locationLabel}</span></li>
               {page.eventType.approvalRequired ? <li><ShieldCheck aria-hidden="true" /><span>Host approval required</span></li> : null}
             </ul>
-            <div className="public-booking-note"><CircleUserRound aria-hidden="true" /><span>No TAP account is required to book.</span></div>
           </aside>
 
           <section className="public-booking-main">
@@ -665,26 +723,29 @@ function BookingExperience({ route, page, onPublishedPageChanged }: {
               </section>
             ) : (
               <form className="public-booking-details" onSubmit={submit}>
-                <button type="button" className="public-booking-back" onClick={() => setStep("slot")}><ArrowLeft aria-hidden="true" /> Choose another time</button>
+                <button type="button" className="public-booking-back" disabled={submitting || retryRequired} onClick={() => setStep("slot")}><ArrowLeft aria-hidden="true" /> Choose another time</button>
                 <header className="public-booking-step-header">
                   <span className="eyebrow">Your details</span>
                   <h2 ref={stepHeadingRef} tabIndex={-1}>Almost there</h2>
-                  <p>We use this information only for this booking and its notifications.</p>
+                  <p>Your details are shared with the host to arrange this meeting.</p>
                 </header>
                 {selectedSlot ? <div className="public-booking-selected-time"><CalendarCheck2 aria-hidden="true" /><span><strong>{dateTimeFormatter.format(new Date(selectedSlot.start))}</strong><small>{page.eventType.durationMinutes} minutes · {page.eventType.locationLabel}</small></span></div> : null}
                 {bookingError ? <InlineError message={bookingError} /> : null}
+                {retryRequired ? <p className="public-booking-retry-notice" role="status">Your booking may already be reserved. Please retry with the same details to confirm its status.</p> : null}
                 <FieldGroup className="public-booking-fields">
                   <Field>
                     <FieldLabel htmlFor="public-booking-name">Name</FieldLabel>
-                    <Input id="public-booking-name" name="name" autoComplete="name" value={name} required disabled={submitting} onChange={event => setName(event.currentTarget.value)} />
+                    <Input id="public-booking-name" name="name" autoComplete="name" value={name} maxLength={160} required disabled={submitting || retryRequired} onChange={event => setName(event.currentTarget.value)} />
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="public-booking-email">Email</FieldLabel>
-                    <Input id="public-booking-email" name="email" type="email" autoComplete="email" spellCheck={false} value={email} required disabled={submitting} onChange={event => setEmail(event.currentTarget.value)} />
+                    <Input id="public-booking-email" name="email" type="email" autoComplete="email" spellCheck={false} value={email} maxLength={320} required disabled={submitting || retryRequired} onChange={event => setEmail(event.currentTarget.value)} />
                     <FieldDescription>We send booking updates and the secure management link here.</FieldDescription>
                   </Field>
+                  <PublicBookingExtraFields notes={notes} additionalGuests={additionalGuests} disabled={submitting || retryRequired} onNotesChange={setNotes} onGuestsChange={setAdditionalGuests} />
                 </FieldGroup>
                 <TurnstileVerification siteKey={page.turnstile.siteKey} action="public_booking" resetKey={turnstileResetKey} disabled={submitting} onTokenChange={setTurnstileToken} />
+                <PublicBookingPrivacyNotice />
                 <div className="public-booking-actions"><Button type="submit" size="lg" disabled={submitting || !selectedSlot || !turnstileToken}>{submitting ? "Reserving…" : page.eventType.approvalRequired ? "Request meeting" : "Confirm booking"}</Button></div>
               </form>
             )}
@@ -701,7 +762,7 @@ function InlineError({ message }: { readonly message: string }) {
 }
 
 function PoweredByTap() {
-  return <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by TAP — visit The AI Platform homepage (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>TAP</strong></a>;
+  return <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by The AI Platform (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>The AI Platform</strong></a>;
 }
 
 function PublicFooter() {
@@ -709,7 +770,7 @@ function PublicFooter() {
     <footer className="public-booking-footer">
       <PoweredByTap />
       <nav className="public-booking-footer-links" aria-label="Booking page links">
-        <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy</a>
+        <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
         <span aria-hidden="true">·</span>
         <a href="mailto:abuse@theaiplatform.app">Report abuse</a>
       </nav>

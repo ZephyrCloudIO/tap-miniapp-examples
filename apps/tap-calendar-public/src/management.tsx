@@ -80,9 +80,9 @@ const statusLabel = (status: PublicBookingManagement["status"]): string => ({
 function ManagementFooter() {
   return (
     <footer className="public-booking-footer">
-      <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by TAP — visit The AI Platform homepage (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>TAP</strong></a>
+      <a className="public-booking-powered" href="https://theaiplatform.app/" target="_blank" rel="noreferrer" aria-label="Powered by The AI Platform (opens in a new tab)"><CalendarCheck2 aria-hidden="true" /> Powered by <strong>The AI Platform</strong></a>
       <nav className="public-booking-footer-links" aria-label="Booking page links">
-        <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy</a>
+        <a href="https://theaiplatform.app/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
         <span aria-hidden="true">·</span>
         <a href="mailto:abuse@theaiplatform.app">Report abuse</a>
       </nav>

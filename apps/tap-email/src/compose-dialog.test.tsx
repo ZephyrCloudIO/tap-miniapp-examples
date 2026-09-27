@@ -5,7 +5,6 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from '@rstest/core';
 import { ComposeDialog, type ComposeDraftMessage } from './compose-dialog';
 import { previewMailState } from './domain';
-import { withEmailSignature } from './email-signature';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,7 +31,7 @@ describe('ComposeDialog draft preservation', () => {
     try {
       await act(async () => root.render(
         <ComposeDialog accounts={previewMailState().accounts} draftKey="typeahead" initialAccountId="google_work"
-          initialBodyText={withEmailSignature('Ready to send')} initialSubject="Test" initialTo="ma"
+          initialBodyText={'Ready to send\n\n-- \nSent with The AI Platform'} initialSubject="Test" initialTo="ma"
           recipientContacts={[{ name: 'Maya Chen', address: 'maya@example.com', lastSentAt: '2026-09-26T12:00:00Z' }]}
           onAttach={async () => ({ attachments: [], cancelled: false, failures: [] })}
           onAutosave={() => undefined} onClose={() => { closes++; }} onSchedule={() => undefined} onSend={() => { sends++; }} />,
@@ -155,5 +154,26 @@ describe('ComposeDialog draft preservation', () => {
       await act(async () => root.unmount());
       container.remove();
     }
+  });
+});
+
+describe('composer actions', () => {
+  it('saves writing with no recipient and keeps reminder intent with the draft', async () => {
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container);
+    const saved: ComposeDraftMessage[] = [];
+    const button = (label: string) => [...document.body.querySelectorAll('button')].find(item => item.textContent === label)!;
+    try {
+      await act(async () => root.render(<ComposeDialog accounts={previewMailState().accounts} draftKey="incomplete"
+        initialAccountId="google_work" initialBodyText="Writing before addressing" initialSubject="" initialTo=""
+        onAttach={async () => ({ attachments: [], cancelled: false, failures: [] })}
+        onAutosave={value => saved.push(value)} onClose={() => {}} onSchedule={() => {}} onSend={() => {}} />));
+      await act(async () => button('Remind me').click());
+      await act(async () => button('3 days').click());
+      await act(async () => button('Set reminder').click());
+      expect(document.body.textContent).toContain('3 days after sending · If no reply');
+      await act(async () => document.body.querySelector<HTMLButtonElement>('[aria-label="Save and close draft"]')!.click());
+      expect(saved.at(-1)).toMatchObject({ to: '', bodyText: 'Writing before addressing', followUp: { delayMinutes: 4320, condition: 'if_no_reply' } });
+    } finally { await act(async () => root.unmount()); container.remove(); }
   });
 });

@@ -1,7 +1,7 @@
+import { insertBoundedRows } from './bounded-sql';
 import type {
   MiniAppPrivateSqlTransaction,
   MiniAppSqlMigration,
-  MiniAppSqlValue,
 } from '@theaiplatform/miniapp-sdk/sdk';
 import type {
   AccountCoverageState,
@@ -167,6 +167,16 @@ export const localReplicaMigrations = [
         account_id, status, unread, starred, received_at DESC, thread_id
       )`,
   },
+  {
+    version: 21,
+    sql: `CREATE TABLE IF NOT EXISTS local_mail_page_progress (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      next_cursor TEXT NOT NULL,
+      pages_loaded INTEGER NOT NULL CHECK (pages_loaded >= 0),
+      threads_loaded INTEGER NOT NULL CHECK (threads_loaded >= 0),
+      updated_at TEXT NOT NULL
+    )`,
+  },
 ] as const satisfies readonly MiniAppSqlMigration[];
 
 const normalizedTablesInDeleteOrder = [
@@ -180,41 +190,7 @@ const normalizedTablesInDeleteOrder = [
   'local_mail_accounts',
 ] as const;
 
-// Keep each host action comfortably below both SQLite's conservative variable
-// ceiling and the SDK's 10,000-value transport limit. A normalized mailbox can
-// contain thousands of rows, so issuing one action per row makes otherwise
-// healthy cache writes expire before the transaction can commit.
-const maximumSqlParametersPerInsert = 900;
-
-async function insertRows(
-  transaction: MiniAppPrivateSqlTransaction,
-  table: string,
-  columns: readonly string[],
-  rows: readonly (readonly MiniAppSqlValue[])[],
-): Promise<void> {
-  if (rows.length === 0) return;
-  if (
-    columns.length === 0 ||
-    rows.some(row => row.length !== columns.length)
-  ) {
-    throw new Error(`Invalid normalized replica row shape for ${table}.`);
-  }
-  const rowsPerInsert = Math.max(
-    1,
-    Math.floor(maximumSqlParametersPerInsert / columns.length),
-  );
-  const rowPlaceholders = `(${columns.map(() => '?').join(', ')})`;
-
-  for (let start = 0; start < rows.length; start += rowsPerInsert) {
-    const batch = rows.slice(start, start + rowsPerInsert);
-    await transaction.execute(
-      `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${batch
-        .map(() => rowPlaceholders)
-        .join(', ')}`,
-      batch.flat(),
-    );
-  }
-}
+const insertRows = insertBoundedRows;
 
 export interface LocalReplicaEntityCounts {
   readonly accounts: number;
@@ -385,9 +361,21 @@ export async function replaceNormalizedLocalReplica(
   state: MailState,
   sourceUpdatedAt: string,
   indexedAt: string,
+  incremental = false,
 ): Promise<void> {
-  for (const table of normalizedTablesInDeleteOrder) {
-    await transaction.execute(`DELETE FROM ${table}`);
+  if (incremental) {
+    for (const table of normalizedTablesInDeleteOrder) {
+      if (table === 'local_mail_accounts') continue;
+      for (let offset = 0; offset < state.threads.length; offset += 100) {
+        const batch = state.threads.slice(offset, offset + 100);
+        await transaction.execute(`DELETE FROM ${table} WHERE (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})`,
+          batch.flatMap(thread => [thread.accountId, thread.threadId]));
+      }
+    }
+  } else {
+    for (const table of normalizedTablesInDeleteOrder) {
+      await transaction.execute(`DELETE FROM ${table}`);
+    }
   }
 
   await insertRows(
@@ -436,6 +424,7 @@ export async function replaceNormalizedLocalReplica(
       'waiting_on_others',
       'status',
       'message_count',
+      'reminder_due_at',
     ],
     state.threads.map(thread => [
       thread.accountId,
@@ -451,6 +440,7 @@ export async function replaceNormalizedLocalReplica(
       Number(thread.waitingOnOthers),
       thread.status,
       thread.messages.length,
+      thread.reminder?.dueAt ?? null,
     ]),
   );
 
@@ -582,6 +572,17 @@ export async function replaceNormalizedLocalReplica(
   );
 }
 
+export async function deleteNormalizedLocalThread(
+  transaction: MiniAppPrivateSqlTransaction,
+  accountId: string,
+  threadId: string,
+): Promise<void> {
+  for (const table of normalizedTablesInDeleteOrder) {
+    if (table === 'local_mail_accounts') continue;
+    await transaction.execute(`DELETE FROM ${table} WHERE account_id = ? AND thread_id = ?`, [accountId, threadId]);
+  }
+}
+
 export async function deleteNormalizedLocalAccount(
   transaction: MiniAppPrivateSqlTransaction,
   accountId: string,
@@ -629,6 +630,9 @@ export function mailStateWithoutAccount(
         ? null
         : state.selectedThreadKey,
     commands: state.commands.filter(command => commandForOtherAccount(command, accountId)),
+    pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(
+      intent => intent.accountId !== accountId,
+    ),
     outbox: state.outbox?.filter(item =>
       item.attempts[0]?.command.accountId !== accountId
     ),

@@ -1,7 +1,10 @@
 import { searchSentRecipients } from './recipient-history';
+import { createEmailMcpCredential, emailMcpCredentialStatus, revokeEmailMcpCredential, verifyEmailMcpCredential } from './mcp-auth';
+import { createTapEmailLiveMcpHandler } from './mcp';
 import {
   isCancelScheduledSendPayload,
   isMailDraftPayload,
+  isMailSenderContext,
   isMailSchedulePayload,
   isSafeMailIdentifier,
   isMailCommand,
@@ -22,6 +25,7 @@ import {
 import {
   type GoogleProviderPort,
   type ProviderExecutionResult,
+  type ProviderScope,
 } from './provider';
 import { createGoogleProvider, GoogleApiError } from './google';
 import {
@@ -37,6 +41,7 @@ import {
   storedMessageRichBody,
   syncGoogleMailbox,
   threadSnapshot,
+  ThreadPageError,
 } from './mailbox';
 import {
   beginGoogleOAuth,
@@ -50,6 +55,17 @@ import {
   type SyncQueueMessage,
 } from './sync-events';
 import { coordinatorReadiness } from './readiness';
+import {
+  bindSenderProfile,
+  referralPublisher,
+  senderAttributionStatement,
+  assertSenderAttribution,
+  copyScheduledAttribution,
+  referralForSend,
+  verifySenderContext,
+  type SenderVerifier,
+  type WebsiteReferralPublisher,
+} from './sender-attribution';
 import {
   proxyRemoteImages,
   remoteImageUrlsAllowedByHtml,
@@ -117,6 +133,8 @@ interface CommandRow {
 interface CoordinatorDependencies {
   readonly verifyAccess?: AccessVerifier;
   readonly provider?: GoogleProviderPort;
+  readonly verifySender?: SenderVerifier;
+  readonly referralPublisher?: WebsiteReferralPublisher;
   readonly loadRemoteImages?: RemoteImageBatchLoader;
   readonly syncMailbox?: (
     env: Env,
@@ -531,6 +549,7 @@ async function submitCommand(
   env: Env,
   identity: ProfileIdentity,
   now: string,
+  verifySender: SenderVerifier,
 ): Promise<Response> {
   const value = await readBoundedJson(request);
   if (!isMailCommand(value)) {
@@ -564,6 +583,16 @@ async function submitCommand(
     );
   }
 
+  const expected = isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined;
+  const sender = expected ? await verifySender(request, env, identity, expected) : null;
+  if (sender) await bindSenderProfile(env, identity, sender, now);
+  // New sends must carry their captured identity; accepted legacy commands can
+  // still reconcile under their original durable intent.
+  const developmentIdentity = env.ALLOW_DEV_IDENTITY === 'true' && !env.TAP_INTROSPECTION_URL;
+  if ((command.kind === 'send_draft' || command.kind === 'schedule_send') && !expected && !developmentIdentity) {
+    throw new ApiError(400, 'sender_context_required', 'Update TAP Email and send from an active workspace.');
+  }
+
   const payloadJson = JSON.stringify(command.payload);
   const payloadCiphertext = await sealStoredPayload(env, command.payload, {
     table: 'mail_commands',
@@ -572,7 +601,7 @@ async function submitCommand(
     id: command.commandId,
     kind: command.kind,
   });
-  const result = await env.DB.prepare(
+  const insertCommand = env.DB.prepare(
     `INSERT OR IGNORE INTO mail_commands
        (profile_id, account_id, command_id, idempotency_key, kind, thread_id,
         expected_provider_revision, payload_json, payload_ciphertext, state, dispatch_pending,
@@ -591,14 +620,20 @@ async function submitCommand(
       command.createdAt,
       now,
       now,
-    )
-    .run();
+    );
+  // Queue scanners must never observe an accepted command without its verified
+  // attribution. Match the new ciphertext so a conflicting replay cannot bind
+  // attribution to a previously accepted command.
+  const [result] = await env.DB.batch([
+    insertCommand,
+    ...(sender ? [senderAttributionStatement(env, identity, command.commandId, sender, now, payloadCiphertext)] : []),
+  ]);
   const stored =
     (await commandRow(env, identity, command.commandId)) ??
     (await commandRowByIdempotencyKey(env, identity, command.idempotencyKey));
   if (!stored) throw new ApiError(500, 'command_store_failed', 'Command was not stored.');
 
-  const inserted = Number(result.meta.changes ?? 0) === 1;
+  const inserted = Number(result?.meta.changes ?? 0) === 1;
   let storedPayloadJson = '';
   try {
     storedPayloadJson = JSON.stringify(await openStoredPayload(
@@ -627,6 +662,7 @@ async function submitCommand(
       'The command identity is already bound to different intent.',
     );
   }
+  if (sender) await assertSenderAttribution(env, identity, command.commandId, sender);
   if (inserted) {
     await recordAudit(
       env,
@@ -941,6 +977,7 @@ async function applyProviderResult(
         subject: payload.subject,
         bodyText: payload.bodyText,
         ...(payload.followUp ? { followUp: payload.followUp } : {}),
+        ...(payload.expectedContext ? { expectedContext: payload.expectedContext } : {}),
         ...(payload.replyToMessageId === undefined
           ? {}
           : { replyToMessageId: payload.replyToMessageId }),
@@ -1282,6 +1319,7 @@ async function processQueueMessage(
   env: Env,
   provider: GoogleProviderPort,
   now: string,
+  publisher: WebsiteReferralPublisher | undefined,
 ): Promise<void> {
   const identity = { profileId: message.body.profileId };
   const existing = await commandRow(env, identity, message.body.commandId);
@@ -1329,7 +1367,7 @@ async function processQueueMessage(
   }
   let heldDraftKey: string | null = null;
   try {
-    const scope = { profileId: leased.profile_id, accountId: leased.account_id };
+    let scope: ProviderScope = { profileId: leased.profile_id, accountId: leased.account_id };
     const command = await decodeCommand(env, leased);
     const draftKey = providerDraftMutationKey(command);
     if (draftKey) {
@@ -1353,6 +1391,10 @@ async function processQueueMessage(
         return;
       }
       heldDraftKey = draftKey;
+    }
+    if (command.kind === 'send_draft' && isMailDraftPayload(command.payload) && command.payload.expectedContext) {
+      if (!publisher) throw new AccessError(503, 'referral_unavailable', 'The website referral service is unavailable.');
+      scope = { ...scope, referralUrl: await referralForSend(env, publisher, leased.profile_id, leased.command_id, command.payload.expectedContext) };
     }
     const result =
       (await executeCancelScheduledSend(env, leased, command, now)) ??
@@ -1380,7 +1422,9 @@ async function processQueueMessage(
     const disposition = await applyProviderResult(
       env,
       leased,
-      { outcome: 'retryable', errorCode: 'provider_transport_error' },
+      error instanceof AccessError
+        ? { outcome: error.status >= 500 ? 'retryable' : 'failed', errorCode: error.code }
+        : { outcome: 'retryable', errorCode: 'provider_transport_error' },
       now,
       leaseToken,
     );
@@ -1407,6 +1451,7 @@ async function reconcileUncertainSend(
   commandId: string,
   provider: GoogleProviderPort,
   now: string,
+  publisher: WebsiteReferralPublisher | undefined,
 ): Promise<MailCommandReceipt> {
   const existing = await commandRow(env, identity, commandId);
   if (!existing) {
@@ -1513,8 +1558,13 @@ async function reconcileUncertainSend(
     heldDraftKey = draftKey;
     let result: ProviderExecutionResult;
     try {
+      const expected = isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined;
+      if (expected && !publisher) throw new AccessError(503, 'referral_unavailable', 'The website referral service is unavailable.');
+      const referralUrl = expected && publisher
+        ? await referralForSend(env, publisher, leased.profile_id, leased.command_id, expected)
+        : undefined;
       result = await provider.execute(
-        { profileId: leased.profile_id, accountId: leased.account_id },
+        { profileId: leased.profile_id, accountId: leased.account_id, ...(referralUrl ? { referralUrl } : {}) },
         command,
       );
     } catch {
@@ -1835,6 +1885,7 @@ async function dispatchScheduledSends(
                 error_code = NULL, updated_at = ?
           WHERE profile_id = ? AND schedule_command_id = ? AND state = 'pending'`,
       ).bind(dispatchCommandId, now, row.profile_id, row.schedule_command_id),
+      copyScheduledAttribution(env, row.profile_id, row.schedule_command_id, dispatchCommandId),
     ]);
     if (Number(inserted[1]?.meta.changes ?? 0) !== 1) continue;
     try {
@@ -1882,6 +1933,50 @@ async function providerEventRow(
   )
     .bind(message.profileId, message.accountId, message.eventId)
     .first<ProviderEventRow>();
+}
+
+function refreshAccountCoverageStatement(
+  env: Env,
+  profileId: string,
+  accountId: string,
+  now: string,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `UPDATE google_accounts
+        SET unresolved_failures = (
+              SELECT COUNT(*) FROM provider_events
+               WHERE profile_id = ? AND account_id = ?
+                 AND state IN ('retryable', 'dead_letter')
+                 AND (
+                   google_accounts.last_full_sync_completed_at IS NULL OR
+                   updated_at > google_accounts.last_full_sync_completed_at
+                 )
+            ),
+            coverage_state = CASE
+              WHEN connection_state != 'active' THEN 'blocked'
+              WHEN backfill_page_token IS NOT NULL THEN 'backfilling'
+              WHEN EXISTS (
+                SELECT 1 FROM provider_events
+                 WHERE profile_id = ? AND account_id = ?
+                   AND state IN ('retryable', 'dead_letter')
+                   AND (
+                     google_accounts.last_full_sync_completed_at IS NULL OR
+                     updated_at > google_accounts.last_full_sync_completed_at
+                   )
+              ) THEN 'stale'
+              ELSE 'current'
+            END,
+            updated_at = ?
+      WHERE profile_id = ? AND account_id = ?`,
+  ).bind(
+    profileId,
+    accountId,
+    profileId,
+    accountId,
+    now,
+    profileId,
+    accountId,
+  );
 }
 
 async function processSyncMessage(
@@ -1973,6 +2068,12 @@ async function processSyncMessage(
         'applied',
         timestamp,
       ),
+      refreshAccountCoverageStatement(
+        env,
+        leased.profile_id,
+        leased.account_id,
+        timestamp,
+      ),
     ]);
     message.ack();
   } catch (error) {
@@ -1986,19 +2087,6 @@ async function processSyncMessage(
     const delaySeconds = Math.min(300, 2 ** Math.min(8, leased.attempts + 4));
     const nextAttemptAt = new Date(now.getTime() + delaySeconds * 1_000).toISOString();
     await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE google_accounts
-          SET coverage_state = ?, unresolved_failures = unresolved_failures + 1,
-              updated_at = ?
-        WHERE profile_id = ? AND account_id = ?`,
-      ).bind(
-        error instanceof GoogleApiError && error.code === 'google_reauthorization_required'
-          ? 'blocked'
-          : 'stale',
-        timestamp,
-        leased.profile_id,
-        leased.account_id,
-      ),
       env.DB.prepare(
         `UPDATE provider_events
           SET state = ?, error_code = ?, lease_token = NULL,
@@ -2016,6 +2104,12 @@ async function processSyncMessage(
         leased.account_id,
         leased.event_id,
         leaseToken,
+      ),
+      refreshAccountCoverageStatement(
+        env,
+        leased.profile_id,
+        leased.account_id,
+        timestamp,
       ),
       auditStatement(
         env,
@@ -2079,10 +2173,102 @@ export function createTapEmailCoordinator(
         if (request.method === 'GET' && url.pathname === '/v1/oauth/google/callback') {
           return await finishGoogleOAuth(request, env, now());
         }
+        if (url.pathname === '/mcp') {
+          const principal = await verifyEmailMcpCredential(request, env, now());
+          return createTapEmailLiveMcpHandler(env, principal, now, async command => {
+            const response = await submitCommand(new Request(url, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(command),
+            }), env, principal, now().toISOString(), async (_request, _env, _identity, expected) => {
+              // The credential delegates the sender verified by Session/Directory at issuance.
+              const sender = principal.senderContext;
+              if (!sender || sender.userId !== expected.userId || sender.workspaceId !== expected.workspaceId) {
+                throw new AccessError(403, 'sender_context_mismatch', 'Email tool sender context does not match its credential.');
+              }
+              return sender;
+            });
+            return await response.json() as object;
+          }).fetch(request);
+        }
         const requiredAction: TapEmailAction = request.method === 'GET'
           ? 'tap-email.view'
           : 'tap-email.manage';
         const identity = await verifyAccess(request, env, requiredAction);
+        if (request.method === 'GET' && url.pathname === '/v1/activity/receipts') {
+          const after = url.searchParams.get('after') ?? new Date(now().getTime() - 90 * 86_400_000).toISOString();
+          const afterId = url.searchParams.get('afterId') ?? '';
+          if (!Number.isFinite(Date.parse(after)) || new Date(after).toISOString() !== after ||
+            (afterId && !isSafeMailIdentifier(afterId))) {
+            throw new ApiError(400, 'invalid_activity_cursor', 'Email activity cursor is invalid.');
+          }
+          const viewAfter = url.searchParams.get('viewAfter') ?? after;
+          const viewAfterId = url.searchParams.get('viewAfterId') ?? '';
+          if (!Number.isFinite(Date.parse(viewAfter)) || new Date(viewAfter).toISOString() !== viewAfter ||
+            (viewAfterId && !isSafeMailIdentifier(viewAfterId))) {
+            throw new ApiError(400, 'invalid_activity_cursor', 'Email view activity cursor is invalid.');
+          }
+          const observedAt = now().toISOString();
+          const cutoff = new Date(now().getTime() - 90 * 86_400_000).toISOString();
+          const rows = await env.DB.prepare(`SELECT profile_id, account_id, command_id, idempotency_key, kind, thread_id,
+              expected_provider_revision, state, dispatch_pending, attempts, client_created_at,
+              created_at, updated_at, provider_acknowledged_at, error_code FROM mail_commands
+            WHERE profile_id = ? AND state IN ('applied', 'failed', 'uncertain', 'cancelled')
+              AND updated_at >= ? AND updated_at <= ?
+              AND (updated_at > ? OR (updated_at = ? AND command_id > ?))
+            ORDER BY updated_at ASC, command_id ASC LIMIT 20`)
+            .bind(identity.profileId, cutoff, observedAt, after, after, afterId).all<Omit<CommandRow, 'payload_json' | 'payload_ciphertext'> & { updated_at: string }>();
+          const items = [];
+          for (const row of rows.results) {
+            // Read one encrypted draft at a time; never buffer a page of message bodies.
+            let payload: Record<string, unknown> = {};
+            if (['save_draft', 'send_draft', 'schedule_send'].includes(row.kind)) {
+              const stored = await commandRow(env, identity, row.command_id);
+              if (!stored) throw new ApiError(500, 'missing_activity_command', 'Activity reconciliation must retry.');
+              const raw = await openStoredPayload(env, stored.payload_ciphertext, stored.payload_json, commandPayloadBinding(stored));
+              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ApiError(500, 'invalid_activity_payload', 'Stored activity payload is malformed.');
+              payload = raw as Record<string, unknown>;
+            }
+            items.push({ commandId: row.command_id, accountId: row.account_id, threadId: row.thread_id,
+              kind: row.kind, draftKey: typeof payload.draftKey === 'string' ? payload.draftKey : null,
+              isReply: row.thread_id !== null && typeof payload.replyToMessageId === 'string', receipt: receipt({ ...row, payload_json: '{}', payload_ciphertext: null }) });
+          }
+          const views = await env.DB.prepare(`SELECT audit_id AS viewId, occurred_at AS occurredAt FROM coordinator_audit
+            WHERE profile_id = ? AND operation = 'mcp.read_email_messages' AND outcome = 'succeeded'
+              AND occurred_at >= ? AND occurred_at <= ?
+              AND (occurred_at > ? OR (occurred_at = ? AND audit_id > ?))
+            ORDER BY occurred_at ASC, audit_id ASC LIMIT 20`)
+            .bind(identity.profileId, cutoff, observedAt, viewAfter, viewAfter, viewAfterId)
+            .all<{ viewId: string; occurredAt: string }>();
+          const last = rows.results.at(-1);
+          const lastView = views.results.at(-1);
+          return json({ items, views: views.results, observedAt,
+            next: rows.results.length === 20 && last ? { after: last.updated_at, afterId: last.command_id } : null,
+            viewsNext: views.results.length === 20 && lastView ? { after: lastView.occurredAt, afterId: lastView.viewId } : null,
+          }, 200, cors);
+        }
+        if (url.pathname === '/v1/mcp/credential') {
+          if (request.method === 'GET') return json(await emailMcpCredentialStatus(env, identity, now()), 200, cors);
+          if (request.method === 'DELETE') {
+            await revokeEmailMcpCredential(env, identity);
+            return json({ revoked: true }, 200, cors);
+          }
+          if (request.method === 'POST') {
+            const input = await readBoundedJson(request, 1_024);
+            if (!input || typeof input !== 'object' || Array.isArray(input) ||
+              Object.keys(input).some(key => !['allowWrites', 'expectedContext'].includes(key)) ||
+              !('allowWrites' in input) || typeof input.allowWrites !== 'boolean') {
+              throw new ApiError(400, 'invalid_scope', 'Choose whether Email tools can send and save drafts.');
+            }
+            let sender;
+            if (input.allowWrites) {
+              if (!('expectedContext' in input) || !isMailSenderContext(input.expectedContext)) {
+                throw new ApiError(400, 'sender_context_required', 'Open Email in a workspace before enabling sends.');
+              }
+              sender = await (dependencies.verifySender ?? verifySenderContext)(request, env, identity, input.expectedContext);
+              await bindSenderProfile(env, identity, sender, now().toISOString());
+            }
+            return json(await createEmailMcpCredential(env, identity, input.allowWrites, now(), sender), 201, cors);
+          }
+        }
         if (request.method === 'POST' && url.pathname === '/v1/accounts/google/connect') {
           return json(await beginGoogleOAuth(env, identity, now()), 200, cors);
         }
@@ -2094,7 +2280,12 @@ export function createTapEmailCoordinator(
           }
           return json({ recipients: await searchSentRecipients(env, identity.profileId, query) }, 200, cors);
         }
-        if (request.method === 'GET' && url.pathname === '/v1/mailbox') {
+        if (request.method === 'GET' && (url.pathname === '/v1/mailbox' || url.pathname === '/v1/mailbox/changes')) {
+          const afterValues = url.searchParams.getAll('after');
+          const changes = url.pathname === '/v1/mailbox/changes';
+          if (changes && (afterValues.length !== 1 || !/^(0|[1-9]\d*)$/u.test(afterValues[0]!) || url.searchParams.has('cursor'))) {
+            throw new ApiError(400, 'invalid_mailbox_cursor', 'A change revision is required.');
+          }
           const limitValues = url.searchParams.getAll('limit');
           const cursorValues = url.searchParams.getAll('cursor');
           if (limitValues.length > 1 || cursorValues.length > 1) {
@@ -2113,6 +2304,7 @@ export function createTapEmailCoordinator(
             );
           }
           const page = await mailboxPage(env, identity.profileId, {
+            ...(changes ? { afterRevision: Number(afterValues[0]) } : {}),
             ...(rawLimit === undefined ? {} : { limit: Number(rawLimit) }),
             ...(cursorValues[0] === undefined ? {} : { cursor: cursorValues[0] }),
           });
@@ -2290,12 +2482,12 @@ export function createTapEmailCoordinator(
           if (!isSafeMailIdentifier(accountId) || !isSafeMailIdentifier(threadId)) {
             throw new ApiError(400, 'invalid_thread', 'The Gmail thread identity is invalid.');
           }
-          const snapshot = await threadSnapshot(env, identity.profileId, accountId, threadId, now());
+          const snapshot = await threadSnapshot(env, identity.profileId, accountId, threadId, now(), url.searchParams.get('cursor') ?? undefined);
           if (!snapshot) throw new ApiError(404, 'thread_not_found', 'The Gmail thread was not found.');
           return json({ thread: snapshot }, 200, cors);
         }
         if (request.method === 'POST' && url.pathname === '/v1/commands') {
-          const response = await submitCommand(request, env, identity, now().toISOString());
+          const response = await submitCommand(request, env, identity, now().toISOString(), dependencies.verifySender ?? verifySenderContext);
           const headers = new Headers(response.headers);
           for (const [key, value] of Object.entries(cors)) headers.set(key, String(value));
           return new Response(response.body, { status: response.status, headers });
@@ -2315,6 +2507,13 @@ export function createTapEmailCoordinator(
           if (!isSafeMailIdentifier(commandId)) {
             throw new ApiError(400, 'invalid_command', 'The command identity is invalid.');
           }
+          const original = await commandRow(env, identity, commandId);
+          if (original) {
+            const decoded = await decodeCommand(env, original);
+            if (isMailDraftPayload(decoded.payload) && decoded.payload.expectedContext) {
+              await (dependencies.verifySender ?? verifySenderContext)(request, env, identity, decoded.payload.expectedContext);
+            }
+          }
           const provider = dependencies.provider ?? createGoogleProvider(env, now);
           const reconciled = await reconcileUncertainSend(
             env,
@@ -2322,6 +2521,7 @@ export function createTapEmailCoordinator(
             commandId,
             provider,
             now().toISOString(),
+            dependencies.referralPublisher ?? referralPublisher(env.WEBSITE_REFERRALS),
           );
           return json({ receipt: reconciled }, 200, cors);
         }
@@ -2340,6 +2540,7 @@ export function createTapEmailCoordinator(
           error instanceof GoogleApiError ||
           error instanceof AttachmentContentError ||
           error instanceof MailboxPageError ||
+          error instanceof ThreadPageError ||
           error instanceof RemoteImageProxyError ||
           error instanceof OutboundAttachmentError
             ? error
@@ -2351,6 +2552,7 @@ export function createTapEmailCoordinator(
           !(error instanceof GoogleApiError) &&
           !(error instanceof AttachmentContentError) &&
           !(error instanceof MailboxPageError) &&
+          !(error instanceof ThreadPageError) &&
           !(error instanceof RemoteImageProxyError) &&
           !(error instanceof OutboundAttachmentError)
         ) {
@@ -2383,6 +2585,7 @@ export function createTapEmailCoordinator(
             env,
             provider,
             now().toISOString(),
+            dependencies.referralPublisher ?? referralPublisher(env.WEBSITE_REFERRALS),
           );
         } else {
           console.error(JSON.stringify({ message: 'invalid coordinator queue message discarded' }));

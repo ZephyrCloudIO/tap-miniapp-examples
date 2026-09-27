@@ -1,3 +1,6 @@
+import { isCalendarActivityJournal } from "./activity-contract";
+import { isAttendeeResponse, type CalendarResponseStatus } from "./attendee-response";
+
 export type CalendarProvider =
   | "google"
   | "microsoft"
@@ -48,6 +51,8 @@ export interface ConnectedCalendar {
   readonly conflicts: boolean;
   readonly writable: boolean;
   readonly destination: boolean;
+  /** Provider-designated primary calendar. Missing in legacy persisted state. */
+  readonly primary?: boolean;
   readonly freshness: "live" | "delayed" | "stale";
   readonly unreadCount?: number;
 }
@@ -66,6 +71,9 @@ export interface CalendarAttendee {
   readonly email: string;
   readonly kind: "tap" | "external";
   readonly required: boolean;
+  readonly responseStatus?: CalendarResponseStatus;
+  /** The connected provider account, which may differ from a shared calendar's owner. */
+  readonly isCurrentUser?: boolean;
 }
 
 export interface CalendarEvent {
@@ -279,6 +287,7 @@ export interface CalendarWorkflowNode {
 }
 
 export interface CalendarState {
+  readonly activityJournal?: import("./activity-contract").CalendarActivityJournal;
   readonly schemaVersion: 1;
   readonly activeView: CalendarView;
   readonly accounts: readonly CalendarAccount[];
@@ -298,7 +307,8 @@ export interface ScheduleMeetingInput {
   readonly calendarId: string;
   readonly start: string;
   readonly end: string;
-  readonly location: MeetingLocation;
+  /** Null creates a calendar event without a location or video conference. */
+  readonly location: MeetingLocation | null;
   readonly attendees: readonly CalendarAttendee[];
   readonly approvalRequired: boolean;
   /** Stable gateway hold/idempotency key; the Event ID may be provider-normalized. */
@@ -554,6 +564,15 @@ export const allCalendars = (
   state: CalendarState,
 ): readonly ConnectedCalendar[] =>
   state.accounts.flatMap(account => account.calendars);
+
+export const preferredDestinationCalendar = <Calendar extends {
+  readonly writable: boolean;
+  readonly destination?: boolean;
+  readonly primary?: boolean;
+}>(calendars: readonly Calendar[]): Calendar | undefined =>
+  calendars.find(calendar => calendar.writable && calendar.destination) ??
+  calendars.find(calendar => calendar.writable && calendar.primary) ??
+  calendars.find(calendar => calendar.writable);
 
 const mutationSucceeded = (state: CalendarState): CalendarMutationResult => ({
   ok: true,
@@ -1005,7 +1024,7 @@ export function addConnectedAccount(
   }
   const automaticDestination = incomingDestinations.length === 0 &&
     allCalendars(state).every(calendar => !calendar.destination)
-    ? input.calendars.find(calendar => calendar.writable)
+    ? preferredDestinationCalendar(input.calendars)
     : undefined;
   const effectiveIncomingDestinations = automaticDestination
     ? [automaticDestination]
@@ -1141,7 +1160,7 @@ export function addCalendarsToAccount(
   }
   const automaticDestination = incomingDestinations.length === 0 &&
     allCalendars(state).every(calendar => !calendar.destination)
-    ? input.calendars.find(calendar => calendar.writable)
+    ? preferredDestinationCalendar(input.calendars)
     : undefined;
   const effectiveIncomingDestinations = automaticDestination
     ? [automaticDestination]
@@ -1770,6 +1789,7 @@ export function scheduleMeeting(
     status,
     location: input.location,
     attendees: input.attendees,
+    busy: true,
     ...(input.providerHtmlLink ? { providerHtmlLink: input.providerHtmlLink } : {}),
     ...(input.providerJoinUrl ? { providerJoinUrl: input.providerJoinUrl } : {}),
   };
@@ -1781,7 +1801,7 @@ export function scheduleMeeting(
     title: input.approvalRequired
       ? "Meeting approval requested"
       : "Meeting scheduled",
-    summary: `${externalGuest?.name ?? "Channel participants"} · ${input.title.trim()}`,
+    summary: `${externalGuest?.name ?? (input.attendees.length === 0 ? "Just you" : "Channel participants")} · ${input.title.trim()}`,
     ...(bookingRequestId ? { bookingRequestId } : {}),
     redacted: false,
   };
@@ -2319,6 +2339,7 @@ const isConnectedCalendar = (value: unknown): value is ConnectedCalendar => {
     typeof value.conflicts === "boolean" &&
     typeof value.writable === "boolean" &&
     typeof value.destination === "boolean" &&
+    (value.primary === undefined || typeof value.primary === "boolean") &&
     isOneOf(value.freshness, ["live", "delayed", "stale"] as const) &&
     (value.unreadCount === undefined || isNonNegativeInteger(value.unreadCount)) &&
     value.writable === (value.role === "owner" || value.role === "writer") &&
@@ -2347,7 +2368,8 @@ const isCalendarAttendee = (value: unknown): value is CalendarAttendee => {
     hasName(typeof value.name === "string" ? value.name : "") &&
     typeof value.email === "string" &&
     isOneOf(value.kind, ["tap", "external"] as const) &&
-    typeof value.required === "boolean"
+    typeof value.required === "boolean" &&
+    isAttendeeResponse(value)
   );
 };
 
@@ -2684,6 +2706,7 @@ export function isCalendarState(value: unknown): value is CalendarState {
   if (!isRecord(value)) return false;
   if (
     value.schemaVersion !== 1 ||
+    (value.activityJournal !== undefined && !isCalendarActivityJournal(value.activityJournal)) ||
     !isOneOf(value.activeView, ["day", "work-week", "week", "month", "agenda", "team"] as const) ||
     typeof value.activeAvailabilityId !== "string" ||
     !Array.isArray(value.accounts) ||

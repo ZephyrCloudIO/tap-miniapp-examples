@@ -20,6 +20,43 @@ and Google Meet provisioning now run in that always-on boundary. Reminder
 delivery gateways and public-page hosting remain service responsibilities beyond
 the mounted surface.
 
+## Shared booking links
+
+Open **Booking pages → Shared bookings** in the TAP workspace. Each required
+host connects Google Calendar, chooses an Availability Schedule, and enables
+shared bookings from their own account. Their public name and provider-verified
+Google identity become available to workspace booking managers.
+
+A workspace owner/admin can claim a globally unique Profile Namespace, add a
+shared meeting, select every required host, choose its organizer and duration,
+and publish. For example, claiming `zephyr` and publishing `zack-and-vern`
+would produce `https://cal.with-tap.ai/zephyr/zack-and-vern`. This is an example;
+installing the code does not claim that name or enroll either person.
+
+The gateway offers only times that satisfy every host's schedule, time zone,
+notice, buffers, date overrides, live Google conflicts, and existing TAP
+reservations. It creates one organizer event and invites the other hosts plus
+the guest. Both Google Meet and the organizer's connected Zoom account are
+supported. Approval-required meetings appear in the organizer's shared-booking
+panel; approval rechecks every host. Guest rescheduling and cancellation update
+the same meeting and reservations.
+
+The workspace owns the shared profile. Any authorized workspace manager can
+edit it; leaving the creator's account does not transfer calendar credentials.
+Profile and published meeting names stay stable. Add a new meeting to use a new
+URL. Save shared availability and refresh the links after changing a host's
+Availability Schedule or Conflict Calendars. Withdrawing a host immediately
+prevents new bookings; existing meetings remain scheduled.
+
+This release supports one guest booking up to ten required Google-connected
+hosts. Seat-capacity classes, round robin, external attendees' unconnected
+calendars, and collective Microsoft availability are outside this implementation.
+In-app individual availability validation also respects reservations created by
+shared links; arbitrary attendee emails do not grant calendar access.
+
+The additive migration, authorization binding, and deployment order are in the
+[gateway README](../tap-calendar-gateway/README.md#workspace-bookings).
+
 ## Run locally
 
 From the repository root, start the local D1 gateway in one terminal:
@@ -104,6 +141,21 @@ directly testable—for example:
 http://localhost:3000/alex-morgan/30min
 ```
 
+## Schedule from the calendar
+
+Click an empty half-hour slot in Day, Work week, or Week to create an event at
+that local date and time. Clicking an empty Month cell starts an event at 9 AM
+on that date. Existing events still open their details. Keyboard users can Tab
+to a day's slot, use Up/Down (or Home/End) to choose a time, and press Enter or
+Space to open the editor.
+
+The workspace editor accepts events with no guests, marks them busy, and defaults
+to **No video call**. Enter a title and save to block your own calendar; add guests
+and optionally Google Meet or connected Zoom for a meeting. Every guest row can
+be removed, including the last one. Personal events use the same live conflict
+validation, Google provider commit, and durable recovery as meetings. The channel
+scheduler continues to require an explicit attendee.
+
 ## Install in TAP
 
 Build the production host-installable package from the repository root. This
@@ -135,6 +187,18 @@ In TAP, open **Settings → Miniapps → Custom → Local directory** and select
 Finder-visible `apps/tap-calendar/dist` directory. Then choose
 **Discover packages** and install TAP Calendar for the workspace.
 
+After `publish:production` uploads the release to Zephyr, register it in TAP's
+Marketplace: open **Miniapps → Publish**, paste the immutable deployment root,
+select the existing **TAP Calendar** package, and choose **Verify and publish to
+Marketplace**. Then open **Browse**, find Calendar, and choose **Update manually**
+to apply the new version to the existing installation. Verify its version in
+**Installed → TAP Calendar**. CDN publication alone does not update the listing
+or installed app.
+
+The package build checks canonical OAuth metadata and requires all eight hosted
+MCP input schemas to be present in the signed artifact inventory. The gateway
+regression test compares those schemas with the live Zod definitions.
+
 ## Validate
 
 ```sh
@@ -163,7 +227,7 @@ matrix includes seeded positive, empty-first-run, and storage-denied profiles.
 - `workflow-host` exposes `./workflow-host/catalog` and embeds the referenced
   JSON Schema assets.
 
-Each MCP entry exports only `mcpServer`. The general server exposes
+Each package-runtime MCP entry exports only `mcpServer`. The general server exposes
 `list_events`, `find_available_slots`, and `draft_meeting`; the separate
 least-privilege server exposes only `summarize_day`. Every tool requires a trusted host
 user and reads only that user's
@@ -180,11 +244,23 @@ local date. It returns no event, attendee, calendar, or linked-TAP identifiers,
 and suppresses totals when cache coverage is partial, stale, or unverified;
 Calendar time is not proof of attendance or productive activity. A daily-briefing
 consumer should be granted only the aggregate server. `draft_meeting` reports advisory cache conflicts and
-staleness, but still returns only a draft: all scheduling paths require a final
-live gateway commit and explicit human confirmation before anything is booked.
-The server stays in the package-runtime boundary; it is not configured as a
-remote MCP server until TAP can supply an authenticated production workspace
-identity for that boundary.
+staleness, but still returns only a draft.
+
+The separate `calendar-live-tools` contribution connects to the gateway's
+OAuth-protected `/mcp/live` endpoint. It exposes live calendar/event reads,
+individual event details, conflict-based slot finding, direct event creation,
+Event Type definitions, date-filtered calendar analytics, and lifetime Event
+Type funnel analytics. Direct creation requires a reusable `calendar.write`
+account grant and the host's selected-specialist `calendar.manage` permission;
+it does not require a new human approval for every event. The existing provider
+commit engine performs live conflicts, destination authorization, idempotent
+insertion, and recovery. Provider credentials remain in the gateway.
+
+In Automations, account owners review a short-lived connection code, choose
+read/analytics/write scopes, and can revoke access. Calendar synchronizes only
+Event Type configuration and Conflict Calendar IDs; live tools do not depend
+on the mounted UI's event mirror. See [live MCP setup and semantics](../../docs/calendar-live-mcp.md)
+for deployment requirements, analytics definitions, and validation limits.
 
 The workflow catalog exports the requested camel-case functions
 `normalizeBookingCreated`, `normalizeBookingCancelled`, `draftWorkBlock`, and
@@ -194,6 +270,77 @@ identifier grammar. All four nodes are pure, deterministic transforms. They do
 not advertise native or durable triggers.
 
 ## Public booking contract
+
+### Booking analytics
+
+The Booking Pages dashboard reads authenticated, owner-scoped totals from
+`GET /v2/publications/analytics`. It refreshes on open, every minute while visible
+and online, on focus/reconnection, and on **Refresh analytics**. The response
+includes its generation time and traffic/conversion coverage dates. Initial
+failures display unavailable counters; later failures retain the last successful
+snapshot with its timestamp and an error. Organizer preview counts never replace
+public totals. Server totals include archived/unpublished pages even if a local
+draft is missing.
+
+- **Views:** one per anonymous booking-page visit. Reloading creates a new visit;
+  returning to earlier steps or refreshing a changed publication does not.
+- **Starts:** visits that reached the guest-details form after selecting a slot.
+  Slot views count visits that reached the available-times list.
+- **Confirmed bookings:** accepted public bookings whose current status is
+  confirmed, including past meetings, excluding cancelled/pending/declined/expired
+  bookings. This is not an upcoming-meetings count.
+- **Lifetime confirmations:** bookings confirmed at least once, including later
+  cancellations. Approval history is durable independently of provider/email
+  records. Cancellations, awaiting approval, declines, and expirations are separate.
+- **Accepted requests:** committed public booking attempts, including pending
+  approval and later terminal outcomes. Failed/uncertain provider attempts are
+  excluded. Retries and reschedules never create another accepted request.
+- **Conversion:** distinct visits that produced a confirmed booking divided by
+  visits within the same attribution coverage period. A visit converts at most
+  once; later cancellation does not erase a historical conversion. Historical
+  bookings without visit attribution are excluded from both sides of conversion.
+
+The public app uses an in-memory UUID, no cookies or fingerprinting. Transient
+tracking failures retry with that same UUID, and reconnect/visibility changes
+retry undelivered stages. Verified booking submissions store visit attribution
+atomically and repair missing earlier stages. Legacy clients can still book
+without a visit ID. Pre-tracking traffic cannot be reconstructed from bookings
+and is explicitly labelled unavailable. The v1 endpoint preserves lifetime
+confirmation semantics for older organizer packages during upgrades.
+
+#### Production rollout
+
+Run all three applications' tests/typechecks and build their production artifacts.
+The current release needs all migrations through 0022, including 0016 (Zoom),
+0017 (traffic), 0018 (collective bookings), both 0019 migrations (analytics v2
+and booking details), 0020 (live MCP), 0021 (attendee responses), and 0022 (committed activity). The production
+gateway also requires its dedicated `OAUTH_KV` binding. For an existing deployment
+through 0021, deploy the gateway before applying 0022, then publish the organizer
+package. See [Calendar activity](../../docs/calendar-activity.md) for the upgrade
+order, the eight activity types, and coverage limits. Deploy the public app before
+publishing the organizer package:
+
+```sh
+pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
+CLOUDFLARE_ACCOUNT_ID=b848db7e2edd56dee8ffcc39c18612a5 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
+pnpm --filter @tap-examples/tap-calendar-public deploy:production
+pnpm --filter @tap-examples/tap-calendar build:miniapp:production
+pnpm --filter @tap-examples/tap-calendar publish:production
+```
+
+`publish:production` refuses to publish until the live gateway readiness endpoint
+confirms v2 and its migration, the served public app contains tracking, and the
+built organizer package contains v2 and the production gateway. It makes no
+analytics writes. `test:release` tests the guard. Upgrade the existing marketplace
+installation to the published release; preserve its package and installation
+identity so organizer settings and booking profiles remain intact.
+
+Verify that the installed organizer displays current and lifetime counts matching
+the server ledger, then exercise a public visit through the details step. Do not
+send a real booking/email merely to test analytics; the gateway integration suite
+covers confirmed, pending, approved, cancelled, and retried provider outcomes.
+
+### Public URLs
 
 Public URLs use:
 
@@ -211,11 +358,10 @@ publication attempts cannot partially change live routing.
 
 The public page resolves availability from the Event Type's explicit
 Availability Schedule, not from whichever schedule is currently marked as the
-workspace default. Anonymous page resolution, authoritative slot APIs, public
-booking commits, signed management links, durable funnel analytics, Cloudflare
-Turnstile verification, WAF/rate-limit policy, and production deployment at
-`cal.with-tap.ai` remain later gateway phases; a server publication receipt does
-not yet make the guest route deployable.
+workspace default. The gateway serves anonymous page resolution, authoritative
+slots, public booking commits, signed management links, transactional email,
+and durable booking analytics. The separate public app is hosted at
+`cal.with-tap.ai`; the gateway enforces Turnstile and request rate limits.
 
 See [REQUIREMENTS.md](./REQUIREMENTS.md) for the complete one-release scope and
 the explicit host/service boundaries.

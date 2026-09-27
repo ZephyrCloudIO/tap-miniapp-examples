@@ -1,5 +1,10 @@
 import {
   isSafeMailIdentifier,
+  MAXIMUM_THREAD_RESPONSE_BYTES,
+  TARGET_THREAD_PAGE_BYTES,
+  MAXIMUM_THREAD_PAGE_MESSAGES,
+  MAXIMUM_THREAD_CURSOR_LENGTH,
+  serializedUtf8Bytes,
   type MailCommand,
 } from '@tap-examples/tap-email-protocol';
 import {
@@ -37,17 +42,26 @@ interface AccountRow {
   readonly updated_at: string;
   readonly backfill_page_token: string | null;
   readonly recipient_history_backfill_pending: number;
+  readonly sync_generation: string | null;
+  readonly sync_generation_started_at: string | null;
 }
 
 export interface MailboxPageOptions {
   readonly cursor?: string;
   readonly limit?: number;
+  readonly afterRevision?: number;
 }
 
 export type MailboxPageResult = Readonly<Record<string, unknown>> & {
   readonly mailbox: Readonly<Record<string, unknown>>;
   readonly pageInfo: {
     readonly nextCursor: string | null;
+    readonly revision: number;
+  };
+  readonly changes?: {
+    readonly nextRevision: number;
+    readonly hasMore: boolean;
+    readonly deletedThreads: readonly { readonly accountId: string; readonly threadId: string }[];
   };
 };
 
@@ -143,6 +157,7 @@ interface ParsedMessage {
   readonly labelIds: readonly string[];
   readonly snippet: string;
   readonly automated: boolean;
+  readonly bodyState: 'metadata' | 'ready';
 }
 
 interface ParsedThread {
@@ -165,7 +180,6 @@ interface ParsedThread {
 
 const maximumMessageBodyBytes = 500_000;
 const maximumAttachmentsPerMessage = 100;
-const maximumAttachmentsPerThread = 100;
 // D1 currently limits a single bound TEXT/BLOB value to 2 MB and a statement
 // to 100 bound parameters. Keep JSON payloads below that ceiling and reserve
 // the first four parameters for the attachment/message tuple plus updated_at.
@@ -466,9 +480,8 @@ function bodyPart(
     try {
       return decodeBase64Url(body.data, maximumMessageBodyBytes);
     } catch {
-      // Never return a syntactically corrupted partial MIME body. A bounded
-      // client can fall back to the other alternative or metadata instead.
-      return null;
+      throw new GoogleApiError(413, 'message_body_unavailable',
+        'This message body is too large or malformed. Open it in your mail provider.');
     }
   }
   const parts = Array.isArray(payload.parts) ? payload.parts : [];
@@ -531,9 +544,18 @@ async function parseMessage(
       ? new Date(dateHeader).toISOString()
       : new Date(0).toISOString();
   const listUnsubscribe = headerValue(payload, 'List-Unsubscribe');
-  const body = messageBody(payload);
+  let body: ReturnType<typeof messageBody>;
+  let bodyState: 'metadata' | 'ready' = message.bodyPending === true ? 'metadata' : 'ready';
+  try {
+    body = messageBody(payload);
+  } catch (error) {
+    if (!(error instanceof GoogleApiError)) throw error;
+    body = { bodyText: '', bodyHtml: null };
+    bodyState = 'metadata';
+  }
   const attachments = await messageAttachments(message.id, payload, maximumAttachments);
   return {
+    bodyState,
     messageId: message.id,
     internetMessageId: headerValue(payload, 'Message-ID') || null,
     from,
@@ -554,7 +576,7 @@ async function parseThread(value: unknown, accountAddress: string): Promise<Pars
   const thread = asRecord(value);
   if (!thread || typeof thread.id !== 'string') return null;
   const rawMessages = Array.isArray(thread.messages) ? thread.messages : [];
-  // Collect metadata before the reader's message-retention limit is applied.
+  // Index sent headers independently of the reader's body hydration window.
   const sentRecipients = new Map<string, SentRecipient>();
   for (const value of rawMessages) {
     const message = asRecord(value);
@@ -584,14 +606,13 @@ async function parseThread(value: unknown, accountAddress: string): Promise<Pars
         sortTime: Number.isFinite(internalDate) ? internalDate : Number.NEGATIVE_INFINITY,
       };
     })
-    .toSorted((left, right) => left.sortTime - right.sortTime || left.index - right.index)
-    .slice(-20);
-  let remainingAttachments = maximumAttachmentsPerThread;
+    .toSorted((left, right) => left.sortTime - right.sortTime || left.index - right.index);
+  const seenMessageIds = new Set<string>();
   const parsedNewestFirst: ParsedMessage[] = [];
   for (const raw of retainedRawMessages.toReversed()) {
-    const parsed = await parseMessage(raw.message, remainingAttachments);
-    if (!parsed) continue;
-    remainingAttachments -= parsed.attachments.length;
+    const parsed = await parseMessage(raw.message, maximumAttachmentsPerMessage);
+    if (!parsed || seenMessageIds.has(parsed.messageId)) continue;
+    seenMessageIds.add(parsed.messageId);
     parsedNewestFirst.push(parsed);
   }
   const parsedMessages = parsedNewestFirst
@@ -701,18 +722,20 @@ async function recoverOversizedThread(
   logOversizedResponse(scope, threadId);
   const metadata = await googleJson(accessToken, metadataThreadPath(threadId));
   const messages = Array.isArray(metadata.messages)
-    ? metadata.messages.slice(-fallbackMessageLimit)
+    ? metadata.messages
     : [];
+  const newestIds = new Set(messages.slice(-fallbackMessageLimit).map(value => asRecord(value)?.id));
   const hydrated = await mapConcurrent(messages, 5, async value => {
     const message = asRecord(value);
     const messageId = typeof message?.id === 'string' ? message.id : null;
     if (!messageId) return value;
+    if (!newestIds.has(messageId)) return { ...message, bodyPending: true };
     try {
       return await googleJson(accessToken, fullMessagePath(messageId));
     } catch (error) {
       if (isOversizedGoogleResponse(error)) {
         logOversizedResponse(scope, threadId, messageId);
-        return value;
+        return { ...message, bodyPending: true };
       }
       if (error instanceof GoogleApiError && error.status === 404) return null;
       throw error;
@@ -735,6 +758,8 @@ async function persistThread(
   thread: ParsedThread,
   accountAddress: string,
   now: string,
+  syncGeneration: string | null = null,
+  contentState: 'metadata' | 'full' = 'full',
 ): Promise<void> {
   const sealedBodies = await Promise.all(
     thread.messages.map(message =>
@@ -767,6 +792,7 @@ async function persistThread(
     bodyTextCiphertext: sealedBodies[ordinal]!,
     bodyHtmlCiphertext: sealedHtmlBodies[ordinal]!,
     ordinal,
+    bodyState: contentState === 'metadata' ? 'metadata' : message.bodyState,
   })));
   const attachmentChunks = bulkJsonChunks(attachments.map(({
     messageId,
@@ -788,8 +814,9 @@ async function persistThread(
       `INSERT INTO mail_threads
          (profile_id, account_id, thread_id, history_id, subject, snippet,
           participants_json, received_at, unread, starred, important,
-          in_inbox, needs_response, waiting_on_others, label_ids_json, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          in_inbox, needs_response, waiting_on_others, label_ids_json, updated_at,
+          seen_sync_generation, content_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(profile_id, account_id, thread_id) DO UPDATE SET
          history_id = excluded.history_id, subject = excluded.subject,
          snippet = excluded.snippet, participants_json = excluded.participants_json,
@@ -797,7 +824,12 @@ async function persistThread(
          starred = excluded.starred, important = excluded.important,
          in_inbox = excluded.in_inbox, needs_response = excluded.needs_response,
          waiting_on_others = excluded.waiting_on_others,
-         label_ids_json = excluded.label_ids_json, updated_at = excluded.updated_at`,
+         label_ids_json = excluded.label_ids_json, updated_at = excluded.updated_at,
+         seen_sync_generation = COALESCE(
+           excluded.seen_sync_generation,
+           mail_threads.seen_sync_generation
+         ),
+         content_state = excluded.content_state`,
     ).bind(
       scope.profileId,
       scope.accountId,
@@ -815,6 +847,8 @@ async function persistThread(
       Number(thread.waitingOnOthers),
       JSON.stringify(thread.labelIds),
       now,
+      syncGeneration,
+      contentState,
     ),
     env.DB.prepare(
       `DELETE FROM mail_messages
@@ -828,7 +862,7 @@ async function persistThread(
          INSERT INTO mail_messages
            (profile_id, account_id, thread_id, message_id, internet_message_id,
             sender_json, recipients_json, sent_at, body_text_ciphertext,
-            body_html_ciphertext, ordinal, updated_at)
+            body_html_ciphertext, ordinal, updated_at, body_state)
          SELECT ?1, ?2, ?3,
                 json_extract(value, '$.messageId'),
                 json_extract(value, '$.internetMessageId'),
@@ -838,7 +872,8 @@ async function persistThread(
                 json_extract(value, '$.bodyTextCiphertext'),
                 json_extract(value, '$.bodyHtmlCiphertext'),
                 CAST(json_extract(value, '$.ordinal') AS INTEGER),
-                ?4
+                ?4,
+                json_extract(value, '$.bodyState')
            FROM input`,
       ).bind(
         scope.profileId,
@@ -914,13 +949,14 @@ async function fetchAndPersistThreads(
   accountAddress: string,
   threadIds: readonly string[],
   now: string,
+  syncGeneration: string | null = null,
+  contentState: 'metadata' | 'full' = 'full',
 ): Promise<readonly ParsedThread[]> {
   const resolved = await mapConcurrent(threadIds, 5, async threadId => {
     try {
-      const raw = await googleJson(
-        accessToken,
-        `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=full`,
-      );
+      const raw = await googleJson(accessToken, contentState === 'metadata'
+        ? metadataThreadPath(threadId)
+        : `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=full`);
       return parseThread(raw, accountAddress);
     } catch (error) {
       if (isOversizedGoogleResponse(error)) {
@@ -928,12 +964,17 @@ async function fetchAndPersistThreads(
         return parseThread(recovered, accountAddress);
       }
       if (error instanceof GoogleApiError && error.status === 404) {
-        await env.DB.prepare(
-          `UPDATE mail_threads SET in_inbox = 0, updated_at = ?
-            WHERE profile_id = ? AND account_id = ? AND thread_id = ?`,
-        )
-          .bind(now, scope.profileId, scope.accountId, threadId)
-          .run();
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE tap_reminders SET state = 'cancelled', updated_at = ?
+              WHERE profile_id = ? AND account_id = ? AND thread_id = ?
+                AND state IN ('pending', 'due')`,
+          ).bind(now, scope.profileId, scope.accountId, threadId),
+          env.DB.prepare(
+            `DELETE FROM mail_threads
+              WHERE profile_id = ? AND account_id = ? AND thread_id = ?`,
+          ).bind(scope.profileId, scope.accountId, threadId),
+        ]);
         return null;
       }
       throw error;
@@ -941,7 +982,15 @@ async function fetchAndPersistThreads(
   });
   const parsed = resolved.filter((item): item is ParsedThread => item !== null);
   for (const thread of parsed) {
-    await persistThread(env, scope, thread, accountAddress, now);
+    await persistThread(
+      env,
+      scope,
+      thread,
+      accountAddress,
+      now,
+      syncGeneration,
+      contentState,
+    );
   }
   return parsed;
 }
@@ -951,7 +1000,8 @@ async function accountRow(env: Env, scope: ProviderScope): Promise<AccountRow> {
     `SELECT profile_id, account_id, email_address, display_name, accent,
             coverage_state, newest_history_id, backfill_complete_through,
             unresolved_failures, updated_at, backfill_page_token,
-            recipient_history_backfill_pending
+            recipient_history_backfill_pending,
+            sync_generation, sync_generation_started_at
        FROM google_accounts
       WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'`,
   )
@@ -971,7 +1021,19 @@ async function newestPage(
   pageToken: string | undefined,
   reset: boolean,
   now: Date,
+  requestedSyncGeneration?: string,
 ): Promise<void> {
+  const syncGeneration = reset
+    ? requestedSyncGeneration ?? `mailbox_${crypto.randomUUID()}`
+    : requestedSyncGeneration ?? row.sync_generation;
+  if (
+    !reset &&
+    requestedSyncGeneration &&
+    row.sync_generation &&
+    requestedSyncGeneration !== row.sync_generation
+  ) {
+    return;
+  }
   const parameters = new URLSearchParams({
     includeSpamTrash: 'true',
     maxResults: String(gmailThreadPageSize),
@@ -991,24 +1053,11 @@ async function newestPage(
     row.email_address!,
     threadIds,
     now.toISOString(),
+    syncGeneration,
+    pageToken ? 'metadata' : 'full',
   );
   const nextPageToken = typeof listed.nextPageToken === 'string' ? listed.nextPageToken : null;
-  // The first newest-first page is only an exhaustive mailbox view when Gmail
-  // does not return a continuation token. Preserve older cached rows during a
-  // paginated backfill so a fast refresh never makes known mail disappear.
-  if (reset && !nextPageToken) {
-    const currentThreadIds = parsed.map(thread => thread.threadId);
-    const exclusions = currentThreadIds.length > 0
-      ? ` AND thread_id NOT IN (${currentThreadIds.map(() => '?').join(', ')})`
-      : '';
-    await env.DB.prepare(
-      `UPDATE mail_threads SET in_inbox = 0, updated_at = ?
-        WHERE profile_id = ? AND account_id = ?${exclusions}`,
-    )
-      .bind(now.toISOString(), scope.profileId, scope.accountId, ...currentThreadIds)
-      .run();
-  }
-  let oldest = row.backfill_complete_through;
+  let oldest = reset ? null : row.backfill_complete_through;
   for (const thread of parsed) {
     if (!oldest || thread.receivedAt < oldest) oldest = thread.receivedAt;
   }
@@ -1016,30 +1065,101 @@ async function newestPage(
     profile && typeof profile.historyId === 'string'
       ? profile.historyId
       : row.newest_history_id;
-  await env.DB.prepare(
+  const timestamp = now.toISOString();
+  const accountUpdate = env.DB.prepare(
     `UPDATE google_accounts
         SET coverage_state = ?, newest_history_id = ?,
             backfill_complete_through = ?, backfill_page_token = ?,
             recipient_history_backfill_pending = 0,
-            unresolved_failures = 0, updated_at = ?
-      WHERE profile_id = ? AND account_id = ?`,
-  )
-    .bind(
-      nextPageToken ? 'backfilling' : 'current',
-      historyId,
-      oldest,
-      nextPageToken,
-      now.toISOString(),
-      scope.profileId,
-      scope.accountId,
-    )
-    .run();
+            sync_generation = ?,
+            sync_generation_started_at = CASE
+              WHEN ? THEN ? ELSE sync_generation_started_at
+            END,
+            last_full_sync_completed_at = CASE
+              WHEN ? THEN ? ELSE last_full_sync_completed_at
+            END,
+            updated_at = ?
+      WHERE profile_id = ? AND account_id = ?
+        AND (? OR sync_generation IS NULL OR sync_generation = ?)`,
+  ).bind(
+    nextPageToken ? 'backfilling' : 'current',
+    historyId,
+    oldest,
+    nextPageToken,
+    syncGeneration,
+    Number(reset),
+    timestamp,
+    Number(nextPageToken === null),
+    timestamp,
+    timestamp,
+    scope.profileId,
+    scope.accountId,
+    Number(reset),
+    syncGeneration,
+  );
+  if (nextPageToken || !syncGeneration) {
+    await accountUpdate.run();
+  } else {
+    await env.DB.batch([
+      accountUpdate,
+      env.DB.prepare(
+        `UPDATE tap_reminders SET state = 'cancelled', updated_at = ?
+          WHERE profile_id = ? AND account_id = ?
+            AND state IN ('pending', 'due')
+            AND thread_id IN (
+              SELECT thread_id FROM mail_threads
+               WHERE profile_id = ? AND account_id = ?
+                 AND COALESCE(seen_sync_generation, '') != ?
+                 AND updated_at <= COALESCE(
+                   (SELECT sync_generation_started_at FROM google_accounts
+                     WHERE profile_id = ? AND account_id = ?),
+                   ?
+                 )
+            )`,
+      ).bind(
+        timestamp,
+        scope.profileId,
+        scope.accountId,
+        scope.profileId,
+        scope.accountId,
+        syncGeneration,
+        scope.profileId,
+        scope.accountId,
+        timestamp,
+      ),
+      env.DB.prepare(
+        `DELETE FROM mail_threads
+          WHERE profile_id = ? AND account_id = ?
+            AND COALESCE(seen_sync_generation, '') != ?
+            AND updated_at <= COALESCE(
+              (SELECT sync_generation_started_at FROM google_accounts
+                WHERE profile_id = ? AND account_id = ?),
+              ?
+            )
+            AND EXISTS (
+              SELECT 1 FROM google_accounts
+               WHERE profile_id = ? AND account_id = ? AND sync_generation = ?
+            )`,
+      ).bind(
+        scope.profileId,
+        scope.accountId,
+        syncGeneration,
+        scope.profileId,
+        scope.accountId,
+        timestamp,
+        scope.profileId,
+        scope.accountId,
+        syncGeneration,
+      ),
+    ]);
+  }
   if (nextPageToken) {
     await enqueueSyncEvent(env, {
       profileId: scope.profileId,
       accountId: scope.accountId,
       mode: 'continue',
       pageToken: nextPageToken,
+      ...(syncGeneration ? { syncGeneration } : {}),
     }, now, backfillContinuationDelaySeconds);
   }
 }
@@ -1121,7 +1241,7 @@ async function partialPage(
   await env.DB.prepare(
     `UPDATE google_accounts
         SET coverage_state = 'current', newest_history_id = ?,
-            unresolved_failures = 0, updated_at = ?
+            updated_at = ?
       WHERE profile_id = ? AND account_id = ?`,
   )
     .bind(
@@ -1142,12 +1262,32 @@ export async function syncGoogleMailbox(
   const row = await accountRow(env, scope);
   const accessToken = await accessTokenFor(env, scope, now);
   if (message.mode === 'newest' || row.recipient_history_backfill_pending === 1) {
-    await newestPage(env, scope, row, accessToken, undefined, true, now);
+    await newestPage(
+      env,
+      scope,
+      row,
+      accessToken,
+      undefined,
+      true,
+      now,
+      message.syncGeneration,
+    );
     return;
   }
   if (message.mode === 'continue') {
     const pageToken = message.pageToken ?? row.backfill_page_token;
-    if (pageToken) await newestPage(env, scope, row, accessToken, pageToken, false, now);
+    if (pageToken) {
+      await newestPage(
+        env,
+        scope,
+        row,
+        accessToken,
+        pageToken,
+        false,
+        now,
+        message.syncGeneration,
+      );
+    }
     return;
   }
   const startHistoryId = message.startHistoryId ?? row.newest_history_id;
@@ -1197,44 +1337,42 @@ export async function requestAccountSync(
   now: Date,
 ): Promise<boolean> {
   const account = await env.DB.prepare(
-    `SELECT backfill_page_token
+    `SELECT backfill_page_token, unresolved_failures
        FROM google_accounts
       WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'`,
   )
     .bind(profileId, accountId)
-    .first<{ backfill_page_token: string | null }>();
+    .first<{
+      backfill_page_token: string | null;
+      unresolved_failures: number;
+    }>();
   if (!account) return false;
 
   const threshold = new Date(now.getTime() - 30_000).toISOString();
   const timestamp = now.toISOString();
-  const pageToken = account.backfill_page_token;
-  const updated = pageToken === null
-    ? await env.DB.prepare(
-      `UPDATE google_accounts
-          SET last_sync_requested_at = ?
-        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
-          AND coverage_state != 'backfilling'
-          AND backfill_page_token IS NULL
-          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
-    )
-      .bind(timestamp, profileId, accountId, threshold)
-      .run()
-    : await env.DB.prepare(
-      `UPDATE google_accounts
-          SET last_sync_requested_at = ?, coverage_state = 'backfilling', updated_at = ?
-        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
-          AND coverage_state != 'backfilling'
-          AND backfill_page_token = ?
-          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)`,
-    )
-      .bind(timestamp, timestamp, profileId, accountId, pageToken, threshold)
-      .run();
+  const updated = await env.DB.prepare(
+    `UPDATE google_accounts
+        SET last_sync_requested_at = ?
+      WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
+        AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM provider_events event
+           WHERE event.profile_id = google_accounts.profile_id
+             AND event.account_id = google_accounts.account_id
+             AND event.state IN ('received', 'processing', 'retryable')
+             AND COALESCE(json_extract(event.payload_json, '$.mode'), '') != 'continue'
+        )`,
+  )
+    .bind(timestamp, profileId, accountId, threshold)
+    .run();
   if (Number(updated.meta.changes ?? 0) !== 1) return false;
   await enqueueSyncEvent(
     env,
-    pageToken === null
-      ? { profileId, accountId, mode: 'partial' }
-      : { profileId, accountId, mode: 'continue', pageToken },
+    account.backfill_page_token === null
+      ? account.unresolved_failures > 0
+        ? { profileId, accountId, mode: 'newest' }
+        : { profileId, accountId, mode: 'partial' }
+      : { profileId, accountId, mode: 'partial' },
     now,
   );
   return true;
@@ -1256,6 +1394,8 @@ interface StoredMessageRow {
   readonly sent_at: string;
   readonly body_text_ciphertext: string;
   readonly body_html_ciphertext: string | null;
+  readonly ordinal: number;
+  readonly body_state: 'metadata' | 'ready';
 }
 
 interface StoredAttachmentRow {
@@ -1288,37 +1428,20 @@ async function storedThreadMessages(
   profileId: string,
   accountId: string,
   threadId: string,
+  beforeOrdinal = Number.MAX_SAFE_INTEGER,
 ): Promise<readonly StoredMessageRow[]> {
   const messages = await env.DB.prepare(
     `SELECT message_id, internet_message_id, sender_json, recipients_json,
-            sent_at, body_text_ciphertext, body_html_ciphertext
+            sent_at, body_text_ciphertext, body_html_ciphertext, ordinal, body_state
        FROM mail_messages
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?
-      ORDER BY ordinal
-      LIMIT 20`,
+        AND ordinal < ?
+      ORDER BY ordinal DESC
+      LIMIT ?`,
   )
-    .bind(profileId, accountId, threadId)
+    .bind(profileId, accountId, threadId, beforeOrdinal, MAXIMUM_THREAD_PAGE_MESSAGES + 1)
     .all<StoredMessageRow>();
   return messages.results;
-}
-
-async function storedThreadAttachments(
-  env: Env,
-  profileId: string,
-  accountId: string,
-  threadId: string,
-): Promise<readonly StoredAttachmentRow[]> {
-  const attachments = await env.DB.prepare(
-    `SELECT account_id, thread_id, message_id, resource_id, file_name,
-            mime_type, size_bytes, disposition, content_id, gmail_part_path,
-            gmail_attachment_id_ciphertext
-       FROM mail_attachments
-      WHERE profile_id = ? AND account_id = ? AND thread_id = ?
-      ORDER BY message_id, gmail_part_path`,
-  )
-    .bind(profileId, accountId, threadId)
-    .all<StoredAttachmentRow>();
-  return attachments.results;
 }
 
 async function hydrateLegacyThreadHtml(
@@ -1461,52 +1584,39 @@ export async function mailboxPage(
   const pageSize = mailboxPageSize(options.limit);
   const cursor = mailboxCursor(options.cursor);
   const pageClause = mailboxPageClause(cursor);
-  const accounts = await env.DB.prepare(
-    `SELECT profile_id, account_id, email_address, display_name, accent,
+  const after = options.afterRevision;
+  if (after !== undefined && (!Number.isSafeInteger(after) || after < 0 || options.cursor !== undefined)) {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The change revision is malformed.');
+  }
+  const changeSelection = `SELECT * FROM mailbox_changes
+    WHERE profile_id = ? AND revision > ? ORDER BY revision LIMIT ?`;
+  const selection = after === undefined
+    ? `SELECT t.* FROM mail_threads t WHERE t.profile_id = ? ${pageClause}
+       ORDER BY t.received_at DESC, t.account_id, t.thread_id LIMIT ?`
+    : `SELECT t.* FROM mail_threads t JOIN (${changeSelection}) c
+         ON c.profile_id = t.profile_id AND c.account_id = t.account_id
+        AND c.thread_id = t.thread_id WHERE c.deleted = 0`;
+  const bindings = (limit: number) => after === undefined
+    ? mailboxPageBindings(profileId, cursor, limit)
+    : [profileId, after, limit];
+  // D1 batch is a transaction: keys, previews, tombstones and the watermark
+  // describe the same committed database state, even during provider writes.
+  const results = await env.DB.batch([
+    env.DB.prepare("SELECT COALESCE(MAX(seq), 0) AS revision FROM sqlite_sequence WHERE name = 'mailbox_changes'"),
+    env.DB.prepare(`SELECT profile_id, account_id, email_address, display_name, accent,
             coverage_state, newest_history_id, backfill_complete_through,
             unresolved_failures, updated_at, backfill_page_token
        FROM google_accounts
       WHERE profile_id = ? AND connection_state != 'revoked'
-      ORDER BY created_at`,
-  )
-    .bind(profileId)
-    .all<AccountRow>();
-  const threadResults = await env.DB.prepare(
-    `SELECT t.profile_id, t.account_id, t.thread_id, t.history_id, t.subject,
-            t.snippet, t.participants_json, t.received_at, t.unread, t.starred,
-            t.important, t.in_inbox, t.needs_response, t.waiting_on_others,
-            t.label_ids_json
-       FROM mail_threads t
-      WHERE t.profile_id = ?
-        ${pageClause}
-      ORDER BY t.received_at DESC, t.account_id, t.thread_id
-      LIMIT ?`,
-  )
-    .bind(...mailboxPageBindings(profileId, cursor, pageSize + 1))
-    .all<MailboxThreadRow>();
-  const threads = threadResults.results.slice(0, pageSize);
-  const lastThread = threads.at(-1);
-  const nextCursor = threadResults.results.length > pageSize && lastThread
-    ? encodedMailboxCursor({
-        v: 1,
-        receivedAt: lastThread.received_at,
-        accountId: lastThread.account_id,
-        threadId: lastThread.thread_id,
-      })
-    : null;
-  const [messages, attachments, reminders] = await Promise.all([
+      ORDER BY created_at`).bind(profileId),
+    env.DB.prepare(`WITH selected_threads AS (${selection}) SELECT t.*
+      FROM selected_threads t`).bind(...bindings(after === undefined ? pageSize + 1 : pageSize)),
     env.DB.prepare(
       `WITH selected_threads AS (
-         SELECT t.profile_id, t.account_id, t.thread_id
-           FROM mail_threads t
-          WHERE t.profile_id = ?
-            ${pageClause}
-          ORDER BY t.received_at DESC, t.account_id, t.thread_id
-          LIMIT ?
+         ${selection}
        )
        SELECT m.account_id, m.thread_id, m.message_id, m.internet_message_id,
-              m.sender_json, m.recipients_json, m.sent_at,
-              m.body_text_ciphertext, m.ordinal
+              m.sender_json, m.recipients_json, m.sent_at, m.ordinal
          FROM mail_messages m
          JOIN selected_threads t
            ON t.profile_id = m.profile_id AND t.account_id = m.account_id
@@ -1518,25 +1628,10 @@ export async function mailboxPage(
                AND last_message.thread_id = m.thread_id
           )
         ORDER BY m.account_id, m.thread_id, m.ordinal`,
-    ).bind(...mailboxPageBindings(profileId, cursor, pageSize)).all<{
-      account_id: string;
-      thread_id: string;
-      message_id: string;
-      internet_message_id: string | null;
-      sender_json: string;
-      recipients_json: string;
-      sent_at: string;
-      body_text_ciphertext: string;
-      ordinal: number;
-    }>(),
+    ).bind(...bindings(pageSize)),
     env.DB.prepare(
       `WITH selected_threads AS (
-         SELECT t.profile_id, t.account_id, t.thread_id
-           FROM mail_threads t
-          WHERE t.profile_id = ?
-            ${pageClause}
-          ORDER BY t.received_at DESC, t.account_id, t.thread_id
-          LIMIT ?
+         ${selection}
        ), latest_messages AS (
          SELECT m.profile_id, m.account_id, m.thread_id, m.message_id
            FROM mail_messages m
@@ -1558,29 +1653,49 @@ export async function mailboxPage(
            ON m.profile_id = a.profile_id AND m.account_id = a.account_id
           AND m.thread_id = a.thread_id AND m.message_id = a.message_id
         ORDER BY a.account_id, a.thread_id, a.message_id, a.gmail_part_path`,
-    ).bind(...mailboxPageBindings(profileId, cursor, pageSize)).all<StoredAttachmentRow>(),
+    ).bind(...bindings(pageSize)),
     env.DB.prepare(
-      `SELECT account_id, reminder_id, thread_id, due_at, condition, created_at
-         FROM tap_reminders
-        WHERE profile_id = ? AND state IN ('pending', 'due')`,
-    ).bind(profileId).all<{
-      account_id: string;
-      reminder_id: string;
-      thread_id: string;
-      due_at: string;
-      condition: 'if_no_reply' | 'regardless';
-      created_at: string;
-    }>(),
+      `WITH selected_threads AS (${selection})
+       SELECT r.account_id, r.reminder_id, r.thread_id, r.due_at, r.condition, r.created_at
+         FROM tap_reminders r JOIN selected_threads t
+           ON t.profile_id = r.profile_id AND t.account_id = r.account_id AND t.thread_id = r.thread_id
+        WHERE r.state IN ('pending', 'due')`,
+    ).bind(...bindings(pageSize)),
+    env.DB.prepare(changeSelection).bind(profileId, after ?? 0, after === undefined ? 0 : pageSize + 1),
   ]);
-  const messagePreviews = await Promise.all(
-    messages.results.map(async message => ({
-      message,
-      bodyText: (await openSecret(
-        message.body_text_ciphertext,
-        env.GOOGLE_TOKEN_ENCRYPTION_KEY,
-      )).slice(0, 8_000),
-    })),
-  );
+  const watermark = results[0]! as D1Result<{ revision: number }>;
+  const revision = watermark.results[0]!.revision;
+  if (after !== undefined && after > revision) {
+    throw new MailboxPageError('invalid_mailbox_cursor', 'The change revision is ahead of the mailbox.');
+  }
+  const accounts = results[1]! as D1Result<AccountRow>;
+  const threadResults = results[2]! as D1Result<MailboxThreadRow>;
+  const messages = results[3]! as D1Result<{
+    account_id: string; thread_id: string; message_id: string; internet_message_id: string | null;
+    sender_json: string; recipients_json: string; sent_at: string; ordinal: number;
+  }>;
+  const attachments = results[4]! as D1Result<StoredAttachmentRow>;
+  const reminders = results[5]! as D1Result<{
+    account_id: string; reminder_id: string; thread_id: string; due_at: string;
+    condition: 'if_no_reply' | 'regardless'; created_at: string;
+  }>;
+  const changes = results[6]!.results as Array<{
+    revision: number; account_id: string; thread_id: string; deleted: number;
+  }>;
+  const threads = threadResults.results.slice(0, pageSize);
+  const lastThread = threads.at(-1);
+  const nextCursor = after === undefined && threadResults.results.length > pageSize && lastThread
+    ? encodedMailboxCursor({ v: 1, receivedAt: lastThread.received_at,
+        accountId: lastThread.account_id, threadId: lastThread.thread_id })
+    : null;
+  const hasMore = changes.length > pageSize;
+  const changePage = changes.slice(0, pageSize);
+  // Mailbox pages carry metadata only. Message bodies are fetched through the
+  // exact account/thread endpoint when the user opens a conversation.
+  const messagePreviews = messages.results.map(message => ({
+    message,
+    bodyText: '',
+  }));
   const attachmentsByMessage = new Map<string, EmailAttachmentMetadata[]>();
   for (const attachment of attachments.results) {
     const key = `${attachment.account_id}:${attachment.thread_id}:${attachment.message_id}`;
@@ -1655,20 +1770,26 @@ export async function mailboxPage(
           needsResponse: thread.needs_response === 1,
           waitingOnOthers: thread.waiting_on_others === 1,
           providerResources,
-          status: reminder
-            ? 'reminded'
-            : providerResources.includes('trash')
-              ? 'trashed'
-              : thread.in_inbox === 1
-                ? 'inbox'
-                : 'done',
+          status: providerResources.includes('trash')
+            ? 'trashed'
+            : thread.in_inbox === 1
+              ? 'inbox'
+              : 'done',
           labels,
           messages: messagesByThread.get(key) ?? [],
           reminder,
         };
       }),
     },
-    pageInfo: { nextCursor },
+    pageInfo: { nextCursor, revision },
+    ...(after === undefined ? {} : {
+      changes: {
+        nextRevision: hasMore ? changePage.at(-1)!.revision : revision,
+        hasMore,
+        deletedThreads: changePage.filter(change => change.deleted === 1 && change.thread_id !== '')
+          .map(change => ({ accountId: change.account_id, threadId: change.thread_id })),
+      },
+    }),
   };
 }
 
@@ -1679,58 +1800,207 @@ export async function mailboxSnapshot(
   return (await mailboxPage(env, profileId)).mailbox;
 }
 
+export interface ThreadMessageSnapshot {
+  readonly messageId: string;
+  readonly internetMessageId: string | null;
+  readonly from: Participant;
+  readonly to: readonly Participant[];
+  readonly sentAt: string;
+  readonly bodyText: string;
+  readonly bodyHtml: string | null;
+  readonly attachments: readonly EmailAttachmentMetadata[];
+}
+
+export interface ThreadSnapshot {
+  readonly accountId: string;
+  readonly threadId: string;
+  readonly providerRevision: string;
+  readonly messages: readonly ThreadMessageSnapshot[];
+  readonly pageInfo: { readonly nextCursor: string | null; readonly complete: boolean };
+}
+
+export class ThreadPageError extends Error {
+  constructor(readonly status: 400 | 409 | 413, readonly code: string, message: string) {
+    super(message);
+  }
+}
+
+interface ThreadCursor {
+  readonly profileId: string;
+  readonly accountId: string;
+  readonly threadId: string;
+  readonly revision: string;
+  readonly beforeOrdinal: number;
+}
+
+function readThreadCursor(cursor: string | undefined, scope: Omit<ThreadCursor, 'beforeOrdinal'>): number {
+  if (cursor === undefined) return Number.MAX_SAFE_INTEGER;
+  let value: Readonly<Record<string, unknown>> | null = null;
+  try {
+    if (cursor.length > MAXIMUM_THREAD_CURSOR_LENGTH) throw new Error('cursor length');
+    value = asRecord(JSON.parse(decodeBase64Url(cursor, 3_072)));
+  } catch { /* Report a scoped validation error below. */ }
+  if (!value || value.profileId !== scope.profileId || value.accountId !== scope.accountId ||
+      value.threadId !== scope.threadId || !Number.isSafeInteger(value.beforeOrdinal) ||
+      Number(value.beforeOrdinal) < 0 || typeof value.revision !== 'string') {
+    throw new ThreadPageError(400, 'invalid_thread_cursor', 'Conversation page cursor is invalid.');
+  }
+  if (value.revision !== scope.revision) {
+    throw new ThreadPageError(409, 'thread_changed', 'This conversation changed. Reload its latest messages.');
+  }
+  return Number(value.beforeOrdinal);
+}
+
 export async function threadSnapshot(
   env: Env,
   profileId: string,
   accountId: string,
   threadId: string,
   now = new Date(),
-): Promise<Readonly<Record<string, unknown>> | null> {
-  const thread = await env.DB.prepare(
-    `SELECT thread_id FROM mail_threads
+  cursor?: string,
+): Promise<ThreadSnapshot | null> {
+  const readThread = () => env.DB.prepare(
+    `SELECT thread_id, history_id, content_state FROM mail_threads
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?`,
-  )
-    .bind(profileId, accountId, threadId)
-    .first<{ thread_id: string }>();
+  ).bind(profileId, accountId, threadId)
+    .first<{ thread_id: string; history_id: string; content_state: 'metadata' | 'full' }>();
+  let thread = await readThread();
   if (!thread) return null;
-  let messages = await storedThreadMessages(env, profileId, accountId, threadId);
-  if (messages.some(message => message.body_html_ciphertext === null)) {
+  if (thread.content_state === 'metadata') {
+    const scope = { profileId, accountId };
+    const account = await accountRow(env, scope);
+    const accessToken = await accessTokenFor(env, scope, now);
+    const hydrated = await fetchAndPersistThreads(
+      env, scope, accessToken, account.email_address!, [threadId], now.toISOString(), null, 'full',
+    );
+    if (hydrated.length === 0) return null;
+    thread = await readThread();
+    if (!thread) return null;
+  }
+  let scope = { profileId, accountId, threadId, revision: thread.history_id };
+  let beforeOrdinal = readThreadCursor(cursor, scope);
+  let messages = await storedThreadMessages(env, profileId, accountId, threadId, beforeOrdinal);
+  if (messages.some(message => message.body_html_ciphertext === null && message.body_state === 'ready')) {
     await hydrateLegacyThreadHtml(env, profileId, accountId, threadId, now);
-    messages = await storedThreadMessages(env, profileId, accountId, threadId);
+    thread = await readThread();
+    if (!thread) return null;
+    scope = { ...scope, revision: thread.history_id };
+    beforeOrdinal = readThreadCursor(cursor, scope);
+    messages = await storedThreadMessages(env, profileId, accountId, threadId, beforeOrdinal);
   }
-  const attachments = await storedThreadAttachments(env, profileId, accountId, threadId);
-  const attachmentsByMessage = new Map<string, EmailAttachmentMetadata[]>();
-  for (const attachment of attachments) {
-    const group = attachmentsByMessage.get(attachment.message_id) ?? [];
-    group.push(attachmentMetadata(attachment));
-    attachmentsByMessage.set(attachment.message_id, group);
+  const accepted: ThreadMessageSnapshot[] = [];
+  let nextCursor: string | null = null;
+  const snapshot = () => ({
+    accountId, threadId, providerRevision: scope.revision,
+    messages: accepted.toReversed(),
+    pageInfo: { nextCursor, complete: nextCursor === null },
+  });
+  let token: string | null = null;
+  for (const [index, message] of messages.slice(0, MAXIMUM_THREAD_PAGE_MESSAGES).entries()) {
+    let detail: ThreadMessageSnapshot;
+    if (message.body_state === 'metadata') {
+      token ??= await accessTokenFor(env, { profileId, accountId }, now);
+      const raw = await googleJson(token, fullMessagePath(message.message_id));
+      if (raw.id !== message.message_id || raw.threadId !== threadId) {
+        throw new GoogleApiError(502, 'invalid_message', 'The provider returned a different message. Retry loading this conversation.');
+      }
+      const parsed = await parseMessage(raw, maximumAttachmentsPerMessage);
+      if (!parsed || parsed.bodyState !== 'ready') {
+        throw new GoogleApiError(413, 'message_body_unavailable',
+          'This message body is too large or malformed. Open it in your mail provider.');
+      }
+      detail = {
+        messageId: parsed.messageId, internetMessageId: parsed.internetMessageId,
+        from: parsed.from, to: parsed.to, sentAt: parsed.sentAt,
+        bodyText: parsed.bodyText, bodyHtml: parsed.bodyHtml,
+        attachments: parsed.attachments.map(({ gmailPartPath, gmailAttachmentId, ...metadata }) => metadata),
+      };
+      // Persist attachment locators for downloads of lazily fetched older mail.
+      await persistHydratedMessage(env, profileId, accountId, threadId, scope.revision, parsed, now);
+    } else {
+      const attachments = await storedMessageAttachments(env, profileId, accountId, threadId, message.message_id);
+      detail = {
+        messageId: message.message_id, internetMessageId: message.internet_message_id,
+        from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
+        to: safeJson<readonly Participant[]>(message.recipients_json, []), sentAt: message.sent_at,
+        bodyText: await openSecret(message.body_text_ciphertext, env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+        bodyHtml: message.body_html_ciphertext === null ? null :
+          (await openSecret(message.body_html_ciphertext, env.GOOGLE_TOKEN_ENCRYPTION_KEY)) || null,
+        attachments: attachments.map(attachmentMetadata),
+      };
+    }
+    const previousCursor = nextCursor;
+    accepted.push(detail);
+    nextCursor = index + 1 < messages.length
+      ? encodeBase64Url(JSON.stringify({ ...scope, beforeOrdinal: message.ordinal })) : null;
+    const bytes = serializedUtf8Bytes({ thread: snapshot() });
+    if (bytes > TARGET_THREAD_PAGE_BYTES && accepted.length > 1) {
+      accepted.pop();
+      nextCursor = previousCursor;
+      break;
+    }
+    if (bytes > MAXIMUM_THREAD_RESPONSE_BYTES) {
+      throw new ThreadPageError(413, 'message_too_large', 'This message exceeds the supported response size. Open it in your mail provider.');
+    }
   }
-  const decryptedMessages = await Promise.all(messages.map(async message => {
-    const bodyHtml = message.body_html_ciphertext === null
-      ? null
-      : await openSecret(
-        message.body_html_ciphertext,
-        env.GOOGLE_TOKEN_ENCRYPTION_KEY,
-      );
-    return {
-      messageId: message.message_id,
-      internetMessageId: message.internet_message_id,
-      from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
-      to: safeJson<readonly Participant[]>(message.recipients_json, []),
-      sentAt: message.sent_at,
-      bodyText: await openSecret(
-        message.body_text_ciphertext,
-        env.GOOGLE_TOKEN_ENCRYPTION_KEY,
-      ),
-      bodyHtml: bodyHtml || null,
-      attachments: attachmentsByMessage.get(message.message_id) ?? [],
-    };
-  }));
-  return {
-    accountId,
-    threadId,
-    messages: decryptedMessages,
-  };
+  if ((await readThread())?.history_id !== scope.revision) {
+    throw new ThreadPageError(409, 'thread_changed', 'This conversation changed. Reload its latest messages.');
+  }
+  return snapshot();
+}
+
+async function storedMessageAttachments(
+  env: Env, profileId: string, accountId: string, threadId: string, messageId: string,
+): Promise<readonly StoredAttachmentRow[]> {
+  return (await env.DB.prepare(
+    `SELECT * FROM mail_attachments
+      WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ?
+      ORDER BY gmail_part_path`,
+  ).bind(profileId, accountId, threadId, messageId).all<StoredAttachmentRow>()).results;
+}
+
+async function persistHydratedMessage(
+  env: Env, profileId: string, accountId: string, threadId: string, revision: string,
+  message: ParsedMessage, now: Date,
+): Promise<void> {
+  const [text, html] = await Promise.all([
+    sealSecret(message.bodyText, env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+    sealSecret(message.bodyHtml ?? '', env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+  ]);
+  const guard = `EXISTS (SELECT 1 FROM mail_threads WHERE profile_id = ?
+    AND account_id = ? AND thread_id = ? AND history_id = ?)`;
+  const scope = [profileId, accountId, threadId, revision];
+  const statements = [
+    env.DB.prepare(
+      `UPDATE mail_messages SET body_text_ciphertext = ?, body_html_ciphertext = ?, body_state = 'ready'
+        WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ? AND ${guard}`,
+    ).bind(text, html, profileId, accountId, threadId, message.messageId, ...scope),
+    env.DB.prepare(
+      `DELETE FROM mail_attachments
+        WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ? AND ${guard}`,
+    ).bind(profileId, accountId, threadId, message.messageId, ...scope),
+  ];
+  const attachments = await Promise.all(message.attachments.map(async ({ gmailAttachmentId, ...metadata }) => ({
+    ...metadata,
+    locator: gmailAttachmentId
+      ? await sealSecret(gmailAttachmentId, env.GOOGLE_TOKEN_ENCRYPTION_KEY) : null,
+  })));
+  for (const chunk of bulkJsonChunks(attachments)) {
+    statements.push(env.DB.prepare(
+      `INSERT INTO mail_attachments
+        (profile_id, account_id, thread_id, message_id, resource_id, file_name, mime_type,
+         size_bytes, disposition, content_id, gmail_part_path, gmail_attachment_id_ciphertext, updated_at)
+       SELECT ?1, ?2, ?3, ?4, json_extract(value, '$.resourceId'),
+              json_extract(value, '$.fileName'), json_extract(value, '$.mimeType'),
+              json_extract(value, '$.sizeBytes'), json_extract(value, '$.disposition'),
+              json_extract(value, '$.contentId'), json_extract(value, '$.gmailPartPath'),
+              json_extract(value, '$.locator'), ?7
+         FROM json_each(?5)
+        WHERE EXISTS (SELECT 1 FROM mail_threads WHERE profile_id = ?1
+          AND account_id = ?2 AND thread_id = ?3 AND history_id = ?6)`,
+    ).bind(profileId, accountId, threadId, message.messageId, chunk, revision, now.toISOString()));
+  }
+  await env.DB.batch(statements);
 }
 
 /**
@@ -1930,29 +2200,64 @@ export async function markDueReminders(env: Env, now: string): Promise<void> {
 export async function enqueueScheduledSyncs(env: Env, now: Date): Promise<void> {
   const staleBefore = new Date(now.getTime() - 4 * 60_000).toISOString();
   const accounts = await env.DB.prepare(
-    `SELECT profile_id, account_id
+    `SELECT profile_id, account_id, backfill_page_token, unresolved_failures
       FROM google_accounts
-      WHERE connection_state = 'active' AND coverage_state != 'backfilling'
-        AND updated_at < ?
+      WHERE connection_state = 'active'
+        AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
         AND NOT EXISTS (
           SELECT 1 FROM provider_events event
            WHERE event.profile_id = google_accounts.profile_id
              AND event.account_id = google_accounts.account_id
              AND event.state IN ('received', 'processing', 'retryable')
+             AND COALESCE(json_extract(event.payload_json, '$.mode'), '') != 'continue'
         )
-      ORDER BY updated_at
+      ORDER BY COALESCE(last_sync_requested_at, created_at)
       LIMIT 20`,
   )
     .bind(staleBefore)
-    .all<{ profile_id: string; account_id: string }>();
+    .all<{
+      profile_id: string;
+      account_id: string;
+      backfill_page_token: string | null;
+      unresolved_failures: number;
+    }>();
   if (accounts.results.length === 0) return;
+
+  const timestamp = now.toISOString();
+  const claimed: typeof accounts.results = [];
+  for (const account of accounts.results) {
+    const updated = await env.DB.prepare(
+      `UPDATE google_accounts
+          SET last_sync_requested_at = ?
+        WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'
+          AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM provider_events event
+             WHERE event.profile_id = google_accounts.profile_id
+               AND event.account_id = google_accounts.account_id
+               AND event.state IN ('received', 'processing', 'retryable')
+               AND COALESCE(json_extract(event.payload_json, '$.mode'), '') != 'continue'
+          )`,
+    )
+      .bind(timestamp, account.profile_id, account.account_id, staleBefore)
+      .run();
+    if (Number(updated.meta.changes ?? 0) === 1) claimed.push(account);
+  }
+  if (claimed.length === 0) return;
+
   await enqueueSyncEvents(
     env,
-    accounts.results.map(account => ({
-      profileId: account.profile_id,
-      accountId: account.account_id,
-      mode: 'partial' as const,
-    })),
+    claimed.map(account => account.backfill_page_token === null && account.unresolved_failures > 0
+      ? {
+          profileId: account.profile_id,
+          accountId: account.account_id,
+          mode: 'newest' as const,
+        }
+      : {
+          profileId: account.profile_id,
+          accountId: account.account_id,
+          mode: 'partial' as const,
+        }),
     now,
   );
 }

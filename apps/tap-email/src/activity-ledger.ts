@@ -18,6 +18,7 @@ import {
   localActivityRecordFromReceipt,
   noOpEmailActivityProjection,
   unavailableEmailActivityProjection,
+  type LocalEmailActivityRecord,
   type EmailActivityProjection,
   type EmailActivityProjectionEntry,
 } from './activity';
@@ -32,6 +33,7 @@ export interface LocalEmailActivityLedger {
     command: MailCommand,
     receipt: MailCommandReceipt,
   ): Promise<EmailActivityProjection>;
+  recordView(viewId: string, occurredAt: string, timeSource?: 'ui_observed_at' | 'mcp_observed_at'): Promise<EmailActivityProjection>;
   snapshot(): Promise<EmailActivityProjection>;
   close(): Promise<void>;
 }
@@ -54,6 +56,11 @@ const activityMetadataMigration = {
     id INTEGER PRIMARY KEY CHECK (id = 1),
     tracking_started_at TEXT NOT NULL
   )`,
+} as const;
+
+const activityCoverageMigration = {
+  version: 3,
+  sql: 'ALTER TABLE email_activity_metadata ADD COLUMN activity_schema_version INTEGER NOT NULL DEFAULT 1',
 } as const;
 
 interface ProfileConnection {
@@ -121,12 +128,19 @@ export class ProfileSqliteEmailActivityLedger
         await database.migrate([
           activityEventMigration,
           activityMetadataMigration,
+          activityCoverageMigration,
         ]);
         await database.execute(
           `INSERT OR IGNORE INTO email_activity_metadata (
              id, tracking_started_at
            ) VALUES (?, ?)`,
           [1, new Date(this.now()).toISOString()],
+        );
+        // Views and first-draft counts were introduced in activity schema 2.
+        // Retain old actions, but do not claim complete coverage for these new types before upgrade.
+        await database.execute(
+          'UPDATE email_activity_metadata SET tracking_started_at = ?, activity_schema_version = 2 WHERE activity_schema_version < 2',
+          [new Date(this.now()).toISOString()],
         );
         await database.checkpoint();
         return { storage, database };
@@ -160,6 +174,21 @@ export class ProfileSqliteEmailActivityLedger
         noOpEmailActivityProjection(new Date(this.now()).toISOString()),
       );
     }
+    return this.recordEvent(record);
+  }
+
+  recordView(viewId: string, occurredAt: string, timeSource: 'ui_observed_at' | 'mcp_observed_at' = 'ui_observed_at'): Promise<EmailActivityProjection> {
+    if (!viewId || !Number.isFinite(Date.parse(occurredAt))) {
+      return Promise.reject(new Error('Invalid email view activity.'));
+    }
+    return this.recordEvent({
+      idempotencyKey: `view:${viewId}`,
+      action: 'thread_viewed', outcome: 'applied', occurredAt,
+      timeSource,
+    });
+  }
+
+  private recordEvent(record: LocalEmailActivityRecord): Promise<EmailActivityProjection> {
     return this.enqueue(async () => {
       const { database } = await this.connect();
       await database.transaction(async transaction => {
@@ -177,8 +206,10 @@ export class ProfileSqliteEmailActivityLedger
              occurred_at = excluded.occurred_at,
              time_source = excluded.time_source
            WHERE email_activity_events.action_kind = excluded.action_kind
-             AND email_activity_events.outcome = 'uncertain'
-             AND excluded.outcome IN ('applied', 'failed', 'cancelled')`,
+             AND ((email_activity_events.outcome = 'uncertain'
+               AND excluded.outcome IN ('applied', 'failed', 'cancelled'))
+               OR (excluded.action_kind = 'draft_created'
+                 AND excluded.occurred_at < email_activity_events.occurred_at))`,
           [
             record.idempotencyKey,
             record.action,
@@ -327,6 +358,10 @@ export class UnavailableEmailActivityLedger
     if (localActivityRecordFromReceipt(command, receipt) === null) {
       return noOpEmailActivityProjection(new Date(this.now()).toISOString());
     }
+    return this.snapshot();
+  }
+
+  async recordView(_viewId: string, _occurredAt: string): Promise<EmailActivityProjection> {
     return this.snapshot();
   }
 

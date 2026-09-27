@@ -1,3 +1,17 @@
+import OAuthProvider, { type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import { createMcpHandler } from "agents/mcp/server";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { readCalendarActivity, syncAvailabilityActivity } from "./calendar-activity";
+import { CALENDAR_MCP_SCOPES, type CalendarMcpScope } from "../../tap-calendar/src/mcp-contract";
+import { createCalendarLiveMcpServer, type CalendarLivePort } from "./calendar-live-mcp";
+import { approveCalendarMcpAuthorization, calendarMcpOAuthRoute, reviewCalendarMcpAuthorization } from "./calendar-mcp-oauth";
+import { CalendarMcpError, listMcpGrants, loadMcpConfiguration, requireMcpGrant, revokeMcpGrant, saveMcpConfiguration, type CalendarMcpProps } from "./calendar-mcp-store";
+import type { CollectiveHost } from "./collective-types";
+import {
+  CollectiveBookingError, assertHostsCurrent, bookedHosts, hostBusyIntervals, listHosts,
+  parseWorkspaceDefinition, readHost, readWorkspaceDefinition, reserveHosts, saveHost,
+  storeWorkspaceDefinition, workspaceProfileScope, workspaceProfileSourceId, workspacePublication,
+} from "./collective-store";
 import {
   parsePublicBookingProfilePublication,
   parsePublicBookingProfileUnpublication,
@@ -6,6 +20,7 @@ import {
   unpublishPublicBookingProfile,
 } from "./public-booking-publication";
 import { loadPublicBookingBusyIntervals } from "./public-booking-busy";
+import { PUBLIC_BOOKING_ANALYTICS_SCHEMA, legacyPublicBookingAnalytics, loadPublicBookingAnalytics, parsePublicBookingFunnelEvent, recordPublicBookingFunnelEvent } from "./public-booking-analytics";
 import {
   enforcePublicBookingRateLimit,
   PublicBookingRateLimitError,
@@ -14,6 +29,7 @@ import {
   assertPublicPageStillCurrent,
   availabilityQueryWindow,
   buildPublicAvailability,
+  hostScheduleAllowsInterval,
   parsePublicBookingPagePath,
   parsePublicBookingProfilePath,
   projectPublicBookingProfile,
@@ -27,6 +43,7 @@ import {
 } from "./public-booking-read";
 import {
   OrganizerAuthError,
+  authorizeWorkspacePrincipal,
   resolveOrganizerScope,
   type OrganizerAuthEnv,
 } from "./organizer-auth";
@@ -88,6 +105,21 @@ import {
   PublicTurnstileError,
   verifyPublicBookingTurnstile,
 } from "./public-booking-turnstile";
+import {
+  buildZoomAuthorizationUrl,
+  createZoomMeeting,
+  deleteZoomMeeting,
+  exchangeZoomAuthorizationCode,
+  getZoomCurrentUser,
+  missingZoomOAuthScopes,
+  normalizeZoomJoinUrl,
+  refreshZoomAccessToken,
+  revokeZoomToken,
+  updateZoomMeeting,
+  ZoomProviderError,
+  type ZoomOAuthClientConfig,
+  type ZoomTokenSet,
+} from "./zoom-provider";
 
 type CalendarProvider =
   | "google"
@@ -101,6 +133,7 @@ type CalendarRole = "owner" | "writer" | "reader" | "free-busy";
 type ConnectionStatus = "pending" | "connected" | "attention" | "read-only";
 
 interface CalendarGatewayEnv extends Env {
+  readonly OAUTH_PROVIDER?: OAuthHelpers;
   readonly LOCAL_DEVELOPMENT?: string;
   readonly LEGACY_OWNER_PRINCIPAL_ID?: string;
   readonly TOKEN_ENCRYPTION_KEY?: string;
@@ -108,6 +141,8 @@ interface CalendarGatewayEnv extends Env {
   readonly GOOGLE_CLIENT_SECRET?: string;
   readonly MICROSOFT_CLIENT_ID?: string;
   readonly MICROSOFT_CLIENT_SECRET?: string;
+  readonly ZOOM_CLIENT_ID?: string;
+  readonly ZOOM_CLIENT_SECRET?: string;
   readonly PUBLIC_TURNSTILE_SITE_KEY?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
   readonly PUBLIC_BOOKING_SLOT_SIGNING_KEY?: string;
@@ -165,6 +200,44 @@ interface TokenSecret {
   readonly scope?: string;
 }
 
+interface MeetingProviderConnectionRow {
+  readonly id: string;
+  readonly workspace_id: string;
+  readonly principal_id: string;
+  readonly provider: "zoom";
+  readonly mode: "oauth";
+  readonly label: string;
+  readonly status: "pending" | "connected" | "attention";
+  readonly credential_ciphertext: string | null;
+  readonly token_expires_at: string | null;
+  readonly provider_account_id: string | null;
+  readonly provider_user_id: string | null;
+  readonly provider_email: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly last_verified_at: string | null;
+  readonly refresh_lease_token: string | null;
+  readonly refresh_lease_until: string | null;
+}
+
+interface MeetingProviderOAuthStateRow {
+  readonly connection_id: string;
+  readonly workspace_id: string;
+  readonly principal_id: string;
+  readonly provider: "zoom";
+  readonly verifier_ciphertext: string;
+  readonly redirect_uri: string;
+  readonly expires_at: string;
+}
+
+interface ZoomMeetingOperationRow {
+  readonly connection_id: string;
+  readonly request_hash: string;
+  readonly state: "creating" | "created" | "create_uncertain" | "deleted";
+  readonly zoom_meeting_id: string | null;
+  readonly join_url: string | null;
+}
+
 interface DiscoveredCalendar {
   readonly providerCalendarId: string;
   readonly name: string;
@@ -192,6 +265,8 @@ interface OAuthProviderConfig {
 
 type ProviderFetch = typeof fetch;
 
+type AttendeeResponseStatus = "needsAction" | "accepted" | "tentative" | "declined" | "unknown";
+
 interface GatewayCalendarEvent {
   readonly id: string;
   readonly calendarId: string;
@@ -218,6 +293,8 @@ interface GatewayCalendarEvent {
     readonly email: string;
     readonly kind: "tap" | "external";
     readonly required: boolean;
+    readonly responseStatus?: AttendeeResponseStatus;
+    readonly isCurrentUser?: boolean;
   }[];
   readonly busy: boolean;
   readonly allDay: boolean;
@@ -253,6 +330,7 @@ interface CalendarSyncStateRow {
   readonly calendar_id: string;
   readonly active_generation: string;
   readonly cache_revision: number;
+  readonly projection_version: number;
   readonly sync_token: string | null;
   readonly cache_time_min: string | null;
   readonly cache_time_max: string | null;
@@ -314,7 +392,7 @@ interface ProviderBookingCommitInput extends EventQueryInput {
   readonly location: string | null;
   readonly bookingKind: "meeting" | "approval-hold" | "work-block";
   readonly attendeeEmails: readonly string[];
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
   readonly expiresAt: string | null;
 }
 
@@ -341,7 +419,7 @@ interface ProviderBookingResolutionInput {
   readonly location: string | null;
   readonly attendeeEmails: readonly string[];
   readonly attendeeEmailsProvided: boolean;
-  readonly conferenceProvider: "none" | "google-meet";
+  readonly conferenceProvider: "none" | "google-meet" | "zoom";
   readonly currentConflictCalendarIds: readonly string[];
 }
 
@@ -381,6 +459,8 @@ interface CacheSyncOutcome {
 }
 
 const MAX_BODY_BYTES = 256 * 1024;
+// Room for the host description plus HTML-escaped guest notes and attribution.
+const MAX_BOOKING_DESCRIPTION_LENGTH = 16_000;
 const MAX_PROVIDER_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MAX_PROVIDER_PAGES = 100;
 const MAX_EVENT_PROVIDER_PAGES = 20;
@@ -414,6 +494,9 @@ const WATCH_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const WATCH_TTL_SECONDS = 7 * 24 * 60 * 60;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_MS = 60 * 1000;
+const ZOOM_TOKEN_REFRESH_LEASE_MS = 30 * 1000;
+const ZOOM_TOKEN_REFRESH_WAIT_ATTEMPTS = 20;
+const ZOOM_TOKEN_REFRESH_WAIT_MS = 100;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,254}$/u;
 const COLOR = /^#[0-9a-fA-F]{6}$/u;
 const RFC3339_INSTANT =
@@ -517,6 +600,25 @@ const googleMeetConferenceRequested = (
     ? createRequest.conferenceSolutionKey
     : null;
   return solutionKey?.type === "hangoutsMeet";
+};
+
+const providerConferenceJoinUrl = (
+  value: Readonly<Record<string, unknown>>,
+): string | null =>
+  googleMeetJoinUrl(value) ?? normalizeZoomJoinUrl(value.location);
+
+const normalizedProviderJoinUrl = (value: unknown): string | null =>
+  normalizeGoogleMeetJoinUrl(value) ?? normalizeZoomJoinUrl(value);
+
+const zoomMeetingIdFromGoogleEvent = (
+  value: Readonly<Record<string, unknown>>,
+): string | null => {
+  const extended = isRecord(value.extendedProperties) ? value.extendedProperties : null;
+  const privateValues = extended && isRecord(extended.private) ? extended.private : null;
+  const candidate = privateValues?.tapZoomMeetingId;
+  return typeof candidate === "string" && /^\d{9,11}$/u.test(candidate)
+    ? candidate
+    : null;
 };
 
 const requiredText = (
@@ -816,6 +918,125 @@ async function principalScope(
   return scope;
 }
 
+async function workspacePermission(env: CalendarGatewayEnv, scope: CalendarPrincipalScope, action: "workspace:read" | "workspace:manage"): Promise<boolean> {
+  return authorizeWorkspacePrincipal(env as unknown as OrganizerAuthEnv, scope.workspace, scope.principal, action);
+}
+
+async function assertCollectiveHostsAuthorized(env: CalendarGatewayEnv, workspace: string, hosts: readonly CollectiveHost[]): Promise<void> {
+  await assertHostsCurrent(env.CALENDAR_DB.withSession("first-primary"), workspace, hosts);
+  const results = await Promise.all(hosts.map(host => workspacePermission(env, { workspace, principal: host.principalId }, "workspace:read")));
+  if (results.some(allowed => !allowed)) throw new CollectiveBookingError(409, "shared_host_unavailable", "A required host is no longer available for shared bookings.");
+}
+
+async function workspaceBookingsRoute(request: Request, env: CalendarGatewayEnv, path: string): Promise<Response> {
+  const scope = await principalScope(request, env);
+  if (request.method === "POST" && path === "/v1/workspace-bookings/host") {
+    return json(await saveHost(env.CALENDAR_DB, scope, await readJson(request)));
+  }
+  const canManage = await workspacePermission(env, scope, "workspace:manage");
+  if (request.method === "GET" && path === "/v1/workspace-bookings") {
+    const [self, definition, allHosts] = await Promise.all([
+      readHost(env.CALENDAR_DB, scope),
+      canManage ? readWorkspaceDefinition(env.CALENDAR_DB, scope.workspace) : null,
+      canManage ? listHosts(env.CALENDAR_DB, scope.workspace) : [],
+    ]);
+    const active = await Promise.all(allHosts.map(host => workspacePermission(env, { workspace: scope.workspace, principal: host.principalId }, "workspace:read")));
+    const pendingRows = await env.CALENDAR_DB.prepare(`SELECT m.provider_operation_id, m.event_title, m.guest_name, m.guest_email, m.start_at,
+      c.conflict_calendar_ids_json, r.public_snapshot_json
+      FROM public_booking_management_credentials m
+      JOIN provider_booking_commits c ON c.workspace_id = m.workspace_id AND c.principal_id = m.principal_id AND c.idempotency_key = m.provider_operation_id
+      JOIN public_booking_page_revisions r ON r.id = m.revision_id
+      WHERE m.workspace_id = ? AND m.principal_id = ? AND m.status = 'active' AND m.booking_status = 'pending'
+        AND c.resolution_status IS NULL AND c.hold_expired_at IS NULL
+        AND EXISTS (SELECT 1 FROM calendar_host_reservations h WHERE h.workspace_id = c.workspace_id
+          AND h.organizer_principal_id = c.principal_id AND h.booking_operation_id = c.idempotency_key AND h.host_snapshot_json IS NOT NULL)
+      ORDER BY m.start_at LIMIT 100`).bind(scope.workspace, scope.principal).all<{
+        provider_operation_id: string; event_title: string; guest_name: string; guest_email: string; start_at: string;
+        conflict_calendar_ids_json: string; public_snapshot_json: string;
+      }>();
+    const pendingApprovals = pendingRows.results.map(row => {
+      const snapshot = JSON.parse(row.public_snapshot_json) as { location: string };
+      return { operationId: row.provider_operation_id, title: row.event_title, guestName: row.guest_name, guestEmail: row.guest_email,
+        startsAt: row.start_at, conflictCalendarIds: JSON.parse(row.conflict_calendar_ids_json) as string[],
+        conferenceProvider: snapshot.location === "zoom" ? "zoom" : "google-meet" };
+    });
+    const owner = workspaceProfileScope(scope.workspace);
+    const publication = canManage ? await env.CALENDAR_DB.prepare(`SELECT p.current_slug, p.display_name, p.status, p.publication_generation, d.published_version AS definition_version,
+      NOT EXISTS (SELECT 1 FROM public_booking_pages page JOIN public_booking_page_revisions r ON r.id = page.current_revision_id,
+        json_each(r.private_snapshot_json, '$.collectiveHosts') snapshot
+        LEFT JOIN calendar_booking_hosts host ON host.workspace_id = p.workspace_id AND host.principal_id = json_extract(snapshot.value, '$.principalId')
+        WHERE page.profile_id = p.id AND page.status = 'published'
+          AND (host.principal_id IS NULL OR host.enabled = 0 OR host.version <> json_extract(snapshot.value, '$.version'))) AS hosts_current
+      FROM public_booking_profiles p JOIN calendar_workspace_booking_profiles d ON d.workspace_id = p.workspace_id
+      WHERE p.workspace_id = ? AND p.principal_id = ? AND p.source_profile_id = ? AND p.owner_kind = 'workspace'`)
+      .bind(scope.workspace, owner.principal, workspaceProfileSourceId).first() : null;
+    const members = new Set(allHosts.filter((_, index) => active[index]).map(host => host.principalId));
+    const ready = publication?.hosts_current === 1 && definition?.events.every(event => event.hostIds.every(id => members.has(id)));
+    return json({ canManage, self, definition, pendingApprovals, publication: publication ? { ...publication, hosts_current: Boolean(ready) } : null, publicBaseUrl: publicBookingBaseUrl(env),
+      hosts: allHosts.filter((_, index) => active[index]).map(host => ({ principalId: host.principalId, displayName: host.displayName, email: host.email, version: host.version })) });
+  }
+  if (!canManage) throw new ApiError(403, "workspace_management_required", "Only workspace owners and admins can manage shared booking pages.");
+  if (request.method !== "POST" || path !== "/v1/workspace-bookings/profile") throw new ApiError(404, "not_found", "The shared booking route was not found.");
+  const desired = parseWorkspaceDefinition(await readJson(request));
+  const boundary = new D1PublicBookingSerializationBoundary(env.CALENDAR_DB);
+  return boundary.runExclusive(`shared-profile-${await sha256(scope.workspace)}`, async () => {
+    const existing = await readWorkspaceDefinition(env.CALENDAR_DB, scope.workspace);
+    if ((existing?.version ?? 0) !== desired.version - 1) throw new CollectiveBookingError(409, "shared_booking_changed", "The workspace profile changed. Refresh before saving.");
+    const owner = workspaceProfileScope(scope.workspace);
+    const reservedName = await env.CALENDAR_DB.prepare(`SELECT current_slug FROM public_booking_profiles WHERE workspace_id = ? AND principal_id = ? AND source_profile_id = ?`).bind(scope.workspace, owner.principal, workspaceProfileSourceId).first<string>("current_slug");
+    if (reservedName && reservedName !== desired.profileSlug) throw new CollectiveBookingError(409, "profile_slug_immutable", "The workspace's reserved public name cannot be changed.");
+    const publication = desired.published ? await workspacePublication(env.CALENDAR_DB, scope.workspace, desired) : null;
+    if (desired.published) {
+      for (const page of publication!.publications) {
+        await assertCollectiveHostsAuthorized(env, scope.workspace, page.collectiveHosts ?? []);
+        if (page.location === "zoom" && !await env.CALENDAR_DB.prepare(`SELECT 1 FROM meeting_provider_connections WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom' AND status = 'connected'`)
+          .bind(scope.workspace, page.collectiveHosts![0]!.principalId).first()) {
+          throw new CollectiveBookingError(409, "organizer_zoom_unavailable", "The organizer must connect Zoom in Settings before publishing a Zoom booking link.");
+        }
+      }
+    }
+    // Save desired state first. A failed publication remains a recoverable draft;
+    // only a server publication receipt means that the link is actually live.
+    await storeWorkspaceDefinition(env.CALENDAR_DB, scope, desired);
+    if (desired.published) {
+      const result = await publishPublicBookingProfile({ database: env.CALENDAR_DB, scope: owner, input: publication!, publicBaseUrl: publicBookingBaseUrl(env) });
+      await env.CALENDAR_DB.prepare("UPDATE calendar_workspace_booking_profiles SET published_version = ? WHERE workspace_id = ? AND version = ?").bind(desired.version, scope.workspace, desired.version).run();
+      await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_workspace_audit (workspace_id, actor_principal_id, action, created_at) VALUES (?, ?, 'publish', ?)`)
+        .bind(scope.workspace, scope.principal, new Date().toISOString()).run();
+      return json({ definition: desired, publication: result });
+    }
+    const current = await env.CALENDAR_DB.prepare(`SELECT publication_generation FROM public_booking_profiles WHERE workspace_id = ? AND principal_id = ? AND source_profile_id = ?`).bind(scope.workspace, owner.principal, workspaceProfileSourceId).first<{ publication_generation: number }>();
+    if (current) await unpublishPublicBookingProfile({ database: env.CALENDAR_DB, scope: owner,
+      input: { schemaVersion: "tap.calendar.profile-unpublication.v1", sourceProfileId: workspaceProfileSourceId, expectedGeneration: current.publication_generation } });
+    await env.CALENDAR_DB.prepare(`INSERT INTO public_booking_workspace_audit (workspace_id, actor_principal_id, action, created_at) VALUES (?, ?, 'unpublish', ?)`)
+      .bind(scope.workspace, scope.principal, new Date().toISOString()).run();
+    return json({ definition: desired, publication: null });
+  });
+}
+
+async function collectiveAvailability(
+  env: CalendarGatewayEnv, workspace: string, hosts: readonly CollectiveHost[], start: string, end: string,
+  providerFetch: ProviderFetch, exclude?: { readonly principal: string; readonly operation: string; readonly providerEventId: string },
+  alreadyHeld = false,
+): Promise<boolean> {
+  await assertCollectiveHostsAuthorized(env, workspace, hosts);
+  for (const host of hosts) {
+    if (!hostScheduleAllowsInterval(alreadyHeld ? { ...host.schedule, minimumNoticeMinutes: 0 } : host.schedule, Date.parse(start), Date.parse(end), Date.now())) return false;
+    const from = new Date(Date.parse(start) - host.schedule.bufferBeforeMinutes * 60_000).toISOString();
+    const to = new Date(Date.parse(end) + host.schedule.bufferAfterMinutes * 60_000).toISOString();
+    const scope = { workspace, principal: host.principalId };
+    const [live, reservations] = await Promise.all([
+      strictLiveAvailabilityForScope(scope, env, { timeMin: from, timeMax: to, calendarIds: host.conflictCalendarIds }, providerFetch,
+        new Set(exclude ? host.conflictCalendarIds.map(id => googleEventId("event", id, exclude.providerEventId)) : [])),
+      hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), scope, from, to, exclude),
+    ]);
+    if (!live.conclusive) throw new ApiError(503, "live_availability_unavailable", "Every host's calendar must be checked before booking.");
+    if (!live.available || reservations.length > 0) return false;
+  }
+  await assertCollectiveHostsAuthorized(env, workspace, hosts);
+  return true;
+}
+
 function publicBookingBaseUrl(env: CalendarGatewayEnv): string {
   const configured = env.PUBLIC_BOOKING_BASE_URL?.trim() ?? "";
   if (!configured) {
@@ -997,6 +1218,7 @@ async function reconcilePublicApprovalResolution(
 }
 
 async function getPublishedPublicBookingPage(
+  request: Request,
   route: NonNullable<ReturnType<typeof parsePublicBookingPagePath>>,
   env: CalendarGatewayEnv,
 ): Promise<Response> {
@@ -1006,6 +1228,16 @@ async function getPublishedPublicBookingPage(
       route.profileSlug,
       route.eventTypeSlug,
     );
+    if (resolved.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
+    const visitId = new URL(request.url).searchParams.get("visitId");
+    if (visitId !== null) {
+      const event = parsePublicBookingFunnelEvent({ visitId, stage: "views" });
+      if (!event) throw new ApiError(400, "invalid_public_request", "This visit ID is invalid.");
+      await enforcePublicBookingRateLimit({ limiter: env.PUBLIC_AVAILABILITY_RATE_LIMITER,
+        localDevelopment: env.LOCAL_DEVELOPMENT === "true", request,
+        resource: `analytics:${route.profileSlug}/${route.eventTypeSlug}` });
+      await recordPublicBookingFunnelEvent(env.CALENDAR_DB, resolved.pageId, event);
+    }
     return json(projectPublicBookingPage(resolved, {
       baseUrl: publicBookingBaseUrl(env),
       turnstileSiteKey: requiredPublicBookingConfiguration(
@@ -1013,6 +1245,30 @@ async function getPublishedPublicBookingPage(
       ),
       now: Date.now(),
     }));
+  } catch (error) {
+    return publicBookingReadApiError(error);
+  }
+}
+
+async function trackPublishedPublicBookingFunnel(
+  request: Request,
+  route: NonNullable<ReturnType<typeof parsePublicBookingPagePath>>,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  try {
+    await enforcePublicBookingRateLimit({
+      limiter: env.PUBLIC_AVAILABILITY_RATE_LIMITER,
+      localDevelopment: env.LOCAL_DEVELOPMENT === "true",
+      request,
+      resource: `analytics:${route.profileSlug}/${route.eventTypeSlug}`,
+    });
+    const event = parsePublicBookingFunnelEvent(await readJson(request));
+    if (!event) throw new ApiError(400, "invalid_public_request", "This analytics event is invalid.");
+    const resolved = await resolvePublishedPublicBookingPage(
+      env.CALENDAR_DB.withSession("first-primary"), route.profileSlug, route.eventTypeSlug,
+    );
+    await recordPublicBookingFunnelEvent(env.CALENDAR_DB, resolved.pageId, event);
+    return json({ recorded: true });
   } catch (error) {
     return publicBookingReadApiError(error);
   }
@@ -1061,13 +1317,15 @@ async function getPublishedPublicBookingAvailability(
     );
     const window = availabilityQueryWindow(resolved, query, requestNow);
     let busyIntervals: readonly PublicBusyInterval[] = [];
+    const collectiveBusy: { host: CollectiveHost; intervals: readonly PublicBusyInterval[] }[] = [];
+    if (resolved.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, resolved.privateSnapshot.workspaceId, resolved.privateSnapshot.collectiveHosts);
     if (window) {
       const input: EventQueryInput = {
         ...window,
         calendarIds: resolved.privateSnapshot.conflictCalendarIds,
       };
       try {
-        const [providerBusy, committedBusy] = await Promise.all([
+        const [providerBusy, committedBusy, reservations] = await Promise.all([
           queryPublicGoogleBusyIntervals(env, {
             workspace: resolved.privateSnapshot.workspaceId,
             principal: resolved.privateSnapshot.principalId,
@@ -1080,8 +1338,21 @@ async function getPublishedPublicBookingAvailability(
             timeMin: window.timeMin,
             timeMax: window.timeMax,
           }),
+          hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), {
+            workspace: resolved.privateSnapshot.workspaceId, principal: resolved.privateSnapshot.principalId,
+          }, window.timeMin, window.timeMax),
         ]);
-        busyIntervals = [...providerBusy, ...committedBusy];
+        busyIntervals = [...providerBusy, ...committedBusy, ...reservations];
+        for (const host of resolved.privateSnapshot.collectiveHosts ?? []) {
+          const hostScope = { workspace: resolved.privateSnapshot.workspaceId, principal: host.principalId };
+          const from = new Date(Date.parse(window.timeMin) - host.schedule.bufferBeforeMinutes * 60_000).toISOString();
+          const to = new Date(Date.parse(window.timeMax) + host.schedule.bufferAfterMinutes * 60_000).toISOString();
+          const [provider, held] = await Promise.all([
+            queryPublicGoogleBusyIntervals(env, hostScope, { timeMin: from, timeMax: to, calendarIds: host.conflictCalendarIds }, providerFetch),
+            hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), hostScope, from, to),
+          ]);
+          collectiveBusy.push({ host, intervals: [...provider, ...held] });
+        }
       } catch (error) {
         if (error instanceof ApiError && error.code === "public_availability_unavailable") {
           throw new ApiError(
@@ -1111,6 +1382,10 @@ async function getPublishedPublicBookingAvailability(
       busyIntervals,
       signingKey,
       requestNow,
+      slot => collectiveBusy.every(({ host, intervals }) => !intervalsOverlap(
+        new Date(Date.parse(slot.start) - host.schedule.bufferBeforeMinutes * 60_000).toISOString(),
+        new Date(Date.parse(slot.end) + host.schedule.bufferAfterMinutes * 60_000).toISOString(), intervals,
+      )),
     ));
   } catch (error) {
     return publicBookingReadApiError(error);
@@ -1198,25 +1473,16 @@ async function createPublishedPublicBooking(
     };
     const result = await createPublicBooking(resolved, {
       requestId: parsed.requestId,
+      ...(parsed.visitId ? { visitId: parsed.visitId } : {}),
       guest: parsed.guest,
+      ...(parsed.notes ? { notes: parsed.notes } : {}),
+      ...(parsed.additionalGuests ? { additionalGuests: parsed.additionalGuests } : {}),
       slotProof: { token: parsed.slotToken, claims },
       turnstile,
     }, {
       serialization: new D1PublicBookingSerializationBoundary(env.CALENDAR_DB),
       publications: {
-        currentPage: async pageId => {
-          try {
-            const current = await resolvePublishedPublicBookingPage(
-              env.CALENDAR_DB.withSession("first-primary"),
-              route.profileSlug,
-              route.eventTypeSlug,
-            );
-            return current.pageId === pageId ? current : null;
-          } catch (error) {
-            if (error instanceof PublicBookingReadError && error.status === 404) return null;
-            throw error;
-          }
-        },
+        currentPage: pageId => currentPublishedPublicBookingPageById(env, pageId),
       },
       attempts: new D1PublicBookingAttemptStore(env.CALENDAR_DB, {
         managementSecret,
@@ -1229,6 +1495,10 @@ async function createPublishedPublicBooking(
             timeMax: input.conflictEnd,
             calendarIds: input.conflictCalendarIds,
           }, providerFetch);
+          const operation = await publicBookingProviderOperationId(scope, resolved.privateSnapshot.destinationCalendarId, parsed.requestId);
+          const allHostsAvailable = !input.page.privateSnapshot.collectiveHosts || await collectiveAvailability(env, scope.workspace,
+            input.page.privateSnapshot.collectiveHosts, input.eventStart, input.eventEnd, providerFetch,
+            { principal: scope.principal, operation, providerEventId: operation });
           // Fence an unpublish/republish that happened during provider I/O.
           await assertPublicPageStillCurrent(
             env.CALENDAR_DB.withSession("first-primary"),
@@ -1241,13 +1511,14 @@ async function createPublishedPublicBooking(
             conflictStart: input.conflictStart,
             conflictEnd: input.conflictEnd,
             checkedCalendarIds: input.conflictCalendarIds,
-            status: intervalsOverlap(input.conflictStart, input.conflictEnd, busy)
+            status: !allHostsAvailable || intervalsOverlap(input.conflictStart, input.conflictEnd, busy)
               ? "conflict"
               : "available",
           };
         },
       },
       provider: createGatewayPublicBookingProvider(env, providerFetch, {
+        ...(resolved.privateSnapshot.collectiveHosts ? { collectiveHosts: resolved.privateSnapshot.collectiveHosts } : {}),
         assertPublicationCurrent: () => assertPublicPageStillCurrent(
           env.CALENDAR_DB.withSession("first-primary"),
           resolved,
@@ -1356,9 +1627,10 @@ async function currentPublishedPublicBookingPageById(
       row.profile_slug,
       row.event_type_slug,
     );
+    if (page.privateSnapshot.collectiveHosts) await assertCollectiveHostsAuthorized(env, page.privateSnapshot.workspaceId, page.privateSnapshot.collectiveHosts);
     return page.pageId === pageId ? page : null;
   } catch (error) {
-    if (error instanceof PublicBookingReadError && error.status === 404) return null;
+    if ((error instanceof PublicBookingReadError && error.status === 404) || (error instanceof CollectiveBookingError && error.status === 409)) return null;
     throw error;
   }
 }
@@ -1414,6 +1686,7 @@ async function assertPublicManagementRescheduleStillAuthorized(
   env: CalendarGatewayEnv,
   booking: PublicBookingManagementRecord,
   input: ScopeFirstGoogleRescheduleInput,
+  providerFetch: ProviderFetch,
 ): Promise<void> {
   const mutation = await env.CALENDAR_DB.prepare(
     `SELECT page_revision_id, to_start_at, to_end_at,
@@ -1450,6 +1723,21 @@ async function assertPublicManagementRescheduleStillAuthorized(
   ) {
     throw new Error("The public booking publication changed before the provider write.");
   }
+  const originalHosts = await bookedHosts(env.CALENDAR_DB, booking.scope, booking.providerOperationId);
+  const hosts = page.privateSnapshot.collectiveHosts ?? [];
+  const hostIdentity = (values: readonly CollectiveHost[]) => values.map(host => `${host.principalId}\u0000${host.email}`).sort().join("\n");
+  if (hostIdentity(originalHosts) !== hostIdentity(hosts)) throw new ApiError(409, "booking_hosts_changed", "The hosts on this page changed. Keep or cancel the existing meeting before booking the new host set.");
+  if (hosts.length && !await collectiveAvailability(env, booking.scope.workspace, hosts, input.timeMin, input.timeMax, providerFetch,
+    { principal: booking.scope.principal, operation: booking.providerOperationId, providerEventId: booking.providerBookingId })) {
+    throw new ApiError(409, "slot_conflict", "A required host is no longer available.");
+  }
+  if (!await reserveHosts(env.CALENDAR_DB, booking.scope, booking.providerOperationId, input.timeMin, input.timeMax,
+    hosts.length ? hosts.map(host => ({ principalId: host.principalId, beforeMs: host.schedule.bufferBeforeMinutes * 60_000,
+      afterMs: host.schedule.bufferAfterMinutes * 60_000, snapshot: host })) : [{ principalId: booking.scope.principal,
+      beforeMs: Date.parse(input.timeMin) - Date.parse(input.conflictTimeMin), afterMs: Date.parse(input.conflictTimeMax) - Date.parse(input.timeMax) }], input.operationId)) {
+    throw new ApiError(409, "slot_conflict", "A required host is no longer available.");
+  }
+  await assertPublicPageStillCurrent(env.CALENDAR_DB.withSession("first-primary"), page);
 }
 
 function publicBookingManagementDependencies(
@@ -1516,7 +1804,7 @@ function publicBookingManagementDependencies(
     },
     provider: createGatewayPublicBookingManagementProvider(env, providerFetch, {
       assertRescheduleStillAuthorized: input =>
-        assertPublicManagementRescheduleStillAuthorized(env, booking, input),
+        assertPublicManagementRescheduleStillAuthorized(env, booking, input, providerFetch),
     }),
     email: createPublicBookingManagementEmailPort(
       publicBookingEmailOutbox(env),
@@ -1743,6 +2031,7 @@ function oauthProviderConfig(
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/calendar.freebusy",
+        "https://www.googleapis.com/auth/calendar.events.freebusy",
       ],
     };
   }
@@ -1805,6 +2094,53 @@ const providerCatalog = (env: CalendarGatewayEnv) => ({
     },
   ],
   localConnector: env.LOCAL_DEVELOPMENT === "true",
+});
+
+const zoomOAuthConfigured = (env: CalendarGatewayEnv): boolean =>
+  Boolean(
+    env.ZOOM_CLIENT_ID &&
+    env.ZOOM_CLIENT_SECRET &&
+    env.TOKEN_ENCRYPTION_KEY,
+  );
+
+const zoomRedirectUri = (request: Request, env: CalendarGatewayEnv): string => {
+  const configured = typeof env.PUBLIC_BASE_URL === "string"
+    ? env.PUBLIC_BASE_URL.trim()
+    : "";
+  const origin = configured || new URL(request.url).origin;
+  return new URL("/v1/oauth/zoom/callback", origin).href;
+};
+
+const zoomOAuthClientConfig = (
+  env: CalendarGatewayEnv,
+  redirectUri: string,
+): ZoomOAuthClientConfig => {
+  if (!zoomOAuthConfigured(env)) {
+    throw new ApiError(
+      503,
+      "provider_unconfigured",
+      "Zoom OAuth credentials are not configured for TAP Calendar.",
+    );
+  }
+  return {
+    clientId: env.ZOOM_CLIENT_ID!,
+    clientSecret: env.ZOOM_CLIENT_SECRET!,
+    redirectUri,
+  };
+};
+
+const meetingProviderConnectionProjection = (row: MeetingProviderConnectionRow) => ({
+  id: row.id,
+  workspaceId: row.workspace_id,
+  ownerPrincipalId: row.principal_id,
+  provider: row.provider,
+  mode: row.mode,
+  label: row.label,
+  status: row.status,
+  providerEmail: row.provider_email,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastVerifiedAt: row.last_verified_at,
 });
 
 const calendarProjection = (row: CalendarRow) => ({
@@ -1890,6 +2226,46 @@ async function listConnections(
       connectionProjection(row, grouped.get(row.id) ?? []),
     ),
   });
+}
+
+async function listMeetingProviderConnections(
+  request: Request,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const connections = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ?
+      ORDER BY updated_at DESC, id`,
+  )
+    .bind(workspace, principal)
+    .all<MeetingProviderConnectionRow>();
+  return json({
+    providers: [{ id: "zoom", authorization: "oauth", configured: zoomOAuthConfigured(env) }],
+    connections: connections.results.map(meetingProviderConnectionProjection),
+  });
+}
+
+async function meetingProviderConnectionById(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  connectionId: string,
+): Promise<MeetingProviderConnectionRow> {
+  const row = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ? AND id = ?`,
+  )
+    .bind(workspace, principal, connectionId)
+    .first<MeetingProviderConnectionRow>();
+  if (!row) {
+    throw new ApiError(
+      404,
+      "meeting_provider_connection_not_found",
+      "The meeting provider connection was not found.",
+    );
+  }
+  return row;
 }
 
 interface LocalCalendarInput {
@@ -2391,6 +2767,106 @@ async function beginOAuth(
   );
 }
 
+async function beginZoomOAuth(
+  request: Request,
+  env: CalendarGatewayEnv,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const redirectUri = zoomRedirectUri(request, env);
+  const config = zoomOAuthClientConfig(env, redirectUri);
+  const body = await readJson(request);
+  const requestedConnectionId = identifier(body.id, "id");
+  const labelHint = typeof body.label === "string" && body.label.trim()
+    ? requiredText(body.label, "label")
+    : "Zoom";
+  const existingConnection = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom'
+      ORDER BY updated_at DESC LIMIT 1`,
+  )
+    .bind(workspace, principal)
+    .first<MeetingProviderConnectionRow>();
+  if (existingConnection?.status === "connected") {
+    throw new ApiError(
+      409,
+      "zoom_already_connected",
+      "Zoom is already connected.",
+    );
+  }
+  const connectionId = existingConnection?.id ?? requestedConnectionId;
+  const state = randomValue(32);
+  const stateHash = await sha256(state);
+  const verifier = randomValue(64);
+  const challenge = await sha256(verifier);
+  const verifierCiphertext = await encryptSecret(env, { verifier });
+  const now = new Date();
+  const expiresAt = new Date(now.valueOf() + OAUTH_STATE_TTL_MS).toISOString();
+  try {
+    const statements: D1PreparedStatement[] = [];
+    if (existingConnection) {
+      statements.push(
+        env.CALENDAR_DB.prepare(
+          `DELETE FROM meeting_provider_oauth_states
+            WHERE workspace_id = ? AND principal_id = ? AND connection_id = ?`,
+        ).bind(workspace, principal, connectionId),
+        env.CALENDAR_DB.prepare(
+          `UPDATE meeting_provider_connections
+              SET label = ?, status = 'pending', updated_at = ?,
+                  refresh_lease_token = NULL, refresh_lease_until = NULL
+            WHERE id = ? AND workspace_id = ? AND principal_id = ?
+              AND status IN ('pending', 'attention')`,
+        ).bind(labelHint, now.toISOString(), connectionId, workspace, principal),
+      );
+    } else {
+      statements.push(env.CALENDAR_DB.prepare(
+        `INSERT INTO meeting_provider_connections
+          (id, workspace_id, principal_id, provider, mode, label, status,
+           credential_ciphertext, token_expires_at, provider_account_id,
+           provider_user_id, provider_email, created_at, updated_at, last_verified_at)
+         VALUES (?, ?, ?, 'zoom', 'oauth', ?, 'pending', NULL, NULL, NULL, NULL,
+                 NULL, ?, ?, NULL)`,
+      ).bind(
+        connectionId,
+        workspace,
+        principal,
+        labelHint,
+        now.toISOString(),
+        now.toISOString(),
+      ));
+    }
+    statements.push(env.CALENDAR_DB.prepare(
+        `INSERT INTO meeting_provider_oauth_states
+          (state_hash, connection_id, workspace_id, principal_id, provider,
+           verifier_ciphertext, redirect_uri, expires_at, created_at)
+         VALUES (?, ?, ?, ?, 'zoom', ?, ?, ?, ?)`,
+      ).bind(
+        stateHash,
+        connectionId,
+        workspace,
+        principal,
+        verifierCiphertext,
+        redirectUri,
+        expiresAt,
+        now.toISOString(),
+      ));
+    await env.CALENDAR_DB.batch(statements);
+  } catch {
+    throw new ApiError(
+      409,
+      "connection_conflict",
+      "A Zoom account is already connected. Disconnect it before connecting another account.",
+    );
+  }
+  return json({
+    connectionId,
+    authorizationUrl: buildZoomAuthorizationUrl(config, {
+      state,
+      codeChallenge: challenge,
+    }),
+    expiresAt,
+  }, 201);
+}
+
 async function discoverGoogle(
   accessToken: string,
   providerFetch: ProviderFetch = fetch,
@@ -2802,6 +3278,125 @@ async function completeOAuth(
   return oauthPage("Calendar connected", `${discovery.label} is ready in TAP Calendar.`);
 }
 
+const zoomProviderApiError = (error: unknown, fallback: string): ApiError => {
+  if (!(error instanceof ZoomProviderError)) {
+    return new ApiError(502, "zoom_request_failed", fallback);
+  }
+  const status = error.providerStatus === 401 || error.providerStatus === 403
+    ? 409
+    : error.providerStatus === 429 || (error.providerStatus ?? 0) >= 500
+      ? 503
+      : 502;
+  const code = error.providerStatus === 401 || error.providerStatus === 403
+    ? "zoom_reauthorization_required"
+    : error.providerStatus === 429
+      ? "zoom_rate_limited"
+      : error.code;
+  return new ApiError(status, code, error.message || fallback, {
+    ...(error.retryAfterSeconds === undefined
+      ? {}
+      : { retryAfterSeconds: error.retryAfterSeconds }),
+  });
+};
+
+const zoomTokenSecret = (token: ZoomTokenSet): TokenSecret => ({
+  accessToken: token.accessToken,
+  refreshToken: token.refreshToken,
+  expiresAt: token.expiresAt,
+  tokenType: token.tokenType,
+  scope: token.scope,
+});
+
+async function completeZoomOAuth(
+  request: Request,
+  env: CalendarGatewayEnv,
+  providerFetch: ProviderFetch = fetch,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const providerError = url.searchParams.get("error");
+  if (providerError) {
+    return oauthPage("Zoom authorization cancelled", "Zoom access was not granted.", 400);
+  }
+  const state = requiredText(url.searchParams.get("state"), "state", 1_024);
+  const stateHash = await sha256(state);
+  const code = requiredText(url.searchParams.get("code"), "code", 16_384);
+  const row = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, workspace_id, principal_id, provider, verifier_ciphertext,
+            redirect_uri, expires_at
+       FROM meeting_provider_oauth_states
+      WHERE state_hash = ? AND provider = 'zoom'`,
+  )
+    .bind(stateHash)
+    .first<MeetingProviderOAuthStateRow>();
+  if (!row || Date.parse(row.expires_at) <= Date.now()) {
+    throw new ApiError(400, "oauth_state_invalid", "The Zoom authorization has expired.");
+  }
+  await env.CALENDAR_DB.prepare(
+    "DELETE FROM meeting_provider_oauth_states WHERE state_hash = ?",
+  )
+    .bind(stateHash)
+    .run();
+  const connection = await meetingProviderConnectionById(
+    env,
+    row.workspace_id,
+    row.principal_id,
+    row.connection_id,
+  );
+  const verifierSecret = await decryptSecret<{ readonly verifier: string }>(
+    env,
+    row.verifier_ciphertext,
+  );
+  try {
+    const token = await exchangeZoomAuthorizationCode(
+      zoomOAuthClientConfig(env, row.redirect_uri),
+      { code, codeVerifier: verifierSecret.verifier },
+      { fetch: providerFetch },
+    );
+    const missingScopes = missingZoomOAuthScopes(token.scope);
+    if (missingScopes.length > 0) {
+      throw new ApiError(
+        409,
+        "zoom_scopes_missing",
+        `Zoom did not grant the permissions TAP Calendar needs: ${missingScopes.join(", ")}.`,
+      );
+    }
+    const user = await getZoomCurrentUser(token.accessToken, { fetch: providerFetch });
+    if (user.status !== "active") {
+      throw new ApiError(
+        409,
+        "zoom_user_inactive",
+        "The authorized Zoom user is not active.",
+      );
+    }
+    const now = new Date().toISOString();
+    await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections
+          SET label = ?, status = 'connected', credential_ciphertext = ?,
+              token_expires_at = ?, provider_account_id = ?, provider_user_id = ?,
+              provider_email = ?, updated_at = ?, last_verified_at = ?
+        WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+    )
+      .bind(
+        connection.label === "Zoom" ? user.displayName : connection.label,
+        await encryptSecret(env, zoomTokenSecret(token)),
+        token.expiresAt,
+        user.accountId,
+        user.id,
+        user.email,
+        now,
+        now,
+        connection.id,
+        connection.workspace_id,
+        connection.principal_id,
+      )
+      .run();
+    return oauthPage("Zoom connected", `${user.email} is ready for TAP bookings.`);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw zoomProviderApiError(error, "TAP Calendar could not finish connecting Zoom.");
+  }
+}
+
 async function refreshToken(
   config: OAuthProviderConfig,
   secret: TokenSecret,
@@ -2924,6 +3519,354 @@ async function authorizedToken(
   return { config, secret };
 }
 
+const zoomRefreshRedirectUri = (env: CalendarGatewayEnv): string => {
+  const configured = typeof env.PUBLIC_BASE_URL === "string"
+    ? env.PUBLIC_BASE_URL.trim()
+    : "";
+  return new URL(
+    "/v1/oauth/zoom/callback",
+    configured || "http://127.0.0.1",
+  ).href;
+};
+
+async function authorizedZoomTokenForScope(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  providerFetch: ProviderFetch = fetch,
+): Promise<{
+  readonly connection: MeetingProviderConnectionRow;
+  readonly secret: TokenSecret;
+}> {
+  let connection = await env.CALENDAR_DB.prepare(
+    `SELECT * FROM meeting_provider_connections
+      WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom'
+      ORDER BY updated_at DESC LIMIT 1`,
+  )
+    .bind(workspace, principal)
+    .first<MeetingProviderConnectionRow>();
+  for (let attempt = 0; attempt <= ZOOM_TOKEN_REFRESH_WAIT_ATTEMPTS; attempt += 1) {
+    if (!connection || connection.status !== "connected" || !connection.credential_ciphertext) {
+      throw new ApiError(
+        409,
+        "zoom_not_connected",
+        "Connect Zoom in Calendar settings before using it for a meeting.",
+      );
+    }
+    const secret = storedTokenSecret(
+      await decryptSecret<unknown>(env, connection.credential_ciphertext),
+    );
+    if (Date.parse(secret.expiresAt) > Date.now() + TOKEN_REFRESH_SKEW_MS) {
+      return { connection, secret };
+    }
+    if (!secret.refreshToken) {
+      throw new ApiError(
+        409,
+        "zoom_reauthorization_required",
+        "Reconnect Zoom in Calendar settings before creating another meeting.",
+      );
+    }
+    const leaseToken = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const leaseUntil = new Date(Date.now() + ZOOM_TOKEN_REFRESH_LEASE_MS).toISOString();
+    const acquired = await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections
+          SET refresh_lease_token = ?, refresh_lease_until = ?
+        WHERE id = ? AND workspace_id = ? AND principal_id = ?
+          AND (refresh_lease_token IS NULL OR refresh_lease_until <= ?)`,
+    )
+      .bind(leaseToken, leaseUntil, connection.id, workspace, principal, now)
+      .run();
+    if (Number(acquired.meta.changes ?? 0) !== 1) {
+      if (attempt === ZOOM_TOKEN_REFRESH_WAIT_ATTEMPTS) {
+        throw new ApiError(
+          409,
+          "zoom_refresh_in_progress",
+          "Another booking is refreshing Zoom access. Retry shortly.",
+        );
+      }
+      await new Promise<void>(resolve => globalThis.setTimeout(resolve, ZOOM_TOKEN_REFRESH_WAIT_MS));
+      connection = await meetingProviderConnectionById(
+        env,
+        workspace,
+        principal,
+        connection.id,
+      );
+      continue;
+    }
+    try {
+      const leased = await meetingProviderConnectionById(
+        env,
+        workspace,
+        principal,
+        connection.id,
+      );
+      if (!leased.credential_ciphertext) {
+        throw new ApiError(
+          409,
+          "zoom_reauthorization_required",
+          "Reconnect Zoom in Calendar settings before creating another meeting.",
+        );
+      }
+      const leasedSecret = storedTokenSecret(
+        await decryptSecret<unknown>(env, leased.credential_ciphertext),
+      );
+      if (Date.parse(leasedSecret.expiresAt) > Date.now() + TOKEN_REFRESH_SKEW_MS) {
+        return { connection: leased, secret: leasedSecret };
+      }
+      if (!leasedSecret.refreshToken) {
+        throw new ApiError(
+          409,
+          "zoom_reauthorization_required",
+          "Reconnect Zoom in Calendar settings before creating another meeting.",
+        );
+      }
+      const refreshed = await refreshZoomAccessToken(
+        zoomOAuthClientConfig(env, zoomRefreshRedirectUri(env)),
+        leasedSecret.refreshToken,
+        { fetch: providerFetch },
+      );
+      const missingScopes = missingZoomOAuthScopes(refreshed.scope);
+      if (missingScopes.length > 0) {
+        throw new ApiError(
+          409,
+          "zoom_scopes_missing",
+          "Reconnect Zoom and approve all requested meeting permissions.",
+        );
+      }
+      const nextSecret = zoomTokenSecret(refreshed);
+      const nextCiphertext = await encryptSecret(env, nextSecret);
+      const updatedAt = new Date().toISOString();
+      const persisted = await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET credential_ciphertext = ?, token_expires_at = ?, updated_at = ?,
+                refresh_lease_token = NULL, refresh_lease_until = NULL
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?
+            AND refresh_lease_token = ?`,
+      )
+        .bind(
+          nextCiphertext,
+          nextSecret.expiresAt,
+          updatedAt,
+          connection.id,
+          workspace,
+          principal,
+          leaseToken,
+        )
+        .run();
+      if (Number(persisted.meta.changes ?? 0) !== 1) {
+        throw new ApiError(
+          502,
+          "zoom_refresh_uncertain",
+          "Zoom access was refreshed, but TAP could not save the rotated token safely.",
+        );
+      }
+      return {
+        connection: {
+          ...leased,
+          credential_ciphertext: nextCiphertext,
+          token_expires_at: nextSecret.expiresAt,
+          updated_at: updatedAt,
+          refresh_lease_token: null,
+          refresh_lease_until: null,
+        },
+        secret: nextSecret,
+      };
+    } catch (error) {
+      const definitiveAuthorizationFailure = error instanceof ZoomProviderError &&
+        error.providerStatus !== undefined &&
+        [400, 401, 403].includes(error.providerStatus);
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET refresh_lease_token = NULL, refresh_lease_until = NULL,
+                status = CASE WHEN ? THEN 'attention' ELSE status END,
+                updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?
+            AND refresh_lease_token = ?`,
+      )
+        .bind(
+          definitiveAuthorizationFailure ? 1 : 0,
+          new Date().toISOString(),
+          connection.id,
+          workspace,
+          principal,
+          leaseToken,
+        )
+        .run();
+      if (error instanceof ApiError) throw error;
+      throw zoomProviderApiError(error, "TAP Calendar could not refresh Zoom access.");
+    } finally {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET refresh_lease_token = NULL, refresh_lease_until = NULL
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?
+            AND refresh_lease_token = ?`,
+      )
+        .bind(connection.id, workspace, principal, leaseToken)
+        .run();
+    }
+  }
+  throw new ApiError(409, "zoom_refresh_in_progress", "Zoom access is being refreshed.");
+}
+
+async function deleteMeetingProviderConnection(
+  request: Request,
+  env: CalendarGatewayEnv,
+  connectionId: string,
+  providerFetch: ProviderFetch = fetch,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const connection = await meetingProviderConnectionById(
+    env,
+    workspace,
+    principal,
+    connectionId,
+  );
+  const activeMeeting = await env.CALENDAR_DB.prepare(
+    `SELECT 1
+       FROM zoom_meeting_operations AS zoom_operations
+       INNER JOIN provider_booking_commits AS bookings
+         ON bookings.workspace_id = zoom_operations.workspace_id
+        AND bookings.principal_id = zoom_operations.principal_id
+        AND bookings.idempotency_key = zoom_operations.booking_idempotency_key
+      WHERE zoom_operations.connection_id = ?
+        AND zoom_operations.workspace_id = ? AND zoom_operations.principal_id = ?
+        AND zoom_operations.state = 'created' AND bookings.end_at > ?
+      LIMIT 1`,
+  )
+    .bind(connectionId, workspace, principal, new Date().toISOString())
+    .first<number>();
+  if (activeMeeting !== null) {
+    throw new ApiError(
+      409,
+      "zoom_connection_in_use",
+      "Cancel upcoming Zoom bookings before disconnecting this account.",
+    );
+  }
+  if (connection.credential_ciphertext && zoomOAuthConfigured(env)) {
+    try {
+      const secret = storedTokenSecret(
+        await decryptSecret<unknown>(env, connection.credential_ciphertext),
+      );
+      await revokeZoomToken(
+        zoomOAuthClientConfig(env, zoomRedirectUri(request, env)),
+        secret.accessToken,
+        { fetch: providerFetch },
+      );
+    } catch (error) {
+      logCalendarSync("warn", "Zoom token revocation failed during disconnect", {
+        workspace_id: workspace,
+        connection_id: connectionId,
+        error: error instanceof ZoomProviderError ? error.code : "unknown error",
+      });
+    }
+  }
+  await env.CALENDAR_DB.prepare(
+    `DELETE FROM zoom_meeting_operations
+      WHERE connection_id = ? AND workspace_id = ? AND principal_id = ?`,
+  )
+    .bind(connectionId, workspace, principal)
+    .run();
+  await env.CALENDAR_DB.prepare(
+    `DELETE FROM meeting_provider_connections
+      WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+  )
+    .bind(connectionId, workspace, principal)
+    .run();
+  return new Response(null, { status: 204 });
+}
+
+async function verifyMeetingProviderConnection(
+  request: Request,
+  env: CalendarGatewayEnv,
+  connectionId: string,
+  providerFetch: ProviderFetch = fetch,
+): Promise<Response> {
+  const { workspace, principal } = await principalScope(request, env);
+  const connection = await meetingProviderConnectionById(
+    env,
+    workspace,
+    principal,
+    connectionId,
+  );
+  if (connection.status !== "connected" || !connection.credential_ciphertext) {
+    return json({ connection: meetingProviderConnectionProjection(connection) });
+  }
+  try {
+    const authorization = await authorizedZoomTokenForScope(
+      env,
+      workspace,
+      principal,
+      providerFetch,
+    );
+    if (authorization.connection.id !== connection.id) {
+      throw new ApiError(
+        409,
+        "zoom_connection_mismatch",
+        "The Zoom connection changed while it was being checked.",
+      );
+    }
+    const user = await getZoomCurrentUser(authorization.secret.accessToken, {
+      fetch: providerFetch,
+    });
+    if (
+      user.status !== "active" ||
+      user.id !== connection.provider_user_id ||
+      user.accountId !== connection.provider_account_id
+    ) {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET status = 'attention', updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+      )
+        .bind(new Date().toISOString(), connection.id, workspace, principal)
+        .run();
+      throw new ApiError(
+        409,
+        "zoom_reauthorization_required",
+        "Reconnect the same Zoom account before creating another meeting.",
+      );
+    }
+    const verifiedAt = new Date().toISOString();
+    await env.CALENDAR_DB.prepare(
+      `UPDATE meeting_provider_connections
+          SET provider_email = ?, status = 'connected',
+              last_verified_at = ?, updated_at = ?
+        WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+    )
+      .bind(
+        user.email,
+        verifiedAt,
+        verifiedAt,
+        connection.id,
+        workspace,
+        principal,
+      )
+      .run();
+    const verified = await meetingProviderConnectionById(
+      env,
+      workspace,
+      principal,
+      connection.id,
+    );
+    return json({ connection: meetingProviderConnectionProjection(verified) });
+  } catch (error) {
+    const authorizationRejected = error instanceof ZoomProviderError &&
+      (error.providerStatus === 401 || error.providerStatus === 403);
+    if (authorizationRejected) {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE meeting_provider_connections
+            SET status = 'attention', updated_at = ?
+          WHERE id = ? AND workspace_id = ? AND principal_id = ?`,
+      )
+        .bind(new Date().toISOString(), connection.id, workspace, principal)
+        .run();
+    }
+    if (error instanceof ApiError) throw error;
+    throw zoomProviderApiError(error, "TAP Calendar could not verify Zoom access.");
+  }
+}
+
 async function syncConnection(
   request: Request,
   env: CalendarGatewayEnv,
@@ -2988,6 +3931,7 @@ const eventInstant = (
 export function normalizeGoogleCalendarEvent(
   value: unknown,
   calendarId: string,
+  accountEmail?: string,
 ): GatewayCalendarEvent | null {
   if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) return null;
   const start = eventInstant(value.start);
@@ -3006,12 +3950,22 @@ export function normalizeGoogleCalendarEvent(
     const providerId = typeof candidate.id === "string" && candidate.id
       ? candidate.id
       : email || String(index);
+    const responseStatus: AttendeeResponseStatus =
+      candidate.responseStatus === "accepted" || candidate.responseStatus === "declined" ||
+      candidate.responseStatus === "tentative" || candidate.responseStatus === "needsAction"
+        ? candidate.responseStatus
+        : "unknown";
     return [{
       id: googleEventId("event", calendarId, `${value.id}:attendee:${providerId}`),
       name,
       email,
       kind: "external" as const,
       required: candidate.optional !== true,
+      responseStatus,
+      // Google `self` identifies this calendar's owner, not necessarily the
+      // authenticated account when reading a shared calendar.
+      isCurrentUser: Boolean(email && accountEmail &&
+        email.toLowerCase() === accountEmail.trim().toLowerCase()),
     }];
   });
   const selfAttendee = rawAttendees.find(candidate => isRecord(candidate) && candidate.self === true);
@@ -3043,11 +3997,14 @@ export function normalizeGoogleCalendarEvent(
     : {};
   const conferenceKey = isRecord(conferenceSolution.key) ? conferenceSolution.key : {};
   const hasGoogleMeetJoinUrl = googleMeetJoinUrl(value) !== null;
+  const hasZoomJoinUrl = normalizeZoomJoinUrl(value.location) !== null;
   const location: GatewayCalendarEvent["location"] =
     hasGoogleMeetJoinUrl &&
         (conferenceKey.type === "hangoutsMeet" ||
           normalizeGoogleMeetJoinUrl(value.hangoutLink) !== null)
       ? "google-meet"
+      : hasZoomJoinUrl
+        ? "zoom"
       : typeof value.location === "string" && value.location.trim().length > 0
         ? "physical"
         : null;
@@ -3062,7 +4019,7 @@ export function normalizeGoogleCalendarEvent(
     status,
     location,
     attendees,
-    busy: value.transparency !== "transparent",
+    busy: value.transparency !== "transparent" && selfResponse !== "declined" && value.status !== "cancelled",
     allDay: start.allDay,
   };
 }
@@ -3122,6 +4079,8 @@ const providerQueryError = (calendarId: string, cause: unknown): EventQueryError
     message: "Google Calendar could not return events for this calendar.",
   };
 };
+
+const GOOGLE_EVENT_PROJECTION_VERSION = 1;
 
 const GOOGLE_SYNC_EVENT_FIELDS = [
   "nextPageToken",
@@ -3302,6 +4261,7 @@ interface GoogleSyncCollection {
 const googleCacheMutation = (
   value: unknown,
   calendarId: string,
+  accountEmail: string,
 ): GoogleCacheMutation | null => {
   if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) return null;
   const providerEventId = value.id.slice(0, 2048);
@@ -3310,7 +4270,7 @@ const googleCacheMutation = (
     ? new Date(value.updated).toISOString()
     : null;
   const cancelled = value.status === "cancelled";
-  const event = cancelled ? null : normalizeGoogleCalendarEvent(value, calendarId);
+  const event = cancelled ? null : normalizeGoogleCalendarEvent(value, calendarId, accountEmail);
   if (!event) {
     return {
       providerEventId,
@@ -3383,7 +4343,7 @@ async function collectGoogleCalendarChanges(
       throw new ApiError(502, "provider_response_invalid", "Google returned an invalid event list.");
     }
     for (const item of Array.isArray(page.items) ? page.items : []) {
-      const mutation = googleCacheMutation(item, target.id);
+      const mutation = googleCacheMutation(item, target.id, target.connection_label);
       if (mutation) mutations.push(mutation);
       if (mutations.length > MAX_CACHE_SYNC_EVENTS) {
         throw new ApiError(
@@ -3628,7 +4588,8 @@ async function syncGoogleCalendarCache(
     );
     const rollingCoverageRefreshDue = !state.cache_time_max ||
       Date.parse(state.cache_time_max) <= Date.now() + CACHE_ROLLING_REBUILD_MARGIN_MS;
-    const requestedSyncToken = forceFullSync || rollingCoverageRefreshDue
+    const requestedSyncToken = forceFullSync || rollingCoverageRefreshDue ||
+      state.projection_version !== GOOGLE_EVENT_PROJECTION_VERSION
       ? null
       : state.sync_token;
     let resyncedAfterTokenExpiry = false;
@@ -3683,6 +4644,7 @@ async function syncGoogleCalendarCache(
     const commit = await env.CALENDAR_DB.prepare(
       `UPDATE calendar_sync_state
           SET active_generation = ?, cache_revision = cache_revision + 1, sync_token = ?,
+              projection_version = ${GOOGLE_EVENT_PROJECTION_VERSION},
               cache_time_min = COALESCE(?, cache_time_min),
               cache_time_max = COALESCE(?, cache_time_max), freshness = 'fresh',
               last_success_at = ?, next_sync_at = ?, error_code = NULL,
@@ -3788,6 +4750,7 @@ async function syncGoogleCalendarCache(
 
 async function listGoogleCalendarEvents(
   calendar: CalendarRow,
+  accountEmail: string,
   accessToken: string,
   input: EventQueryInput,
   budget: EventQueryBudget,
@@ -3847,7 +4810,7 @@ async function listGoogleCalendarEvents(
     }
     let invalidItems = 0;
     for (const item of Array.isArray(page.items) ? page.items : []) {
-      const event = normalizeGoogleCalendarEvent(item, calendar.id);
+      const event = normalizeGoogleCalendarEvent(item, calendar.id, accountEmail);
       if (!event) {
         invalidItems += 1;
         continue;
@@ -4198,6 +5161,7 @@ async function queryLiveEventsForScope(
         try {
           return await listGoogleCalendarEvents(
             calendar,
+            connection.label,
             accessToken,
             input,
             budget,
@@ -4369,6 +5333,7 @@ const stateUsableForQuery = (
   input: EventQueryInput,
 ): state is CalendarSyncStateRow => Boolean(
   state?.last_success_at &&
+  state.projection_version === GOOGLE_EVENT_PROJECTION_VERSION &&
   state.cache_time_min &&
   state.cache_time_max &&
   Date.parse(state.cache_time_min) <= Date.parse(input.timeMin) &&
@@ -4614,8 +5579,10 @@ async function validateLiveAvailability(
 ): Promise<Response> {
   await principalScope(request, env);
   const input = eventQueryInput(await readJson(request));
+  const scope = await principalScope(request, env);
   const result = await strictLiveAvailability(request, env, input, providerFetch);
-  return json({ ...result, timeMin: input.timeMin, timeMax: input.timeMax });
+  const held = await hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), scope, input.timeMin, input.timeMax);
+  return json({ ...result, available: result.available && held.length === 0, timeMin: input.timeMin, timeMax: input.timeMax });
 }
 
 async function confirmLiveAvailability(
@@ -4708,7 +5675,9 @@ async function confirmLiveAvailability(
   // Confirmation always revalidates providers. Client-observed cache revisions are proof only,
   // never an authority for a new availability decision. An identical idempotency replay above
   // returns the already committed decision without depending on provider availability.
-  const validation = await strictLiveAvailability(request, env, input, providerFetch);
+  const live = await strictLiveAvailability(request, env, input, providerFetch);
+  const held = await hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), { workspace, principal }, input.timeMin, input.timeMax);
+  const validation = { ...live, available: live.available && held.length === 0 };
   if (!validation.conclusive) {
     throw new ApiError(
       503,
@@ -4855,11 +5824,15 @@ function providerBookingCommitInput(
     );
   }
   const conferenceProvider = body.conferenceProvider ?? "none";
-  if (conferenceProvider !== "none" && conferenceProvider !== "google-meet") {
+  if (
+    conferenceProvider !== "none" &&
+    conferenceProvider !== "google-meet" &&
+    conferenceProvider !== "zoom"
+  ) {
     throw new ApiError(
       400,
       "unsupported_conference_provider",
-      "conferenceProvider must be none or google-meet for a Google destination.",
+      "conferenceProvider must be none, google-meet, or zoom for a Google destination.",
     );
   }
   if (body.bookingKind !== "meeting" && conferenceProvider !== "none") {
@@ -4902,7 +5875,7 @@ function providerBookingCommitInput(
     destinationCalendarId,
     idempotencyKey: identifier(body.idempotencyKey, "idempotencyKey"),
     title: requiredText(body.title, "title", 255),
-    description: optionalCommitText(body.description, "description", 4_000),
+    description: optionalCommitText(body.description, "description", MAX_BOOKING_DESCRIPTION_LENGTH),
     location: optionalCommitText(body.location, "location", 1_024),
     bookingKind: body.bookingKind,
     attendeeEmails,
@@ -4991,6 +5964,324 @@ const GOOGLE_COMMITTED_EVENT_FIELDS = [
   "extendedProperties(private)",
 ].join(",");
 
+interface ProvisionedZoomConference {
+  readonly meetingId: string;
+  readonly joinUrl: string;
+  readonly createdThisAttempt: boolean;
+}
+
+const zoomMeetingDurationForRange = (timeMin: string, timeMax: string): number =>
+  Math.max(1, Math.min(1_440, Math.ceil(
+    (Date.parse(timeMax) - Date.parse(timeMin)) / (60 * 1_000),
+  )));
+
+const zoomMeetingDuration = (input: ProviderBookingCommitInput): number =>
+  zoomMeetingDurationForRange(input.timeMin, input.timeMax);
+
+async function provisionZoomConference(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  input: ProviderBookingCommitInput,
+  requestHash: string,
+  providerFetch: ProviderFetch,
+): Promise<ProvisionedZoomConference> {
+  const authorization = await authorizedZoomTokenForScope(
+    env,
+    workspace,
+    principal,
+    providerFetch,
+  );
+  const existing = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, request_hash, state, zoom_meeting_id, join_url
+       FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?`,
+  )
+    .bind(workspace, principal, input.idempotencyKey)
+    .first<ZoomMeetingOperationRow>();
+  if (existing) {
+    if (existing.request_hash !== requestHash) {
+      throw new ApiError(
+        409,
+        "idempotency_key_reused",
+        "This idempotency key was already used for a different Zoom meeting.",
+      );
+    }
+    if (existing.state === "created" && existing.zoom_meeting_id && existing.join_url) {
+      const joinUrl = normalizeZoomJoinUrl(existing.join_url);
+      if (!joinUrl) {
+        throw new ApiError(
+          500,
+          "zoom_booking_state_invalid",
+          "The stored Zoom meeting details are invalid.",
+        );
+      }
+      return {
+        meetingId: existing.zoom_meeting_id,
+        joinUrl,
+        createdThisAttempt: false,
+      };
+    }
+    throw new ApiError(
+      502,
+      "zoom_create_uncertain",
+      "Zoom did not confirm whether the meeting was created. TAP will not create a duplicate; reconnect Zoom or contact support to reconcile this booking.",
+    );
+  }
+  const now = new Date().toISOString();
+  const inserted = await env.CALENDAR_DB.prepare(
+    `INSERT OR IGNORE INTO zoom_meeting_operations
+      (workspace_id, principal_id, booking_idempotency_key, connection_id,
+       request_hash, state, zoom_meeting_id, join_url, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'creating', NULL, NULL, ?, ?)`,
+  )
+    .bind(
+      workspace,
+      principal,
+      input.idempotencyKey,
+      authorization.connection.id,
+      requestHash,
+      now,
+      now,
+    )
+    .run();
+  if (Number(inserted.meta.changes ?? 0) !== 1) {
+    throw new ApiError(
+      409,
+      "zoom_create_in_progress",
+      "This Zoom meeting is already being created. Retry shortly with the same booking key.",
+    );
+  }
+  try {
+    const meeting = await createZoomMeeting(
+      authorization.secret.accessToken,
+      {
+        topic: input.title.slice(0, 200),
+        startTime: input.timeMin,
+        durationMinutes: zoomMeetingDuration(input),
+        ...(input.description ? { agenda: input.description.slice(0, 2_000) } : {}),
+      },
+      { fetch: providerFetch },
+    );
+    const persisted = await env.CALENDAR_DB.prepare(
+      `UPDATE zoom_meeting_operations
+          SET state = 'created', zoom_meeting_id = ?, join_url = ?, updated_at = ?
+        WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+          AND request_hash = ? AND state = 'creating'`,
+    )
+      .bind(
+        meeting.id,
+        meeting.joinUrl,
+        new Date().toISOString(),
+        workspace,
+        principal,
+        input.idempotencyKey,
+        requestHash,
+      )
+      .run();
+    if (Number(persisted.meta.changes ?? 0) !== 1) {
+      throw new ApiError(
+        502,
+        "zoom_create_uncertain",
+        "Zoom created a meeting, but TAP could not save its result. TAP will not create a duplicate.",
+      );
+    }
+    return {
+      meetingId: meeting.id,
+      joinUrl: meeting.joinUrl,
+      createdThisAttempt: true,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const providerStatus = error instanceof ZoomProviderError
+      ? error.providerStatus
+      : undefined;
+    const definitive = providerStatus !== undefined &&
+      providerStatus >= 400 && providerStatus < 500 &&
+      providerStatus !== 408 && providerStatus !== 429;
+    if (definitive) {
+      await env.CALENDAR_DB.prepare(
+        `DELETE FROM zoom_meeting_operations
+          WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+            AND state = 'creating'`,
+      )
+        .bind(workspace, principal, input.idempotencyKey)
+        .run();
+    } else {
+      await env.CALENDAR_DB.prepare(
+        `UPDATE zoom_meeting_operations
+            SET state = 'create_uncertain', updated_at = ?
+          WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+            AND state = 'creating'`,
+      )
+        .bind(new Date().toISOString(), workspace, principal, input.idempotencyKey)
+        .run();
+    }
+    throw zoomProviderApiError(error, "Zoom could not create the meeting.");
+  }
+}
+
+async function deleteZoomConferenceOperation(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  bookingIdempotencyKey: string,
+  providerFetch: ProviderFetch,
+  expectedMeetingId?: string | null,
+): Promise<void> {
+  const operation = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, request_hash, state, zoom_meeting_id, join_url
+       FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?`,
+  )
+    .bind(workspace, principal, bookingIdempotencyKey)
+    .first<ZoomMeetingOperationRow>();
+  if (!operation || operation.state === "deleted") return;
+  if (operation.state !== "created" || !operation.zoom_meeting_id) {
+    throw new ApiError(
+      502,
+      "zoom_delete_uncertain",
+      "TAP cannot safely remove a Zoom meeting whose creation is unresolved.",
+    );
+  }
+  if (expectedMeetingId !== undefined && operation.zoom_meeting_id !== expectedMeetingId) {
+    throw new ApiError(
+      409,
+      "zoom_booking_state_mismatch",
+      "The stored Zoom meeting does not match the Google booking.",
+    );
+  }
+  const authorization = await authorizedZoomTokenForScope(
+    env,
+    workspace,
+    principal,
+    providerFetch,
+  );
+  if (authorization.connection.id !== operation.connection_id) {
+    throw new ApiError(
+      409,
+      "zoom_connection_mismatch",
+      "This booking belongs to a different Zoom connection.",
+    );
+  }
+  try {
+    await deleteZoomMeeting(
+      authorization.secret.accessToken,
+      operation.zoom_meeting_id,
+      { fetch: providerFetch },
+    );
+  } catch (error) {
+    if (!(error instanceof ZoomProviderError) || error.providerStatus !== 404) {
+      throw zoomProviderApiError(error, "Zoom could not remove the meeting.");
+    }
+  }
+  await env.CALENDAR_DB.prepare(
+    `UPDATE zoom_meeting_operations
+        SET state = 'deleted', join_url = NULL, updated_at = ?
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+        AND zoom_meeting_id = ?`,
+  )
+    .bind(
+      new Date().toISOString(),
+      workspace,
+      principal,
+      bookingIdempotencyKey,
+      operation.zoom_meeting_id,
+    )
+    .run();
+}
+
+async function rollbackZoomConferenceOperation(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  bookingIdempotencyKey: string,
+  providerFetch: ProviderFetch,
+): Promise<void> {
+  await deleteZoomConferenceOperation(
+    env,
+    workspace,
+    principal,
+    bookingIdempotencyKey,
+    providerFetch,
+  );
+  await env.CALENDAR_DB.prepare(
+    `DELETE FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?
+        AND state = 'deleted'`,
+  )
+    .bind(workspace, principal, bookingIdempotencyKey)
+    .run();
+}
+
+async function updateZoomConferenceOperation(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  principal: string,
+  bookingIdempotencyKey: string,
+  googleEvent: Readonly<Record<string, unknown>>,
+  timeMin: string,
+  timeMax: string,
+  providerFetch: ProviderFetch,
+): Promise<boolean> {
+  const operation = await env.CALENDAR_DB.prepare(
+    `SELECT connection_id, request_hash, state, zoom_meeting_id, join_url
+       FROM zoom_meeting_operations
+      WHERE workspace_id = ? AND principal_id = ? AND booking_idempotency_key = ?`,
+  )
+    .bind(workspace, principal, bookingIdempotencyKey)
+    .first<ZoomMeetingOperationRow>();
+  const eventMeetingId = zoomMeetingIdFromGoogleEvent(googleEvent);
+  if (!operation) {
+    if (eventMeetingId) {
+      throw new ApiError(
+        409,
+        "zoom_booking_state_mismatch",
+        "The Google event references a Zoom meeting TAP does not own.",
+      );
+    }
+    return false;
+  }
+  if (
+    operation.state !== "created" ||
+    !operation.zoom_meeting_id ||
+    operation.zoom_meeting_id !== eventMeetingId
+  ) {
+    throw new ApiError(
+      409,
+      "zoom_booking_state_mismatch",
+      "The stored Zoom meeting does not match the Google booking.",
+    );
+  }
+  const authorization = await authorizedZoomTokenForScope(
+    env,
+    workspace,
+    principal,
+    providerFetch,
+  );
+  if (authorization.connection.id !== operation.connection_id) {
+    throw new ApiError(
+      409,
+      "zoom_connection_mismatch",
+      "This booking belongs to a different Zoom connection.",
+    );
+  }
+  try {
+    await updateZoomMeeting(
+      authorization.secret.accessToken,
+      operation.zoom_meeting_id,
+      {
+        startTime: timeMin,
+        durationMinutes: zoomMeetingDurationForRange(timeMin, timeMax),
+      },
+      { fetch: providerFetch },
+    );
+  } catch (error) {
+    throw zoomProviderApiError(error, "Zoom could not reschedule the meeting.");
+  }
+  return true;
+}
+
 async function getGoogleCommittedEvent(
   target: CalendarSyncTarget,
   providerEventId: string,
@@ -5018,13 +6309,18 @@ const googleCommitEventBody = (
   input: ProviderBookingCommitInput,
   providerEventId: string,
   requestHash: string,
+  zoomConference: ProvisionedZoomConference | null,
 ): Readonly<Record<string, unknown>> => ({
   id: providerEventId,
   summary: input.bookingKind === "approval-hold"
     ? `Pending approval: ${input.title}`.slice(0, 255)
     : input.title,
   ...(input.description ? { description: input.description } : {}),
-  ...(input.location ? { location: input.location } : {}),
+  ...(zoomConference
+    ? { location: zoomConference.joinUrl }
+    : input.location
+      ? { location: input.location }
+      : {}),
   start: { dateTime: input.timeMin },
   end: { dateTime: input.timeMax },
   transparency: "opaque",
@@ -5047,6 +6343,12 @@ const googleCommitEventBody = (
     private: {
       tapCommitHash: requestHash,
       tapBookingKind: input.bookingKind,
+      ...(zoomConference
+        ? {
+            tapConferenceProvider: "zoom",
+            tapZoomMeetingId: zoomConference.meetingId,
+          }
+        : {}),
     },
   },
 });
@@ -5058,6 +6360,7 @@ async function insertGoogleCommittedEvent(
   requestHash: string,
   accessToken: string,
   providerFetch: ProviderFetch,
+  zoomConference: ProvisionedZoomConference | null = null,
 ): Promise<Readonly<Record<string, unknown>>> {
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(target.provider_calendar_id)}/events`,
@@ -5080,7 +6383,9 @@ async function insertGoogleCommittedEvent(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(googleCommitEventBody(input, providerEventId, requestHash)),
+      body: JSON.stringify(
+        googleCommitEventBody(input, providerEventId, requestHash, zoomConference),
+      ),
     },
     providerFetch,
   );
@@ -5097,8 +6402,9 @@ const googleCommitHash = (value: Readonly<Record<string, unknown>>): string | nu
 function committedBookingEvent(
   input: ProviderBookingCommitInput,
   providerEvent: Readonly<Record<string, unknown>>,
+  accountEmail: string,
 ): GatewayCalendarEvent {
-  const normalized = normalizeGoogleCalendarEvent(providerEvent, input.destinationCalendarId);
+  const normalized = normalizeGoogleCalendarEvent(providerEvent, input.destinationCalendarId, accountEmail);
   if (!normalized) {
     throw new ApiError(
       502,
@@ -5121,8 +6427,9 @@ function committedBookingProjection(
   input: ProviderBookingCommitInput,
   providerEvent: Readonly<Record<string, unknown>>,
   providerEventId: string,
+  accountEmail: string,
 ): Readonly<Record<string, unknown>> {
-  const event = committedBookingEvent(input, providerEvent);
+  const event = committedBookingEvent(input, providerEvent, accountEmail);
   return {
     booking: {
       state: "committed",
@@ -5136,9 +6443,11 @@ function committedBookingProjection(
         : [],
       approvalExpiresAt: input.expiresAt,
       providerHtmlLink: normalizeGoogleCalendarHtmlUrl(providerEvent.htmlLink),
-      providerJoinUrl: googleMeetJoinUrl(providerEvent),
+      providerJoinUrl: providerConferenceJoinUrl(providerEvent),
       conferenceStatus: input.conferenceProvider === "google-meet"
         ? googleMeetJoinUrl(providerEvent) ? "ready" : "pending"
+        : input.conferenceProvider === "zoom"
+          ? normalizeZoomJoinUrl(providerEvent.location) ? "ready" : "pending"
         : "none",
       event,
     },
@@ -5167,10 +6476,12 @@ const boundedStringArray = (value: unknown, maximum: number): readonly string[] 
 function recoveredCommittedBookingProjection(
   row: ProviderBookingCommitRow,
   providerEvent: Readonly<Record<string, unknown>>,
+  accountEmail: string,
 ): Readonly<Record<string, unknown>> {
   const normalized = normalizeGoogleCalendarEvent(
     providerEvent,
     row.destination_calendar_id,
+    accountEmail,
   );
   if (!normalized) {
     throw new ApiError(
@@ -5191,11 +6502,12 @@ function recoveredCommittedBookingProjection(
     )
     : [];
   const storedConferenceStatus = storedBooking?.conferenceStatus;
-  const providerJoinUrl = googleMeetJoinUrl(providerEvent);
+  const providerJoinUrl = providerConferenceJoinUrl(providerEvent);
   const conferenceRequested =
     storedConferenceStatus === "pending" ||
     storedConferenceStatus === "ready" ||
     storedRequest?.conferenceProvider === "google-meet" ||
+    storedRequest?.conferenceProvider === "zoom" ||
     googleMeetConferenceRequested(providerEvent);
   const committedAt = typeof storedResponse?.committedAt === "string" &&
       Number.isFinite(Date.parse(storedResponse.committedAt))
@@ -5262,9 +6574,9 @@ function storedCommittedBookingProjection(
     ...eventWithoutLinks
   } = storedEvent;
   const providerHtmlLink = normalizeGoogleCalendarHtmlUrl(storedBooking.providerHtmlLink);
-  const providerJoinUrl = normalizeGoogleMeetJoinUrl(storedBooking.providerJoinUrl);
+  const providerJoinUrl = normalizedProviderJoinUrl(storedBooking.providerJoinUrl);
   const eventProviderHtmlLink = normalizeGoogleCalendarHtmlUrl(storedEventHtmlLink);
-  const eventProviderJoinUrl = normalizeGoogleMeetJoinUrl(storedEventJoinUrl);
+  const eventProviderJoinUrl = normalizedProviderJoinUrl(storedEventJoinUrl);
   const storedConferenceStatus = storedBooking.conferenceStatus;
   return {
     booking: {
@@ -5312,15 +6624,17 @@ function enrichedStoredBookingProjection(
     );
   }
   const storedRequest = parsedRecord(row.request_json);
-  const providerJoinUrl = googleMeetJoinUrl(providerEvent);
+  const providerJoinUrl = providerConferenceJoinUrl(providerEvent);
   const storedConferenceStatus = booking.conferenceStatus;
   const conferenceRequested =
     storedConferenceStatus === "pending" ||
     storedConferenceStatus === "ready" ||
     storedRequest?.conferenceProvider === "google-meet" ||
+    storedRequest?.conferenceProvider === "zoom" ||
     googleMeetConferenceRequested(providerEvent);
-  const meetingRequestedGoogleMeet = row.booking_kind === "meeting" &&
-    (storedRequest?.conferenceProvider === "google-meet" ||
+  const requestedConference = storedRequest?.conferenceProvider;
+  const meetingRequestedConference = row.booking_kind === "meeting" &&
+    ((requestedConference === "google-meet" || requestedConference === "zoom") ||
       storedConferenceStatus === "pending" ||
       storedConferenceStatus === "ready");
   return {
@@ -5330,8 +6644,13 @@ function enrichedStoredBookingProjection(
       providerHtmlLink: normalizeGoogleCalendarHtmlUrl(providerEvent.htmlLink),
       providerJoinUrl,
       conferenceStatus: providerJoinUrl ? "ready" : conferenceRequested ? "pending" : "none",
-      event: meetingRequestedGoogleMeet
-        ? { ...event, location: providerJoinUrl ? "google-meet" : null }
+      event: meetingRequestedConference
+        ? {
+            ...event,
+            location: providerJoinUrl
+              ? requestedConference === "zoom" ? "zoom" : "google-meet"
+              : null,
+          }
         : event,
     },
   };
@@ -5486,7 +6805,7 @@ async function getGoogleBookingStatus(
       "The Google event does not contain TAP's approval proof.",
     );
   }
-  const currentEvent = normalizeGoogleCalendarEvent(providerEvent, row.destination_calendar_id);
+  const currentEvent = normalizeGoogleCalendarEvent(providerEvent, row.destination_calendar_id, target.connection_label);
   if (!currentEvent) {
     throw new ApiError(
       502,
@@ -5495,7 +6814,7 @@ async function getGoogleBookingStatus(
     );
   }
   const providerHtmlLink = normalizeGoogleCalendarHtmlUrl(providerEvent.htmlLink);
-  const providerJoinUrl = googleMeetJoinUrl(providerEvent);
+  const providerJoinUrl = providerConferenceJoinUrl(providerEvent);
   const currentEventProjection = {
     ...currentEvent,
     ...(providerHtmlLink ? { providerHtmlLink } : {}),
@@ -5504,7 +6823,7 @@ async function getGoogleBookingStatus(
   return json({
     commit: row.response_json
       ? enrichedStoredBookingProjection(row, providerEvent)
-      : recoveredCommittedBookingProjection(row, providerEvent),
+      : recoveredCommittedBookingProjection(row, providerEvent, target.connection_label),
     lifecycle,
     currentEvent: lifecycle.state === "approved"
       ? { ...currentEventProjection, kind: "meeting", status: "confirmed" }
@@ -5597,7 +6916,7 @@ async function stageCommittedBookingInCache(
   input: ProviderBookingCommitInput,
   providerEvent: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  const event = committedBookingEvent(input, providerEvent);
+  const event = committedBookingEvent(input, providerEvent, target.connection_label);
   await stageBookingCacheMutation(env, target, {
     providerEventId: requiredText(providerEvent.id, "provider event id", 2048),
     eventId: event.id,
@@ -5722,6 +7041,7 @@ async function commitGoogleBookingForScope(
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch,
   assertWriteStillAuthorized?: () => Promise<void>,
+  collectiveHosts?: readonly CollectiveHost[],
 ): Promise<Response> {
   const { workspace, principal } = scope;
   const canonical = canonicalProviderBookingCommit(input);
@@ -5838,7 +7158,7 @@ async function commitGoogleBookingForScope(
           "The deterministic Google event identifier is already in use.",
         );
       }
-      const response = committedBookingProjection(input, providerEvent, providerEventId);
+      const response = committedBookingProjection(input, providerEvent, providerEventId, target.connection_label);
       await finalizeCommittedBooking(
         env,
         workspace,
@@ -5852,15 +7172,18 @@ async function commitGoogleBookingForScope(
     }
 
     const overlap = await env.CALENDAR_DB.prepare(
-      `SELECT idempotency_key
-         FROM provider_booking_commits
-        WHERE workspace_id = ? AND principal_id = ?
-          AND destination_calendar_id IN (${input.calendarIds.map(() => "?").join(", ")})
-          AND state IN ('pending', 'committed')
+      `SELECT commits.idempotency_key
+         FROM provider_booking_commits commits
+         LEFT JOIN public_booking_management_credentials managed ON managed.workspace_id = commits.workspace_id
+           AND managed.principal_id = commits.principal_id AND managed.provider_operation_id = commits.idempotency_key
+        WHERE commits.workspace_id = ? AND commits.principal_id = ?
+          AND commits.destination_calendar_id IN (${input.calendarIds.map(() => "?").join(", ")})
+          AND commits.state IN ('pending', 'committed')
           AND (booking_kind <> 'approval-hold' OR resolution_status IS NULL OR resolution_status <> 'declined')
           AND (booking_kind <> 'approval-hold' OR hold_expired_at IS NULL)
-          AND idempotency_key <> ?
-          AND start_at < ? AND end_at > ?
+          AND commits.idempotency_key <> ?
+          AND (managed.booking_reference IS NULL OR managed.status = 'active')
+          AND COALESCE(managed.start_at, commits.start_at) < ? AND COALESCE(managed.end_at, commits.end_at) > ?
         LIMIT 1`,
     )
       .bind(
@@ -5927,6 +7250,28 @@ async function commitGoogleBookingForScope(
         .run();
       return json(conflict, 409);
     }
+    const hostReservations = collectiveHosts?.map(host => ({ principalId: host.principalId,
+      beforeMs: host.schedule.bufferBeforeMinutes * 60_000, afterMs: host.schedule.bufferAfterMinutes * 60_000, snapshot: host })) ??
+      [{ principalId: principal, beforeMs: Date.parse(input.timeMin) - Date.parse(input.conflictTimeMin),
+        afterMs: Date.parse(input.conflictTimeMax) - Date.parse(input.timeMax) }];
+    const reserved = await reserveHosts(env.CALENDAR_DB, scope, input.idempotencyKey, input.timeMin, input.timeMax, hostReservations);
+    let hostsAvailable = reserved;
+    if (reserved && collectiveHosts) {
+      try {
+        hostsAvailable = await collectiveAvailability(env, workspace, collectiveHosts, input.timeMin, input.timeMax, providerFetch,
+          { principal, operation: input.idempotencyKey, providerEventId });
+      } catch (error) {
+        if (!(error instanceof CollectiveBookingError)) throw error;
+        hostsAvailable = false;
+      }
+    }
+    if (!hostsAvailable) {
+      const conflict = { error: "slot_conflict", message: "A required host is no longer available at that time." };
+      await env.CALENDAR_DB.prepare(`UPDATE provider_booking_commits SET state = 'rejected', response_json = ?, last_error_code = 'slot_conflict', updated_at = ?
+        WHERE workspace_id = ? AND principal_id = ? AND idempotency_key = ?`)
+        .bind(JSON.stringify(conflict), new Date().toISOString(), workspace, principal, input.idempotencyKey).run();
+      return json(conflict, 409);
+    }
     // This is the public booking's write-authorization linearization point.
     // It deliberately runs after provider I/O and while every conflict-calendar
     // lock is still held, immediately before Google can receive a new event.
@@ -5960,6 +7305,34 @@ async function commitGoogleBookingForScope(
         );
       }
     }
+    const zoomConference = input.conferenceProvider === "zoom"
+      ? await provisionZoomConference(
+          env,
+          workspace,
+          principal,
+          input,
+          requestHash,
+          providerFetch,
+        )
+      : null;
+    if (zoomConference && assertWriteStillAuthorized) {
+      try {
+        await assertWriteStillAuthorized();
+      } catch {
+        await rollbackZoomConferenceOperation(
+          env,
+          workspace,
+          principal,
+          input.idempotencyKey,
+          providerFetch,
+        );
+        throw new ApiError(
+          409,
+          "public_page_changed",
+          "This booking page changed before the booking was created.",
+        );
+      }
+    }
     try {
       providerEvent = await insertGoogleCommittedEvent(
         target,
@@ -5968,9 +7341,25 @@ async function commitGoogleBookingForScope(
         requestHash,
         secret.accessToken,
         providerFetch,
+        zoomConference,
       );
     } catch (error) {
-      if (!(error instanceof ProviderHttpError) || error.providerStatus !== 409) throw error;
+      if (!(error instanceof ProviderHttpError) || error.providerStatus !== 409) {
+        if (
+          zoomConference && error instanceof ProviderHttpError &&
+          error.providerStatus >= 400 && error.providerStatus < 500 &&
+          error.providerStatus !== 408 && error.providerStatus !== 429
+        ) {
+          await rollbackZoomConferenceOperation(
+            env,
+            workspace,
+            principal,
+            input.idempotencyKey,
+            providerFetch,
+          );
+        }
+        throw error;
+      }
       providerEvent = await getGoogleCommittedEvent(
         target,
         providerEventId,
@@ -5978,6 +7367,15 @@ async function commitGoogleBookingForScope(
         providerFetch,
       );
       if (!providerEvent || googleCommitHash(providerEvent) !== requestHash) {
+        if (zoomConference) {
+          await rollbackZoomConferenceOperation(
+            env,
+            workspace,
+            principal,
+            input.idempotencyKey,
+            providerFetch,
+          );
+        }
         throw new ApiError(
           409,
           "provider_event_id_collision",
@@ -5992,7 +7390,7 @@ async function commitGoogleBookingForScope(
         "Google created the event without TAP's commit proof.",
       );
     }
-    const response = committedBookingProjection(input, providerEvent, providerEventId);
+    const response = committedBookingProjection(input, providerEvent, providerEventId, target.connection_label);
     await finalizeCommittedBooking(
       env,
       workspace,
@@ -6124,6 +7522,7 @@ async function commitPublicGoogleBookingForScope(
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch,
   assertPublicationCurrent: () => Promise<void>,
+  collectiveHosts?: readonly CollectiveHost[],
 ): Promise<PublicProviderBookingCommit> {
   try {
     const input = publicGoogleCommitInput(command);
@@ -6137,6 +7536,7 @@ async function commitPublicGoogleBookingForScope(
       env,
       providerFetch,
       assertPublicationCurrent,
+      collectiveHosts,
     );
     const body: unknown = await response.json();
     if (response.status === 409 && isRecord(body) && body.error === "slot_conflict") {
@@ -6266,6 +7666,7 @@ export function createGatewayPublicBookingProvider(
   providerFetch: ProviderFetch,
   options: {
     readonly assertPublicationCurrent: () => Promise<void>;
+    readonly collectiveHosts?: readonly CollectiveHost[];
   },
 ): PublicBookingProvider {
   return createPublicGoogleBookingProvider({
@@ -6274,6 +7675,7 @@ export function createGatewayPublicBookingProvider(
       env,
       providerFetch,
       options.assertPublicationCurrent,
+      options.collectiveHosts,
     ),
     recover: command => recoverPublicGoogleBookingForScope(command, env, providerFetch),
   });
@@ -6622,6 +8024,13 @@ async function cancelPublicGoogleBookingForScope(
         providerFetch,
       );
       if (lookup.status === "absent") {
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6630,6 +8039,14 @@ async function cancelPublicGoogleBookingForScope(
           lookup.event.id !== input.providerEventId ||
           googleCommitHash(lookup.event) !== input.originalCommitHash
         ) return { status: "conflict", reason: "provider-mismatch" };
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+          zoomMeetingIdFromGoogleEvent(lookup.event),
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6649,12 +8066,26 @@ async function cancelPublicGoogleBookingForScope(
         return { status: "conflict", reason: "provider-mismatch" };
       }
       if (deletion === "failed") return { status: "uncertain" };
+      await deleteZoomConferenceOperation(
+        env,
+        input.scope.workspace,
+        input.scope.principal,
+        input.providerOperationId,
+        providerFetch,
+        zoomMeetingIdFromGoogleEvent(lookup.event),
+      );
       await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
       return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
     } finally {
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "slot_conflict") return { status: "conflict", reason: "slot-conflict" };
+    if (error instanceof CollectiveBookingError || (error instanceof ApiError && error.code === "booking_hosts_changed")) return { status: "conflict", reason: "provider-mismatch" };
+    if (
+      error instanceof ApiError &&
+      (error.code === "zoom_booking_state_mismatch" || error.code === "zoom_connection_mismatch")
+    ) return { status: "conflict", reason: "provider-mismatch" };
     return { status: "uncertain" };
   }
 }
@@ -6749,7 +8180,7 @@ async function stageRescheduledPublicGoogleBooking(
   target: CalendarSyncTarget,
   event: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  const normalized = normalizeGoogleCalendarEvent(event, target.id);
+  const normalized = normalizeGoogleCalendarEvent(event, target.id, target.connection_label);
   if (!normalized) return;
   try {
     await stageBookingCacheMutation(env, target, {
@@ -6832,6 +8263,16 @@ async function reschedulePublicGoogleBookingForScope(
       );
       if (lookup.status === "absent") return { status: "uncertain" };
       if (rescheduleAlreadyCommitted(lookup.event, input)) {
+        await updateZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          lookup.event,
+          input.timeMin,
+          input.timeMax,
+          providerFetch,
+        );
         await stageRescheduledPublicGoogleBooking(env, target, lookup.event);
         return { status: "committed", receipt: publicGoogleRescheduleReceipt(input) };
       }
@@ -6865,16 +8306,50 @@ async function reschedulePublicGoogleBookingForScope(
       if (!validation.conclusive) return { status: "uncertain" };
       if (!validation.available) return { status: "conflict", reason: "slot-conflict" };
       await assertWriteStillAuthorized(input);
-      lookup = {
-        status: "present",
-        event: await patchVerifiedPublicGoogleBooking(
-          target,
-          lookup.event,
-          input,
-          secret.accessToken,
-          providerFetch,
-        ),
-      };
+      const originalProviderEvent = lookup.event;
+      const zoomUpdated = await updateZoomConferenceOperation(
+        env,
+        input.scope.workspace,
+        input.scope.principal,
+        input.providerOperationId,
+        originalProviderEvent,
+        input.timeMin,
+        input.timeMax,
+        providerFetch,
+      );
+      try {
+        lookup = {
+          status: "present",
+          event: await patchVerifiedPublicGoogleBooking(
+            target,
+            originalProviderEvent,
+            input,
+            secret.accessToken,
+            providerFetch,
+          ),
+        };
+      } catch (error) {
+        const definitiveProviderRejection = error instanceof ProviderHttpError &&
+          error.providerStatus >= 400 && error.providerStatus < 500 &&
+          error.providerStatus !== 408 && error.providerStatus !== 429;
+        if (zoomUpdated && definitiveProviderRejection) {
+          try {
+            await updateZoomConferenceOperation(
+              env,
+              input.scope.workspace,
+              input.scope.principal,
+              input.providerOperationId,
+              originalProviderEvent,
+              input.originalTimeMin,
+              input.originalTimeMax,
+              providerFetch,
+            );
+          } catch {
+            return { status: "uncertain" };
+          }
+        }
+        throw error;
+      }
       if (!rescheduleAlreadyCommitted(lookup.event, input)) return { status: "uncertain" };
       await stageRescheduledPublicGoogleBooking(env, target, lookup.event);
       return { status: "committed", receipt: publicGoogleRescheduleReceipt(input) };
@@ -6882,6 +8357,12 @@ async function reschedulePublicGoogleBookingForScope(
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
   } catch (error) {
+    if (error instanceof ApiError && error.code === "slot_conflict") return { status: "conflict", reason: "slot-conflict" };
+    if (error instanceof CollectiveBookingError || (error instanceof ApiError && error.code === "booking_hosts_changed")) return { status: "conflict", reason: "provider-mismatch" };
+    if (
+      error instanceof ApiError &&
+      (error.code === "zoom_booking_state_mismatch" || error.code === "zoom_connection_mismatch")
+    ) return { status: "conflict", reason: "provider-mismatch" };
     if (
       error instanceof ProviderHttpError &&
       (error.providerStatus === 409 || error.providerStatus === 412)
@@ -6921,6 +8402,13 @@ async function recoverPublicGoogleCancellationForScope(
         providerFetch,
       );
       if (lookup.status === "absent") {
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6929,6 +8417,14 @@ async function recoverPublicGoogleCancellationForScope(
           lookup.event.id !== input.providerEventId ||
           googleCommitHash(lookup.event) !== input.originalCommitHash
         ) return { status: "uncertain" };
+        await deleteZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          providerFetch,
+          zoomMeetingIdFromGoogleEvent(lookup.event),
+        );
         await stageCancelledPublicGoogleBooking(env, target, input.providerEventId);
         return { status: "committed", receipt: publicGoogleManagementReceipt(input) };
       }
@@ -6984,13 +8480,23 @@ async function recoverPublicGoogleRescheduleForScope(
       );
       if (lookup.status === "absent") return { status: "uncertain" };
       if (rescheduleAlreadyCommitted(lookup.event, input)) {
+        await updateZoomConferenceOperation(
+          env,
+          input.scope.workspace,
+          input.scope.principal,
+          input.providerOperationId,
+          lookup.event,
+          input.timeMin,
+          input.timeMax,
+          providerFetch,
+        );
         await stageRescheduledPublicGoogleBooking(env, target, lookup.event);
         return { status: "committed", receipt: publicGoogleRescheduleReceipt(input) };
       }
       if (googleRescheduleHash(lookup.event) === input.rescheduleHash) {
         return { status: "uncertain" };
       }
-      return verifiedManagedGoogleEvent(
+      if (!verifiedManagedGoogleEvent(
         lookup.event,
         {
           providerEventId: input.providerEventId,
@@ -6999,9 +8505,18 @@ async function recoverPublicGoogleRescheduleForScope(
           timeMax: input.originalTimeMax,
         },
         input.destinationCalendarId,
-      )
-        ? { status: "absent" }
-        : { status: "uncertain" };
+      )) return { status: "uncertain" };
+      await updateZoomConferenceOperation(
+        env,
+        input.scope.workspace,
+        input.scope.principal,
+        input.providerOperationId,
+        lookup.event,
+        input.originalTimeMin,
+        input.originalTimeMax,
+        providerFetch,
+      );
+      return { status: "absent" };
     } finally {
       await releasePublicGoogleManagementLocks(env, input.scope, acquired, leaseToken);
     }
@@ -7066,11 +8581,15 @@ function providerBookingResolutionInput(
     throw new ApiError(400, "invalid_attendees", "Attendee emails must be unique.");
   }
   const conferenceProvider = body.conferenceProvider ?? "none";
-  if (conferenceProvider !== "none" && conferenceProvider !== "google-meet") {
+  if (
+    conferenceProvider !== "none" &&
+    conferenceProvider !== "google-meet" &&
+    conferenceProvider !== "zoom"
+  ) {
     throw new ApiError(
       400,
       "unsupported_conference_provider",
-      "conferenceProvider must be none or google-meet for a Google destination.",
+      "conferenceProvider must be none, google-meet, or zoom for a Google destination.",
     );
   }
   if (
@@ -7105,7 +8624,7 @@ function providerBookingResolutionInput(
     idempotencyKey: identifier(body.idempotencyKey, "idempotencyKey"),
     decision: body.decision,
     title: optionalCommitText(body.title, "title", 255),
-    description: optionalCommitText(body.description, "description", 4_000),
+    description: optionalCommitText(body.description, "description", MAX_BOOKING_DESCRIPTION_LENGTH),
     location: optionalCommitText(body.location, "location", 1_024),
     attendeeEmails,
     attendeeEmailsProvided: body.attendeeEmails !== undefined,
@@ -7130,6 +8649,7 @@ async function patchGoogleApprovedHold(
   requestHash: string,
   accessToken: string,
   providerFetch: ProviderFetch,
+  zoomConference: ProvisionedZoomConference | null,
 ): Promise<Readonly<Record<string, unknown>>> {
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(target.provider_calendar_id)}/events/${encodeURIComponent(original.provider_event_id)}`,
@@ -7153,11 +8673,21 @@ async function patchGoogleApprovedHold(
         tapCommitHash: original.request_hash,
         tapBookingKind: "meeting",
         tapResolutionHash: requestHash,
+        ...(zoomConference
+          ? {
+              tapConferenceProvider: "zoom",
+              tapZoomMeetingId: zoomConference.meetingId,
+            }
+          : {}),
       },
     },
   };
   if (input.description !== null) body.description = input.description;
-  if (input.location !== null) body.location = input.location;
+  if (zoomConference) {
+    body.location = zoomConference.joinUrl;
+  } else if (input.location !== null) {
+    body.location = input.location;
+  }
   if (input.conferenceProvider === "google-meet") {
     body.conferenceData = {
       createRequest: {
@@ -7356,6 +8886,10 @@ async function resolveGoogleApprovalHold(
       ...input,
       attendeeEmails: storedPendingAttendeeEmails(original.response_json),
     };
+  }
+  const requiredHosts = await bookedHosts(env.CALENDAR_DB, { workspace, principal }, bookingIdempotencyKey);
+  if (requiredHosts.length && input.decision === "approve") {
+    input = { ...input, attendeeEmails: [...new Set([...input.attendeeEmails, ...storedPendingAttendeeEmails(original.response_json)])] };
   }
   const approvalConflictRange: EventQueryInput | null = input.decision === "approve"
     ? (() => {
@@ -7659,17 +9193,67 @@ async function resolveGoogleApprovalHold(
         if (!validation.available) {
           throw new ApiError(409, "slot_conflict", "That time is no longer available.");
         }
+        if (requiredHosts.length && !await collectiveAvailability(env, workspace, requiredHosts, original.start_at!, original.end_at!, providerFetch,
+          { principal, operation: bookingIdempotencyKey, providerEventId: original.provider_event_id }, true)) {
+          throw new ApiError(409, "slot_conflict", "A required host is no longer available.");
+        }
         await ensurePendingResolution();
         providerMutationMayHaveOccurred = true;
-        providerEvent = await patchGoogleApprovedHold(
-          target,
-          original,
-          providerEvent,
-          input,
-          requestHash,
-          secret.accessToken,
-          providerFetch,
-        );
+        const zoomConference = input.conferenceProvider === "zoom"
+          ? await provisionZoomConference(
+              env,
+              workspace,
+              principal,
+              {
+                destinationCalendarId: original.destination_calendar_id,
+                calendarIds: approvalConflictRange!.calendarIds,
+                timeMin: original.start_at!,
+                timeMax: original.end_at!,
+                conflictTimeMin: approvalConflictRange!.timeMin,
+                conflictTimeMax: approvalConflictRange!.timeMax,
+                idempotencyKey: bookingIdempotencyKey,
+                title: input.title ?? (
+                  typeof providerEvent.summary === "string"
+                    ? providerEvent.summary.replace(/^Pending approval:\s*/u, "").trim()
+                    : "Approved meeting"
+                ),
+                description: input.description,
+                location: null,
+                bookingKind: "meeting",
+                attendeeEmails: input.attendeeEmails,
+                conferenceProvider: "zoom",
+                expiresAt: null,
+              },
+              requestHash,
+              providerFetch,
+            )
+          : null;
+        try {
+          providerEvent = await patchGoogleApprovedHold(
+            target,
+            original,
+            providerEvent,
+            input,
+            requestHash,
+            secret.accessToken,
+            providerFetch,
+            zoomConference,
+          );
+        } catch (error) {
+          const definitiveProviderRejection = error instanceof ProviderHttpError &&
+            error.providerStatus >= 400 && error.providerStatus < 500 &&
+            error.providerStatus !== 408 && error.providerStatus !== 429;
+          if (zoomConference && definitiveProviderRejection) {
+            await rollbackZoomConferenceOperation(
+              env,
+              workspace,
+              principal,
+              bookingIdempotencyKey,
+              providerFetch,
+            );
+          }
+          throw error;
+        }
       } else {
         await ensurePendingResolution();
       }
@@ -7687,6 +9271,14 @@ async function resolveGoogleApprovalHold(
       await ensurePendingResolution();
       if (providerEvent) {
         providerMutationMayHaveOccurred = true;
+        await deleteZoomConferenceOperation(
+          env,
+          workspace,
+          principal,
+          bookingIdempotencyKey,
+          providerFetch,
+          zoomMeetingIdFromGoogleEvent(providerEvent),
+        );
         await deleteGoogleApprovalHold(
           target,
           original.provider_event_id,
@@ -7697,7 +9289,7 @@ async function resolveGoogleApprovalHold(
       }
     }
     const resolvedEvent = providerEvent
-      ? normalizeGoogleCalendarEvent(providerEvent, target.id)
+      ? normalizeGoogleCalendarEvent(providerEvent, target.id, target.connection_label)
       : null;
     if (providerEvent && !resolvedEvent) {
       throw new ApiError(502, "provider_event_invalid", "Google returned an invalid approved event.");
@@ -7709,7 +9301,7 @@ async function resolveGoogleApprovalHold(
         bookingIdempotencyKey,
         providerEventId: original.provider_event_id,
         providerEventRemoved: input.decision === "decline",
-        providerJoinUrl: providerEvent ? googleMeetJoinUrl(providerEvent) : null,
+        providerJoinUrl: providerEvent ? providerConferenceJoinUrl(providerEvent) : null,
         event: resolvedEvent
           ? { ...resolvedEvent, kind: "meeting", status: "confirmed" }
           : null,
@@ -8629,6 +10221,36 @@ async function route(
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
   }
+  if (request.method === "GET" && path === "/health/booking-analytics") {
+    const coverage = await env.CALENDAR_DB.withSession("first-primary").prepare(
+      "SELECT traffic_since, conversion_since FROM public_booking_analytics_coverage WHERE id = 1",
+    ).first<{ traffic_since: string; conversion_since: string }>();
+    if (!coverage) throw new ApiError(503, "analytics_unavailable", "Booking analytics is not initialized.");
+    return json({ schemaVersion: PUBLIC_BOOKING_ANALYTICS_SCHEMA, ready: true,
+      trafficSince: coverage.traffic_since, conversionSince: coverage.conversion_since });
+  }
+  if (path === "/v1/activity" && request.method === "GET") {
+    return json(await readCalendarActivity(env.CALENDAR_DB, await principalScope(request, env)));
+  }
+  if (path === "/v1/activity/availability" && request.method === "POST") {
+    const owner = await principalScope(request, env);
+    await syncAvailabilityActivity(env.CALENDAR_DB, owner, await readJson(request));
+    return json({ recorded: true });
+  }
+  const oauthResponse = await calendarMcpOAuthRoute(request, env);
+  if (oauthResponse) return oauthResponse;
+  if (path.startsWith("/v1/mcp/")) {
+    const owner = await principalScope(request, env);
+    if (request.method === "POST" && path === "/v1/mcp/configuration") return json(await saveMcpConfiguration(env.CALENDAR_DB, owner, await readJson(request)));
+    if (request.method === "GET" && path === "/v1/mcp/grants") return json(await listMcpGrants(env.CALENDAR_DB, owner));
+    if (request.method === "DELETE" && /^\/v1\/mcp\/grants\/[0-9a-f-]{36}$/u.test(path)) return json(await revokeMcpGrant(env.CALENDAR_DB, owner, path.split("/").at(-1)!));
+    if (request.method === "POST" && path === "/v1/mcp/authorizations/review") return json(await reviewCalendarMcpAuthorization(env, (await readJson(request)).code));
+    if (request.method === "POST" && path === "/v1/mcp/authorizations/approve") {
+      await loadMcpConfiguration(env.CALENDAR_DB, owner);
+      return json(await approveCalendarMcpAuthorization(env, owner, await readJson(request)));
+    }
+    throw new ApiError(404, "route_not_found", "Unknown specialist connection route.");
+  }
   if (request.method === "GET" && path === "/health") {
     return json({
       ok: true,
@@ -8668,15 +10290,19 @@ async function route(
     );
   }
   const publicBookingRoute = parsePublicBookingPagePath(path);
+  if (request.method === "POST" && publicBookingRoute?.resource === "analytics") {
+    if (url.search) throw new ApiError(400, "invalid_public_request", "This public booking request is invalid.");
+    return trackPublishedPublicBookingFunnel(request, publicBookingRoute, env);
+  }
   if (request.method === "GET" && publicBookingRoute?.resource === "page") {
-    if (url.search) {
+    if ([...url.searchParams.keys()].some(key => key !== "visitId") || url.searchParams.getAll("visitId").length > 1) {
       throw new ApiError(
         400,
         "invalid_public_request",
         "This public booking request is invalid.",
       );
     }
-    return getPublishedPublicBookingPage(publicBookingRoute, env);
+    return getPublishedPublicBookingPage(request, publicBookingRoute, env);
   }
   if (request.method === "GET" && publicBookingRoute?.resource === "availability") {
     return getPublishedPublicBookingAvailability(
@@ -8707,8 +10333,16 @@ async function route(
   if (request.method === "GET" && path === "/v1/providers") {
     return json(providerCatalog(env));
   }
+  if (path === "/v1/workspace-bookings" || path.startsWith("/v1/workspace-bookings/")) {
+    return workspaceBookingsRoute(request, env, path);
+  }
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
+  }
+  if (request.method === "GET" && (path === "/v1/publications/analytics" || path === "/v2/publications/analytics")) {
+    const scope = await principalScope(request, env);
+    const snapshot = await loadPublicBookingAnalytics(env.CALENDAR_DB, scope);
+    return json(path.startsWith("/v1/") ? legacyPublicBookingAnalytics(snapshot) : snapshot);
   }
   if (request.method === "POST" && path === "/v1/publications/profiles/unpublish") {
     return unpublishBookingProfile(request, env);
@@ -8728,8 +10362,14 @@ async function route(
       providerFetch,
     );
   }
+  if (request.method === "GET" && path === "/v1/oauth/zoom/callback") {
+    return completeZoomOAuth(request, env, providerFetch);
+  }
   if (request.method === "GET" && path === "/v1/connections") {
     return listConnections(request, env);
+  }
+  if (request.method === "GET" && path === "/v1/meeting-providers/connections") {
+    return listMeetingProviderConnections(request, env);
   }
   if (request.method === "POST" && path === "/v1/connections/local") {
     return createLocalConnection(request, env);
@@ -8767,6 +10407,37 @@ async function route(
   const oauthStartMatch = path.match(/^\/v1\/oauth\/(google|microsoft)\/start$/u);
   if (request.method === "POST" && oauthStartMatch) {
     return beginOAuth(request, env, oauthStartMatch[1] as "google" | "microsoft");
+  }
+  if (request.method === "POST" && path === "/v1/oauth/zoom/start") {
+    return beginZoomOAuth(request, env);
+  }
+  const meetingProviderVerificationMatch = path.match(
+    /^\/v1\/meeting-providers\/connections\/([^/]+)\/verify$/u,
+  );
+  if (request.method === "POST" && meetingProviderVerificationMatch?.[1]) {
+    return verifyMeetingProviderConnection(
+      request,
+      env,
+      identifier(
+        decodeURIComponent(meetingProviderVerificationMatch[1]),
+        "connectionId",
+      ),
+      providerFetch,
+    );
+  }
+  const meetingProviderConnectionMatch = path.match(
+    /^\/v1\/meeting-providers\/connections\/([^/]+)$/u,
+  );
+  if (request.method === "DELETE" && meetingProviderConnectionMatch?.[1]) {
+    return deleteMeetingProviderConnection(
+      request,
+      env,
+      identifier(
+        decodeURIComponent(meetingProviderConnectionMatch[1]),
+        "connectionId",
+      ),
+      providerFetch,
+    );
   }
   const addCalendarsMatch = path.match(/^\/v1\/connections\/([^/]+)\/calendars\/local$/u);
   if (request.method === "POST" && addCalendarsMatch?.[1]) {
@@ -8835,10 +10506,14 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
           headers: merged,
         });
       } catch (error) {
-        const apiError = error instanceof ApiError
+        const apiError = String(error).includes("calendar_shared_bookings_active")
+          ? new ApiError(409, "calendar_shared_bookings_active", "Active shared bookings use this calendar. Cancel or finish those meetings before removing it.")
+          : error instanceof CalendarMcpError || error instanceof CollectiveBookingError || error instanceof OrganizerAuthError || error instanceof PublicBookingPublicationError
+          ? new ApiError(error.status, error.code, error.message)
+          : error instanceof ApiError
           ? error
           : new ApiError(500, "internal_error", "The Calendar gateway could not complete the request.");
-        if (!(error instanceof ApiError)) console.error(error);
+        if (apiError.code === "internal_error") console.error(error);
         return json(
           { error: apiError.code, message: apiError.message, ...apiError.details },
           apiError.status,
@@ -8857,6 +10532,8 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
         ["public booking email reconciliation", reconcilePublicBookingEmailNotices(env)],
         ["public booking email delivery", deliverPublicBookingEmails(env)],
         ["calendar cache repair", repairCalendarCaches(env, providerFetch)],
+        ["activity retention", env.CALENDAR_DB.prepare("DELETE FROM calendar_activity_events WHERE occurred_at < ?").bind(new Date(Date.now() - 90 * 86_400_000).toISOString()).run().then(() => undefined)],
+        ["expired specialist consent cleanup", env.CALENDAR_DB.prepare("DELETE FROM calendar_mcp_authorizations WHERE expires_at < ?").bind(new Date().toISOString()).run().then(() => undefined)],
       ];
       for (const [name, operation] of jobs) {
         executionContext.waitUntil(operation.catch(error => {
@@ -8869,4 +10546,75 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
   } satisfies ExportedHandler<CalendarGatewayEnv>;
 }
 
-export default createCalendarGatewayWorker();
+export function calendarLivePort(env: CalendarGatewayEnv, providerFetch: ProviderFetch = fetch): CalendarLivePort {
+  return {
+    async calendars(owner) {
+      const rows = await env.CALENDAR_DB.prepare(`SELECT calendars.id, calendars.name, calendars.role, calendars.writable,
+          connections.provider, connections.status FROM provider_calendars AS calendars
+        JOIN calendar_connections AS connections ON connections.id = calendars.connection_id
+        WHERE connections.workspace_id = ? AND connections.principal_id = ? ORDER BY calendars.name, calendars.id`)
+        .bind(owner.workspace, owner.principal).all<{ id: string; name: string; role: string; writable: number; provider: string; status: string }>();
+      return rows.results.map(row => ({ ...row, writable: row.writable === 1 }));
+    },
+    events: (owner, range) => queryLiveEventsForScope(owner, eventQueryInput({ ...range }), env, providerFetch),
+    eventId: (calendarId, providerEventId) => googleEventId("event", calendarId, providerEventId),
+    providerEventId(event) {
+      if (!event.id.startsWith("google-event.")) return null;
+      try {
+        const identity: unknown = JSON.parse(new TextDecoder().decode(fromBase64(event.id.slice("google-event.".length))));
+        return Array.isArray(identity) && identity.length === 2 && identity[0] === event.calendarId && typeof identity[1] === "string" ? identity[1] : null;
+      } catch { return null; }
+    },
+    async create(owner, args, authorize) {
+      try {
+        const input = providerBookingCommitInput(args);
+        const identity = await organizerProviderBookingIdentity(owner, input);
+        const response = await commitGoogleBookingForScope(owner, input, identity, env, providerFetch, authorize);
+        const result = await response.json<Record<string, unknown>>();
+        if (!response.ok) throw new CalendarMcpError(response.status, String(result.error ?? "booking_failed"), String(result.message ?? "The event could not be created."));
+        return result;
+      } catch (error) {
+        if (error instanceof ApiError) throw new CalendarMcpError(error.status, error.code, error.message);
+        throw error;
+      }
+    },
+  };
+}
+
+export class CalendarLiveMcpEntrypoint extends WorkerEntrypoint<CalendarGatewayEnv, CalendarMcpProps> {
+  override async fetch(request: Request): Promise<Response> {
+    const authorize = async (scope?: CalendarMcpScope) => {
+      const props = await requireMcpGrant(this.env.CALENDAR_DB, this.ctx.props, scope);
+      if (!await authorizeWorkspacePrincipal(this.env as unknown as OrganizerAuthEnv, props.workspace, props.principal, "workspace:read")) {
+        throw new CalendarMcpError(403, "calendar_membership_required", "The connected account no longer has access to this workspace.");
+      }
+    };
+    try {
+      await authorize();
+      const props = this.ctx.props;
+      return await createMcpHandler(() => createCalendarLiveMcpServer(this.env.CALENDAR_DB, props, calendarLivePort(this.env), authorize), {
+        route: "/mcp/live", authContext: { props: { ...props } }, legacy: "stateless",
+      }).fetch(request);
+    } catch (error) {
+      return json({ error: error instanceof CalendarMcpError ? error.code : "calendar_authorization_unavailable", message: error instanceof CalendarMcpError ? error.message : "Calendar authorization is unavailable." }, error instanceof CalendarMcpError ? error.status : 503);
+    }
+  }
+}
+
+const calendarWorker = createCalendarGatewayWorker();
+const calendarOAuth = (resource: string) => new OAuthProvider<CalendarGatewayEnv>({
+  apiRoute: "/mcp/live", apiHandler: CalendarLiveMcpEntrypoint, defaultHandler: calendarWorker,
+  authorizeEndpoint: "/oauth/authorize", tokenEndpoint: "/oauth/token", clientRegistrationEndpoint: "/oauth/register",
+  clientIdMetadataDocumentEnabled: true,
+  scopesSupported: [...CALENDAR_MCP_SCOPES],
+  resourceMetadata: { resource, scopes_supported: [...CALENDAR_MCP_SCOPES], bearer_methods_supported: ["header"], resource_name: "TAP Calendar" },
+  tokenExchangeCallback: options => ({ accessTokenProps: { ...options.props, scopes: options.requestedScope } }),
+  accessTokenTTL: 3600, refreshTokenTTL: 2592000,
+});
+export default {
+  fetch(request: Request, env: CalendarGatewayEnv, context: ExecutionContext) {
+    const origin = env.PUBLIC_BASE_URL || new URL(request.url).origin;
+    return calendarOAuth(`${origin.replace(/\/+$/u, "")}/mcp/live`).fetch(request, env, context);
+  },
+  scheduled: calendarWorker.scheduled,
+} satisfies ExportedHandler<CalendarGatewayEnv>;

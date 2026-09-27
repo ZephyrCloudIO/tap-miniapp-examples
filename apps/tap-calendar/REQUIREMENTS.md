@@ -5,6 +5,21 @@ surface requirement is implemented in this package. A boundary requirement is
 represented honestly in the UI or contract but needs TAP-host or Zephyr gateway
 infrastructure before production release.
 
+## Workspace collective booking links
+
+- [x] Let workspace-authorized managers claim one stable shared Booking Profile
+  and publish meeting types with an explicit organizer and required host set.
+- [x] Require each host's own Google connection and explicit workspace booking
+  consent; enforce canonical membership and management authorization server-side.
+- [x] Intersect all required hosts' scheduling policies and live conflicts, and
+  reserve every host transactionally across individual and shared links.
+- [x] Create one invitation and meeting room; preserve all hosts through approval,
+  reschedule recovery, cancellation, and hold expiry.
+- [x] Show guest-safe host names publicly and copy only successfully published,
+  current links. Preserve recoverable drafts after publication failures.
+- [ ] Extend collective availability to Microsoft calendars, unconnected external
+  attendees, capacity-based group sessions, or round-robin assignment.
+
 ## Calendar and time model
 
 - [x] Add and display multiple provider accounts and calendars the user owns in
@@ -91,6 +106,10 @@ infrastructure before production release.
   approval-required booking, location choice, and no-TAP-account messaging.
 - [x] Track page views, slot views, booking starts, requests, confirmations, and
   view-to-confirmed conversion in the calendar domain.
+- [x] Read historical public booking counts from the owner-scoped gateway and
+  record future views, slot views, and starts with per-visit deduplication.
+  Refresh live counters on open, focus, network recovery, and every minute;
+  exclude preview activity and do not infer unrecorded historical conversion.
 - [x] Describe secure cancel/reschedule management links in the confirmation
   journey.
 - [x] Authenticate organizer publication from the TAP miniapp with the
@@ -98,7 +117,7 @@ infrastructure before production release.
   and publish/unpublish whole profiles with D1 generation CAS, immutable
   revisions, atomic routing changes, and idempotent replay receipts.
 - [ ] Add anonymous public page/availability/booking endpoints, signed
-  cancel/reschedule links, transactional email, and durable public analytics.
+  cancel/reschedule links, and transactional email.
 - [ ] Cloudflare Turnstile must be verified server-side. Cloudflare WAF,
   managed DDoS mitigation, rate limits, and privacy-safe abuse telemetry belong
   at `cal.with-tap.ai`; the organizer UI reports this protection as setup

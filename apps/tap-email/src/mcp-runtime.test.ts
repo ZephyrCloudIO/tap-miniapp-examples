@@ -103,7 +103,7 @@ describe('TAP Email MCP', () => {
       failures: { total: 1, failed: 1, uncertain: 0, cancelled: 0 },
       coverage: expect.objectContaining({ complete: true, scope: 'installation' }),
     }));
-    expect(fixture.reads).toEqual([activityAddress]);
+    expect(fixture.reads).toEqual([activityAddress('user_1')]);
     expect(JSON.stringify(result)).not.toContain('occurredAt');
   });
 

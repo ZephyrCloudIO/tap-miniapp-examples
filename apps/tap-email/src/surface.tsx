@@ -7,7 +7,9 @@ import {
   applyMiniAppTheme,
   installMiniAppAppearanceSync,
 } from '@theaiplatform/miniapp-sdk/web';
-import { createRoot } from 'react-dom/client';
+import { sdk } from '@theaiplatform/miniapp-sdk/sdk';
+import { createEmailDiagnostics } from './diagnostics';
+import { createDiagnosticRoot } from './diagnostic-root';
 import { TapEmailApp } from './app';
 import './styles.css';
 
@@ -17,12 +19,13 @@ export function mount(
   container: HTMLElement,
   context: TapFederatedSurfaceMountContext,
 ): TapFederatedSurfaceMount {
-  const root = createRoot(container);
+  const diagnostics = createEmailDiagnostics({ context, storage: sdk.storage });
+  const root = createDiagnosticRoot(container, diagnostics);
   let mounted = true;
   const stopAppearanceSync = installMiniAppAppearanceSync({
     applyTheme(theme) {
       applyMiniAppTheme(theme);
-      if (mounted) root.render(<TapEmailApp appTheme={theme} surfaceContext={context} />);
+      if (mounted) root.render(<TapEmailApp appTheme={theme} surfaceContext={context} diagnostics={diagnostics} />);
     },
   });
   void context.events.publish('tap-email.surface.mounted', {

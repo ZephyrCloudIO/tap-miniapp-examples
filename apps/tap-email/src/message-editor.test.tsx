@@ -3,31 +3,10 @@
 import React, { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from '@rstest/core';
-import { EMAIL_SIGNATURE, withEmailSignature, withoutEmailSignature } from './email-signature';
+import { EMAIL_SIGNATURE } from './email-signature';
 import { MessageEditor } from './message-editor';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-describe('email signature', () => {
-  it('adds one footer across repeated saves and sends, including provider line endings', () => {
-    const body = 'Hello,\n\nThis is my message.\n';
-    const signed = withEmailSignature(body);
-    expect(signed).toBe(`${body}\n\n-- \n${EMAIL_SIGNATURE}`);
-    expect(withEmailSignature(signed)).toBe(signed);
-    expect(withoutEmailSignature(signed)).toBe(body);
-    const providerBody = signed.replaceAll('\n', '\r\n');
-    expect(withEmailSignature(providerBody)).toBe(providerBody);
-    expect(withoutEmailSignature(providerBody)).toBe(body.replaceAll('\n', '\r\n'));
-  });
-
-  it('does not turn a blank draft into a branded message or strip authored text', () => {
-    expect(withEmailSignature('')).toBe('');
-    expect(withEmailSignature(' \n')).toBe(' \n');
-    const authored = 'About the phrase Sent with The AI Platform\n\nBest,\nMaya';
-    expect(withoutEmailSignature(authored)).toBe(authored);
-    expect(withoutEmailSignature(withEmailSignature(authored))).toBe(authored);
-  });
-});
 
 describe('MessageEditor', () => {
   it('collapses the signature by default and lets it expand without changing the editable body', async () => {
@@ -54,7 +33,7 @@ describe('MessageEditor', () => {
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Hide signature"]')!.click());
       expect(container.querySelector('.message-signature-content p')).toBeNull();
       expect(body.value).toBe('Edited message');
-      expect(withEmailSignature(body.value).split(EMAIL_SIGNATURE)).toHaveLength(2);
+      expect(body.value).not.toContain(EMAIL_SIGNATURE);
     } finally {
       await act(async () => root.unmount());
       container.remove();

@@ -1,3 +1,5 @@
+import { readableFrameDocument } from './iframe-document';
+
 type DocumentWithFonts = Document & { readonly fonts?: FontFaceSet };
 type WindowWithLayoutObservers = Window & {
   readonly MutationObserver?: typeof MutationObserver;
@@ -15,13 +17,13 @@ export function watchRichMessageLayout(
   frame: HTMLIFrameElement,
   onLayout: () => void,
 ): () => void {
-  const frameDocument = frame.contentDocument;
+  const frameDocument = readableFrameDocument(frame);
   const body = frameDocument?.body;
   if (!frameDocument || !body) return () => undefined;
 
   let active = true;
   const hostWindow = frame.ownerDocument.defaultView;
-  const frameWindow = frame.contentWindow as WindowWithLayoutObservers | null;
+  const frameWindow = frameDocument.defaultView as WindowWithLayoutObservers | null;
   const Observer = frameWindow?.MutationObserver ?? globalThis.MutationObserver;
   const mutationObserver = typeof Observer === 'undefined'
     ? null

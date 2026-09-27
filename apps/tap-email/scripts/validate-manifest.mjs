@@ -13,43 +13,46 @@ const schema = JSON.parse(
 const manifest = JSON.parse(
   fs.readFileSync(new URL('../manifest.tap.json', import.meta.url), 'utf8'),
 );
+const packageJson = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
 const validate = new Ajv2020({
   allErrors: true,
   strict: false,
-  formats: { uint8: true, uint16: true, uint64: true, uri: true },
+  formats: { uint8: true, uint16: true, uint32: true, uint64: true, uri: true },
 }).compile(schema);
 
 if (!validate(manifest)) {
   console.error(validate.errors);
   process.exit(1);
 }
-const specialistAssetUrl = new URL(
-  '../specialists/tap-email-specialist/0.1.0.json',
-  import.meta.url,
-);
+const specialistAssetPath = `specialists/tap-email-specialist/${manifest.versionLabel}.json`;
+const specialistAssetUrl = new URL(`../${specialistAssetPath}`, import.meta.url);
 const specialistAsset = JSON.parse(fs.readFileSync(specialistAssetUrl, 'utf8'));
 const emailOperationsSkillUrl = new URL(
-  '../skills/email-operations/0.1.0/SKILL.md',
+  `../skills/email-operations/${manifest.versionLabel}/SKILL.md`,
   import.meta.url,
 );
-const stagedLiveMcpInputSchemaNames = [
+const liveMcpInputSchemaNames = [
   'list-email-accounts.input.json',
   'search-email-threads.input.json',
   'get-email-thread.input.json',
   'read-email-messages.input.json',
   'get-email-command-receipt.input.json',
+  'send-email.input.json',
+  'save-email-draft.input.json',
 ];
-// SDK 0.15 authoring consumes a build manifest. The lifecycle emits the
+// SDK authoring consumes a build manifest. The lifecycle emits the
 // generation-2 exact-byte source descriptor into .tap-package; package and
 // release identity are minted only after import and must not be authored here.
 assert.equal(manifest.buildSchemaVersion, 2);
-assert.equal(manifest.versionLabel, '0.1.0');
+assert.equal(manifest.versionLabel, packageJson.version);
 assert.equal(manifest.presentation.slug, 'tap-email');
 assert.equal('descriptorVersion' in manifest, false);
 assert.equal('package' in manifest, false);
 assert.equal('release' in manifest, false);
 assert.equal('lifecycle' in manifest, false);
-assert.equal(manifest.compatibility.tapSdk, '0.15.0');
+assert.equal(manifest.compatibility.tapSdk, '0.19.0');
 assert.ok(manifest.targets?.desktop, 'The desktop package target is required.');
 assert.ok(manifest.targets?.quickjs, 'The QuickJS package target is required.');
 assert.deepEqual(manifest.runtimePolicy, {
@@ -68,8 +71,10 @@ assert.ok(specialist, 'TAP Email specialist contribution is required.');
 assert.ok(mcpServer, 'TAP Email MCP contribution is required.');
 assert.equal(
   specialist.options.manifest,
-  'specialists/tap-email-specialist/0.1.0.json',
+  specialistAssetPath,
 );
+assert.equal(specialistAsset.version, manifest.versionLabel);
+assert.equal(specialistAsset.name, `tap-email-specialist@${manifest.versionLabel}`);
 assert.deepEqual(mcpServer.options.consumerPolicy.contributionIds, [
   'tap-email-specialist',
 ]);
@@ -80,7 +85,7 @@ for (const id of ['tap-email-mailbox-summary', 'tap-email-active-context']) {
 }
 assert.deepEqual(
   contribution('mcp.tool', 'tap-email-activity-summary').options.storageReads,
-  [{ namespace: 'tap-email', keyTemplate: 'activity/v1' }],
+  [{ namespace: 'tap-email', keyTemplate: 'users/{userId}/activity/v1' }],
 );
 
 const emailOperationsSkill = contribution('agent.skill', 'email-operations');
@@ -89,6 +94,7 @@ assert.deepEqual(emailOperationsSkill.authorization.allOf, ['tap-email.view']);
 assert.deepEqual(emailOperationsSkill.options.files, ['SKILL.md']);
 assert.ok(fs.existsSync(emailOperationsSkillUrl), 'Email operations SKILL.md is required.');
 const skillSource = fs.readFileSync(emailOperationsSkillUrl, 'utf8');
+assert.equal(skillSource.match(/^version: (.+)$/mu)?.[1], manifest.versionLabel);
 for (const toolName of [
   'get_mailbox_summary',
   'get_active_email_context',
@@ -96,20 +102,22 @@ for (const toolName of [
 ]) {
   assert.match(skillSource, new RegExp(`^\\s*- ${toolName}$`, 'mu'));
 }
-for (const unavailableToolName of [
+for (const liveToolName of [
   'list_email_accounts',
   'search_email_threads',
   'get_email_thread',
   'read_email_messages',
   'get_email_command_receipt',
+  'send_email',
+  'save_email_draft',
 ]) {
-  assert.doesNotMatch(
+  assert.match(
     skillSource,
-    new RegExp(`^\\s*- ${unavailableToolName}$`, 'mu'),
+    new RegExp(`^\\s*- ${liveToolName}$`, 'mu'),
   );
 }
 
-for (const schemaName of stagedLiveMcpInputSchemaNames) {
+for (const schemaName of liveMcpInputSchemaNames) {
   const schemaUrl = new URL(`../schemas/mcp/${schemaName}`, import.meta.url);
   assert.ok(
     fs.existsSync(schemaUrl),
@@ -170,23 +178,24 @@ assert.deepEqual(emailThisAction.options.launch, {
   kind: 'ui.surface',
   contributionId: 'tap-email',
 });
-for (const unavailableContributionId of [
-  'tap-email-live-mcp',
-  'tap-email-list-accounts',
-  'tap-email-search-threads',
-  'tap-email-get-thread',
-  'tap-email-read-messages',
-  'tap-email-get-command-receipt',
-]) {
-  assert.equal(
-    contribution(
-      unavailableContributionId === 'tap-email-live-mcp' ? 'mcp.server' : 'mcp.tool',
-      unavailableContributionId,
-    ),
-    undefined,
-    `${unavailableContributionId} must remain unregistered until supported scoped auth is available.`,
-  );
+const liveServer = contribution('mcp.server', 'tap-email-live-mcp');
+assert.equal(liveServer.options.implementation.authentication, 'header-credentials');
+assert.deepEqual(liveServer.options.implementation.credentialRequirements, [
+  { id: 'tap-email-access-token', header: 'X-TAP-Email-MCP-Token' },
+]);
+assert.ok(liveServer.options.consumerPolicy.externalConsumers.includes('chat'));
+assert.ok(liveServer.options.consumerPolicy.externalConsumers.includes('platform'));
+for (const tool of manifest.contributions.filter(c => c.kind === 'mcp.tool' && c.options.serverContributionId === liveServer.id)) {
+  assert.ok(tool.options.inputSchema);
+  assert.ok(fs.existsSync(new URL(`../${tool.options.inputSchema.replace('targets/desktop/', '')}`, import.meta.url)));
+  assert.ok(miniapp.options.contributionIds.includes(tool.id));
 }
+const activitySource = contribution('activity.source', 'tap-email-committed-actions');
+assert.ok(activitySource);
+assert.deepEqual(activitySource.options.supportedScopes, ['self']);
+assert.ok(activitySource.options.specialistAccess.includes('chloe'));
+assert.deepEqual(activitySource.options.storageReads, [{ namespace: 'tap-email', keyTemplate: 'users/{userId}/activity/v1' }]);
+assert.ok(miniapp.options.contributionIds.includes(activitySource.id));
 
 const permissionCatalog = contribution(
   'permission.catalog',

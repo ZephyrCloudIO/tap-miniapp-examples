@@ -11,6 +11,7 @@ import {
   OutboundAttachmentError,
   resolveOutboundAttachment,
 } from './outbound-attachments';
+import { addSentWithFooter, alternativeBody, OutboundMimeError } from './outbound-mime';
 import type {
   GoogleProviderPort,
   ProviderExecutionResult,
@@ -201,8 +202,10 @@ export async function accessTokenFor(
   const row = await env.DB.prepare(
     `SELECT refresh_token_ciphertext, access_token_ciphertext,
             access_token_expires_at
-       FROM google_credentials
-      WHERE profile_id = ? AND account_id = ?`,
+       FROM google_credentials AS credentials
+       JOIN google_accounts AS accounts USING (profile_id, account_id)
+      WHERE credentials.profile_id = ? AND credentials.account_id = ?
+        AND accounts.connection_state = 'active'`,
   )
     .bind(scope.profileId, scope.accountId)
     .first<CredentialRow>();
@@ -619,6 +622,7 @@ async function mimeFor(
   const messageIdentity = `${payload.draftKey}@tap-email.local`;
   const attachments = payload.attachments ?? [];
   const boundary = `tap_email_${payload.draftKey.replace(/[^A-Za-z0-9_-]/gu, '_').slice(0, 80)}`;
+  const alternativeBoundary = `${boundary}_alternative`;
   const headers = [
     ...(to ? [`To: ${to}`] : []),
     ...(cc ? [`Cc: ${cc}`] : []),
@@ -628,22 +632,21 @@ async function mimeFor(
     'MIME-Version: 1.0',
     ...(attachments.length > 0
       ? [`Content-Type: multipart/mixed; boundary="${boundary}"`]
-      : ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit']),
+      : [`Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`]),
     `X-TAP-Draft-Key: ${payload.draftKey}`,
     `X-TAP-Draft-Revision: ${payload.draftRevision}`,
     `X-TAP-Command-ID: ${command.commandId}`,
   ];
   const replyTo = safeHeader(payload.replyToMessageId, 998);
   if (replyTo) headers.splice(3, 0, `In-Reply-To: ${replyTo}`, `References: ${replyTo}`);
-  const normalizedBody = bodyText.replaceAll('\n', '\r\n');
+  const messageBody = alternativeBody(bodyText, alternativeBoundary);
   const body = attachments.length === 0
-    ? normalizedBody
+    ? messageBody
     : [
         `--${boundary}`,
-        'Content-Type: text/plain; charset=UTF-8',
-        'Content-Transfer-Encoding: 8bit',
+        `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`,
         '',
-        normalizedBody,
+        messageBody,
         ...await attachmentMimeParts(env, scope, payload, attachments, boundary, now),
         `--${boundary}--`,
         '',
@@ -769,7 +772,7 @@ async function acknowledgedSentMessage(
     if (typeof listed.id !== 'string') continue;
     const message = await googleJson(
       accessToken,
-      `/gmail/v1/users/me/messages/${encodeURIComponent(listed.id)}?format=minimal`,
+      `/gmail/v1/users/me/messages/${encodeURIComponent(listed.id)}?format=full&fields=id,threadId,labelIds,internalDate,historyId`,
     );
     if (Array.isArray(message.labelIds) && message.labelIds.includes('SENT')) {
       return { revision: typeof message.historyId === 'string' ? message.historyId : null, identity: sentMessageIdentity(message) };
@@ -784,15 +787,11 @@ async function writeProviderDraft(
   mime: { readonly raw: string; readonly threadId?: string },
 ): Promise<Readonly<Record<string, unknown>>> {
   if (providerDraftId) {
-    try {
-      return await googleJson(
-        accessToken,
-        `/gmail/v1/users/me/drafts/${encodeURIComponent(providerDraftId)}`,
-        { method: 'PUT', body: JSON.stringify({ message: mime }) },
-      );
-    } catch (error) {
-      if (!(error instanceof GoogleApiError) || error.status !== 404) throw error;
-    }
+    return googleJson(
+      accessToken,
+      `/gmail/v1/users/me/drafts/${encodeURIComponent(providerDraftId)}`,
+      { method: 'PUT', body: JSON.stringify({ message: mime }) },
+    );
   }
   return googleJson(accessToken, '/gmail/v1/users/me/drafts', {
     method: 'POST',
@@ -824,7 +823,16 @@ async function executeSaveDraft(
   const identity = `${payload.draftKey}@tap-email.local`;
   const providerDraftId = recorded?.provider_draft_id ??
     await listedProviderDraftId(accessToken, identity);
-  const saved = await writeProviderDraft(accessToken, providerDraftId, mime);
+  let saved: Readonly<Record<string, unknown>>;
+  try {
+    saved = await writeProviderDraft(accessToken, providerDraftId, mime);
+  } catch (error) {
+    if (providerDraftId && error instanceof GoogleApiError && error.status === 404) {
+      await recordProviderDraft(env, scope, command, payload, null, 'discarded', now);
+      return { outcome: 'failed', errorCode: 'provider_draft_deleted' };
+    }
+    throw error;
+  }
   const savedId = typeof saved.id === 'string' ? saved.id : providerDraftId;
   if (!savedId) {
     return { outcome: 'retryable', errorCode: 'gmail_draft_checkpoint_missing' };
@@ -910,10 +918,21 @@ async function executeSend(
   const canReuseCheckpoint = Boolean(
     draftId && (!recorded || recorded.latest_revision >= payload.draftRevision),
   );
+  let finalMime: { readonly raw: string; readonly threadId?: string } | null = null;
   if (!canReuseCheckpoint) {
     const mime = await mimeFor(env, scope, command, payload, current);
     if (!mime) return { outcome: 'failed', errorCode: 'invalid_message' };
-    const saved = await writeProviderDraft(accessToken, draftId, mime);
+    finalMime = mime;
+    let saved: Readonly<Record<string, unknown>>;
+    try {
+      saved = await writeProviderDraft(accessToken, draftId, mime);
+    } catch (error) {
+      if (draftId && error instanceof GoogleApiError && error.status === 404) {
+        await recordProviderDraft(env, scope, command, payload, null, 'discarded', now);
+        return { outcome: 'failed', errorCode: 'provider_draft_deleted' };
+      }
+      throw error;
+    }
     draftId = typeof saved.id === 'string' ? saved.id : draftId;
     if (!draftId) return { outcome: 'retryable', errorCode: 'gmail_draft_checkpoint_missing' };
     await recordProviderDraft(
@@ -927,11 +946,30 @@ async function executeSend(
     );
   }
   if (!draftId) return { outcome: 'retryable', errorCode: 'gmail_draft_checkpoint_missing' };
+  if (scope.referralUrl) {
+    if (!finalMime) {
+      const draft = await googleJsonBounded(
+        accessToken,
+        `/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}?format=raw`,
+        {},
+        45 * 1_024 * 1_024,
+      );
+      const message = record(draft.message);
+      if (typeof message.raw !== 'string') {
+        return { outcome: 'failed', errorCode: 'provider_draft_content_unsupported' };
+      }
+      finalMime = {
+        raw: message.raw,
+        ...(typeof message.threadId === 'string' ? { threadId: message.threadId } : {}),
+      };
+    }
+    finalMime = { ...finalMime, raw: addSentWithFooter(finalMime.raw, scope.referralUrl) };
+  }
   let sent: Readonly<Record<string, unknown>>;
   try {
     sent = await googleJson(accessToken, '/gmail/v1/users/me/drafts/send', {
       method: 'POST',
-      body: JSON.stringify({ id: draftId }),
+      body: JSON.stringify({ id: draftId, ...(scope.referralUrl && finalMime ? { message: finalMime } : {}) }),
     });
   } catch (error) {
     if (
@@ -962,7 +1000,7 @@ async function executeSend(
 }
 
 function providerError(error: unknown): ProviderExecutionResult {
-  if (error instanceof OutboundAttachmentError) {
+  if (error instanceof OutboundAttachmentError || error instanceof OutboundMimeError) {
     return { outcome: 'failed', errorCode: error.code };
   }
   if (!(error instanceof GoogleApiError)) {
@@ -975,6 +1013,21 @@ function providerError(error: unknown): ProviderExecutionResult {
     return { outcome: 'retryable', errorCode: error.code };
   }
   return { outcome: 'failed', errorCode: error.code };
+}
+
+async function providerThreadRevision(
+  accessToken: string,
+  threadId: string,
+): Promise<string | null> {
+  const parameters = new URLSearchParams({
+    format: 'minimal',
+    fields: 'id,historyId',
+  });
+  const thread = await googleJson(
+    accessToken,
+    `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?${parameters.toString()}`,
+  );
+  return typeof thread.historyId === 'string' ? thread.historyId : null;
 }
 
 export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderPort {
@@ -1003,6 +1056,15 @@ export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderP
         }
         if (!command.threadId) {
           return { outcome: 'failed', errorCode: 'thread_required' };
+        }
+        if (
+          (command.kind === 'archive' || command.kind === 'trash') &&
+          command.expectedProviderRevision !== null
+        ) {
+          const observedRevision = await providerThreadRevision(accessToken, command.threadId);
+          if (observedRevision !== command.expectedProviderRevision) {
+            return { outcome: 'failed', errorCode: 'provider_revision_conflict' };
+          }
         }
         if (command.kind === 'trash') {
           const result = await googleJson(

@@ -39,6 +39,7 @@ const targetConfigurations = {
   quickjs: {
     name: "tap_tap_calendar_quickjs",
     exposes: {
+      "./activity/tap-calendar-committed-actions": "./src/activity-source.ts",
       "./mcp/calendar-tools": "./src/mcp/calendar-tools-entry.ts",
       "./mcp/calendar-daily-summary": "./src/mcp/daily-summary-tools-entry.ts",
     },
@@ -135,6 +136,9 @@ if (packageTarget === "workflow-host") {
 library.output = {
   ...library.output,
   assetPrefix: packageTarget === "desktop" ? "auto" : "",
+  // SDK 0.19 does not inventory hosted MCP schema references automatically.
+  // Include their bytes in the signed desktop target lock.
+  copy: packageTarget === "desktop" ? [{ from: "./schemas", to: "targets/desktop/schemas" }] : [],
   sourceMap: false,
   minify: true,
 };

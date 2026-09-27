@@ -79,7 +79,7 @@ describe('sent-recipient search', () => {
       VALUES (?, 'work', 'cached', 'cached-message', '{"address":"me@example.com"}',
         '[{"name":"Cached Person","address":"CACHED@example.com"}]', ?, '', 0, ?)`)
       .bind(profile, now.toISOString(), now.toISOString()).run();
-    const migration = env.TEST_MIGRATIONS.find(item => item.name.includes('0012_recipient_history'))!;
+    const migration = env.TEST_MIGRATIONS.find(item => item.name.includes('0017_recipient_history'))!;
     const insert = migration.queries.find((query: string) => query.includes('INSERT INTO mail_recipient_history'))!;
     await env.DB.prepare(insert).run();
     expect(await searchSentRecipients(env, profile, 'cached')).toEqual([{
@@ -89,7 +89,7 @@ describe('sent-recipient search', () => {
 });
 
 describe('recipient history indexing', () => {
-  it('backfills historical To/Cc/Bcc before reader retention, accepts sent aliases, and skips drafts and incoming mail', async () => {
+  it('indexes historical To/Cc/Bcc, accepts sent aliases, and skips drafts and incoming mail', async () => {
     await account('work');
     await env.DB.prepare(`UPDATE google_accounts SET recipient_history_backfill_pending = 1,
       newest_history_id = 'existing-history' WHERE profile_id = ?`).bind(profile).run();
@@ -138,7 +138,7 @@ describe('recipient history indexing', () => {
     expect(await searchSentRecipients(env, profile, 'draft')).toEqual([]);
     expect(await searchSentRecipients(env, profile, 'incoming')).toEqual([]);
     expect(await searchSentRecipients(env, profile, 'stranger')).toEqual([]);
-    expect(await env.DB.prepare(`SELECT count(*) AS count FROM mail_messages WHERE profile_id = ?`).bind(profile).first()).toEqual({ count: 20 });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM mail_messages WHERE profile_id = ?`).bind(profile).first()).toEqual({ count: 22 });
     expect(await env.DB.prepare(`SELECT recipient_history_backfill_pending, backfill_page_token FROM google_accounts WHERE profile_id = ?`).bind(profile).first()).toEqual({
       recipient_history_backfill_pending: 0, backfill_page_token: 'older-page',
     });

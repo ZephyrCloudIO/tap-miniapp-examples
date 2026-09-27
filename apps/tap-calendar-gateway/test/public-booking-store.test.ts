@@ -90,7 +90,7 @@ beforeEach(async () => {
 describe("D1 public booking attempt store", () => {
   it("claims once, captures guest policy, and attaches fresh proofs to an identical retry", async () => {
     const attempts = store();
-    const claim = claimFixture({ approvalExpiresAt });
+    const claim = claimFixture({ approvalExpiresAt, notes: "Launch agenda", additionalGuests: ["team@example.com"] });
     const first = await attempts.claim(claim);
     expect(first).toMatchObject({
       kind: "claimed",
@@ -98,6 +98,8 @@ describe("D1 public booking attempt store", () => {
         requestHash: claim.requestHash,
         providerOperationId: claim.providerOperationId,
         guest: claim.guest,
+        notes: claim.notes,
+        additionalGuests: claim.additionalGuests,
         approvalExpiresAt,
         state: "pending",
         response: null,

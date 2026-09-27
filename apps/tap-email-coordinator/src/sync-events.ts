@@ -8,6 +8,8 @@ export interface MailboxSyncRequest {
   readonly mode: MailboxSyncMode;
   readonly pageToken?: string;
   readonly startHistoryId?: string;
+  /** Fences one complete provider traversal and its final unseen-row sweep. */
+  readonly syncGeneration?: string;
 }
 
 export interface SyncQueueMessage extends MailboxSyncRequest {
@@ -49,7 +51,8 @@ export function isSyncQueueMessage(value: unknown): value is SyncQueueMessage {
       candidate.mode === 'continue' ||
       candidate.mode === 'partial') &&
     optionalBoundedString(candidate.pageToken, 4_096) &&
-    optionalBoundedString(candidate.startHistoryId, 512)
+    optionalBoundedString(candidate.startHistoryId, 512) &&
+    optionalBoundedString(candidate.syncGeneration, 128)
   );
 }
 
@@ -183,12 +186,38 @@ export async function redispatchSyncEvents(env: Env, now: Date): Promise<void> {
     }
   }
   if (invalid.length > 0) {
-    await env.DB.batch(invalid.map(row => env.DB.prepare(
-      `UPDATE provider_events
-          SET state = 'dead_letter', dispatch_pending = 0,
-              error_code = 'invalid_event_payload', updated_at = ?
-        WHERE profile_id = ? AND account_id = ? AND event_id = ?`,
-    ).bind(timestamp, row.profile_id, row.account_id, row.event_id)));
+    const accounts = new Map(
+      invalid.map(row => [`${row.profile_id}\u0000${row.account_id}`, row] as const),
+    );
+    await env.DB.batch([
+      ...invalid.map(row => env.DB.prepare(
+        `UPDATE provider_events
+            SET state = 'dead_letter', dispatch_pending = 0,
+                error_code = 'invalid_event_payload', updated_at = ?
+          WHERE profile_id = ? AND account_id = ? AND event_id = ?`,
+      ).bind(timestamp, row.profile_id, row.account_id, row.event_id)),
+      ...[...accounts.values()].map(row => env.DB.prepare(
+        `UPDATE google_accounts
+            SET coverage_state = 'stale',
+                unresolved_failures = (
+                  SELECT COUNT(*) FROM provider_events
+                   WHERE profile_id = ? AND account_id = ?
+                     AND state IN ('retryable', 'dead_letter')
+                     AND (
+                       google_accounts.last_full_sync_completed_at IS NULL OR
+                       updated_at > google_accounts.last_full_sync_completed_at
+                     )
+                ),
+                updated_at = ?
+          WHERE profile_id = ? AND account_id = ?`,
+      ).bind(
+        row.profile_id,
+        row.account_id,
+        timestamp,
+        row.profile_id,
+        row.account_id,
+      )),
+    ]);
   }
   await dispatch(env, messages, timestamp);
 }

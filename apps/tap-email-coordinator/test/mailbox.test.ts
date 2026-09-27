@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodeBase64Url, openSecret, sealSecret } from '../src/crypto';
 import {
+  enqueueScheduledSyncs,
   freshGoogleThreadHasExternalReplyAfter,
   mailboxPage,
   mailboxSnapshot,
@@ -108,6 +109,112 @@ describe('fresh scheduled-send reply barrier', () => {
 });
 
 describe('Google mailbox synchronization', () => {
+  it('sweeps provider rows and content not observed in a completed full sync', async () => {
+    const accessToken = await sealSecret('access-token', encryptionKey);
+    const refreshToken = await sealSecret('refresh-token', encryptionKey);
+    const staleBody = await sealSecret('stale body', encryptionKey);
+    const old = '2026-08-01T12:00:00.000Z';
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO google_accounts
+           (profile_id, account_id, google_subject, connection_state,
+            coverage_state, newest_history_id, unresolved_failures,
+            email_address, created_at, updated_at)
+         VALUES ('profile_sweep', 'google_sweep', 'subject_sweep', 'active',
+                 'current', 'history_old', 0, 'sweep@example.com', ?, ?)`,
+      ).bind(old, old),
+      env.DB.prepare(
+        `INSERT INTO google_credentials
+           (profile_id, account_id, refresh_token_ciphertext,
+            access_token_ciphertext, access_token_expires_at, granted_scopes,
+            created_at, updated_at)
+         VALUES ('profile_sweep', 'google_sweep', ?, ?, ?, 'gmail.modify', ?, ?)`,
+      ).bind(refreshToken, accessToken, '2026-08-18T17:30:00.000Z', old, old),
+      env.DB.prepare(
+        `INSERT INTO mail_threads
+           (profile_id, account_id, thread_id, history_id, subject, snippet,
+            participants_json, received_at, unread, starred, important,
+            in_inbox, needs_response, waiting_on_others, label_ids_json, updated_at)
+         VALUES ('profile_sweep', 'google_sweep', 'thread_deleted', 'history_old',
+                 'Deleted at provider', 'stale', '[]', ?, 0, 0, 0, 1, 0, 0,
+                 '["INBOX"]', ?)`,
+      ).bind(old, old),
+      env.DB.prepare(
+        `INSERT INTO mail_messages
+           (profile_id, account_id, thread_id, message_id, sender_json,
+            recipients_json, sent_at, body_text_ciphertext, ordinal, updated_at)
+         VALUES ('profile_sweep', 'google_sweep', 'thread_deleted', 'message_deleted',
+                 '{"name":"Sender","address":"sender@example.com"}', '[]',
+                 ?, ?, 0, ?)`,
+      ).bind(old, staleBody, old),
+      env.DB.prepare(
+        `INSERT INTO tap_reminders
+           (profile_id, account_id, reminder_id, thread_id, due_at, condition,
+            state, created_at, updated_at)
+         VALUES ('profile_sweep', 'google_sweep', 'reminder_deleted',
+                 'thread_deleted', ?, 'regardless', 'pending', ?, ?)`,
+      ).bind('2026-08-20T12:00:00.000Z', old, old),
+    ]);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname === '/gmail/v1/users/me/threads') {
+        return Response.json({ threads: [{ id: 'thread_current' }] });
+      }
+      if (url.pathname === '/gmail/v1/users/me/profile') {
+        return Response.json({ emailAddress: 'sweep@example.com', historyId: 'history_current' });
+      }
+      if (url.pathname === '/gmail/v1/users/me/threads/thread_current') {
+        return Response.json({
+          id: 'thread_current',
+          historyId: 'history_current',
+          messages: [{
+            id: 'message_current',
+            threadId: 'thread_current',
+            labelIds: ['INBOX'],
+            internalDate: String(now.getTime()),
+            snippet: 'current',
+            payload: {
+              mimeType: 'text/plain',
+              headers: [
+                { name: 'From', value: 'Sender <sender@example.com>' },
+                { name: 'To', value: 'Sweep <sweep@example.com>' },
+                { name: 'Subject', value: 'Current' },
+              ],
+              body: { data: encodeBase64Url('current') },
+            },
+          }],
+        });
+      }
+      throw new Error(`Unexpected Google request: ${url}`);
+    });
+
+    await syncGoogleMailbox(env, {
+      profileId: 'profile_sweep',
+      accountId: 'google_sweep',
+      mode: 'newest',
+    }, now);
+
+    expect((await env.DB.prepare(
+      `SELECT thread_id FROM mail_threads
+        WHERE profile_id = 'profile_sweep' ORDER BY thread_id`,
+    ).all()).results).toEqual([{ thread_id: 'thread_current' }]);
+    expect(await env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM mail_messages
+        WHERE profile_id = 'profile_sweep' AND message_id = 'message_deleted'`,
+    ).first()).toEqual({ count: 0 });
+    expect(await env.DB.prepare(
+      `SELECT state FROM tap_reminders
+        WHERE profile_id = 'profile_sweep' AND reminder_id = 'reminder_deleted'`,
+    ).first()).toEqual({ state: 'cancelled' });
+    expect(await env.DB.prepare(
+      `SELECT sync_generation, last_full_sync_completed_at FROM google_accounts
+        WHERE profile_id = 'profile_sweep' AND account_id = 'google_sweep'`,
+    ).first()).toMatchObject({
+      sync_generation: expect.stringMatching(/^mailbox_/u),
+      last_full_sync_completed_at: now.toISOString(),
+    });
+  });
+
   it('exposes every cached thread through stable pages beyond the old 100-row boundary', async () => {
     for (const accountId of ['google_page_a', 'google_page_b']) {
       await env.DB.prepare(
@@ -272,7 +379,7 @@ describe('Google mailbox synchronization', () => {
       },
     ]);
     expect(snapshot.threads[2]!.messages).toEqual([
-      expect.objectContaining({ bodyText: 'Archived cached body.' }),
+      expect.objectContaining({ bodyText: '' }),
     ]);
   });
 
@@ -319,6 +426,12 @@ describe('Google mailbox synchronization', () => {
       }
       const threadId = url.pathname.split('/').at(-1);
       if (threadId === 'thread_new' || threadId === 'thread_old') {
+        const format = url.searchParams.get('format');
+        if (threadId === 'thread_new') expect(format).toBe('full');
+        if (threadId === 'thread_old' && format !== 'full') {
+          expect(format).toBe('metadata');
+          expect(url.searchParams.getAll('metadataHeaders')).toContain('Subject');
+        }
         const sentAt = threadId === 'thread_new'
           ? '2026-08-18T15:20:00.000Z'
           : '2026-07-01T12:00:00.000Z';
@@ -338,7 +451,7 @@ describe('Google mailbox synchronization', () => {
                 { name: 'To', value: 'History <history@example.com>' },
                 { name: 'Subject', value: threadId },
               ],
-              body: { data: encodeBase64Url(threadId) },
+              body: format === 'full' ? { data: encodeBase64Url(threadId) } : {},
             },
           }],
         });
@@ -386,23 +499,37 @@ describe('Google mailbox synchronization', () => {
       backfill_complete_through: '2026-07-01T12:00:00.000Z',
     });
     expect((await env.DB.prepare(
-      `SELECT thread_id FROM mail_threads
+      `SELECT thread_id, content_state FROM mail_threads
         WHERE profile_id = 'profile_history' AND account_id = 'google_history'
         ORDER BY received_at DESC`,
-    ).all<{ thread_id: string }>()).results).toEqual([
-      { thread_id: 'thread_new' },
-      { thread_id: 'thread_old' },
+    ).all<{ thread_id: string; content_state: string }>()).results).toEqual([
+      { thread_id: 'thread_new', content_state: 'full' },
+      { thread_id: 'thread_old', content_state: 'metadata' },
     ]);
+    await expect(threadSnapshot(
+      env,
+      'profile_history',
+      'google_history',
+      'thread_old',
+      now,
+    )).resolves.toMatchObject({
+      messages: [{ bodyText: 'thread_old' }],
+    });
+    expect(await env.DB.prepare(
+      `SELECT content_state FROM mail_threads
+        WHERE profile_id = 'profile_history' AND account_id = 'google_history'
+          AND thread_id = 'thread_old'`,
+    ).first()).toEqual({ content_state: 'full' });
   });
 
-  it('resumes a saved newest-first backfill instead of starting a partial sync', async () => {
+  it('requests recent history without restarting a saved newest-first backfill', async () => {
     await env.DB.prepare(
       `INSERT INTO google_accounts
          (profile_id, account_id, google_subject, connection_state,
           coverage_state, newest_history_id, backfill_page_token,
           unresolved_failures, email_address, created_at, updated_at)
        VALUES ('profile_resume', 'google_resume', 'subject_resume', 'active',
-               'blocked', 'history_10', 'next-page-2', 1,
+               'backfilling', 'history_10', 'next-page-2', 1,
                'resume@example.com', ?, ?)`,
     ).bind(now.toISOString(), now.toISOString()).run();
 
@@ -430,9 +557,69 @@ describe('Google mailbox synchronization', () => {
     expect(JSON.parse(event?.payload_json ?? '{}')).toMatchObject({
       profileId: 'profile_resume',
       accountId: 'google_resume',
-      mode: 'continue',
-      pageToken: 'next-page-2',
+      mode: 'partial',
     });
+    expect(JSON.parse(event?.payload_json ?? '{}')).not.toHaveProperty('pageToken');
+    expect(await requestAccountSync(
+      env,
+      'profile_resume',
+      'google_resume',
+      new Date(now.getTime() + 31_000),
+    )).toBe(false);
+  });
+
+  it('schedules recent history while an archive continuation is active', async () => {
+    const oldRequest = new Date(now.getTime() - 5 * 60_000).toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO google_accounts
+           (profile_id, account_id, google_subject, connection_state,
+            coverage_state, newest_history_id, backfill_page_token,
+            unresolved_failures, email_address, last_sync_requested_at,
+            created_at, updated_at)
+         VALUES ('profile_scheduled_backfill', 'google_scheduled_backfill',
+                 'subject_scheduled_backfill', 'active', 'backfilling',
+                 'history_10', 'next-page-3', 2, 'scheduled@example.com', ?, ?, ?)`,
+      ).bind(oldRequest, oldRequest, now.toISOString()),
+      env.DB.prepare(
+        `INSERT INTO provider_events
+           (profile_id, account_id, event_id, history_id, state, payload_json,
+            dispatch_pending, received_at, updated_at)
+         VALUES ('profile_scheduled_backfill', 'google_scheduled_backfill',
+                 'sync_archive_continue', 'history_10', 'received', ?, 0, ?, ?)`,
+      ).bind(JSON.stringify({
+        kind: 'sync-account',
+        eventId: 'sync_archive_continue',
+        profileId: 'profile_scheduled_backfill',
+        accountId: 'google_scheduled_backfill',
+        mode: 'continue',
+        pageToken: 'next-page-3',
+      }), oldRequest, oldRequest),
+    ]);
+
+    await enqueueScheduledSyncs(env, now);
+
+    expect(await env.DB.prepare(
+      `SELECT coverage_state, backfill_page_token, last_sync_requested_at
+         FROM google_accounts
+        WHERE profile_id = 'profile_scheduled_backfill'
+          AND account_id = 'google_scheduled_backfill'`,
+    ).first()).toEqual({
+      coverage_state: 'backfilling',
+      backfill_page_token: 'next-page-3',
+      last_sync_requested_at: now.toISOString(),
+    });
+    const events = (await env.DB.prepare(
+      `SELECT payload_json
+         FROM provider_events
+        WHERE profile_id = 'profile_scheduled_backfill'
+          AND account_id = 'google_scheduled_backfill'
+        ORDER BY received_at`,
+    ).all<{ payload_json: string }>()).results.map(row => JSON.parse(row.payload_json));
+    expect(events).toEqual([
+      expect.objectContaining({ mode: 'continue', pageToken: 'next-page-3' }),
+      expect.objectContaining({ mode: 'partial' }),
+    ]);
   });
 
   it('keeps a normal manual refresh on the incremental sync path', async () => {
@@ -579,7 +766,7 @@ describe('Google mailbox synchronization', () => {
           threadId: 'thread_1',
           critical: true,
           needsResponse: true,
-          messages: [{ bodyText: 'Please review the launch plan.' }],
+          messages: [{ bodyText: '' }],
         },
       ],
     });
@@ -592,6 +779,35 @@ describe('Google mailbox synchronization', () => {
           bodyHtml: '<main><h1>Launch plan</h1><p>Please <strong>review</strong> it.</p></main>',
         },
       ],
+    });
+  });
+
+  it('requests an authoritative full repair when durable sync failures are unresolved', async () => {
+    await env.DB.prepare(
+      `INSERT INTO google_accounts
+         (profile_id, account_id, google_subject, connection_state,
+          coverage_state, newest_history_id, unresolved_failures,
+          email_address, created_at, updated_at)
+       VALUES ('profile_repair', 'google_repair', 'subject_repair', 'active',
+               'stale', 'history_10', 2, 'repair@example.com', ?, ?)`,
+    ).bind(now.toISOString(), now.toISOString()).run();
+
+    expect(await requestAccountSync(
+      env,
+      'profile_repair',
+      'google_repair',
+      now,
+    )).toBe(true);
+
+    const event = await env.DB.prepare(
+      `SELECT payload_json
+         FROM provider_events
+        WHERE profile_id = 'profile_repair' AND account_id = 'google_repair'`,
+    ).first<{ payload_json: string }>();
+    expect(JSON.parse(event?.payload_json ?? '{}')).toMatchObject({
+      profileId: 'profile_repair',
+      accountId: 'google_repair',
+      mode: 'newest',
     });
   });
 
@@ -768,8 +984,8 @@ describe('Google mailbox synchronization', () => {
       'google_attachments',
       'thread_attachments',
       now,
-    ) as { messages: Array<Record<string, unknown>> };
-    expect(snapshot.messages[0]).toMatchObject({
+    );
+    expect(snapshot!.messages[0]).toMatchObject({
       bodyText: 'This is the actual message.',
       bodyHtml: '<p>This is the <b>actual message</b>.</p>',
       attachments: [
@@ -796,16 +1012,13 @@ describe('Google mailbox synchronization', () => {
         },
       ],
     });
-    const attachments = snapshot.messages[0]!.attachments as Array<{ resourceId: string }>;
+    const attachments = snapshot!.messages[0]!.attachments;
     expect(new Set(attachments.map(attachment => attachment.resourceId)).size).toBe(3);
     expect(attachments.every(attachment => /^att_[A-Za-z0-9_-]{43}$/u.test(attachment.resourceId))).toBe(true);
     expect(JSON.stringify(snapshot)).not.toContain('gmail_secret_locator');
     expect(JSON.stringify(snapshot)).not.toContain(encodeBase64Url('PNG'));
     expect(paths.some(path => path.includes('/attachments/'))).toBe(false);
-    const logoResourceId = (snapshot.messages[0]!.attachments as Array<{
-      fileName: string;
-      resourceId: string;
-    }>).find(attachment => attachment.fileName === 'logo.png')!.resourceId;
+    const logoResourceId = snapshot!.messages[0]!.attachments.find(attachment => attachment.fileName === 'logo.png')!.resourceId;
 
     const stored = await env.DB.prepare(
       `SELECT file_name, gmail_part_path, gmail_attachment_id_ciphertext
@@ -855,18 +1068,18 @@ describe('Google mailbox synchronization', () => {
       'google_attachments',
       'thread_attachments',
       now,
-    ) as { messages: Array<{ attachments: Array<{ fileName: string; resourceId: string }> }> };
-    expect(refreshed.messages[0]!.attachments.find(
+    );
+    expect(refreshed!.messages[0]!.attachments.find(
       attachment => attachment.fileName === 'logo.png',
     )?.resourceId).toBe(logoResourceId);
 
     floodAttachments = true;
     await sync(instrumentedEnv);
-    expect(persistenceBatchSizes).toEqual([4]);
+    expect(persistenceBatchSizes).toEqual([4, 3]);
     expect(await env.DB.prepare(
       `SELECT COUNT(*) AS attachment_count FROM mail_attachments
         WHERE profile_id = 'profile_attachments' AND thread_id = 'thread_attachments'`,
-    ).first<{ attachment_count: number }>()).toEqual({ attachment_count: 100 });
+    ).first<{ attachment_count: number }>()).toEqual({ attachment_count: 120 });
     expect((await env.DB.prepare(
       `SELECT message_id, COUNT(*) AS attachment_count
          FROM mail_attachments
@@ -874,7 +1087,7 @@ describe('Google mailbox synchronization', () => {
         GROUP BY message_id
         ORDER BY message_id`,
     ).all<{ message_id: string; attachment_count: number }>()).results).toEqual([
-      { message_id: 'message_attachment_flood_0', attachment_count: 40 },
+      { message_id: 'message_attachment_flood_0', attachment_count: 60 },
       { message_id: 'message_attachment_flood_1', attachment_count: 60 },
     ]);
   });
@@ -955,7 +1168,7 @@ describe('Google mailbox synchronization', () => {
     expect(snapshot).toMatchObject({
       messages: [{ bodyHtml: html }],
     });
-    const bodyText = (snapshot as { messages: Array<{ bodyText: string }> }).messages[0]!.bodyText;
+    const bodyText = snapshot!.messages[0]!.bodyText;
     expect(bodyText).toContain('Rich alert');
     expect(bodyText).toContain('Open dashboard.');
     expect(bodyText).not.toContain('<style>');

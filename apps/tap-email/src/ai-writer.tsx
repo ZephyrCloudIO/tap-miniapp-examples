@@ -19,6 +19,7 @@ export function AiWriter({ services, subject, bodyText, onApply, onClose }: {
   const [error, setError] = useState('');
   const [proposal, setProposal] = useState<{ body: string; base: string; subject: string } | null>(null);
   const request = useRef(0);
+  const inFlight = useRef(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const available = Boolean(services?.conversationId && services.platform.inference);
   const stale = proposal && (proposal.base !== bodyText || proposal.subject !== subject);
@@ -39,7 +40,8 @@ export function AiWriter({ services, subject, bodyText, onApply, onClose }: {
     return () => { active = false; request.current++; };
   }, [available, services]);
   const generate = async () => {
-    if (busy || !services || !available || !model || !instructions.trim()) return;
+    if (inFlight.current || !services || !available || !model || !instructions.trim()) return;
+    inFlight.current = true;
     const generation = ++request.current;
     const base = bodyText;
     setBusy(true); setError(''); setProposal(null);
@@ -49,7 +51,7 @@ export function AiWriter({ services, subject, bodyText, onApply, onClose }: {
     } catch (cause) {
       if (request.current === generation) setError(cause instanceof Error ? cause.message : 'Could not generate the draft.');
     } finally {
-      if (request.current === generation) setBusy(false);
+      if (request.current === generation) { inFlight.current = false; setBusy(false); }
     }
   };
   return <section className="ai-writer" aria-label="Write with AI" data-composer-tool>

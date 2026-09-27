@@ -8,6 +8,30 @@ import {
   type CoordinatorTransport,
 } from './coordinator-client';
 
+function mailboxThread(
+  threadId: string,
+  receivedAt = '2026-09-13T14:00:00.000Z',
+) {
+  return {
+    threadId,
+    accountId: 'acct_1',
+    providerRevision: `history_${threadId}`,
+    subject: `Subject ${threadId}`,
+    participants: [],
+    snippet: `Preview ${threadId}`,
+    receivedAt,
+    unread: false,
+    starred: false,
+    critical: false,
+    needsResponse: false,
+    waitingOnOthers: false,
+    status: 'inbox',
+    labels: ['INBOX'],
+    messages: [],
+    reminder: null,
+  };
+}
+
 describe('TAP Email coordinator client', () => {
   it('searches prior recipients through the authenticated transport and validates results', async () => {
     const calls: unknown[] = [];
@@ -34,26 +58,29 @@ describe('TAP Email coordinator client', () => {
     await expect(client.searchRecipients('bad')).rejects.toMatchObject({ code: 'invalid_response' });
   });
 
+  it('pins credential creation to the verified sending context in both body and host request', async () => {
+    const sender = { userId: 'user_1', workspaceId: 'workspace_1' };
+    let calls = 0;
+    const transport: CoordinatorTransport = {
+      request(input, options) {
+        calls += 1;
+        expect(input.url).toBe(`${coordinatorOrigin}/v1/mcp/credential`);
+        expect(JSON.parse(input.body as string)).toEqual({ allowWrites: true, expectedContext: sender });
+        expect(options).toEqual({ credentialRef: 'platform-session', expectedContext: sender });
+        return {
+          finalUrl: input.url, status: 201, statusText: 'Created', headers: [],
+          bodyText: JSON.stringify({ token: `temcp_${'a'.repeat(64)}`, scopes: ['email.metadata.read', 'email.content.read', 'email.write'], expiresAt: '2026-10-24T00:00:00.000Z' }),
+          bodyBase64: null, bodyKind: 'text', bodyTruncated: false,
+          sizeBytes: 512, elapsedMs: 1, contentType: 'application/json',
+        };
+      },
+    };
+    expect((await createCoordinatorClient(transport).createEmailToolAccess(true, sender)).connected).toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it('loads every cursor-paginated mailbox page before replacing the local snapshot', async () => {
     const urls: string[] = [];
-    const thread = (threadId: string, receivedAt: string) => ({
-      threadId,
-      accountId: 'acct_1',
-      providerRevision: `history_${threadId}`,
-      subject: `Subject ${threadId}`,
-      participants: [],
-      snippet: `Preview ${threadId}`,
-      receivedAt,
-      unread: false,
-      starred: false,
-      critical: false,
-      needsResponse: false,
-      waitingOnOthers: false,
-      status: 'inbox',
-      labels: ['INBOX'],
-      messages: [],
-      reminder: null,
-    });
     const transport: CoordinatorTransport = {
       request(input) {
         urls.push(input.url);
@@ -63,7 +90,7 @@ describe('TAP Email coordinator client', () => {
               mailbox: {
                 schemaVersion: 1,
                 accounts: [],
-                threads: [thread('thread_newer', '2026-09-13T14:00:00.000Z')],
+                threads: [mailboxThread('thread_newer', '2026-09-13T14:00:00.000Z')],
               },
               pageInfo: { nextCursor: 'page 2' },
             }
@@ -72,8 +99,8 @@ describe('TAP Email coordinator client', () => {
                 schemaVersion: 1,
                 accounts: [],
                 threads: [
-                  thread('thread_newer', '2026-09-13T14:00:00.000Z'),
-                  thread('thread_older', '2026-09-07T14:00:00.000Z'),
+                  mailboxThread('thread_newer', '2026-09-13T14:00:00.000Z'),
+                  mailboxThread('thread_older', '2026-09-07T14:00:00.000Z'),
                 ],
               },
               pageInfo: { nextCursor: null },
@@ -106,7 +133,207 @@ describe('TAP Email coordinator client', () => {
     ]);
   });
 
-  it('submits a stable account-scoped command with the platform session', async () => {
+  it('publishes and checkpoints a bounded page before a later page fails', async () => {
+    let requests = 0;
+    const seenPages: Array<{ nextCursor: string | null; loadedThreadCount: number }> = [];
+    const transport: CoordinatorTransport = {
+      request(input) {
+        requests += 1;
+        if (requests === 2) throw new Error('host request timed out');
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify({
+            mailbox: {
+              schemaVersion: 1,
+              accounts: [],
+              threads: [mailboxThread('thread_recent')],
+            },
+            pageInfo: { nextCursor: 'older_page' },
+          }),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 1_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox({
+      onPage(progress) {
+        seenPages.push({
+          nextCursor: progress.nextCursor,
+          loadedThreadCount: progress.loadedThreadCount,
+        });
+      },
+    })).rejects.toThrow('host request timed out');
+
+    expect(seenPages).toEqual([{
+      nextCursor: 'older_page',
+      loadedThreadCount: 1,
+    }]);
+    expect(requests).toBe(2);
+  });
+
+  it('loads mailbox history beyond 100 pages and 10,000 threads', async () => {
+    const pageSize = 100;
+    const pageCount = 101;
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request(input) {
+        requests += 1;
+        const cursor = new URL(input.url).searchParams.get('cursor');
+        const pageIndex = cursor === null ? 0 : Number(cursor.slice('page_'.length));
+        const firstThreadIndex = pageIndex * pageSize;
+        const body = {
+          mailbox: {
+            schemaVersion: 1,
+            accounts: [],
+            threads: Array.from(
+              { length: pageSize },
+              (_, offset) => mailboxThread(`thread_${firstThreadIndex + offset}`),
+            ),
+          },
+          pageInfo: {
+            nextCursor: pageIndex + 1 < pageCount ? `page_${pageIndex + 1}` : null,
+          },
+        };
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify(body),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 40_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    const mailbox = await createCoordinatorClient(transport).getMailbox();
+
+    expect(requests).toBe(pageCount);
+    expect(mailbox.threads).toHaveLength(pageSize * pageCount);
+    expect(mailbox.threads[0]?.threadId).toBe('thread_0');
+    expect(mailbox.threads.at(-1)?.threadId).toBe('thread_10099');
+  });
+
+  it('keeps each coordinator mailbox page bounded', async () => {
+    const transport: CoordinatorTransport = {
+      request: input => ({
+        finalUrl: input.url,
+        status: 200,
+        statusText: 'OK',
+        headers: [],
+        bodyText: JSON.stringify({
+          mailbox: {
+            schemaVersion: 1,
+            accounts: [],
+            threads: Array.from(
+              { length: 101 },
+              (_, index) => mailboxThread(`thread_${index}`),
+            ),
+          },
+          pageInfo: { nextCursor: null },
+        }),
+        bodyBase64: null,
+        bodyKind: 'text',
+        bodyTruncated: false,
+        sizeBytes: 40_000,
+        elapsedMs: 5,
+        contentType: 'application/json',
+      }),
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox()).rejects.toMatchObject({
+      status: 502,
+      code: 'invalid_response',
+    });
+  });
+
+  it('rejects mailbox pagination that cycles without a terminal cursor', async () => {
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request: input => {
+        const page = requests;
+        requests += 1;
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify({
+            mailbox: {
+              schemaVersion: 1,
+              accounts: [],
+              threads: [mailboxThread(`thread_${page}`)],
+            },
+            pageInfo: { nextCursor: 'cursor_a' },
+          }),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 1_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox()).rejects.toMatchObject({
+      status: 502,
+      code: 'invalid_response',
+      message: 'Mailbox pagination did not advance.',
+    });
+    expect(requests).toBe(2);
+  });
+
+  it('rejects a novel cursor when its page adds no mailbox threads', async () => {
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request: input => {
+        requests += 1;
+        return {
+          finalUrl: input.url,
+          status: 200,
+          statusText: 'OK',
+          headers: [],
+          bodyText: JSON.stringify({
+            mailbox: {
+              schemaVersion: 1,
+              accounts: [],
+              threads: [mailboxThread('thread_repeated')],
+            },
+            pageInfo: { nextCursor: `cursor_${requests}` },
+          }),
+          bodyBase64: null,
+          bodyKind: 'text',
+          bodyTruncated: false,
+          sizeBytes: 1_000,
+          elapsedMs: 5,
+          contentType: 'application/json',
+        };
+      },
+    };
+
+    await expect(createCoordinatorClient(transport).getMailbox()).rejects.toMatchObject({
+      status: 502,
+      code: 'invalid_response',
+      message: 'Mailbox pagination did not advance.',
+    });
+    expect(requests).toBe(2);
+  });
+
+  it.each(['user_1', 'google-oauth2|123456789'])('submits sender %s as both durable payload and host context precondition', async userId => {
+    const expectedContext = { userId, workspaceId: 'workspace_a' };
     const calls: unknown[] = [];
     const transport: CoordinatorTransport = {
       request(input, options) {
@@ -146,10 +373,10 @@ describe('TAP Email coordinator client', () => {
         idempotencyKey: 'tap-email:acct_1:cmd_1',
         accountId: 'acct_1',
         threadId: 'thread_1',
-        kind: 'archive',
+        kind: 'send_draft',
         createdAt: '2026-08-18T15:30:00.000Z',
         expectedProviderRevision: 'history_1',
-        payload: {},
+        payload: { draftKey: 'draft_1', draftRevision: 1, to: 'person@example.com', subject: 'Hello', bodyText: 'Hi', expectedContext },
       }),
     ).resolves.toMatchObject({ duplicate: false });
     expect(calls).toEqual([
@@ -157,8 +384,9 @@ describe('TAP Email coordinator client', () => {
         input: expect.objectContaining({
           method: 'POST',
           url: `${coordinatorOrigin}/v1/commands`,
+          body: expect.stringContaining(JSON.stringify(expectedContext)),
         }),
-        options: { credentialRef: 'platform-session' },
+        options: { credentialRef: 'platform-session', expectedContext },
       }),
     ]);
   });
@@ -324,6 +552,8 @@ describe('TAP Email coordinator client', () => {
               thread: {
                 accountId: 'acct_1',
                 threadId: 'thread_1',
+                providerRevision: 'history_1',
+                pageInfo: { nextCursor: null, complete: true },
                 messages: [
                   {
                     messageId: 'message_1',
@@ -380,6 +610,8 @@ describe('TAP Email coordinator client', () => {
           thread: {
             accountId: 'acct_1',
             threadId: 'thread_1',
+            providerRevision: 'history_1',
+            pageInfo: { nextCursor: null, complete: true },
             messages: [
               {
                 messageId: 'message_1',
@@ -793,5 +1025,55 @@ describe('TAP Email coordinator client', () => {
     expect(calls[3]!.body).toBeUndefined();
     expect(JSON.stringify(attachment)).not.toContain('aGVsbG8');
     expect(attachment).not.toHaveProperty('dataBase64');
+  });
+});
+
+describe('streamed mailbox backpressure', () => {
+  function pages(count: number) {
+    let requests = 0;
+    const transport: CoordinatorTransport = {
+      request(input) {
+        requests += 1;
+        return { finalUrl: input.url, status: 200, statusText: 'OK', headers: [],
+          bodyText: JSON.stringify({ mailbox: { schemaVersion: 1, accounts: [], threads: [mailboxThread(`thread_${requests}`)] },
+            pageInfo: { nextCursor: requests < count ? `page_${requests + 1}` : null } }),
+          bodyBase64: null, bodyKind: 'text', bodyTruncated: false, sizeBytes: 1000, elapsedMs: 1, contentType: 'application/json' };
+      },
+    };
+    return { client: createCoordinatorClient(transport), requests: () => requests };
+  }
+
+  it('does not fetch ahead of a durable page callback or retain collected history', async () => {
+    const fixture = pages(150);
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let observed = 0;
+    const loading = fixture.client.getMailbox({ collect: false, async onPage(page) {
+      observed = page.loadedThreadCount;
+      if (page.pageCount === 1) { enter(); await gate; }
+    } });
+    await entered;
+    expect(fixture.requests()).toBe(1);
+    release();
+    expect((await loading).threads).toEqual([]);
+    expect(observed).toBe(150);
+    expect(fixture.requests()).toBe(150);
+  });
+
+  it('stops traversal after cancellation during an in-flight page commit', async () => {
+    const fixture = pages(150);
+    const abort = new AbortController();
+    await expect(fixture.client.getMailbox({ collect: false, signal: abort.signal,
+      onPage() { abort.abort(); } })).rejects.toThrow();
+    expect(fixture.requests()).toBe(1);
+  });
+
+  it('never advances when the durable page commit rejects', async () => {
+    const fixture = pages(150);
+    await expect(fixture.client.getMailbox({ collect: false,
+      onPage() { throw new Error('page commit failed'); } })).rejects.toThrow('page commit failed');
+    expect(fixture.requests()).toBe(1);
   });
 });

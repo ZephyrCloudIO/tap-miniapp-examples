@@ -103,6 +103,9 @@ export const verifyPlatformSession: AccessVerifier = async (
         audience: tapEmailSessionAudience,
         requiredAction,
       }),
+      // workerd rejects redirect: 'error' before dispatch. Inspect redirects
+      // ourselves so the session is never forwarded to another endpoint.
+      redirect: 'manual',
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -111,6 +114,16 @@ export const verifyPlatformSession: AccessVerifier = async (
       'introspection_unavailable',
       'Session introspection did not complete.',
     );
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw new AccessError(
+      503,
+      'introspection_unavailable',
+      'Session introspection redirected unexpectedly.',
+    );
+  }
+  if (response.status === 429 || response.status >= 500) {
+    throw new AccessError(503, 'introspection_unavailable', 'Session introspection is temporarily unavailable.');
   }
   if (!response.ok) {
     throw new AccessError(403, 'session_denied', 'The TAP session is not authorized.');
