@@ -1,7 +1,7 @@
 ---
 name: email-operations
 description: Find, read, summarize, draft, and send email through TAP Email. Use for email requests, mailbox triage, replies, and email activity summaries, including work requested of Chloe.
-version: 0.3.2
+version: 0.3.3
 allowed_tools:
   - get_mailbox_summary
   - get_active_email_context

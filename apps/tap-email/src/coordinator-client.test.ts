@@ -307,8 +307,8 @@ describe('TAP Email coordinator client', () => {
     expect(requests).toBe(2);
   });
 
-  it('submits captured sender intent as both durable payload and host context precondition', async () => {
-    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_a' };
+  it.each(['user_1', 'google-oauth2|123456789'])('submits sender %s as both durable payload and host context precondition', async userId => {
+    const expectedContext = { userId, workspaceId: 'workspace_a' };
     const calls: unknown[] = [];
     const transport: CoordinatorTransport = {
       request(input, options) {
@@ -359,6 +359,7 @@ describe('TAP Email coordinator client', () => {
         input: expect.objectContaining({
           method: 'POST',
           url: `${coordinatorOrigin}/v1/commands`,
+          body: expect.stringContaining(JSON.stringify(expectedContext)),
         }),
         options: { credentialRef: 'platform-session', expectedContext },
       }),

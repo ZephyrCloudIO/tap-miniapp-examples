@@ -170,7 +170,7 @@ describe('TAP Email coordinator command outbox', () => {
     const worker = createTapEmailCoordinator({ verifyAccess: identity, verifySender: async (_req, _env, _identity, expected) => expected, now: () => new Date(now) });
     const missing = await worker.fetch(submit(command({ kind: 'send_draft', payload })), production);
     expect(missing.status).toBe(400);
-    const expectedContext = { userId: 'user_1', workspaceId: 'workspace_a' };
+    const expectedContext = { userId: 'google-oauth2|123456789', workspaceId: 'workspace_a' };
     const send = command({ kind: 'send_draft', payload: { ...payload, expectedContext } });
     const denied = createTapEmailCoordinator({
       verifyAccess: identity,
@@ -184,7 +184,7 @@ describe('TAP Email coordinator command outbox', () => {
       ...payload, expectedContext: { ...expectedContext, workspaceId: 'workspace_b' },
     } }), production)).status).toBe(409);
     expect(await env.DB.prepare('SELECT user_id, workspace_id FROM mail_command_attributions').first())
-      .toEqual({ user_id: 'user_1', workspace_id: 'workspace_a' });
+      .toEqual({ user_id: expectedContext.userId, workspace_id: expectedContext.workspaceId });
   });
 
   it('keeps verified attribution across schedule dispatch, restart, and uncertain-send reconciliation', async () => {

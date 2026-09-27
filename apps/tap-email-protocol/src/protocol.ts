@@ -112,9 +112,18 @@ export interface MailSenderContext {
   readonly workspaceId: string;
 }
 
+function isCanonicalSenderIdentifier(value: unknown): value is string {
+  // Match the TAP host's expected-context contract. Directory identities can
+  // contain provider separators (for example, google-oauth2|123); mail record
+  // identifiers use a different, narrower alphabet.
+  return typeof value === 'string' && value.length > 0 && value.length <= 1024 &&
+    value.trim() === value && !/[\u0000-\u001f\u007f-\u009f]/u.test(value) &&
+    new TextEncoder().encode(value).byteLength <= 1024;
+}
+
 export function isMailSenderContext(value: unknown): value is MailSenderContext {
-  return isRecord(value) && isSafeMailIdentifier(value.userId) &&
-    isSafeMailIdentifier(value.workspaceId);
+  return isRecord(value) && isCanonicalSenderIdentifier(value.userId) &&
+    isCanonicalSenderIdentifier(value.workspaceId);
 }
 
 /**
