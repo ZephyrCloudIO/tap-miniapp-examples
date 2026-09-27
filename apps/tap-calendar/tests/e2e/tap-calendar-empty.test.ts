@@ -24,12 +24,15 @@ test("renders honest first-run states without demo customer data", async ({ surf
   for (const [screen, emptyHeading] of [
     ["Availability", "Set your availability"],
     ["Booking pages", "Create your first booking page"],
-    ["Notifications", "Create your personal TAP Calendar channel"],
     ["Settings", "No calendar accounts connected"],
   ] as const) {
     await surface.getByRole("button", { name: screen, exact: true }).click();
     await expect(surface.getByRole("heading", { name: emptyHeading, exact: true })).toBeVisible();
   }
+
+  await expect(surface.getByRole("button", { name: "Notifications", exact: true })).toHaveCount(0);
+  await expect(surface.getByRole("heading", { name: "Reminders & notifications", exact: true })).toBeVisible();
+  await expect(surface.getByRole("heading", { name: "Create your personal TAP Calendar channel", exact: true })).toBeVisible();
 
   const meetingProviders = surface.locator(".meeting-provider-settings");
   await expect(meetingProviders.getByRole("heading", { name: "Meeting providers", exact: true })).toBeVisible();

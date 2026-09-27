@@ -31,6 +31,12 @@ export interface WorkspaceBookingProfile {
   readonly events: readonly SharedEventType[];
 }
 
+export interface WorkspaceHost extends Pick<SharedHost, "principalId" | "version" | "displayName" | "email"> {
+  readonly calendarConnected: boolean;
+  readonly availabilityReady: boolean;
+  readonly zoomConnected: boolean;
+}
+
 export interface WorkspaceBookings {
   readonly canManage: boolean;
   readonly pendingApprovals: readonly { readonly operationId: string; readonly title: string; readonly guestName: string; readonly guestEmail: string; readonly startsAt: string; readonly conflictCalendarIds: readonly string[]; readonly conferenceProvider: "google-meet" | "zoom" }[];
@@ -38,7 +44,7 @@ export interface WorkspaceBookings {
   readonly definition: WorkspaceBookingProfile | null;
   readonly publication: { readonly current_slug: string; readonly display_name: string; readonly status: string; readonly publication_generation: number; readonly definition_version: number | null; readonly hosts_current: boolean } | null;
   readonly publicBaseUrl: string;
-  readonly hosts: readonly Pick<SharedHost, "principalId" | "version" | "displayName" | "email">[];
+  readonly hosts: readonly WorkspaceHost[];
 }
 
 export type SharedHostInput = { readonly expectedVersion: number; readonly enabled: false } | (

@@ -36,7 +36,7 @@ export async function listHosts(database: Pick<D1Database, "prepare">, workspace
   return rows.results.map(row => JSON.parse(row.policy_json) as CollectiveHost);
 }
 
-/** A host explicitly delegates availability and booking to this workspace's managers. */
+/** Saves the member's calendar and availability used for workspace bookings. */
 export async function saveHost(database: Database, scope: BookingScope, input: unknown): Promise<{ enabled: boolean; host: CollectiveHost }> {
   if (!record(input) || typeof input.enabled !== "boolean") return invalid("Choose whether to enable shared bookings.");
   const expected = version(input.expectedVersion);
@@ -58,7 +58,7 @@ export async function saveHost(database: Database, scope: BookingScope, input: u
         AND connection.status = 'connected' AND primary_cal.is_primary = 1 AND primary_cal.role = 'owner'`)
       .bind(destinationCalendarId, scope.workspace, scope.principal).first<{ email: string }>();
     if (!identity || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(identity.email)) {
-      throw new CollectiveBookingError(409, "host_calendar_unavailable", "Connect and refresh your Google calendars before enabling shared bookings.");
+      throw new CollectiveBookingError(409, "host_calendar_unavailable", "Connect and refresh your Google calendars before saving booking availability.");
     }
     const publication = parsePublicBookingPublication({
       schemaVersion: "tap.calendar.publication.v1", sourceProfileId: "host-policy", profileSlug: "host-policy",
@@ -138,7 +138,7 @@ export async function workspacePublication(database: Database, workspace: string
   const publications = definition.events.map(event => {
     const hosts = [event.organizerId, ...event.hostIds.filter(id => id !== event.organizerId)].map(id => {
       const host = available.get(id);
-      if (!host) throw new CollectiveBookingError(409, "host_not_enrolled", "Every selected host must enable shared bookings first.");
+      if (!host) throw new CollectiveBookingError(409, "host_availability_unavailable", "A selected host needs to open Calendar and save their booking availability before this meeting can be published.");
       return host;
     });
     const organizer = hosts[0]!;

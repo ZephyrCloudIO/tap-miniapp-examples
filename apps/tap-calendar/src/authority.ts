@@ -6,6 +6,7 @@ export const CALENDAR_MANAGE_ACTION = "calendar.manage";
 export const CALENDAR_APPROVE_ACTION = "calendar.approve";
 export const CALENDAR_PUBLISH_ACTION = "calendar.publish";
 export const NETWORK_REQUEST_ACTION = "network.request";
+export const WORKSPACE_MEMBERS_ACTION = "workspace.read-members";
 export const CHANNELS_READ_ACTION = "channels.read";
 
 export type CalendarAuthorityAction =
@@ -14,7 +15,8 @@ export type CalendarAuthorityAction =
   | typeof CALENDAR_APPROVE_ACTION
   | typeof CALENDAR_PUBLISH_ACTION
   | typeof NETWORK_REQUEST_ACTION
-  | typeof CHANNELS_READ_ACTION;
+  | typeof CHANNELS_READ_ACTION
+  | typeof WORKSPACE_MEMBERS_ACTION;
 
 export type CalendarAuthorityGuard = (
   actionId: CalendarAuthorityAction,
@@ -29,6 +31,7 @@ const actionAutonomy: Readonly<
   [CALENDAR_PUBLISH_ACTION]: "do",
   [NETWORK_REQUEST_ACTION]: "do",
   [CHANNELS_READ_ACTION]: "listen",
+  [WORKSPACE_MEMBERS_ACTION]: "listen",
 };
 
 const actionOperation: Readonly<Record<CalendarAuthorityAction, string>> = {
@@ -38,6 +41,7 @@ const actionOperation: Readonly<Record<CalendarAuthorityAction, string>> = {
   [CALENDAR_PUBLISH_ACTION]: "publish booking pages",
   [NETWORK_REQUEST_ACTION]: "reach the Calendar gateway",
   [CHANNELS_READ_ACTION]: "read channel participants",
+  [WORKSPACE_MEMBERS_ACTION]: "read workspace members",
 };
 
 async function waitForHostAuthority(

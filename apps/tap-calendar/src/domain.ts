@@ -80,6 +80,10 @@ export interface CalendarEvent {
   readonly id: string;
   readonly calendarId: string;
   readonly title: string;
+  /** Plain text, including line breaks. */
+  readonly description?: string;
+  /** A room or address, independent of the video provider in location. */
+  readonly physicalLocation?: string;
   readonly start: string;
   readonly end: string;
   readonly kind: "meeting" | "work-block" | "hold" | "focus";
@@ -220,6 +224,8 @@ export type NewEventType = Omit<EventType, "availabilityScheduleId"> & {
   readonly availabilityScheduleId: string;
 };
 
+export type EventTypeSettings = Omit<NewEventType, "id" | "analytics" | "publication">;
+
 export interface BookingProfile {
   readonly id: string;
   readonly ownerType: "individual" | "team" | "organization";
@@ -304,10 +310,14 @@ export interface CalendarState {
 export interface ScheduleMeetingInput {
   readonly id: string;
   readonly title: string;
+  /** Plain text, including line breaks. */
+  readonly description?: string;
+  /** A room or address, independent of the video provider in location. */
+  readonly physicalLocation?: string;
   readonly calendarId: string;
   readonly start: string;
   readonly end: string;
-  /** Null creates a calendar event without a location or video conference. */
+  /** Null creates an event without a video conference; a physical location may still be set. */
   readonly location: MeetingLocation | null;
   readonly attendees: readonly CalendarAttendee[];
   readonly approvalRequired: boolean;
@@ -337,6 +347,7 @@ export type CalendarDomainErrorCode =
   | "duplicate-slug"
   | "empty-calendars"
   | "empty-name"
+  | "event-type-not-found"
   | "invalid-destination"
   | "invalid-duration"
   | "invalid-id"
@@ -762,10 +773,10 @@ export function enforceImmutablePublicationSlugs(
 
 const pendingPublicationsMatch = (
   left: PendingBookingProfilePublication | undefined,
-  right: PendingBookingProfilePublication | undefined,
+  right: PendingBookingProfilePublication | null | undefined,
 ): boolean =>
   left !== undefined &&
-  right !== undefined &&
+  right != null &&
   left.desiredStatus === right.desiredStatus &&
   left.expectedGeneration === right.expectedGeneration &&
   left.requestedAt === right.requestedAt;
@@ -778,7 +789,7 @@ const pendingPublicationsMatch = (
 export function applyBookingProfilePublicationReceipt(
   profile: BookingProfile,
   receipt: BookingProfileServerPublicationReceipt,
-  acknowledgedPending?: PendingBookingProfilePublication,
+  acknowledgedPending?: PendingBookingProfilePublication | null,
 ): BookingProfile {
   if (!isBookingProfileServerPublicationReceipt(receipt)) {
     throw new Error("The Booking Profile publication receipt is malformed.");
@@ -853,7 +864,7 @@ export function applyBookingProfilePublicationReceipt(
 export function applyPublicBookingProfilePublicationReceipt(
   state: CalendarState,
   receipt: BookingProfileServerPublicationReceipt,
-  acknowledgedPending?: PendingBookingProfilePublication,
+  acknowledgedPending?: PendingBookingProfilePublication | null,
 ): CalendarState {
   if (!state.bookingProfiles.some(profile => profile.id === receipt.sourceProfileId)) {
     return state;
@@ -871,6 +882,7 @@ export function applyPublicBookingProfilePublicationReceipt(
 function validateEventTypeDefinition(
   state: CalendarState,
   eventType: EventType,
+  existingEventTypeId?: string,
 ): CalendarDomainError | null {
   if (!hasId(eventType.id)) {
     return {
@@ -879,7 +891,7 @@ function validateEventTypeDefinition(
       message: "Event Type ID must not be empty or contain surrounding whitespace.",
     };
   }
-  if (allEventTypes(state).some(candidate => candidate.id === eventType.id)) {
+  if (allEventTypes(state).some(candidate => candidate.id === eventType.id && candidate.id !== existingEventTypeId)) {
     return {
       code: "duplicate-id",
       field: "id",
@@ -1640,6 +1652,65 @@ export function addEventType(
   });
 }
 
+/** Update settings while retaining the current page identity, history, and receipt. */
+export function updateEventType(
+  state: CalendarState,
+  profileId: string,
+  eventTypeId: string,
+  settings: EventTypeSettings,
+): CalendarMutationResult {
+  const profile = state.bookingProfiles.find(candidate => candidate.id === profileId);
+  const existing = profile?.eventTypes.find(candidate => candidate.id === eventTypeId);
+  if (!existing) return mutationFailed(state, "event-type-not-found", "eventTypeId", "This booking page no longer exists.");
+  const next: EventType = {
+    ...existing,
+    title: settings.title.trim(),
+    slug: existing.publication?.reservedSlug ?? settings.slug.trim(),
+    description: settings.description.trim(),
+    durationMinutes: settings.durationMinutes,
+    location: settings.location,
+    destinationCalendarId: settings.destinationCalendarId,
+    availabilityScheduleId: settings.availabilityScheduleId,
+    approvalRequired: settings.approvalRequired,
+    active: settings.active,
+    color: settings.color,
+  };
+  const error = validateEventTypeDefinition(state, next, existing.id);
+  if (error) return mutationFailed(state, error.code, error.field, error.message);
+  if (profile!.eventTypes.some(candidate => candidate.id !== existing.id && candidate.slug === next.slug)) {
+    return mutationFailed(state, "duplicate-slug", "slug", "Another booking page in this profile uses that URL.");
+  }
+  return mutationSucceeded(replaceEventType(state, profileId, next));
+}
+
+/** Taking a page offline must work even after its calendar has disconnected. */
+export function setEventTypeActive(
+  state: CalendarState,
+  profileId: string,
+  eventTypeId: string,
+  active: boolean,
+): CalendarMutationResult {
+  const existing = state.bookingProfiles.find(profile => profile.id === profileId)
+    ?.eventTypes.find(eventType => eventType.id === eventTypeId);
+  if (!existing) return mutationFailed(state, "event-type-not-found", "eventTypeId", "This booking page no longer exists.");
+  if (active) {
+    return updateEventType(state, profileId, eventTypeId, {
+      ...existing, active,
+      availabilityScheduleId: resolveEventTypeAvailabilityScheduleId(state, existing) ?? "",
+    });
+  }
+  return mutationSucceeded(replaceEventType(state, profileId, { ...existing, active }));
+}
+
+function replaceEventType(state: CalendarState, profileId: string, eventType: EventType): CalendarState {
+  return {
+    ...state,
+    bookingProfiles: state.bookingProfiles.map(profile => profile.id === profileId
+      ? { ...profile, eventTypes: profile.eventTypes.map(candidate => candidate.id === eventType.id ? eventType : candidate) }
+      : profile),
+  };
+}
+
 export const visibleCalendarIds = (state: CalendarState): ReadonlySet<string> =>
   new Set(allCalendars(state).filter(calendar => calendar.visible).map(calendar => calendar.id));
 
@@ -1755,6 +1826,8 @@ export function scheduleMeeting(
       existingEvent.kind === (input.approvalRequired ? "hold" : "meeting") &&
       existingEvent.status === (input.approvalRequired ? "pending" : "confirmed") &&
       existingEvent.location === input.location &&
+      existingEvent.description === (input.description?.trim() || undefined) &&
+      existingEvent.physicalLocation === (input.physicalLocation?.trim() || undefined) &&
       JSON.stringify(existingEvent.attendees) === JSON.stringify(input.attendees);
     const requestMatches = bookingRequestId === null || (
       existingRequest?.eventId === input.id &&
@@ -1788,6 +1861,8 @@ export function scheduleMeeting(
     kind: input.approvalRequired ? "hold" : "meeting",
     status,
     location: input.location,
+    ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    ...(input.physicalLocation?.trim() ? { physicalLocation: input.physicalLocation.trim() } : {}),
     attendees: input.attendees,
     busy: true,
     ...(input.providerHtmlLink ? { providerHtmlLink: input.providerHtmlLink } : {}),
@@ -2402,6 +2477,8 @@ const isCalendarEvent = (value: unknown): value is CalendarEvent => {
       "physical",
       "custom",
     ] as const)) &&
+    (value.description === undefined || (typeof value.description === "string" && value.description.length <= 65_536)) &&
+    (value.physicalLocation === undefined || (typeof value.physicalLocation === "string" && value.physicalLocation.length <= 1_024)) &&
     Array.isArray(value.attendees) &&
     value.attendees.every(isCalendarAttendee) &&
     (value.busy === undefined || typeof value.busy === "boolean") &&

@@ -8,6 +8,7 @@ import {
   STORAGE_NAMESPACE,
   expectExactProvenance,
   expectReadySurface,
+  hasHostAuthorizationDecision,
   hasPlatformAuthorizationDecision,
   storageRecord,
 } from "./tap-calendar-test-support";
@@ -55,6 +56,7 @@ test("hydrates the seeded multi-calendar state through TAP storage", async ({
 
 test("shows the Availability Schedule assigned to each booking page", async ({
   surface,
+  tap,
 }) => {
   await expectReadySurface(surface);
   await surface.getByRole("button", { name: "Booking pages", exact: true }).click();
@@ -63,6 +65,13 @@ test("shows the Availability Schedule assigned to each booking page", async ({
     has: surface.getByRole("heading", { name: "30 minute meeting", exact: true }),
   });
   await expect(standard.getByText("Standard working hours", { exact: true })).toBeVisible();
+  await expect.poll(async () => hasHostAuthorizationDecision(
+    (await tap.fixture.ledger.read()).entries,
+    { actionId: "workspace.read-members", allowed: true },
+  )).toBe(true);
+  await expect.poll(async () => (await tap.fixture.ledger.read()).entries.some(
+    entry => entry.kind === "host-action" && entry.operation === "workspace.list-members",
+  )).toBe(true);
 });
 
 test("makes publishing an active booking page explicit", async ({ surface }) => {

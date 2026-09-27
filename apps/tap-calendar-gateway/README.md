@@ -5,7 +5,7 @@ This package is the locally runnable Cloudflare Worker boundary for TAP Calendar
 ## Workspace bookings
 
 Migration `0018_collective_workspace_bookings.sql` adds workspace-owned profile
-definitions, self-enrolled host policies, actor audit records, and transactional
+definitions, member availability policies, actor audit records, and transactional
 host reservations. The public routes retain `/{profileNamespace}/{eventType}`.
 Workspace ownership is bound to the canonical workspace ID; the public name
 is a namespace claim, not proof of a legal organization or a verified domain.
@@ -14,9 +14,11 @@ hosts per meeting.
 
 - `GET /v1/workspace-bookings` returns the caller's host settings and pending
   shared-meeting approvals. Workspace managers also receive the shared profile,
-  enrolled eligible hosts, publication receipt, and host-policy freshness.
-- `POST /v1/workspace-bookings/host` enrolls/updates/disables the authenticated
-  caller only, with `expectedVersion`. Invite email comes from the connected
+  known members' Calendar, availability, and Zoom readiness, publication receipt,
+  and host-policy freshness. The miniapp combines readiness with the SDK workspace
+  roster so members without provider connections also appear as hosts.
+- `POST /v1/workspace-bookings/host` saves the authenticated caller's availability
+  only, with `expectedVersion`. Invite email comes from the connected
   account's discovered owned Google primary calendar, never a supplied email.
 - `POST /v1/workspace-bookings/profile` saves and publishes/unpublishes the
   workspace profile with `expectedVersion`. Every event carries `hostIds` and
@@ -26,10 +28,11 @@ Production calls use the existing JWT subject-to-canonical-user check and
 `AUTHZ_API.checkWorkspacePrincipalActions({ organizationId, userId, actions })`.
 Profile management requires `workspace:manage` (owner/admin in the default
 policy). Every host must remain a member with `workspace:read`, own a connected
-Google calendar, and explicitly enable this workspace's shared bookings.
+Google calendar, and have a saved availability policy. The miniapp automatically
+syncs the caller's existing Calendar settings when Booking pages opens.
 Provider credentials always retain their real authorizing principal. The
 registry-only `workspace:{workspaceId}` owner key never authorizes provider I/O.
-Missing Authz service capabilities, missing calendars, revoked consent, and
+Missing Authz service capabilities, missing calendars, revoked provider access, and
 partial provider results fail closed.
 
 Reservations cover every host, including individual/native booking commits.
@@ -46,7 +49,8 @@ has no atomic availability-and-insert operation across accounts.
 Host settings are published snapshots. Updating/revoking a host invalidates
 links using the old policy until a manager refreshes the publication. Failed
 publication leaves a recoverable draft. `definition_version` identifies the
-settings that actually published; `hosts_current` detects stale enrollment.
+settings that actually published; `hosts_current` detects stale availability and
+missing provider connections, including the organizer's Zoom account when used.
 The UI offers event-link copying only for confirmed, current settings.
 Unpublishing remains possible after a host leaves or disables participation.
 
@@ -57,12 +61,35 @@ Deployment order:
 3. Verify the production Authz RPC includes `checkWorkspacePrincipalActions`.
    Google OAuth now also requests `calendar.events.freebusy`; reconnect accounts
    whose existing grants cannot read selected shared Conflict Calendars.
-4. Each host connects their own Google account and enables shared bookings in
-   the target workspace. A manager claims an available namespace and publishes
-   the meeting. These consent steps cannot be replaced by entering host emails.
+4. Each host connects their own Google account and chooses an Availability
+   Schedule. Opening Booking pages syncs their availability. A manager can select
+   any workspace member; publishing requires each selected host's Calendar setup
+   and the organizer's Zoom connection for Zoom meetings.
+5. For Calendar 0.3.6, deploy the updated gateway before installing the miniapp so
+   host readiness is available. The miniapp declares `workspace.read-members` for
+   the SDK roster. This host-roster change requires no additional D1 migration.
 
-No production migration, deployment, namespace claim, or host enrollment is
+No production migration, deployment, namespace claim, or provider connection is
 performed by building or running the test suite.
+
+## Individual profile address changes
+
+`POST /v1/publications/profiles/rename` uses the authenticated organizer scope.
+The `tap.calendar.profile-rename.v1` body includes `sourceProfileId`,
+`previousSlug`, `profileSlug`, and `expectedGeneration`. The replacement must be
+available, valid, and outside the reserved route names.
+
+One D1 transaction claims the next generation, releases the old slug, reserves
+the new one, updates profile/page routing URLs, and records a `rename` audit
+entry. The profile's live/offline status and all page IDs, revisions, and booking
+records stay intact. The generation ledger retains the current publication
+status while the audit identifies the rename. Ordinary publication requests
+still cannot rename a profile implicitly.
+
+The released slug has no redirect and can be claimed by another owner. Occupied
+names or concurrent writes roll back the entire rename. An exact completed
+request is replayable after a lost response. Deploy the updated gateway before
+Calendar 0.3.6; this uses the existing tables and requires no new migration.
 
 ## Booking notes and additional guests
 

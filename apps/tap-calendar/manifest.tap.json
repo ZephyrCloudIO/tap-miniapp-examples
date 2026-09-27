@@ -9,8 +9,8 @@
     "slug": "tap-calendar"
   },
   "release": {
-    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.5",
-    "version": "0.3.5",
+    "releaseId": "tap_pkg_examples_tap_calendar_0001@0.3.6",
+    "version": "0.3.6",
     "contentDigest": "pending"
   },
   "presentation": {
@@ -274,6 +274,7 @@
           "channels.read",
           "channels.send-message",
           "task.read",
+          "workspace.read-members",
           "workflows.list",
           "workflows.invoke",
           "navigation.open-external"
@@ -304,6 +305,7 @@
               "tap.channels:list",
               "tap.channels:read",
               "tap.channels:send-message",
+              "tap.workspace:read-members",
               "tap.workflows:list",
               "tap.workflows:invoke"
             ]
@@ -1162,6 +1164,16 @@
             "risk": "read"
           },
           {
+            "id": "workspace.read-members",
+            "resource": "tap.workspace:read-members",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
             "id": "workflows.list",
             "resource": "tap.workflows:list",
             "scopes": ["workspace"],
@@ -1208,6 +1220,7 @@
               "channels.read",
               "channels.send-message",
               "task.read",
+              "workspace.read-members",
               "workflows.list",
               "workflows.invoke",
               "navigation.open-external"

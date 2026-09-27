@@ -1,6 +1,9 @@
+import { resolvePublishedPublicBookingPage, assertPublicPageStillCurrent } from "../src/public-booking-read";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  parsePublicBookingProfileRename,
+  renamePublicBookingProfile,
   parsePublicBookingProfilePublication,
   parsePublicBookingProfileUnpublication,
   publishPublicBookingProfile,
@@ -466,9 +469,26 @@ describe("public booking publication", () => {
       { current_slug: "30min", status: "published" },
       { current_slug: "60min", status: "unpublished" },
     ]);
+    const offlinePage = await env.CALENDAR_DB.prepare(
+      "SELECT id, current_revision_id FROM public_booking_pages WHERE current_slug = '60min'",
+    ).first<{ id: string; current_revision_id: string }>();
+    const restored = await publish({
+      input: profilePublication({ expectedGeneration: second.generation, pages: [
+        page(), page({ sourceEventTypeId: "event-2", eventTypeSlug: "60min", durationMinutes: 60 }),
+      ] }),
+      publishedAt: "2026-08-16T18:20:00.000Z",
+    });
+    expect(restored.pages.find(page => page.eventTypeSlug === "60min")?.pageId).toBe(offlinePage!.id);
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT status FROM public_booking_pages WHERE id = ?",
+    ).bind(offlinePage!.id).first<string>("status")).toBe("published");
+    // Existing bookings can still reference the old immutable revision.
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT page_id FROM public_booking_page_revisions WHERE id = ?",
+    ).bind(offlinePage!.current_revision_id).first<string>("page_id")).toBe(offlinePage!.id);
   });
 
-  it("keeps slugs immutable and blocks global takeover", async () => {
+  it("requires explicit profile renaming and blocks global takeover", async () => {
     await publish();
     await expect(publish({
       input: profilePublication({
@@ -640,5 +660,80 @@ describe("public booking publication", () => {
     expect(await env.CALENDAR_DB.prepare(
       "SELECT COUNT(*) AS count FROM public_booking_profile_slugs",
     ).first<number>("count")).toBe(1);
+  });
+});
+
+const rename = (options: { slug?: string; previous?: string; generation?: number; requestScope?: typeof scope; source?: string } = {}) => renamePublicBookingProfile({
+  database: env.CALENDAR_DB, scope: options.requestScope ?? scope,
+  input: parsePublicBookingProfileRename({ schemaVersion: "tap.calendar.profile-rename.v1", sourceProfileId: options.source ?? "profile-source-1",
+    previousSlug: options.previous ?? "alex-morgan", profileSlug: options.slug ?? "alex-calendar", expectedGeneration: options.generation ?? 1 }),
+  publicBaseUrl: "https://cal.with-tap.ai", now: "2026-08-16T18:30:00.000Z",
+});
+
+describe("booking profile address changes", () => {
+  it("moves the routing address, preserves page identity, and releases the old name for another owner", async () => {
+    const original = await publish();
+    const oldPage = await resolvePublishedPublicBookingPage(env.CALENDAR_DB, "alex-morgan", "30min");
+    const changed = await rename();
+    expect(changed).toMatchObject({ generation: 2, reservedSlug: "alex-calendar", status: "published" });
+    expect(changed.eventTypes[0]?.revisionId).toBe(original.pages[0]?.revisionId);
+    const newPage = await resolvePublishedPublicBookingPage(env.CALENDAR_DB, "alex-calendar", "30min");
+    expect(newPage).toMatchObject({ pageId: oldPage.pageId, revisionId: oldPage.revisionId });
+    await expect(resolvePublishedPublicBookingPage(env.CALENDAR_DB, "alex-morgan", "30min")).rejects.toMatchObject({ status: 404 });
+    await expect(assertPublicPageStillCurrent(env.CALENDAR_DB, oldPage)).rejects.toMatchObject({ code: "public_page_changed" });
+    expect(await env.CALENDAR_DB.prepare("SELECT canonical_url FROM public_booking_pages WHERE id = ?").bind(oldPage.pageId).first<string>("canonical_url")).toBe("https://cal.with-tap.ai/alex-calendar/30min");
+    const other = { workspace: "another-workspace", principal: "another-person" };
+    const claimed = await publish({ requestScope: other, input: profilePublication({ pages: [], identity: { sourceProfileId: "other-profile" } }) });
+    expect(claimed.profileSlug).toBe("alex-morgan");
+    expect(claimed.profileId).not.toBe(original.profileId);
+    await expect(rename({ previous: "alex-calendar", slug: "alex-morgan", generation: 2 })).rejects.toMatchObject({ code: "profile_slug_unavailable" });
+  });
+
+  it("keeps offline profiles offline and replays a completed request after a lost response", async () => {
+    await publish();
+    await unpublishPublicBookingProfile({ database: env.CALENDAR_DB, scope,
+      input: { schemaVersion: "tap.calendar.profile-unpublication.v1", sourceProfileId: "profile-source-1", expectedGeneration: 1 } });
+    const changed = await rename({ generation: 2 });
+    expect(changed).toMatchObject({ status: "unpublished", generation: 3, eventTypes: [] });
+    expect(await rename({ generation: 2 })).toEqual(changed);
+    await expect(resolvePublishedPublicBookingPage(env.CALENDAR_DB, "alex-calendar", "30min")).rejects.toMatchObject({ status: 404 });
+    const republished = await publish({ input: profilePublication({ expectedGeneration: 3, pages: [page({ profileSlug: "alex-calendar" })] }) });
+    expect(republished.pages[0]?.canonicalUrl).toBe("https://cal.with-tap.ai/alex-calendar/30min");
+  });
+
+  it("rejects occupied names, stale generations, and other owners without releasing the current address", async () => {
+    await publish();
+    await publish({ input: profilePublication({ pages: [], identity: { sourceProfileId: "second-profile", profileSlug: "already-taken" } }) });
+    await expect(rename({ slug: "already-taken" })).rejects.toMatchObject({ code: "profile_slug_unavailable" });
+    await expect(rename({ generation: 0 })).rejects.toMatchObject({ code: "publication_conflict" });
+    await expect(rename({ requestScope: { ...scope, principal: "other" } })).rejects.toMatchObject({ status: 404 });
+    expect((await resolvePublishedPublicBookingPage(env.CALENDAR_DB, "alex-morgan", "30min")).profileSlug).toBe("alex-morgan");
+    expect(() => parsePublicBookingProfileRename({ schemaVersion: "tap.calendar.profile-rename.v1", sourceProfileId: "profile-source-1", previousSlug: "alex-morgan", profileSlug: "api", expectedGeneration: 1 })).toThrowError(expect.objectContaining({ code: "profile_slug_reserved" }));
+  });
+
+  it("keeps the losing profile's address when two profiles request the same new name", async () => {
+    await publish();
+    await publish({ input: profilePublication({ pages: [], identity: { sourceProfileId: "second-profile", profileSlug: "second-owner" } }) });
+    const attempts = await Promise.allSettled([
+      rename({ slug: "shared-target" }),
+      rename({ source: "second-profile", previous: "second-owner", slug: "shared-target" }),
+    ]);
+    expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    const losingIndex = attempts.findIndex(result => result.status === "rejected");
+    expect(attempts[losingIndex]).toMatchObject({ reason: { code: "profile_slug_unavailable" } });
+    const oldSlug = losingIndex === 0 ? "alex-morgan" : "second-owner";
+    expect(await env.CALENDAR_DB.prepare("SELECT COUNT(*) AS count FROM public_booking_profile_slugs WHERE slug = ?").bind(oldSlug).first<number>("count")).toBe(1);
+    expect(await env.CALENDAR_DB.prepare("SELECT COUNT(*) AS count FROM public_booking_profile_slugs").first<number>("count")).toBe(2);
+  });
+
+  it("allows only one competing rename and keeps the winning address reserved", async () => {
+    await publish();
+    const results = await Promise.allSettled([rename({ slug: "first-name" }), rename({ slug: "second-name" })]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+    const row = await env.CALENDAR_DB.prepare("SELECT current_slug, publication_generation FROM public_booking_profiles WHERE source_profile_id = 'profile-source-1'").first<{current_slug: string; publication_generation: number}>();
+    expect(row!.publication_generation).toBe(2);
+    expect(await env.CALENDAR_DB.prepare("SELECT slug FROM public_booking_profile_slugs").first<string>("slug")).toBe(row!.current_slug);
+    expect(await env.CALENDAR_DB.prepare("SELECT COUNT(*) AS count FROM public_booking_publication_audit WHERE action = 'rename'").first<number>("count")).toBe(1);
   });
 });

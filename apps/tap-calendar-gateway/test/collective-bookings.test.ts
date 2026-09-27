@@ -120,11 +120,45 @@ const manage = (token: string, action: "reschedule" | "cancel", body: unknown) =
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime("2026-09-20T12:00:00Z"); events.clear(); inserts = 0; failedHost = null; uncertainPatch = false;
-  for (const table of ["calendar_activity_events", "calendar_host_reservations", "calendar_booking_hosts", "calendar_workspace_booking_profiles", "public_booking_workspace_audit", "public_booking_email_outbox", "public_booking_management_mutations", "public_booking_management_credentials", "public_booking_slot_proof_uses", "public_booking_attempts", "public_booking_owner_leases", "public_booking_publication_audit", "public_booking_page_revisions", "public_booking_page_slugs", "public_booking_pages", "public_booking_profile_generations", "public_booking_profile_slugs", "public_booking_owner_profile_slots", "public_booking_profiles", "provider_booking_resolutions", "provider_booking_commit_locks", "provider_booking_commits", "provider_calendars", "calendar_connections"]) await env.CALENDAR_DB.prepare(`DELETE FROM ${table}`).run();
+  for (const table of ["meeting_provider_connections", "calendar_activity_events", "calendar_host_reservations", "calendar_booking_hosts", "calendar_workspace_booking_profiles", "public_booking_workspace_audit", "public_booking_email_outbox", "public_booking_management_mutations", "public_booking_management_credentials", "public_booking_slot_proof_uses", "public_booking_attempts", "public_booking_owner_leases", "public_booking_publication_audit", "public_booking_page_revisions", "public_booking_page_slugs", "public_booking_pages", "public_booking_profile_generations", "public_booking_profile_slugs", "public_booking_owner_profile_slots", "public_booking_profiles", "provider_booking_resolutions", "provider_booking_commit_locks", "provider_booking_commits", "provider_calendars", "calendar_connections"]) await env.CALENDAR_DB.prepare(`DELETE FROM ${table}`).run();
 });
 afterEach(() => vi.useRealTimers());
 
 describe("workspace collective bookings", () => {
+  it("reports calendar and Zoom readiness before availability is configured", async () => {
+    await connect("zack");
+    let settings = await (await call("/v1/workspace-bookings", undefined, "zack")).json<{ hosts: { principalId: string; calendarConnected: boolean; availabilityReady: boolean; zoomConnected: boolean }[] }>();
+    expect(settings.hosts).toContainEqual({ principalId: "zack", displayName: "", email: "", version: 0, calendarConnected: true, availabilityReady: false, zoomConnected: false });
+    await env.CALENDAR_DB.prepare(`INSERT INTO meeting_provider_connections (id, workspace_id, principal_id, provider, mode, label, status, created_at, updated_at) VALUES ('zoom-vern', ?, 'vern', 'zoom', 'oauth', 'Zoom', 'connected', ?, ?)`)
+      .bind(workspace, start, start).run();
+    settings = await (await call("/v1/workspace-bookings", undefined, "zack")).json<typeof settings>();
+    expect(settings.hosts.find(host => host.principalId === "vern")).toMatchObject({ calendarConnected: false, availabilityReady: false, zoomConnected: true });
+    const calendar = await env.CALENDAR_DB.prepare("SELECT id FROM provider_calendars WHERE connection_id = 'connection-zack'").first<string>("id");
+    await enroll("zack", calendar!);
+    settings = await (await call("/v1/workspace-bookings", undefined, "zack")).json<typeof settings>();
+    expect(settings.hosts.find(host => host.principalId === "zack")?.availabilityReady).toBe(true);
+    await env.CALENDAR_DB.prepare("UPDATE calendar_connections SET status = 'attention' WHERE id = 'connection-zack'").run();
+    settings = await (await call("/v1/workspace-bookings", undefined, "zack")).json<typeof settings>();
+    expect(settings.hosts.find(host => host.principalId === "zack")).toMatchObject({ calendarConnected: false, availabilityReady: false });
+  });
+
+  it("requires the selected organizer's Zoom connection when publishing a Zoom meeting", async () => {
+    await enroll("zack", await connect("zack")); await enroll("vern", await connect("vern"));
+    const input = { ...profile(), events: profile().events.map(event => ({ ...event, location: "zoom" })) };
+    const missing = await call("/v1/workspace-bookings/profile", input, "zack");
+    expect(missing.status).toBe(409);
+    expect(await missing.json()).toMatchObject({ error: "organizer_zoom_unavailable", message: expect.stringContaining("zack must connect Zoom") });
+    await env.CALENDAR_DB.prepare(`INSERT INTO meeting_provider_connections (id, workspace_id, principal_id, provider, mode, label, status, created_at, updated_at) VALUES ('zoom-vern', ?, 'vern', 'zoom', 'oauth', 'Zoom', 'connected', ?, ?)`)
+      .bind(workspace, start, start).run();
+    expect((await call("/v1/workspace-bookings/profile", input, "zack")).status).toBe(409);
+    await env.CALENDAR_DB.prepare("DELETE FROM meeting_provider_connections WHERE id = 'zoom-vern'").run();
+    await env.CALENDAR_DB.prepare(`INSERT INTO meeting_provider_connections (id, workspace_id, principal_id, provider, mode, label, status, created_at, updated_at) VALUES ('zoom-zack', ?, 'zack', 'zoom', 'oauth', 'Zoom', 'connected', ?, ?)`)
+      .bind(workspace, start, start).run();
+    expect((await call("/v1/workspace-bookings/profile", input, "zack")).status).toBe(200);
+    await env.CALENDAR_DB.prepare("UPDATE meeting_provider_connections SET status = 'attention' WHERE id = 'zoom-zack'").run();
+    expect((await call("/v1/workspace-bookings/profile", { ...input, expectedVersion: 1 }, "zack")).status).toBe(409);
+  });
+
   it("claims a workspace-owned profile that another admin can edit and exposes only public host names", async () => {
     const zack = await connect("zack"); const vern = await connect("vern");
     expect(await enroll("zack", zack)).toMatchObject({ host: { principalId: "zack", email: "zack@example.com" } }); await enroll("vern", vern);

@@ -897,6 +897,21 @@ describe("TAP Calendar domain", () => {
     expect(scheduleMeeting(result.state, input).state).toBe(result.state);
   });
 
+  it("keeps descriptions and addresses on holds and rejects replay with changed details", () => {
+    const input = {
+      id: "hybrid-event", title: "Planning", calendarId: "cal-work",
+      start: "2026-08-17T14:00:00-04:00", end: "2026-08-17T15:00:00-04:00",
+      location: "zoom" as const, description: "  Agenda <draft>\nBring notes.  ", physicalLocation: "  Room 3  ",
+      attendees: [externalGuest], approvalRequired: true, requestedAt: "2026-08-14T12:00:00-04:00",
+    };
+    const result = scheduleMeeting(createInitialCalendarState(), input);
+    expect(result.error).toBeNull();
+    expect(result.state.events.at(-1)).toMatchObject({ kind: "hold", location: "zoom", description: "Agenda <draft>\nBring notes.", physicalLocation: "Room 3" });
+    expect(scheduleMeeting(result.state, input).state).toBe(result.state);
+    expect(scheduleMeeting(result.state, { ...input, description: "New agenda" }).error).not.toBeNull();
+    expect(scheduleMeeting(result.state, { ...input, physicalLocation: "Room 4" }).error).not.toBeNull();
+  });
+
   it("creates an approval hold and actionable channel entry", () => {
     const initial = createInitialCalendarState();
     const result = scheduleMeeting(initial, {

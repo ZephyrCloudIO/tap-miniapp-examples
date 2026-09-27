@@ -22,31 +22,37 @@ the mounted surface.
 
 ## Shared booking links
 
-Open **Booking pages → Shared bookings** in the TAP workspace. Each required
-host connects Google Calendar, chooses an Availability Schedule, and enables
-shared bookings from their own account. Their public name and provider-verified
-Google identity become available to workspace booking managers.
+Open **Booking pages → Shared bookings** in the TAP workspace. Every joined
+workspace member appears as a host automatically through the SDK member roster.
+Calendar requests the reusable `workspace.read-members` permission to read it.
+Each host's connected Google calendar and saved Availability Schedule sync when
+they open Booking pages; they can adjust these under **Your booking availability**.
+Members without Calendar setup remain visible with a named setup error when
+selected for a meeting.
 
 A workspace owner/admin can claim a globally unique Profile Namespace, add a
 shared meeting, select every required host, choose its organizer and duration,
 and publish. For example, claiming `zephyr` and publishing `zack-and-vern`
 would produce `https://cal.with-tap.ai/zephyr/zack-and-vern`. This is an example;
-installing the code does not claim that name or enroll either person.
+installing the code does not claim that name or create a meeting.
 
 The gateway offers only times that satisfy every host's schedule, time zone,
 notice, buffers, date overrides, live Google conflicts, and existing TAP
 reservations. It creates one organizer event and invites the other hosts plus
 the guest. Both Google Meet and the organizer's connected Zoom account are
-supported. Approval-required meetings appear in the organizer's shared-booking
+supported. Choosing Zoom requires the organizer's connected Zoom account; other
+required hosts do not need Zoom. Missing organizer connections show an error and
+block publication. Approval-required meetings appear in the organizer's shared-booking
 panel; approval rechecks every host. Guest rescheduling and cancellation update
 the same meeting and reservations.
 
 The workspace owns the shared profile. Any authorized workspace manager can
 edit it; leaving the creator's account does not transfer calendar credentials.
 Profile and published meeting names stay stable. Add a new meeting to use a new
-URL. Save shared availability and refresh the links after changing a host's
-Availability Schedule or Conflict Calendars. Withdrawing a host immediately
-prevents new bookings; existing meetings remain scheduled.
+URL. Open Booking pages to sync availability, then refresh shared links after
+changing a host's Availability Schedule or Conflict Calendars. Missing host
+access or provider connections prevent new bookings; existing meetings remain
+scheduled.
 
 This release supports one guest booking up to ten required Google-connected
 hosts. Seat-capacity classes, round robin, external attendees' unconnected
@@ -372,6 +378,13 @@ generation-checked D1 transaction reserves the global profile slug, reserves
 profile-local Event Type slugs, stores immutable public/private revisions, and
 publishes or withdraws the complete active page set. Failed and concurrent
 publication attempts cannot partially change live routing.
+
+An individual profile's **Profile settings → Change address** action can claim
+a replacement slug and release the old one. The user acknowledges that someone
+else can claim the released address. All booking URLs move together; bookings,
+analytics, and page identities remain intact. Renaming an offline profile keeps
+it offline. Ordinary settings saves preserve publication status, and publishing
+or taking pages offline remains on the Booking pages screen.
 
 The public page resolves availability from the Event Type's explicit
 Availability Schedule, not from whichever schedule is currently marked as the
