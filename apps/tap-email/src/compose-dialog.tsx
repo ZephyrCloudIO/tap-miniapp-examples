@@ -26,6 +26,8 @@ import {
   type SelectAndStageAttachmentsResult,
 } from './outbound-attachment';
 import { SendLaterDialog } from './send-later-dialog';
+import type { BookingLinksClient } from './booking-links';
+import { ShareAvailability } from './share-availability';
 
 export interface ComposeDraftMessage {
   readonly followUp?: MailFollowUp;
@@ -41,6 +43,7 @@ export interface ComposeDraftMessage {
 }
 
 export interface ComposeDialogProps {
+  readonly bookingLinks?: BookingLinksClient;
   readonly services?: ComposerServices;
   readonly recipientContacts?: readonly RecipientSuggestion[];
   readonly searchRecipients?: RecipientSearch;
@@ -66,6 +69,7 @@ export interface ComposeDialogProps {
 }
 
 export function ComposeDialog({
+  bookingLinks,
   services,
   recipientContacts = NO_RECIPIENTS,
   searchRecipients,
@@ -263,7 +267,9 @@ export function ComposeDialog({
             <ComposerToolbar canSend={canSend} attachmentBusy={attachmentBusy || !from} sendAnyway={missingAttachmentConfirmation}
               onAttach={() => { void attach(); }} onSend={requestSend}
               onSchedule={() => { const error = recipientError({ to, cc, bcc }); if (error) setValidationError(error); else setSendLaterOpen(true); }}
-              onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')} />
+              onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')}>
+              <ShareAvailability client={bookingLinks} bodyRef={bodyRef} onBodyTextChange={value => change(() => setBodyText(value))} />
+            </ComposerToolbar>
           </footer>
         </DialogContent>
       </Dialog>

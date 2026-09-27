@@ -12,7 +12,8 @@ export function followUpLabel(value: MailFollowUp): string {
   return `${time} after sending · ${value.condition === 'if_no_reply' ? 'If no reply' : 'Regardless'}`;
 }
 
-export function ComposerToolbar({ canSend, attachmentBusy, sendAnyway, onAttach, onSend, onSchedule, onRemind, onShare, onWriteAi }: {
+export function ComposerToolbar({ canSend, attachmentBusy, sendAnyway, onAttach, onSend, onSchedule, onRemind, onShare, onWriteAi, children }: {
+  readonly children?: React.ReactNode;
   readonly canSend: boolean;
   readonly attachmentBusy: boolean;
   readonly sendAnyway: boolean;
@@ -29,6 +30,7 @@ export function ComposerToolbar({ canSend, attachmentBusy, sendAnyway, onAttach,
       <Button type="button" variant="ghost" disabled={!canSend} onClick={onSchedule}>Send later</Button>
       <Button type="button" variant="ghost" onClick={onRemind}>Remind me</Button>
       <Button type="button" variant="ghost" onClick={onShare}>Share draft</Button>
+      {children}
     </div>
     <div className="composer-secondary-actions">
       <Button type="button" variant="ghost" size="icon-sm" onClick={onWriteAi} aria-label="Write with AI" title="Write with AI · ⌘J" aria-keyshortcuts="Meta+J Control+J"><WandSparkles aria-hidden="true" /></Button>

@@ -13,10 +13,13 @@ import { NO_RECIPIENTS, type RecipientSearch, type RecipientSuggestion } from '.
 import { resolveComposeShortcut } from './keybindings';
 import { mentionsMissingAttachment } from './outbound-attachment';
 import { SendLaterDialog } from './send-later-dialog';
+import type { BookingLinksClient } from './booking-links';
+import { ShareAvailability } from './share-availability';
 
 export type ReplyPlacement = 'inline' | 'sidecar';
 
 export interface ReplyComposerProps {
+  readonly bookingLinks?: BookingLinksClient;
   readonly services?: ComposerServices;
   readonly draftKey?: string;
   readonly subject?: string;
@@ -55,6 +58,7 @@ function isPlacementShortcut(event: React.KeyboardEvent): boolean {
 }
 
 export function ReplyComposer({
+  bookingLinks,
   services, draftKey = 'reply', subject = '', followUp, onFollowUpChange,
   recipientContacts = NO_RECIPIENTS,
   searchRecipients,
@@ -259,7 +263,12 @@ export function ReplyComposer({
         <ComposerToolbar canSend={canSend} attachmentBusy={attachmentBusy} sendAnyway={missingAttachmentConfirmation}
           onAttach={() => { void onAttach(); }} onSend={requestSend}
           onSchedule={() => { const error = recipientError({ to, cc, bcc }); if (error) setValidationError(error); else setSendLaterOpen(true); }}
-          onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')} />
+          onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')}>
+          <ShareAvailability client={bookingLinks} bodyRef={bodyRef} onBodyTextChange={value => {
+            setMissingAttachmentConfirmation(false);
+            onBodyTextChange(value);
+          }} />
+        </ComposerToolbar>
       </footer>
       {tool === 'remind' ? <FollowUpDialog value={followUp} onChange={value => onFollowUpChange?.(value)} onClose={() => setTool(null)} /> : null}
       {tool === 'share' ? <ShareDraftDialog key={services?.workspaceId} services={services} draft={{ draftKey, subject, to, cc, bodyText }} onClose={() => setTool(null)} /> : null}

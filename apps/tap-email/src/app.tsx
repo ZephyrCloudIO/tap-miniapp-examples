@@ -1,6 +1,7 @@
 import { useComposerServices } from './use-composer-services';
 import { localSentRecipients } from './recipient-history';
 import { activityCommandFromReceipt } from './activity';
+import { createBookingLinksClient } from './booking-links';
 import { EmailToolAccessPanel } from './email-tool-access-panel';
 import { boundMailWindow, journalOf, type MailWindowCursor } from './bounded-mail-replica';
 import { MailWindowCache, MailWindowRefresh, mergeMailWindow, retainMailWindow } from './mail-window-refresh';
@@ -750,6 +751,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     useState<ConversationHandoffUiState | null>(null);
   const [emailTask, setEmailTask] = useState<EmailTaskUiState | null>(null);
   const composerServices = useComposerServices(surfaceContext, preview);
+  const bookingLinks = useMemo(() => !preview && surfaceContext?.userId && composerServices.workspaceId
+    ? createBookingLinksClient({
+      context: { userId: surfaceContext.userId, workspaceId: composerServices.workspaceId },
+      authorize: action => hasEmailAuthority(surfaceContext, action),
+    }) : undefined, [preview, surfaceContext, surfaceContext?.userId, composerServices.workspaceId]);
   const [composeSeed, setComposeSeed] = useState<ComposeSeed | null>(null);
   const [composeDraftKey, setComposeDraftKey] = useState<string | null>(null);
   const [scheduledSends, setScheduledSends] = useState<readonly ScheduledSendSummary[]>([]);
@@ -3182,6 +3188,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                   />
                   {activeReplyDraft?.placement === 'inline' ? (
                     <ReplyComposer
+                      bookingLinks={bookingLinks}
                       recipientContacts={recipientContacts}
                       searchRecipients={searchRecipients}
                       services={composerServices}
@@ -3225,6 +3232,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 {poppedReplyDraft?.placement === 'sidecar' ? (
                   <aside className="reply-sidecar" aria-label={`Popped out reply to ${poppedReplyDraft.recipientLabel}`}>
                     <ReplyComposer
+                      bookingLinks={bookingLinks}
                       recipientContacts={recipientContacts}
                       searchRecipients={searchRecipients}
                       services={composerServices}
@@ -3284,6 +3292,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {overlay === 'remind' && thread ? <ReminderDialog thread={thread} onClose={() => setOverlay('none')} onConfirm={confirmReminder} /> : null}
       {overlay === 'compose' && composeDraftKey ? (
         <ComposeDialog
+          bookingLinks={bookingLinks}
           services={composerServices}
           recipientContacts={recipientContacts}
           searchRecipients={searchRecipients}

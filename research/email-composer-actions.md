@@ -1,7 +1,7 @@
 # Email composer actions
 
-Implemented against miniapp SDK 0.19.0. Calendar availability remains deferred to
-[issue #107](https://github.com/ZephyrCloudIO/tap-miniapp-examples/issues/107).
+Implemented against miniapp SDK 0.19.0, including the Calendar booking-link
+contract from [issue #107](https://github.com/ZephyrCloudIO/tap-miniapp-examples/issues/107).
 
 ## Composer inputs and toolbar
 
@@ -13,7 +13,7 @@ stay visible. The body has no colored field background or focus border. An
 expandable signature preview sits below it; the coordinator adds the verified
 platform attribution at send time, once.
 
-Send, Send later, Remind me, and Share draft are text actions. Write with AI and
+Send, Send later, Remind me, Share draft, and Share availability are text actions. Write with AI and
 Attach use labelled icon buttons. The toolbar wraps on narrower surfaces.
 
 ## Send later and follow-ups
@@ -65,12 +65,13 @@ the draft. Edits made during generation disable stale application. Dismissal or
 ownership changes ignore late results. Applying uses normal edit/autosave paths.
 The manifest declares direct-human `inference.list` and `inference.invoke` access.
 
-## Deferred Calendar integration
+## Calendar integration
 
-Email needs a supported, authenticated query of published Calendar booking pages
-that works even when Calendar is closed. Issue #107 tracks that contract and its
-user/workspace and publication-state guarantees. This PR adds no availability
-button, private-storage reads, or invented booking URLs.
+Share availability queries the Calendar gateway through the supported SDK HTTP
+bridge, even when Calendar is closed. It lists the current user's published pages
+in the owning workspace, revalidates the selected publication, and inserts its
+stored canonical URL at the saved cursor. See the [booking-link contract](../docs/calendar-booking-links.md)
+for identity and publication-state guarantees, verification, and deployment order.
 
 ## Verification
 

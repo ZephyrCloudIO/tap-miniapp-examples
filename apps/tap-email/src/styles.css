@@ -902,3 +902,21 @@ kbd {
 .mail-history-pagination { height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-top: 1px solid var(--mail-border); color: var(--mail-muted); font-size: 11px; }
 .mail-history-pagination button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
 .mail-history-pagination button:disabled { opacity: .4; cursor: default; }
+.booking-links-picker {
+  width: min(440px, calc(100vw - 48px));
+  max-height: min(480px, calc(100dvh - 48px));
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--mail-border);
+  border-radius: 10px;
+  background: var(--mail-panel);
+  color: var(--mail-text);
+  box-shadow: 0 8px 30px #0003;
+}
+.booking-links-picker p { margin: 8px 0; font-size: 12px; white-space: normal; }
+.booking-links-picker ul { padding: 0; margin: 8px 0; list-style: none; }
+.booking-links-picker button { border: 1px solid var(--mail-border); border-radius: 6px; background: var(--mail-panel-soft); color: var(--mail-text); padding: 8px; cursor: pointer; font: inherit; }
+.booking-links-picker button:disabled { cursor: wait; opacity: .6; }
+.booking-links-picker li + li { margin-top: 6px; }
+.booking-links-picker li button { width: 100%; display: flex; align-items: flex-start; flex-direction: column; text-align: left; }
+.booking-links-picker small { overflow-wrap: anywhere; white-space: normal; color: var(--mail-muted); }

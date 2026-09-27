@@ -155,6 +155,7 @@ interface PageRow {
   readonly current_snapshot_hash: string | null;
   readonly status: "draft" | "published" | "paused" | "unpublished";
   readonly published_at: string | null;
+  readonly canonical_url: string | null;
 }
 
 interface PageSlugOwnerRow {
@@ -639,7 +640,8 @@ async function loadPages(
             public_booking_pages.current_revision_id,
             public_booking_page_revisions.snapshot_hash AS current_snapshot_hash,
             public_booking_pages.status,
-            public_booking_pages.published_at
+            public_booking_pages.published_at,
+            public_booking_pages.canonical_url
        FROM public_booking_pages
        LEFT JOIN public_booking_page_revisions
          ON public_booking_page_revisions.id = public_booking_pages.current_revision_id
@@ -718,7 +720,9 @@ function publishedProfileRecord(options: {
       sourceEventTypeId: prepared.input.sourceEventTypeId,
       profileSlug: options.profile.current_slug,
       eventTypeSlug: prepared.input.eventTypeSlug,
-      canonicalUrl: `${base}/${options.profile.current_slug}/${prepared.input.eventTypeSlug}`,
+      canonicalUrl: options.idempotentReplay && prepared.page?.canonical_url
+        ? prepared.page.canonical_url
+        : `${base}/${options.profile.current_slug}/${prepared.input.eventTypeSlug}`,
       publishedAt: prepared.page?.published_at ?? options.publishedAt,
     })),
   };
@@ -805,6 +809,7 @@ function profileAlreadyMatches(
   const desiredByPage = new Map(prepared.map(item => [item.pageId, item]));
   return prepared.every(item =>
     item.page?.status === "published" &&
+    Boolean(item.page.canonical_url) &&
     item.page.current_snapshot_hash === item.snapshotHash
   ) && existingPages.every(page =>
     desiredByPage.has(page.id) ? page.status === "published" : page.status !== "published"
@@ -988,9 +993,11 @@ export async function publishPublicBookingProfile(options: {
       options.database.prepare(
         `UPDATE public_booking_pages
             SET current_revision_id = ?, status = 'published', updated_at = ?,
-                published_at = COALESCE(published_at, ?)
+                published_at = COALESCE(published_at, ?), canonical_url = ?
           WHERE id = ?`,
-      ).bind(preparedPage.revisionId, now, now, preparedPage.pageId),
+      ).bind(preparedPage.revisionId, now, now,
+        `${options.publicBaseUrl.replace(/\/$/u, "")}/${options.input.profileSlug}/${preparedPage.input.eventTypeSlug}`,
+        preparedPage.pageId),
       options.database.prepare(
         `INSERT INTO public_booking_publication_audit (
            id, profile_id, page_id, workspace_id, principal_id, action,

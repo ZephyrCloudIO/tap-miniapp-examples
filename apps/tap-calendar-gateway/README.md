@@ -402,3 +402,9 @@ The commit stores the canonical, sorted conflict-calendar set with the hold. `ap
 Each resolution is single-decision and idempotent: an identical replay does no provider work, a conflicting decision/key is rejected, and an ambiguous provider mutation is recovered from private resolution proof. Definite failures before any PATCH/DELETE—lock contention, a new conflict, missing calendar, or partial provider read—do not persist a pending resolution, so the hold can still be declined or approved later. A missing, malformed, disconnected, noncanonical, or destination-free stored conflict set cannot be approved. Both decisions update separate durable resolution state and the revisioned event cache without mutating the original commit response. The same honest Google out-of-band concurrency boundary applies.
 
 The five-minute scheduled handler also processes a bounded batch of expired unresolved holds. It verifies the original private provider proof, deletes the tentative Google event, tombstones the cache, and records `hold_expired_at` idempotently. Approve fails with `410 approval_hold_expired` after the deadline. A pending resolution whose provider mutation may already have occurred is deliberately excluded from automatic deletion until that exact resolution key recovers.
+
+## Published booking link picker
+
+`GET /v1/booking-links` exposes only the signed-in user's confirmed live booking
+pages through host-managed authenticated HTTP, including while Calendar is closed.
+See the [consumer contract and migration order](../../docs/calendar-booking-links.md).
