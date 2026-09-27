@@ -26,6 +26,26 @@ describe('TAP Email protocol', () => {
     }
   });
 
+  it('bounds follow-up intent and allows incomplete saves without allowing incomplete sends', () => {
+    const payload = { draftKey: 'draft_followup', draftRevision: 1, to: '', subject: '', bodyText: 'Start writing',
+      followUp: { delayMinutes: 2880, condition: 'if_no_reply' } };
+    const command = { v: TAP_EMAIL_PROTOCOL_VERSION, commandId: 'cmd_followup', idempotencyKey: 'followup',
+      accountId: 'acct_1', threadId: null, expectedProviderRevision: null, createdAt: '2026-09-26T12:00:00.000Z', payload };
+    expect(isMailDraftPayload(payload)).toBe(true);
+    expect(isMailCommand({ ...command, kind: 'save_draft' })).toBe(true);
+    expect(isMailCommand({ ...command, kind: 'send_draft' })).toBe(false);
+    expect(isMailCommand({ ...command, kind: 'send_draft', payload: { ...payload, to: 'maya@example.com' } })).toBe(true);
+    const schedule = { ...payload, scheduledFor: '2026-09-27T12:00:00.000Z', cancelIfReply: false };
+    expect(isMailSchedulePayload(schedule)).toBe(false);
+    expect(isMailSchedulePayload({ ...schedule, to: 'maya@example.com' })).toBe(true);
+    for (const followUp of [null, {}, { delayMinutes: 0, condition: 'if_no_reply' },
+      { delayMinutes: 525601, condition: 'regardless' }, { delayMinutes: 1.5, condition: 'if_no_reply' },
+      { delayMinutes: 60, condition: 'unknown' }]) {
+      expect(isMailDraftPayload({ ...payload, followUp })).toBe(false);
+    }
+    expect(isMailDraftPayload({ ...payload, followUp: { delayMinutes: 525600, condition: 'regardless' } })).toBe(true);
+  });
+
   it('requires complete, failure-free account coverage for Operational Zero', () => {
     expect(
       operationalZeroAllowed([

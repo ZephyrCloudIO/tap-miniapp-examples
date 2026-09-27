@@ -1438,6 +1438,7 @@ export function composeMessage(
     readonly bcc?: string;
     readonly attachments?: readonly MailDraftAttachment[];
     readonly sendAfter?: string;
+    readonly followUp?: MailDraftPayload['followUp'];
     readonly expectedContext?: MailSenderContext;
   },
 ): MailState {
@@ -1470,6 +1471,7 @@ export function composeMessage(
         ? { attachments: draftIdentity.attachments }
         : {}),
       ...(draftIdentity?.sendAfter ? { sendAfter: draftIdentity.sendAfter } : {}),
+      ...(draftIdentity?.followUp ? { followUp: draftIdentity.followUp } : {}),
       ...(draftIdentity?.expectedContext ? { expectedContext: draftIdentity.expectedContext } : {}),
     },
   };

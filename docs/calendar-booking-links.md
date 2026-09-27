@@ -16,7 +16,8 @@ Email declares these only on its UI surface; its MCP tools gain no Calendar acce
 The picker checks both actions before each request.
 
 Send `credentialRef: 'platform-session'` with an `expectedContext` containing the
-mount's canonical `userId` and `workspaceId`. The host attaches the credential
+mount's canonical `userId` and the current owning `workspaceId` from the SDK's
+live surface-owner subscription. The host attaches the credential
 and refuses a changed user/workspace. Send `X-TAP-Workspace-Id` for that workspace;
 do not send a principal ID or a caller-selected owner. The gateway verifies the
 session JWT, resolves its canonical user through Authz, and requires workspace

@@ -23,6 +23,8 @@
         "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
+        "effect:host-api:tap.platform.inference:list-models",
+        "effect:host-api:tap.platform.inference:send",
         "effect:host-api:tap.workflows:list",
         "effect:host-api:tap.workflows:invoke",
         "effect:host-api:tap.workflow-runs:read",
@@ -110,6 +112,8 @@
         "action:storage.profile.zvec",
         "action:embeddings.models.read",
         "action:embeddings.compute",
+        "action:inference.list",
+        "action:inference.invoke",
         "action:chat.compose",
         "action:task.write",
         "action:artifacts.read",
@@ -133,6 +137,8 @@
         "effect:host-api:tap.channels:create",
         "effect:host-api:tap.channels:send-message",
         "effect:host-api:tap.chat:send-text",
+        "effect:host-api:tap.platform.inference:list-models",
+        "effect:host-api:tap.platform.inference:send",
         "effect:host-api:tap.workflows:list",
         "effect:host-api:tap.workflows:invoke",
         "effect:host-api:tap.workflow-runs:read",
@@ -185,6 +191,26 @@
     }
   ],
   "waivers": [
+    {
+      "capability": "action:inference.list",
+      "reason": "SDK 0.19 surface test profiles do not provide a selectable owning conversation or deterministic inference fixture. Email requires real live ownership before invoking AI. Authorization denial, selected-context propagation, result application, and stale edits are covered with injected SDK doubles; host inference remains unverified until a conversation-backed Test Lab profile is available.",
+      "expiresAt": "2026-12-31T00:00:00Z"
+    },
+    {
+      "capability": "action:inference.invoke",
+      "reason": "SDK 0.19 surface test profiles do not provide a selectable owning conversation or deterministic inference fixture. Email requires real live ownership before invoking AI. Authorization denial, selected-context propagation, result application, and stale edits are covered with injected SDK doubles; host inference remains unverified until a conversation-backed Test Lab profile is available.",
+      "expiresAt": "2026-12-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.platform.inference:list-models",
+      "reason": "SDK 0.19 surface test profiles do not provide a selectable owning conversation or deterministic inference fixture. Email requires real live ownership before invoking AI. Authorization denial, selected-context propagation, result application, and stale edits are covered with injected SDK doubles; host inference remains unverified until a conversation-backed Test Lab profile is available.",
+      "expiresAt": "2026-12-31T00:00:00Z"
+    },
+    {
+      "capability": "effect:host-api:tap.platform.inference:send",
+      "reason": "SDK 0.19 surface test profiles do not provide a selectable owning conversation or deterministic inference fixture. Email requires real live ownership before invoking AI. Authorization denial, selected-context propagation, result application, and stale edits are covered with injected SDK doubles; host inference remains unverified until a conversation-backed Test Lab profile is available.",
+      "expiresAt": "2026-12-31T00:00:00Z"
+    },
     {
       "capability": "action:task.write",
       "reason": "Creating a canonical task requires a user-selected email. The privacy-safe positive Test Lab mailbox is intentionally empty; denial remains covered by the all-denied matrix entry.",

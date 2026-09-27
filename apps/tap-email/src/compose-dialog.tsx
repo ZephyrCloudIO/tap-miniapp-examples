@@ -1,4 +1,8 @@
-import type { MailDraftAttachment } from '@tap-examples/tap-email-protocol';
+import { AiWriter } from './ai-writer';
+import { ComposerToolbar, FollowUpDialog, FollowUpSummary, ShareDraftDialog } from './composer-tools';
+import type { ComposerServices } from './composer-services';
+import { recipientError } from './recipient-validation';
+import type { MailDraftAttachment, MailFollowUp } from '@tap-examples/tap-email-protocol';
 import {
   Button,
   Dialog,
@@ -6,13 +10,16 @@ import {
   DialogDescription,
   DialogTitle,
   Input,
-  NativeSelect,
-  NativeSelectOption,
-  Textarea,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@theaiplatform/miniapp-sdk/ui';
-import { Clock3, Paperclip, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import { Paperclip, X } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import type { EmailAccount } from './domain';
+import { withoutEmailSignature } from './email-signature';
+import { MessageEditor } from './message-editor';
+import { RecipientInput } from './recipient-input';
+import { RecipientOptions, useCopyRecipients } from './recipient-options';
+import { NO_RECIPIENTS, type RecipientSearch, type RecipientSuggestion } from './recipient-history';
 import { resolveComposeShortcut } from './keybindings';
 import {
   mentionsMissingAttachment,
@@ -23,6 +30,7 @@ import type { BookingLinksClient } from './booking-links';
 import { ShareAvailability } from './share-availability';
 
 export interface ComposeDraftMessage {
+  readonly followUp?: MailFollowUp;
   readonly accountId: string;
   readonly attachments: readonly MailDraftAttachment[];
   readonly bcc: string;
@@ -36,6 +44,9 @@ export interface ComposeDraftMessage {
 
 export interface ComposeDialogProps {
   readonly bookingLinks?: BookingLinksClient;
+  readonly services?: ComposerServices;
+  readonly recipientContacts?: readonly RecipientSuggestion[];
+  readonly searchRecipients?: RecipientSearch;
   readonly accounts: readonly EmailAccount[];
   readonly draftKey: string;
   readonly initialAccountId: string;
@@ -59,6 +70,9 @@ export interface ComposeDialogProps {
 
 export function ComposeDialog({
   bookingLinks,
+  services,
+  recipientContacts = NO_RECIPIENTS,
+  searchRecipients,
   accounts,
   draftKey,
   initialAccountId,
@@ -71,20 +85,25 @@ export function ComposeDialog({
   onSchedule,
   onSend,
 }: ComposeDialogProps) {
+  const recipientId = useId();
   const [from, setFrom] = useState(initialAccountId || accounts[0]?.accountId || '');
   const [to, setTo] = useState(initialTo);
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(initialSubject);
-  const [bodyText, setBodyText] = useState(initialBodyText);
+  const [bodyText, setBodyText] = useState(() => withoutEmailSignature(initialBodyText));
   const [attachments, setAttachments] = useState<readonly MailDraftAttachment[]>([]);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [attachmentError, setAttachmentError] = useState('');
   const [draftRevision, setDraftRevision] = useState(1);
   const [missingAttachmentConfirmation, setMissingAttachmentConfirmation] = useState(false);
   const [sendLaterOpen, setSendLaterOpen] = useState(false);
+  const [followUp, setFollowUp] = useState<MailFollowUp>();
+  const [tool, setTool] = useState<'ai' | 'remind' | 'share' | null>(null);
+  const [validationError, setValidationError] = useState('');
   const recipientRef = useRef<HTMLInputElement>(null);
-  const fromRef = useRef<HTMLSelectElement>(null);
+  const copies = useCopyRecipients(recipientRef, cc, bcc);
+  const fromRef = useRef<HTMLButtonElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const canSend = Boolean(from && to.trim() && bodyText.trim() && !attachmentBusy);
@@ -97,16 +116,20 @@ export function ComposeDialog({
     cc: cc.trim(),
     draftKey,
     draftRevision,
+    ...(followUp ? { followUp } : {}),
     subject: subject.trim(),
     to: to.trim(),
   });
   const change = (update: () => void) => {
     setMissingAttachmentConfirmation(false);
+    setValidationError('');
     update();
     setDraftRevision(revision => revision + 1);
   };
   const requestSend = () => {
     if (!canSend) return;
+    const error = recipientError({ to, cc, bcc });
+    if (error) { setValidationError(error); return; }
     if (missingAttachment && !missingAttachmentConfirmation) {
       setMissingAttachmentConfirmation(true);
       return;
@@ -114,15 +137,15 @@ export function ComposeDialog({
     onSend(message());
   };
   const closePreservingDraft = () => {
-    if (draftRevision > 1 && from && to.trim()) onAutosave(message());
+    if (from && (to.trim() || subject.trim() || bodyText.trim() || attachments.length || followUp)) onAutosave(message());
     onClose();
   };
 
   useEffect(() => {
-    if (draftRevision <= 1 || !from || !to.trim()) return;
+    if (!from || !(to.trim() || subject.trim() || bodyText.trim() || attachments.length || followUp)) return;
     const timer = window.setTimeout(() => onAutosave(message()), 800);
     return () => window.clearTimeout(timer);
-  }, [attachments, bcc, bodyText, cc, draftRevision, from, onAutosave, subject, to]);
+  }, [attachments, bcc, bodyText, cc, draftRevision, followUp, from, onAutosave, subject, to]);
 
   const attach = async () => {
     if (attachmentBusy || !from) return;
@@ -147,17 +170,27 @@ export function ComposeDialog({
         <DialogContent
           className="compose-dialog"
           hideCloseButton
+          onEscapeKeyDown={event => {
+            if (event.target instanceof Element && (
+              event.target.closest('.ai-writer') ||
+              event.target.matches('[data-recipient-input][aria-expanded="true"]') ||
+              event.target.closest('[data-recipient-options]')?.querySelector('[aria-expanded="true"]')
+            )) event.preventDefault();
+          }}
           onOpenAutoFocus={event => {
             event.preventDefault();
             recipientRef.current?.focus({ preventScroll: true });
           }}
           onKeyDown={event => {
-            if (event.nativeEvent.isComposing || event.repeat) return;
+            if (event.nativeEvent.isComposing || event.repeat || (event.target instanceof Element && event.target.closest('[data-composer-tool]'))) return;
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) { event.preventDefault(); setTool('ai'); return; }
             const command = resolveComposeShortcut(event);
             if (!command) return;
             event.preventDefault();
             if (command === 'send') requestSend();
             if (command === 'focus-to') recipientRef.current?.focus();
+            if (command === 'focus-cc') copies.reveal('cc');
+            if (command === 'focus-bcc') copies.reveal('bcc');
             if (command === 'focus-from') fromRef.current?.focus();
             if (command === 'focus-subject') subjectRef.current?.focus();
             if (command === 'focus-message') bodyRef.current?.focus();
@@ -171,44 +204,49 @@ export function ComposeDialog({
             </DialogDescription>
             <Button variant="ghost" size="icon-sm" type="button" onClick={closePreservingDraft} aria-label="Save and close draft">×</Button>
           </header>
-          <label className="compose-line">
-            <span>From</span>
-            <NativeSelect
-              ref={fromRef}
-              name="from-account"
-              value={from}
-              onChange={event => change(() => {
-                setFrom(event.target.value);
-                if (attachments.length > 0) {
-                  setAttachments([]);
-                  setAttachmentError('Choose attachments again after changing the sending account.');
-                }
-              })}
-            >
-              {accounts.map(account => (
-                <NativeSelectOption key={account.accountId} value={account.accountId}>
-                  {account.displayName} · {account.address}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </label>
-          <label className="compose-line">
-            <span>To</span>
-            <Input ref={recipientRef} autoComplete="off" multiple name="recipients" spellCheck={false} type="email" value={to} onChange={event => change(() => setTo(event.target.value))} />
-          </label>
-          <label className="compose-line">
-            <span>Cc</span>
-            <Input autoComplete="off" multiple name="cc-recipients" spellCheck={false} type="email" value={cc} onChange={event => change(() => setCc(event.target.value))} />
-          </label>
-          <label className="compose-line">
-            <span>Bcc</span>
-            <Input autoComplete="off" multiple name="bcc-recipients" spellCheck={false} type="email" value={bcc} onChange={event => change(() => setBcc(event.target.value))} />
-          </label>
+          <div className="compose-line">
+            <label id={`${recipientId}-from`}>From</label>
+            <Select value={from} onValueChange={value => change(() => {
+              setFrom(value);
+              if (attachments.length) { setAttachments([]); setAttachmentError('Choose attachments again after changing the sending account.'); }
+            })}>
+              <SelectTrigger ref={fromRef} aria-labelledby={`${recipientId}-from`} density="compact"><SelectValue /></SelectTrigger>
+              <SelectContent>{accounts.map(account => <SelectItem key={account.accountId} value={account.accountId}>
+                {account.displayName && account.displayName.toLowerCase() !== account.address.toLowerCase() ? `${account.displayName} · ${account.address}` : account.address}
+              </SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="compose-line">
+            <label htmlFor={`${recipientId}-to`}>To</label>
+            <div className="recipient-field-control">
+              <RecipientInput id={`${recipientId}-to`} ref={recipientRef} label="To" name="recipients" value={to} onValueChange={value => change(() => setTo(value))} contacts={recipientContacts} searchRecipients={searchRecipients} otherRecipients={[cc, bcc]} />
+              <RecipientOptions ccVisible={copies.ccVisible} bccVisible={copies.bccVisible} onReveal={copies.reveal} />
+            </div>
+          </div>
+          {copies.ccVisible ? (
+            <div className="compose-line">
+              <label htmlFor={`${recipientId}-cc`}>Cc</label>
+              <div className="recipient-field-control">
+                <RecipientInput id={`${recipientId}-cc`} ref={copies.ccRef} label="Cc" name="cc-recipients" value={cc} onValueChange={value => change(() => setCc(value))} contacts={recipientContacts} searchRecipients={searchRecipients} otherRecipients={[to, bcc]} />
+                {!cc.trim() ? <Button type="button" variant="ghost" size="icon-sm" aria-label="Hide Cc" title="Hide Cc" onClick={() => copies.hide('cc')}><X aria-hidden="true" /></Button> : null}
+              </div>
+            </div>
+          ) : null}
+          {copies.bccVisible ? (
+            <div className="compose-line">
+              <label htmlFor={`${recipientId}-bcc`}>Bcc</label>
+              <div className="recipient-field-control">
+                <RecipientInput id={`${recipientId}-bcc`} ref={copies.bccRef} label="Bcc" name="bcc-recipients" value={bcc} onValueChange={value => change(() => setBcc(value))} contacts={recipientContacts} searchRecipients={searchRecipients} otherRecipients={[to, cc]} />
+                {!bcc.trim() ? <Button type="button" variant="ghost" size="icon-sm" aria-label="Hide Bcc" title="Hide Bcc" onClick={() => copies.hide('bcc')}><X aria-hidden="true" /></Button> : null}
+              </div>
+            </div>
+          ) : null}
           <label className="compose-line">
             <span>Subject</span>
             <Input ref={subjectRef} autoComplete="off" name="subject" value={subject} onChange={event => change(() => setSubject(event.target.value))} />
           </label>
-          <Textarea ref={bodyRef} autoComplete="off" className="compose-body" name="message-body" aria-label="Message body" placeholder="Write your message…" value={bodyText} onChange={event => change(() => setBodyText(event.target.value))} />
+          {tool === 'ai' ? <AiWriter key={services?.conversationId} services={services} subject={subject} bodyText={bodyText} onApply={value => change(() => setBodyText(value))} onClose={() => { setTool(null); bodyRef.current?.focus(); }} /> : null}
+          <MessageEditor inputRef={bodyRef} label="Message body" name="message-body" placeholder="Write your message…" value={bodyText} onValueChange={value => change(() => setBodyText(value))} variant="compose" />
           {attachments.length > 0 ? (
             <div className="draft-attachments" aria-label="Message attachments">
               {attachments.map(attachment => (
@@ -223,19 +261,20 @@ export function ComposeDialog({
           ) : null}
           {attachmentError ? <p className="draft-attachment-error" role="status">{attachmentError}</p> : null}
           {missingAttachmentConfirmation ? <p className="draft-attachment-warning" role="alert">This message mentions an attachment, but no file is attached. Send again to confirm.</p> : null}
+          {validationError ? <p className="draft-attachment-error" role="alert">{validationError}</p> : null}
+          <FollowUpSummary value={followUp} onEdit={() => setTool('remind')} onRemove={() => change(() => setFollowUp(undefined))} />
           <footer>
-            <span>Sent through the selected connected account.</span>
-            <div className="compose-footer-actions">
+            <ComposerToolbar canSend={canSend} attachmentBusy={attachmentBusy || !from} sendAnyway={missingAttachmentConfirmation}
+              onAttach={() => { void attach(); }} onSend={requestSend}
+              onSchedule={() => { const error = recipientError({ to, cc, bcc }); if (error) setValidationError(error); else setSendLaterOpen(true); }}
+              onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')}>
               <ShareAvailability client={bookingLinks} bodyRef={bodyRef} onBodyTextChange={value => change(() => setBodyText(value))} />
-              <Button disabled={attachmentBusy || !from} onClick={() => { void attach(); }} type="button" variant="ghost"><Paperclip aria-hidden="true" />{attachmentBusy ? 'Attaching…' : 'Attach'}</Button>
-              <Button disabled={!canSend} onClick={() => setSendLaterOpen(true)} type="button" variant="ghost"><Clock3 aria-hidden="true" />Send later</Button>
-              <Button className="primary-button" type="button" disabled={!canSend} onClick={requestSend}>
-                {missingAttachmentConfirmation ? 'Send anyway' : 'Send'} <kbd>⌘ Enter</kbd>
-              </Button>
-            </div>
+            </ComposerToolbar>
           </footer>
         </DialogContent>
       </Dialog>
+      {tool === 'remind' ? <FollowUpDialog value={followUp} onChange={value => change(() => setFollowUp(value))} onClose={() => setTool(null)} /> : null}
+      {tool === 'share' ? <ShareDraftDialog key={services?.workspaceId} services={services} draft={message()} onClose={() => setTool(null)} /> : null}
       {sendLaterOpen ? (
         <SendLaterDialog
           cancelIfReplyDefault={false}

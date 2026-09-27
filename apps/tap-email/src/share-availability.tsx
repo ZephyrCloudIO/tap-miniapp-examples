@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { CalendarDays } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@theaiplatform/miniapp-sdk/ui';
+import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from '@theaiplatform/miniapp-sdk/ui';
 import { BookingLinksError, type BookingLinksClient, type PublishedBookingLink } from './booking-links';
 
 interface ShareAvailabilityProps {
@@ -80,15 +80,15 @@ function ScopedShareAvailability({ client, bodyRef, onBodyTextChange }: ShareAva
 
   return (
     <div className="share-availability">
-      <button type="button" aria-expanded={open} onClick={() => {
+      <Button type="button" variant="ghost" aria-expanded={open} onClick={() => {
         if (open) { close(); return; }
         const body = bodyRef.current;
         insertion.current = { body: body?.value ?? '', start: body?.selectionStart ?? 0, end: body?.selectionEnd ?? 0 };
         setOpen(true);
         void load();
-      }}><CalendarDays aria-hidden="true" />Share availability</button>
+      }}><CalendarDays aria-hidden="true" />Share availability</Button>
       <Dialog open={open} onOpenChange={value => { if (!value) close(); }}>
-        <DialogContent className="booking-links-picker" hideCloseButton onOpenAutoFocus={event => {
+        <DialogContent className="booking-links-picker" data-composer-tool hideCloseButton onOpenAutoFocus={event => {
           event.preventDefault();
           cancelRef.current?.focus();
         }} onCloseAutoFocus={event => {

@@ -781,3 +781,80 @@ describe('Google provider writes', () => {
     });
   });
 });
+
+describe('send-linked follow-up reminders', () => {
+  const followUp = { delayMinutes: 2_880, condition: 'if_no_reply' } as const;
+  const payload = { draftKey: 'draft_followup', draftRevision: 1, to: 'maya@example.com', subject: '', bodyText: 'Follow up', followUp };
+  const send = () => command({ threadId: null, kind: 'send_draft', payload });
+
+  it('starts exactly once on the provider thread after successful delivery, not draft save', async () => {
+    let sends = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/messages')) return Response.json({});
+      if (url.pathname.endsWith('/drafts/send')) { sends++; return Response.json({ id: 'sent_followup', threadId: 'actual_thread', historyId: '10' }); }
+      if (url.pathname.endsWith('/drafts') && init?.method === 'POST') return Response.json({ id: 'provider_draft' });
+      if (url.pathname.endsWith('/drafts')) return Response.json({});
+      throw new Error(`Unexpected request ${url}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    expect((await provider.execute(scope, command({ kind: 'save_draft', threadId: null, payload }))).outcome).toBe('acknowledged');
+    expect(await env.DB.prepare('SELECT * FROM tap_reminders').all()).toMatchObject({ results: [] });
+    expect((await provider.execute(scope, send())).outcome).toBe('acknowledged');
+    const row = await env.DB.prepare('SELECT * FROM tap_reminders').first();
+    expect(row).toMatchObject({ thread_id: 'actual_thread', state: 'pending', created_at: now.toISOString(), due_at: '2026-08-20T15:30:00.000Z', condition: 'if_no_reply' });
+    expect((await createGoogleProvider(env, () => new Date('2026-08-18T16:00:00.000Z')).execute(scope, send())).outcome).toBe('acknowledged');
+    expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([row]);
+    expect(sends).toBe(1);
+    await env.DB.prepare("UPDATE tap_reminders SET state = 'cancelled'").run();
+    await provider.execute(scope, send());
+    expect(await env.DB.prepare('SELECT state FROM tap_reminders').first()).toEqual({ state: 'cancelled' });
+  });
+
+  it.each(['if_no_reply', 'regardless'] as const)('reconciles an uncertain send using its original timestamp (%s)', async condition => {
+    let observed = false;
+    let sends = 0;
+    const sentAt = new Date(now.getTime() - 60_000).toISOString();
+    await env.DB.prepare(`INSERT INTO mail_threads
+      (profile_id, account_id, thread_id, history_id, subject, snippet, participants_json,
+       received_at, unread, starred, important, in_inbox, needs_response, waiting_on_others, label_ids_json, updated_at)
+      VALUES ('profile_1', 'google_1', 'actual_thread', '1', '', '', '[]', ?, 0, 0, 0, 1, 0, 0, '[]', ?)`)
+      .bind(now.toISOString(), now.toISOString()).run();
+    await env.DB.prepare(`INSERT INTO mail_messages
+      (profile_id, account_id, thread_id, message_id, sender_json, recipients_json, sent_at, body_text_ciphertext, ordinal, updated_at)
+      VALUES ('profile_1', 'google_1', 'actual_thread', 'reply', '{"address":"maya@example.com"}', '[]', ?, '', 1, ?)`)
+      .bind(now.toISOString(), now.toISOString()).run();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/messages')) return Response.json(observed ? { messages: [{ id: 'sent_followup' }] } : {});
+      if (url.pathname.endsWith('/messages/sent_followup')) {
+        expect(url.searchParams.get('format')).toBe('full');
+        expect(url.searchParams.get('fields')).toBe('id,threadId,labelIds,internalDate,historyId');
+        return Response.json({ id: 'sent_followup', threadId: 'actual_thread', labelIds: ['SENT'], internalDate: String(Date.parse(sentAt)), historyId: '11' });
+      }
+      if (url.pathname.endsWith('/drafts/send')) { sends++; throw new TypeError('Lost response'); }
+      if (url.pathname.endsWith('/drafts') && init?.method === 'POST') return Response.json({ id: 'provider_draft' });
+      if (url.pathname.endsWith('/drafts')) return Response.json({});
+      throw new Error(`Unexpected request ${url}`);
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const outgoing = command({ threadId: null, kind: 'send_draft', payload: { ...payload, followUp: { ...followUp, condition } } });
+    expect((await provider.execute(scope, outgoing)).outcome).toBe('uncertain');
+    expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([]);
+    observed = true;
+    expect((await provider.execute(scope, outgoing)).outcome).toBe('acknowledged');
+    expect(await env.DB.prepare('SELECT thread_id, due_at, state FROM tap_reminders').first()).toEqual({
+      thread_id: 'actual_thread', due_at: '2026-08-20T15:29:00.000Z', state: condition === 'if_no_reply' ? 'satisfied' : 'pending',
+    });
+    expect(sends).toBe(1);
+  });
+
+  it('saves a body before recipients or subject are entered, but rejects sending it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => Response.json(init?.method === 'POST' ? { id: 'incomplete_draft' } : {}));
+    const provider = createGoogleProvider(env, () => now);
+    const incomplete = { ...payload, to: '', subject: '' };
+    expect((await provider.execute(scope, command({ kind: 'save_draft', payload: incomplete }))).outcome).toBe('acknowledged');
+    expect((await provider.execute(scope, command({ kind: 'send_draft', payload: incomplete }))).outcome).toBe('failed');
+    expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([]);
+  });
+});
