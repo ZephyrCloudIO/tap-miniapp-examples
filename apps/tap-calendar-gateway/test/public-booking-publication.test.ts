@@ -466,6 +466,23 @@ describe("public booking publication", () => {
       { current_slug: "30min", status: "published" },
       { current_slug: "60min", status: "unpublished" },
     ]);
+    const offlinePage = await env.CALENDAR_DB.prepare(
+      "SELECT id, current_revision_id FROM public_booking_pages WHERE current_slug = '60min'",
+    ).first<{ id: string; current_revision_id: string }>();
+    const restored = await publish({
+      input: profilePublication({ expectedGeneration: second.generation, pages: [
+        page(), page({ sourceEventTypeId: "event-2", eventTypeSlug: "60min", durationMinutes: 60 }),
+      ] }),
+      publishedAt: "2026-08-16T18:20:00.000Z",
+    });
+    expect(restored.pages.find(page => page.eventTypeSlug === "60min")?.pageId).toBe(offlinePage!.id);
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT status FROM public_booking_pages WHERE id = ?",
+    ).bind(offlinePage!.id).first<string>("status")).toBe("published");
+    // Existing bookings can still reference the old immutable revision.
+    expect(await env.CALENDAR_DB.prepare(
+      "SELECT page_id FROM public_booking_page_revisions WHERE id = ?",
+    ).bind(offlinePage!.current_revision_id).first<string>("page_id")).toBe(offlinePage!.id);
   });
 
   it("keeps slugs immutable and blocks global takeover", async () => {

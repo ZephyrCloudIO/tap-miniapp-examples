@@ -220,6 +220,8 @@ export type NewEventType = Omit<EventType, "availabilityScheduleId"> & {
   readonly availabilityScheduleId: string;
 };
 
+export type EventTypeSettings = Omit<NewEventType, "id" | "analytics" | "publication">;
+
 export interface BookingProfile {
   readonly id: string;
   readonly ownerType: "individual" | "team" | "organization";
@@ -337,6 +339,7 @@ export type CalendarDomainErrorCode =
   | "duplicate-slug"
   | "empty-calendars"
   | "empty-name"
+  | "event-type-not-found"
   | "invalid-destination"
   | "invalid-duration"
   | "invalid-id"
@@ -871,6 +874,7 @@ export function applyPublicBookingProfilePublicationReceipt(
 function validateEventTypeDefinition(
   state: CalendarState,
   eventType: EventType,
+  existingEventTypeId?: string,
 ): CalendarDomainError | null {
   if (!hasId(eventType.id)) {
     return {
@@ -879,7 +883,7 @@ function validateEventTypeDefinition(
       message: "Event Type ID must not be empty or contain surrounding whitespace.",
     };
   }
-  if (allEventTypes(state).some(candidate => candidate.id === eventType.id)) {
+  if (allEventTypes(state).some(candidate => candidate.id === eventType.id && candidate.id !== existingEventTypeId)) {
     return {
       code: "duplicate-id",
       field: "id",
@@ -1638,6 +1642,65 @@ export function addEventType(
         : candidate,
     ),
   });
+}
+
+/** Update settings while retaining the current page identity, history, and receipt. */
+export function updateEventType(
+  state: CalendarState,
+  profileId: string,
+  eventTypeId: string,
+  settings: EventTypeSettings,
+): CalendarMutationResult {
+  const profile = state.bookingProfiles.find(candidate => candidate.id === profileId);
+  const existing = profile?.eventTypes.find(candidate => candidate.id === eventTypeId);
+  if (!existing) return mutationFailed(state, "event-type-not-found", "eventTypeId", "This booking page no longer exists.");
+  const next: EventType = {
+    ...existing,
+    title: settings.title.trim(),
+    slug: existing.publication?.reservedSlug ?? settings.slug.trim(),
+    description: settings.description.trim(),
+    durationMinutes: settings.durationMinutes,
+    location: settings.location,
+    destinationCalendarId: settings.destinationCalendarId,
+    availabilityScheduleId: settings.availabilityScheduleId,
+    approvalRequired: settings.approvalRequired,
+    active: settings.active,
+    color: settings.color,
+  };
+  const error = validateEventTypeDefinition(state, next, existing.id);
+  if (error) return mutationFailed(state, error.code, error.field, error.message);
+  if (profile!.eventTypes.some(candidate => candidate.id !== existing.id && candidate.slug === next.slug)) {
+    return mutationFailed(state, "duplicate-slug", "slug", "Another booking page in this profile uses that URL.");
+  }
+  return mutationSucceeded(replaceEventType(state, profileId, next));
+}
+
+/** Taking a page offline must work even after its calendar has disconnected. */
+export function setEventTypeActive(
+  state: CalendarState,
+  profileId: string,
+  eventTypeId: string,
+  active: boolean,
+): CalendarMutationResult {
+  const existing = state.bookingProfiles.find(profile => profile.id === profileId)
+    ?.eventTypes.find(eventType => eventType.id === eventTypeId);
+  if (!existing) return mutationFailed(state, "event-type-not-found", "eventTypeId", "This booking page no longer exists.");
+  if (active) {
+    return updateEventType(state, profileId, eventTypeId, {
+      ...existing, active,
+      availabilityScheduleId: resolveEventTypeAvailabilityScheduleId(state, existing) ?? "",
+    });
+  }
+  return mutationSucceeded(replaceEventType(state, profileId, { ...existing, active }));
+}
+
+function replaceEventType(state: CalendarState, profileId: string, eventType: EventType): CalendarState {
+  return {
+    ...state,
+    bookingProfiles: state.bookingProfiles.map(profile => profile.id === profileId
+      ? { ...profile, eventTypes: profile.eventTypes.map(candidate => candidate.id === eventType.id ? eventType : candidate) }
+      : profile),
+  };
 }
 
 export const visibleCalendarIds = (state: CalendarState): ReadonlySet<string> =>

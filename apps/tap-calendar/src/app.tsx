@@ -62,6 +62,7 @@ import {
   MoreHorizontal,
   MousePointerClick,
   Plus,
+  Pencil,
   Radio,
   RefreshCw,
   Settings2,
@@ -112,6 +113,8 @@ import {
   addBookingProfile,
   addConnectedAccount,
   addEventType,
+  updateEventType,
+  setEventTypeActive,
   allCalendars,
   applyAvailabilityBookingPolicy,
   availabilityForDate,
@@ -4453,9 +4456,12 @@ function AvailabilityOverrideDialog({
   );
 }
 
-function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailable, liveAnalytics, commit, onNavigate, onSyncPublication, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly analyticsState: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
+export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailable, liveAnalytics, commit, onNavigate, onSyncPublication, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly analyticsState: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
   const [profileEditor, setProfileEditor] = useState<BookingProfile | "new" | null>(null);
-  const [eventTypeProfileId, setEventTypeProfileId] = useState<string | null>(null);
+  const [eventTypeEditor, setEventTypeEditor] = useState<{ profileId: string; eventTypeId?: string } | null>(null);
+  const [pageOperationId, setPageOperationId] = useState<string | null>(null);
+  const pageMutationRunning = useRef(false);
+  const [pageErrors, setPageErrors] = useState<Record<string, { message: string; retrySync: boolean } | null>>({});
   const [insights, setInsights] = useState<{ profile: BookingProfile; eventType: EventType } | null>(null);
   const insightsProfile = analyticsState.bookingProfiles.find(profile => profile.id === insights?.profile.id);
   const insightsEventType = insightsProfile?.eventTypes.find(eventType => eventType.id === insights?.eventType.id);
@@ -4479,6 +4485,14 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
       const next = Object.fromEntries(
         Object.entries(current).filter(([profileId]) => unsettledProfileIds.has(profileId)),
       );
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+    setPageErrors(current => {
+      const pendingPages = new Set(state.bookingProfiles
+        .filter(profile => deriveBookingProfilePublicationState(profile).pending)
+        .flatMap(profile => profile.eventTypes.map(eventType => eventType.id)));
+      const next = Object.fromEntries(Object.entries(current)
+        .filter(([id, error]) => error && (!error.retrySync || pendingPages.has(id))));
       return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
   }, [state.bookingProfiles]);
@@ -4551,21 +4565,79 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
     }
     return domainError ?? (changed ? null : "The Booking Profile could not be saved.");
   };
-  const saveEventType = async (profileId: string, eventType: NewEventType): Promise<string | null> => {
-    let domainError: string | null = null;
-    const changed = await commit(current => {
-      const result = addEventType(current, profileId, eventType);
-      if (!result.ok) {
-        domainError = result.error.message;
-        return current;
+  const syncEventPage = async (profileId: string, eventTypeId: string): Promise<boolean> => {
+    try {
+      if (await onSyncPublication(profileId)) {
+        setPageErrors(current => ({ ...current, [eventTypeId]: null }));
+        return true;
       }
-      return result.state;
-    }, "Event Type saved.", CALENDAR_PUBLISH_ACTION);
-    if (changed) {
-      setEventTypeProfileId(null);
-      await onSyncPublication(profileId);
+    } catch {
+      // Keep the saved intent available for an explicit retry.
     }
-    return domainError ?? (changed ? null : "The Event Type could not be created.");
+    setPageErrors(current => ({ ...current, [eventTypeId]: { message: "Your change is saved, but the public page hasn’t updated. Retry to apply it.", retrySync: true } }));
+    return false;
+  };
+  const saveEventType = async (profileId: string, eventType: NewEventType): Promise<string | null> => {
+    if (pageMutationRunning.current) return "A booking page update is already in progress.";
+    pageMutationRunning.current = true;
+    setPageOperationId(eventType.id);
+    setPageErrors(current => ({ ...current, [eventType.id]: null }));
+    try {
+      let domainError: string | null = null;
+      const changed = await commit(current => {
+        const result = eventTypeEditor?.eventTypeId
+          ? updateEventType(current, profileId, eventTypeEditor.eventTypeId, eventType)
+          : addEventType(current, profileId, eventType);
+        if (!result.ok) {
+          domainError = result.error.message;
+          return current;
+        }
+        return result.state;
+      }, "Booking page saved.", CALENDAR_PUBLISH_ACTION);
+      if (!changed) return domainError ?? "The booking page could not be saved.";
+      await syncEventPage(profileId, eventType.id);
+      setEventTypeEditor(null);
+      return null;
+    } finally {
+      pageMutationRunning.current = false;
+      setPageOperationId(null);
+    }
+  };
+  const changePageAvailability = async (profileId: string, eventTypeId: string, active: boolean): Promise<void> => {
+    if (pageMutationRunning.current) return;
+    pageMutationRunning.current = true;
+    setPageOperationId(eventTypeId);
+    setPageErrors(current => ({ ...current, [eventTypeId]: null }));
+    try {
+      let domainError: string | null = null;
+      const saved = await commit(current => {
+        const result = setEventTypeActive(current, profileId, eventTypeId, active);
+        if (!result.ok) {
+          domainError = result.error.message;
+          return current;
+        }
+        return result.state;
+      }, undefined, CALENDAR_PUBLISH_ACTION);
+      if (!saved) {
+        setPageErrors(current => ({ ...current, [eventTypeId]: { message: domainError ?? "This change couldn’t be saved. Try again.", retrySync: false } }));
+        return;
+      }
+      await syncEventPage(profileId, eventTypeId);
+    } finally {
+      pageMutationRunning.current = false;
+      setPageOperationId(null);
+    }
+  };
+  const retryPageUpdate = async (profileId: string, eventTypeId: string): Promise<void> => {
+    if (pageMutationRunning.current) return;
+    pageMutationRunning.current = true;
+    setPageOperationId(eventTypeId);
+    try {
+      await syncEventPage(profileId, eventTypeId);
+    } finally {
+      pageMutationRunning.current = false;
+      setPageOperationId(null);
+    }
   };
   const publishProfile = useCallback(async (profile: BookingProfile): Promise<void> => {
     if (publishingProfileId === profile.id) return;
@@ -4672,7 +4744,7 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
                 </button>
               ) : null}
               <button type="button" className="secondary-button" onClick={() => setProfileEditor(profile)}><Settings2 /> Profile settings</button>
-              <button type="button" className="primary-button" title={eventTypeCreationHint} aria-describedby={!canCreateEventType && profile.eventTypes.length === 0 ? `event-type-guidance-${profile.id}` : undefined} onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button>
+              <button type="button" className="primary-button" title={eventTypeCreationHint} aria-describedby={!canCreateEventType && profile.eventTypes.length === 0 ? `event-type-guidance-${profile.id}` : undefined} onClick={() => setEventTypeEditor({ profileId: profile.id })}><Plus /> New Event Type</button>
             </div>
           </header>
           {publicationNeedsAction ? (
@@ -4723,29 +4795,42 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
             {profile.eventTypes.map(eventType => {
               const publicMetrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
               const pageIsLive = isEventTypePublicationLive(profile, eventType);
-              const eventTypeStatus = !eventType.active
-                ? "Paused"
-                : pageIsLive
-                  ? "Live"
-                  : "Ready to publish";
+              const eventTypeStatus = pageIsLive
+                ? !eventType.active ? "Offline pending" : pageErrors[eventType.id]?.retrySync || pageOperationId === eventType.id ? "Update pending" : "Live"
+                : !eventType.active ? "Offline" : "Not live";
+              const pageBusy = pageOperationId === eventType.id || isPublishing;
+              const pageActionsDisabled = pageOperationId !== null || publishingProfileId !== null;
+              const pageError = pageErrors[eventType.id];
               return (
               <article className="event-type-card" key={eventType.id} style={{ "--event-type-color": eventType.color } as React.CSSProperties}>
                 <div className="event-type-stripe" />
-                <header><div><span className="event-type-icon"><CalendarClock /></span><span className={`status-chip ${pageIsLive ? "status-confirmed" : "status-pending"}`}>{eventTypeStatus}</span></div></header>
+                <header><div><span className="event-type-icon"><CalendarClock /></span><span className={`status-chip ${eventTypeStatus === "Live" ? "status-confirmed" : "status-pending"}`}>{eventTypeStatus}</span></div>
+                  <div className="booking-page-actions">
+                    <Button type="button" variant="outline" size="sm" disabled={pageActionsDisabled} aria-label={`Edit ${eventType.title}`} onClick={() => setEventTypeEditor({ profileId: profile.id, eventTypeId: eventType.id })}><Pencil aria-hidden="true" /> Edit</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={pageActionsDisabled} aria-busy={pageBusy} onClick={() => {
+                      if (!profile.published && eventType.active && !pageIsLive) void publishProfile(profile);
+                      else void changePageAvailability(profile.id, eventType.id, !pageIsLive);
+                    }}>
+                      {pageIsLive ? <EyeOff aria-hidden="true" /> : <Globe2 aria-hidden="true" />}
+                      {pageBusy ? "Updating…" : pageIsLive ? eventType.active ? "Take offline" : "Retry taking offline" : profile.published ? "Publish" : eventType.active ? "Publish profile" : "Enable bookings"}
+                    </Button>
+                  </div>
+                </header>
                 <h3>{eventType.title}</h3><p>{eventType.description}</p>
                 <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><MeetingProviderIcon provider={eventType.location} /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
                 <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span>{pageIsLive ? <button type="button" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button> : null}</div>
+                {pageError ? <div className="booking-page-error" role="alert"><p>{pageError.message}</p>{pageError.retrySync ? <Button type="button" size="sm" variant="outline" disabled={pageActionsDisabled} onClick={() => void retryPageUpdate(profile.id, eventType.id)}>Retry update</Button> : null}</div> : null}
                 <BookingVisitSummary metrics={publicMetrics} snapshot={snapshot} />
                 {liveAnalytics ? <div className="booking-card-history"><span>All time</span><span><strong>{snapshot ? publicMetrics.confirmed.toLocaleString() : "—"}</strong> confirmed</span><span><strong>{snapshot ? publicMetrics.cancelled.toLocaleString() : "—"}</strong> cancelled</span></div> : null}
                 <footer><button type="button" className="secondary-button" onClick={() => onPreview(profile.id, eventType.id)}><Eye /> Preview page</button><button type="button" className="secondary-button" onClick={() => setInsights({ profile, eventType })}><BarChart3 /> Insights</button></footer>
               </article>
             );})}
-            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span id={`event-type-guidance-${profile.id}`}>{!canCreateEventType ? eventTypeCreationHint : serverPublished ? "Your profile URL is claimed and live. Add an Event Type when you’re ready to accept bookings." : "Claim this profile URL now, then add an Event Type when you’re ready."}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeProfileId(profile.id)}><Plus /> New Event Type</button> : <Button type="button" onClick={() => onNavigate(eventTypePrerequisiteSection)}>{hasWritableDestination ? <CalendarClock data-icon="inline-start" /> : <Settings2 data-icon="inline-start" />}{eventTypePrerequisiteAction}</Button>}</div> : null}
+            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span id={`event-type-guidance-${profile.id}`}>{!canCreateEventType ? eventTypeCreationHint : serverPublished ? "Your profile URL is claimed and live. Add an Event Type when you’re ready to accept bookings." : "Claim this profile URL now, then add an Event Type when you’re ready."}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeEditor({ profileId: profile.id })}><Plus /> New Event Type</button> : <Button type="button" onClick={() => onNavigate(eventTypePrerequisiteSection)}>{hasWritableDestination ? <CalendarClock data-icon="inline-start" /> : <Settings2 data-icon="inline-start" />}{eventTypePrerequisiteAction}</Button>}</div> : null}
           </div>
         </section>
       );})}
       {profileEditor ? <BookingProfileDialog state={state} profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} /> : null}
-      {eventTypeProfileId ? <EventTypeDialog state={state} profileId={eventTypeProfileId} zoomConnected={zoomConnected} onClose={() => setEventTypeProfileId(null)} onNavigate={onNavigate} onSubmit={saveEventType} /> : null}
+      {eventTypeEditor ? <EventTypeDialog key={eventTypeEditor.eventTypeId ?? eventTypeEditor.profileId} state={state} profileId={eventTypeEditor.profileId} existing={state.bookingProfiles.find(profile => profile.id === eventTypeEditor.profileId)?.eventTypes.find(eventType => eventType.id === eventTypeEditor.eventTypeId)} zoomConnected={zoomConnected} onClose={() => setEventTypeEditor(null)} onNavigate={onNavigate} onSubmit={saveEventType} /> : null}
       {insightsProfile && insightsEventType ? <BookingInsightsDialog snapshot={snapshot} liveAnalytics={liveAnalytics} profile={insightsProfile} eventType={insightsEventType} onClose={() => setInsights(null)} /> : null}
     </div>
   );
@@ -4788,9 +4873,10 @@ function BookingProfileDialog({
   );
 }
 
-function EventTypeDialog({
+export function EventTypeDialog({
   state,
   profileId,
+  existing,
   zoomConnected,
   onClose,
   onNavigate,
@@ -4798,6 +4884,7 @@ function EventTypeDialog({
 }: {
   readonly state: CalendarState;
   readonly profileId: string;
+  readonly existing?: EventType | undefined;
   readonly zoomConnected: boolean;
   readonly onClose: () => void;
   readonly onNavigate: (section: Section) => void;
@@ -4812,18 +4899,18 @@ function EventTypeDialog({
   const defaultAvailabilitySchedule = state.availability.find(
     schedule => schedule.id === state.activeAvailabilityId,
   ) ?? state.availability[0];
-  const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
-  const [description, setDescription] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState(30);
-  const [location, setLocation] = useState<MeetingLocation>("google-meet");
-  const [destinationCalendarId, setDestinationCalendarId] = useState(defaultDestination?.id ?? "");
+  const [title, setTitle] = useState(existing?.title ?? "");
+  const [slug, setSlug] = useState(existing?.slug ?? "");
+  const [description, setDescription] = useState(existing?.description ?? "");
+  const [durationMinutes, setDurationMinutes] = useState(existing?.durationMinutes ?? 30);
+  const [location, setLocation] = useState<MeetingLocation>(existing?.location ?? "google-meet");
+  const [destinationCalendarId, setDestinationCalendarId] = useState(existing?.destinationCalendarId ?? defaultDestination?.id ?? "");
   const [availabilityScheduleId, setAvailabilityScheduleId] = useState(
-    defaultAvailabilitySchedule?.id ?? "",
+    existing ? resolveEventTypeAvailabilityScheduleId(state, existing) ?? "" : defaultAvailabilitySchedule?.id ?? "",
   );
-  const [approvalRequired, setApprovalRequired] = useState(false);
-  const [active, setActive] = useState(true);
-  const [color, setColor] = useState("#6d5dfc");
+  const [approvalRequired, setApprovalRequired] = useState(existing?.approvalRequired ?? false);
+  const [active, setActive] = useState(existing?.active ?? true);
+  const [color, setColor] = useState(existing?.color ?? "#6d5dfc");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   if (!profile || !defaultDestination || !defaultAvailabilitySchedule) {
@@ -4841,8 +4928,8 @@ function EventTypeDialog({
     );
   }
   return (
-    <Modal title={`New Event Type for ${profile.displayName}`} description="Choose the URL, Availability Schedule, provider, and Destination Calendar." onClose={onClose}>
-      <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; setSubmitting(true); const eventType: NewEventType = { id: createEntityId("event-type"), title: title.trim(), slug: slug.trim(), description: description.trim(), durationMinutes, location, destinationCalendarId, availabilityScheduleId, approvalRequired, active, color, analytics: { views: 0, slotViews: 0, starts: 0, requests: 0, confirmed: 0 } }; void onSubmit(profileId, eventType).then(message => setError(message)).finally(() => setSubmitting(false)); }}>
+    <Modal title={existing ? `Edit ${existing.title}` : `New Event Type for ${profile.displayName}`} description={existing ? "Update the details for future bookings on this page." : "Choose the URL, Availability Schedule, provider, and Destination Calendar."} onClose={onClose}>
+      <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; setSubmitting(true); const eventType: NewEventType = { id: existing?.id ?? createEntityId("event-type"), title: title.trim(), slug: slug.trim(), description: description.trim(), durationMinutes, location, destinationCalendarId, availabilityScheduleId, approvalRequired, active, color, analytics: existing?.analytics ?? { views: 0, slotViews: 0, starts: 0, requests: 0, confirmed: 0 } }; void onSubmit(profileId, eventType).then(message => setError(message)).finally(() => setSubmitting(false)); }}>
         {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
         <FieldGroup className="calendar-form-fields">
           <Field>
@@ -4851,8 +4938,8 @@ function EventTypeDialog({
           </Field>
           <Field>
             <FieldLabel htmlFor="event-type-slug">Event Type slug</FieldLabel>
-            <Input id="event-type-slug" name="event-type-slug" autoComplete="off" value={slug} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" disabled={submitting} onChange={event => setSlug(event.currentTarget.value.toLowerCase())} />
-            <FieldDescription>cal.with-tap.ai/{profile.slug}/{slug || "event-type"}</FieldDescription>
+            <Input id="event-type-slug" name="event-type-slug" autoComplete="off" value={slug} required readOnly={existing?.publication !== undefined} aria-describedby="event-type-slug-help" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" disabled={submitting} onChange={event => setSlug(event.currentTarget.value.toLowerCase())} />
+            <FieldDescription id="event-type-slug-help">{existing?.publication ? "This published URL is reserved and cannot be changed. " : ""}cal.with-tap.ai/{profile.slug}/{slug || "event-type"}</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="event-type-description">Description</FieldLabel>
@@ -4882,6 +4969,7 @@ function EventTypeDialog({
             <Field>
               <FieldLabel htmlFor="event-type-duration">Duration</FieldLabel>
               <CalendarSelect id="event-type-duration" name="event-type-duration" value={String(durationMinutes)} disabled={submitting} onValueChange={value => setDurationMinutes(Number(value))}>
+                {![15, 30, 45, 60, 90].includes(durationMinutes) ? <SelectItem value={String(durationMinutes)}>{durationMinutes} minutes</SelectItem> : null}
                 <SelectItem value="15">15 minutes</SelectItem>
                 <SelectItem value="30">30 minutes</SelectItem>
                 <SelectItem value="45">45 minutes</SelectItem>
@@ -4892,6 +4980,7 @@ function EventTypeDialog({
             <Field>
               <FieldLabel htmlFor="event-type-provider">Meeting provider</FieldLabel>
               <CalendarSelect id="event-type-provider" name="event-type-provider" value={location} disabled={submitting} onValueChange={value => setLocation(value as MeetingLocation)}>
+                {location !== "google-meet" && location !== "zoom" ? <SelectItem value={location} disabled>{meetingLocationNames[location]}</SelectItem> : null}
                 <SelectItem value="google-meet">Google Meet</SelectItem>
                 <SelectItem value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</SelectItem>
               </CalendarSelect>
@@ -4911,9 +5000,9 @@ function EventTypeDialog({
             </Field>
           </div>
         </FieldGroup>
-        <label className="approval-check"><input type="checkbox" checked={approvalRequired} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require host approval</strong><small>Creates an expiring Tentative Booking Hold before provider confirmation.</small></span></label>
-        <label className="approval-check"><input type="checkbox" checked={active} onChange={event => setActive(event.currentTarget.checked)} /><span><strong>Accept bookings</strong><small>Inactive Event Types keep their URL reserved without showing available slots.</small></span></label>
-        <DialogActions onCancel={onClose} submitLabel="Create Event Type" submitting={submitting} />
+        <label className="approval-check"><input type="checkbox" checked={approvalRequired} disabled={submitting} onChange={event => setApprovalRequired(event.currentTarget.checked)} /><span><strong>Require host approval</strong><small>Creates an expiring Tentative Booking Hold before provider confirmation.</small></span></label>
+        <label className="approval-check"><input type="checkbox" checked={active} disabled={submitting} onChange={event => setActive(event.currentTarget.checked)} /><span><strong>Accept bookings</strong><small>Turn off to take this page offline. The URL stays reserved and existing bookings are kept.</small></span></label>
+        <DialogActions onCancel={onClose} submitLabel={existing ? "Save changes" : "Create Event Type"} submitting={submitting} />
       </form>
     </Modal>
   );

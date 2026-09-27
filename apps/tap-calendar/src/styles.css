@@ -430,7 +430,10 @@ p { text-wrap: pretty; }
 .event-type-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; padding: 17px; }
 .event-type-card { display: flex; flex-direction: column; position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--background); padding: 15px; }
 .event-type-stripe { position: absolute; top: 0; right: 0; left: 0; height: 3px; background: var(--event-type-color); }
-.event-type-card > header { display: flex; align-items: center; justify-content: space-between; }
+.event-type-card > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.booking-page-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.booking-page-error { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 12px; line-height: 1.5; }
+.booking-page-error p { margin: 0 0 8px; }
 .event-type-card > header > div { display: flex; align-items: center; gap: 7px; }
 .event-type-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--event-type-color) 11%, var(--muted)); color: var(--event-type-color); }
 .event-type-icon svg { width: 15px; }

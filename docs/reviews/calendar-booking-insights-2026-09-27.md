@@ -46,10 +46,30 @@ Reviewed against the [Web Interface Guidelines](https://github.com/vercel-labs/w
 - Checked populated, no-traffic, and unavailable states; expanded definitions
   with the keyboard; verified focus containment, dismissal, and focus restoration.
 - Mobile footer retained approximately 14px below the Close button after scrolling.
-- Calendar: 314 unit tests, typecheck, production miniapp build, and manifest check.
+- Calendar: 319 unit tests, typecheck, production miniapp build, and manifest check.
 - Gateway: 18 public booking route tests, including a regression with twelve
   pre-tracking bookings and four later visits. Existing cases cover retries,
   multiple bookings per visit, cancellation, and mismatched coverage periods.
 
 The change uses the existing v2 analytics API. No gateway deployment or database
 migration is required. Calendar remains version 0.3.6 in this pending release.
+
+## Booking page management
+
+The cards previously offered Preview and Insights but had no edit or individual
+offline action. Each card now exposes Edit and Take offline; an offline page has
+a Publish action. The shared form starts with the saved settings and keeps a
+published slug read-only. Domain mutations also enforce the reserved URL and
+retain current analytics, publication receipts, and existing calendar events.
+
+Taking a page offline sends the existing authoritative profile publication with
+that page omitted. Other active pages stay published. Republishing uses the same
+page identity and reserved URL. A failed update remains visibly pending with a
+retry action, and the current live URL/count follow the last server receipt.
+
+Verified the edit/provider-change/save, offline, and republish flows in a local
+preview using the real publication reconciler and a simulated gateway. Reviewed
+desktop and 390px card/form layouts, the failure message, and focus restoration.
+Five new UI/domain tests cover these flows, failed persistence, failed publishing,
+and taking a page offline after calendar disconnection. All 19 gateway publication
+tests pass, including restoring the same page while keeping its prior revision.
