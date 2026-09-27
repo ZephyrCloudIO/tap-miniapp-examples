@@ -1138,6 +1138,35 @@ p { text-wrap: pretty; }
 .shared-booking-error { color: #ad2828; }
 .shared-booking-actions { justify-content: flex-start; }
 
+.workspace-profile-summary { display: grid; gap: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); padding: 20px; }
+.workspace-profile-summary-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.workspace-profile-summary-heading > div { min-width: 0; }
+.workspace-name-claimed { display: flex; align-items: center; gap: 8px; color: var(--calendar-green); font-size: 13px; font-weight: 650; }
+.workspace-name-claimed svg { width: 18px; height: 18px; }
+.workspace-profile-summary h4 { margin: 8px 0 0; overflow-wrap: anywhere; font-size: 22px; font-weight: 650; }
+.workspace-profile-address { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.workspace-profile-address > svg { flex: 0 0 16px; width: 16px; height: 16px; color: var(--muted-foreground); }
+.workspace-profile-address > a, .workspace-profile-address > span { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 14px; }
+.workspace-profile-address > a { text-decoration: underline; text-underline-offset: 3px; }
+.workspace-profile-summary .workspace-profile-reservation { margin: -8px 0 0; color: var(--muted-foreground); font-size: 12px; }
+.workspace-profile-readiness { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; border-top: 1px solid var(--border); padding-top: 14px; }
+.workspace-profile-readiness > .status-chip { font-size: 11px; }
+.workspace-profile-readiness p { flex: 1 1 220px; margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.workspace-profile-complete { display: grid; gap: 16px; margin-top: 20px; }
+.workspace-profile-next-step { margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.workspace-profile-meetings { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.workspace-profile-meetings li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+.workspace-profile-meetings li > div { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.workspace-profile-meetings strong { font-size: 14px; }
+.workspace-profile-meetings span { color: var(--muted-foreground); font-size: 12px; }
+.workspace-profile-form { margin-top: 20px; }
+.workspace-profile-form > h4 { margin: 0; font-size: 16px; }
+
+@media (max-width: 620px) {
+  .workspace-profile-address { display: grid; grid-template-columns: 16px minmax(0, 1fr); }
+  .workspace-profile-address > button { grid-column: 2; justify-self: start; }
+}
+
 @media (max-width: 900px) {
   .shared-booking-panel { margin: 17px 15px 0; }
 }

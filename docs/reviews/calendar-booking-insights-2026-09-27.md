@@ -49,7 +49,7 @@ Reviewed against the [Web Interface Guidelines](https://github.com/vercel-labs/w
 - Checked populated, no-traffic, and unavailable states; expanded definitions
   with the keyboard; verified focus containment, dismissal, and focus restoration.
 - Mobile footer retained approximately 14px below the Close button after scrolling.
-- Calendar: 319 unit tests, typecheck, production miniapp build, and manifest check.
+- Calendar: 326 unit tests, typecheck, production miniapp build, and manifest check.
 - Gateway: 18 public booking route tests, including a regression with twelve
   pre-tracking bookings and four later visits. Existing cases cover retries,
   multiple bookings per visit, cancellation, and mismatched coverage periods.
@@ -76,3 +76,21 @@ desktop and 390px card/form layouts, the failure message, and focus restoration.
 Five new UI/domain tests cover these flows, failed persistence, failed publishing,
 and taking a page offline after calendar disconnection. All 19 gateway publication
 tests pass, including restoring the same page while keeping its prior revision.
+
+## Claimed workspace profile
+
+After a confirmed name claim, replace the setup form with a read-only summary:
+a checked “Name claimed” label, display name, reserved URL, Copy link, and explicit
+booking readiness. A claimed name with no meetings shows the next setup step;
+it does not say that the workspace is accepting bookings. Offline and stale
+publications retain the claim while showing their actual publication state.
+
+Edit profile opens the saved settings. Save changes returns to the summary;
+Cancel discards the draft. The reserved URL stays fixed, and saving an offline
+profile keeps it offline. SDK buttons expose the actions, and keyboard focus
+moves to the name field on edit and back to Edit profile after Save or Cancel.
+
+Verified desktop and 390px/320px layouts with no horizontal overflow. Seven new
+UI tests cover the claim transition, explicit edit/cancel, saved name and URL,
+offline edits, failed claim/edit retries, and confirmed versus stale meetings.
+All 326 Calendar tests, typecheck, production build, and manifest validation pass.
