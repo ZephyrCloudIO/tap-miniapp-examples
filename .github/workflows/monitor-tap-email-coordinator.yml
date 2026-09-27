@@ -94,7 +94,7 @@ jobs:
             gh issue close \
               "$issue_number" \
               --repo "$GITHUB_REPOSITORY" \
-              --comment "Production sync recovered in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+              --comment "No actionable sync failure detected in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Review the run summary for any remaining telemetry warnings."
           fi
 
       - name: Fail when production sync is unhealthy

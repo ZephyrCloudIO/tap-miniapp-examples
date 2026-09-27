@@ -202,6 +202,22 @@ D1 checks, opens one deduplicated GitHub issue when delivery, topology,
 dead-letter, backlog-age, or durable-progress checks fail, and closes that issue
 after recovery. Monitor output contains operational counts and timestamps only;
 it never queries or prints mailbox identifiers, subjects, bodies, or recipients.
+Cloudflare reports queue metrics on a best-effort basis and defines an oldest
+timestamp of zero as unknown. Unknown **sync** queue age remains a visible
+telemetry warning when the independent D1 checks succeed with no anomalies;
+this means operational checks passed, not that queue age was verified. Unknown
+command queue age still fails because the D1 progress query covers sync jobs.
+Paused delivery, missing routes, dead letters, known stale backlog, malformed
+metrics and failed API/D1 reads remain failures. Durable checks include current
+application dead letters, which may already be acknowledged in Cloudflare;
+completed full syncs supersede older failures. A failed continuation is also
+operationally recovered when a later applied delivery matches its account,
+profile, page and generation, and that same generation's checkpoint has advanced.
+The recorded traversal must predate the failed delivery; later resets or unknown
+start times cannot establish recovery.
+This leaves the original failure audit record and coverage counters intact.
+These checks do not establish
+complete historical body coverage or successful optional body downloads.
 The monitor never resumes either queue. Configure the production Environment
 secret `CLOUDFLARE_MONITOR_API_TOKEN` with only account-scoped `Queues Read` and
 `D1 Read`; the workflow temporarily falls back to the deployment token so

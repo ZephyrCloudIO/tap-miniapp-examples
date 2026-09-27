@@ -9,6 +9,8 @@ const queueBacklogMaximumAgeMilliseconds = {
 const neverLeasedMaximumAgeMilliseconds = 5 * 60_000;
 const expiredLeaseGraceMilliseconds = 2 * 60_000;
 const accountProgressMaximumAgeMilliseconds = 25 * 60_000;
+// Allow small provider clock skew relative to acquisition time.
+const queueTimestampFutureToleranceMilliseconds = 60_000;
 
 const expectedQueues = [
   {
@@ -23,7 +25,9 @@ const expectedQueues = [
   },
 ];
 
-const syncHealthSql = `WITH anomalies(signal, observed_at) AS (
+// D1 permits at most five terms per compound SELECT. Keep event/account
+// subqueries separate rather than exceeding that limit as checks are added.
+const syncHealthSql = `WITH event_anomalies(signal, observed_at) AS (
   SELECT 'received_event_not_leased', received_at
     FROM provider_events
    WHERE state = 'received'
@@ -49,6 +53,35 @@ const syncHealthSql = `WITH anomalies(signal, observed_at) AS (
 
   UNION ALL
 
+  -- Terminal application failures are ACKed, so the Cloudflare DLQ can be
+  -- empty. A completed full sync supersedes failures. An orphaned page also
+  -- recovers when a later applied delivery matches its exact scope/page/
+  -- generation AND the current generation's checkpoint has advanced.
+  SELECT 'unresolved_sync_dead_letters', event.updated_at
+    FROM provider_events event
+    JOIN google_accounts account USING (profile_id, account_id)
+   WHERE event.state = 'dead_letter'
+     AND account.connection_state = 'active'
+     AND (account.last_full_sync_completed_at IS NULL
+          OR event.updated_at > account.last_full_sync_completed_at)
+     AND NOT EXISTS (
+       SELECT 1 FROM provider_events recovered
+        WHERE recovered.profile_id = event.profile_id
+          AND recovered.account_id = event.account_id
+          AND recovered.state = 'applied'
+          AND recovered.updated_at > event.updated_at
+          AND json_extract(event.payload_json, '$.mode') = 'continue'
+          AND json_extract(event.payload_json, '$.syncGeneration') != ''
+          AND json_extract(event.payload_json, '$.syncGeneration') = account.sync_generation
+          AND account.sync_generation_started_at <= event.received_at
+          AND json_extract(event.payload_json, '$.pageToken') != ''
+          AND json_extract(event.payload_json, '$.pageToken') IS NOT account.backfill_page_token
+          AND json_extract(recovered.payload_json, '$.mode') = 'continue'
+          AND json_extract(recovered.payload_json, '$.syncGeneration') = json_extract(event.payload_json, '$.syncGeneration')
+          AND json_extract(recovered.payload_json, '$.pageToken') = json_extract(event.payload_json, '$.pageToken')
+     )
+
+), account_anomalies(signal, observed_at) AS (
   SELECT 'active_account_not_advanced', account.updated_at
     FROM google_accounts account
    WHERE account.connection_state = 'active'
@@ -72,6 +105,10 @@ const syncHealthSql = `WITH anomalies(signal, observed_at) AS (
        account.last_sync_requested_at IS NULL OR
        account.last_sync_requested_at <= ?3
      )
+), anomalies(signal, observed_at) AS (
+  SELECT signal, observed_at FROM event_anomalies
+  UNION ALL
+  SELECT signal, observed_at FROM account_anomalies
 )
 SELECT signal,
        COUNT(*) AS affected_count,
@@ -166,7 +203,7 @@ function exactQueue(queues, name) {
   return matches[0];
 }
 
-async function queueMetrics(fetchImpl, accountId, apiToken, queue, sleep) {
+async function queueMetrics(fetchImpl, accountId, apiToken, queue, sleep, observationTime) {
   if (typeof queue?.queue_id !== 'string' || queue.queue_id.length === 0) {
     throw new Error('Queue identifier was missing');
   }
@@ -177,9 +214,10 @@ async function queueMetrics(fetchImpl, accountId, apiToken, queue, sleep) {
   const payload = await cloudflareJson(fetchImpl, apiToken, url, undefined, sleep);
   const metrics = payload.result;
   if (
-    !Number.isFinite(metrics?.backlog_count) ||
-    !Number.isFinite(metrics?.backlog_bytes) ||
-    !Number.isFinite(metrics?.oldest_message_timestamp_ms)
+    !['backlog_count', 'backlog_bytes', 'oldest_message_timestamp_ms'].every(field =>
+      Number.isFinite(metrics?.[field]) && metrics[field] >= 0
+    ) ||
+    metrics.oldest_message_timestamp_ms > observationTime() + queueTimestampFutureToleranceMilliseconds
   ) {
     throw new Error('Queue metrics were malformed');
   }
@@ -206,6 +244,7 @@ async function inspectQueues(options, issues, observations) {
       options.apiToken,
       queue,
       options.sleep,
+      options.observationTime,
     );
     const deadLetterMetrics = await queueMetrics(
       options.fetchImpl,
@@ -213,9 +252,10 @@ async function inspectQueues(options, issues, observations) {
       options.apiToken,
       deadLetterQueue,
       options.sleep,
+      options.observationTime,
     );
     observations.push(
-      `${expected.role} queue backlog: ${metrics.backlog_count}; dead letters: ${deadLetterMetrics.backlog_count}`,
+      `${expected.role} queue backlog: ${metrics.backlog_count} (${metrics.backlog_bytes} bytes); oldest timestamp: ${metrics.oldest_message_timestamp_ms || 'unknown'}; dead letters: ${deadLetterMetrics.backlog_count}`,
     );
 
     if (queue.settings?.delivery_paused !== false) {
@@ -238,9 +278,9 @@ async function inspectQueues(options, issues, observations) {
     }
     if (metrics.backlog_count > 0) {
       const oldest = metrics.oldest_message_timestamp_ms;
-      if (oldest <= 0) {
+      if (oldest === 0) {
         issue(issues, `${expected.role}_queue_backlog_age_unknown`, `${expected.role} queue backlog age is unavailable`);
-      } else if (options.now.getTime() - oldest > queueBacklogMaximumAgeMilliseconds[expected.role]) {
+      } else if (options.observationTime() - oldest > queueBacklogMaximumAgeMilliseconds[expected.role]) {
         issue(issues, `${expected.role}_queue_backlog_stalled`, `${expected.role} queue backlog exceeded its age threshold`);
       }
     }
@@ -274,7 +314,7 @@ async function inspectDurableProgress(options, issues, observations) {
   }
   if (query.results.length === 0) {
     observations.push('durable sync anomalies: 0');
-    return;
+    return true;
   }
   for (const row of query.results) {
     const signal = typeof row?.signal === 'string' ? row.signal : 'unknown_sync_anomaly';
@@ -286,6 +326,7 @@ async function inspectDurableProgress(options, issues, observations) {
     issue(issues, signal, `${signal}: ${count} affected${oldest}`);
   }
   observations.push(`durable sync anomaly groups: ${query.results.length}`);
+  return false;
 }
 
 async function inspectService(options, issues, observations) {
@@ -307,16 +348,19 @@ export async function runTapEmailProductionMonitor({
   fetchImpl = fetch,
   sleep = defaultSleep,
   now = new Date(),
+  monotonicTime = () => performance.now(),
   accountId,
   apiToken,
   databaseId,
   workerName = 'tap-email-coordinator-production',
   serviceOrigin = 'https://tap-email-coordinator.theaiplatform.app',
 }) {
+  const startedAt = monotonicTime();
   const options = {
     fetchImpl,
     sleep,
     now,
+    observationTime: () => now.getTime() + Math.max(0, monotonicTime() - startedAt),
     accountId: required(accountId, 'CLOUDFLARE_ACCOUNT_ID'),
     apiToken: required(apiToken, 'CLOUDFLARE_API_TOKEN'),
     databaseId: required(databaseId, 'TAP_EMAIL_D1_DATABASE_ID'),
@@ -325,13 +369,16 @@ export async function runTapEmailProductionMonitor({
   };
   const issues = [];
   const observations = [];
+  const warnings = [];
+  let durableProgressVerified = false;
   for (const [scope, inspect] of [
     ['queues', inspectQueues],
     ['durable_progress', inspectDurableProgress],
     ['service', inspectService],
   ]) {
     try {
-      await inspect(options, issues, observations);
+      const verified = await inspect(options, issues, observations);
+      if (scope === 'durable_progress') durableProgressVerified = verified === true;
     } catch (error) {
       issue(
         issues,
@@ -340,19 +387,31 @@ export async function runTapEmailProductionMonitor({
       );
     }
   }
+  // The API explicitly permits 0 (unknown) in its best-effort metrics:
+  // https://developers.cloudflare.com/api/resources/queues/methods/get_metrics/
+  // Every sync job is journaled before dispatch. An unavailable age alone is
+  // telemetry uncertainty when those independent durable checks pass. This is
+  // not proof of an empty queue, and does not cover the command queue.
+  const unknownSyncAge = issues.findIndex(value => value.code === 'sync_queue_backlog_age_unknown');
+  if (durableProgressVerified && unknownSyncAge !== -1) {
+    const [unknown] = issues.splice(unknownSyncAge, 1);
+    warnings.push({ ...unknown, summary: 'Sync queue age is unavailable in Cloudflare metrics; durable sync checks passed. Queue age remains unverified.' });
+  }
   return {
     ok: issues.length === 0,
     observedAt: now.toISOString(),
     issues,
+    warnings,
     observations,
   };
 }
 
 export function monitorReport(result, runUrl) {
+  const warnings = result.warnings ?? [];
   const lines = [
     '# TAP Email production sync monitor',
     '',
-    `Status: **${result.ok ? 'healthy' : 'unhealthy'}**`,
+    `Status: **${result.ok ? warnings.length > 0 ? 'operational checks passed; telemetry incomplete' : 'healthy' : 'unhealthy'}**`,
     `Observed: ${result.observedAt}`,
     ...(runUrl ? [`Run: ${runUrl}`] : []),
     '',
@@ -362,6 +421,9 @@ export function monitorReport(result, runUrl) {
   ];
   if (result.issues.length > 0) {
     lines.push('', '## Issues', '', ...result.issues.map(value => `- \`${value.code}\`: ${value.summary}`));
+  }
+  if (warnings.length > 0) {
+    lines.push('', '## Telemetry warnings', '', ...warnings.map(value => `- \`${value.code}\`: ${value.summary}`));
   }
   lines.push('', 'The monitor is read-only and reports aggregate operational state only.', '');
   return lines.join('\n');
@@ -401,6 +463,7 @@ async function main() {
     ok: result.ok,
     observedAt: result.observedAt,
     issueCodes: result.issues.map(value => value.code),
+    warningCodes: (result.warnings ?? []).map(value => value.code),
   }));
   if (!result.ok) process.exitCode = 1;
 }
