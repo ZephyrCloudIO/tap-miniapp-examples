@@ -50,22 +50,24 @@ function dateTimeLocalValue(value: Date): string {
 
 export function SendLaterDialog({
   cancelIfReplyDefault,
-  now = new Date(),
+  now,
   onClose,
   onConfirm,
 }: SendLaterDialogProps) {
-  const choices = useMemo(() => sendLaterChoices(now), [now]);
-  const [scheduledFor, setScheduledFor] = useState(choices[1]?.at ?? choices[0]!.at);
-  const [customValue, setCustomValue] = useState(dateTimeLocalValue(scheduledFor));
+  const [referenceNow] = useState(() => now ?? new Date());
+  const choices = useMemo(() => sendLaterChoices(referenceNow), [referenceNow]);
+  const [customValue, setCustomValue] = useState(dateTimeLocalValue(choices[1]?.at ?? choices[0]!.at));
+  const scheduledFor = new Date(customValue);
+  const [error, setError] = useState('');
   const [cancelIfReply, setCancelIfReply] = useState(cancelIfReplyDefault);
-  const valid = scheduledFor.getTime() > now.getTime();
+  const valid = Boolean(customValue) && Number.isFinite(scheduledFor.getTime()) && scheduledFor.getTime() > (now?.getTime() ?? Date.now());
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="send-later-dialog" hideCloseButton>
+      <DialogContent className="send-later-dialog composer-tool-dialog" data-composer-tool hideCloseButton>
         <header>
           <div>
-            <span className="eyebrow">Recoverable outbox</span>
+            
             <DialogTitle>Send later</DialogTitle>
             <DialogDescription>
               The message remains a provider-visible draft until its delivery time.
@@ -75,11 +77,11 @@ export function SendLaterDialog({
         </header>
         <div className="send-later-choices">
           {choices.map(choice => (
-            <button
+            <Button variant="outline"
               aria-pressed={scheduledFor.getTime() === choice.at.getTime()}
               key={choice.label}
               onClick={() => {
-                setScheduledFor(choice.at);
+                setError('');
                 setCustomValue(dateTimeLocalValue(choice.at));
               }}
               type="button"
@@ -92,22 +94,25 @@ export function SendLaterDialog({
                   minute: '2-digit',
                 }).format(choice.at)}
               </time>
-            </button>
+            </Button>
           ))}
         </div>
         <label className="send-later-custom">
           <span>Custom time</span>
           <Input
-            min={dateTimeLocalValue(new Date(now.getTime() + 60_000))}
+            min={dateTimeLocalValue(new Date((now?.getTime() ?? Date.now()) + 60_000))}
             onChange={event => {
               setCustomValue(event.target.value);
-              const parsed = new Date(event.target.value);
-              if (Number.isFinite(parsed.getTime())) setScheduledFor(parsed);
+              setError('');
             }}
+            name="send-later-time"
+            aria-invalid={!valid}
+            aria-describedby="send-later-time-help"
             type="datetime-local"
             value={customValue}
           />
         </label>
+        <p id="send-later-time-help">{error || (!valid ? 'Choose a future date and time. ' : '')}{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
         {cancelIfReplyDefault ? (
           <label className="send-later-cancel-reply">
             <span>
@@ -125,7 +130,10 @@ export function SendLaterDialog({
           <Button
             className="primary-button"
             disabled={!valid}
-            onClick={() => onConfirm(scheduledFor.toISOString(), cancelIfReply)}
+            onClick={() => {
+              if (!valid || scheduledFor.getTime() <= (now?.getTime() ?? Date.now())) { setError('Choose a future date and time. '); return; }
+              onConfirm(scheduledFor.toISOString(), cancelIfReply);
+            }}
             type="button"
           >
             Schedule send

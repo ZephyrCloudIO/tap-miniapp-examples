@@ -1152,6 +1152,8 @@ describe('Google mailbox synchronization', () => {
         expect(url.searchParams.getAll('metadataHeaders')).toEqual([
           'From',
           'To',
+          'Cc',
+          'Bcc',
           'Date',
           'Subject',
           'Message-ID',

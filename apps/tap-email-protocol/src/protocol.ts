@@ -42,6 +42,12 @@ export interface MailAccountCoverage {
 
 export type ReminderCondition = 'if_no_reply' | 'regardless';
 
+/** Starts after acknowledged delivery, including for scheduled messages. */
+export interface MailFollowUp {
+  readonly delayMinutes: number;
+  readonly condition: ReminderCondition;
+}
+
 export interface TapEmailReminder {
   readonly reminderId: string;
   readonly accountId: string;
@@ -123,6 +129,7 @@ export interface MailDraftPayload extends Readonly<Record<string, unknown>> {
   readonly attachments?: readonly MailDraftAttachment[];
   /** Client-held undo-send deadline. This is not a scheduled-send policy. */
   readonly sendAfter?: string;
+  readonly followUp?: MailFollowUp;
 }
 
 /**
@@ -491,6 +498,13 @@ export function isMailDraftAttachment(value: unknown): value is MailDraftAttachm
   );
 }
 
+export function isMailFollowUp(value: unknown): value is MailFollowUp {
+  return isRecord(value) && Number.isSafeInteger(value.delayMinutes) &&
+    typeof value.delayMinutes === 'number' && value.delayMinutes >= 1 &&
+    value.delayMinutes <= 365 * 24 * 60 &&
+    (value.condition === 'if_no_reply' || value.condition === 'regardless');
+}
+
 export function isMailDraftPayload(value: unknown): value is MailDraftPayload {
   if (!isRecord(value)) return false;
   const attachments = value.attachments;
@@ -507,7 +521,7 @@ export function isMailDraftPayload(value: unknown): value is MailDraftPayload {
     typeof value.draftRevision === 'number' &&
     Number.isSafeInteger(value.draftRevision) &&
     value.draftRevision > 0 &&
-    isSafeHeaderString(value.to, 2_000, false) &&
+    isSafeHeaderString(value.to, 2_000) &&
     (value.cc === undefined || isSafeHeaderString(value.cc, 2_000)) &&
     (value.bcc === undefined || isSafeHeaderString(value.bcc, 2_000)) &&
     isSafeHeaderString(value.subject, 998) &&
@@ -515,13 +529,14 @@ export function isMailDraftPayload(value: unknown): value is MailDraftPayload {
     (value.replyToMessageId === undefined ||
       isSafeHeaderString(value.replyToMessageId, 998, false)) &&
     (value.sendAfter === undefined || isIsoDate(value.sendAfter)) &&
+    (value.followUp === undefined || isMailFollowUp(value.followUp)) &&
     validatedAttachments
   );
 }
 
 export function isMailSchedulePayload(value: unknown): value is MailSchedulePayload {
   return (
-    isMailDraftPayload(value) &&
+    isMailDraftPayload(value) && value.to.trim().length > 0 &&
     isIsoDate(value.scheduledFor) &&
     typeof value.cancelIfReply === 'boolean'
   );
@@ -728,7 +743,7 @@ export function isMailCommand(value: unknown): value is MailCommand {
     typeof candidate.payload === 'object' &&
     !Array.isArray(candidate.payload) &&
     ((candidate.kind !== 'save_draft' && candidate.kind !== 'send_draft') ||
-      isMailDraftPayload(candidate.payload)) &&
+      (isMailDraftPayload(candidate.payload) && (candidate.kind === 'save_draft' || candidate.payload.to.trim().length > 0))) &&
     (candidate.kind !== 'schedule_send' ||
       (isMailSchedulePayload(candidate.payload) &&
         Date.parse(candidate.payload.scheduledFor) > Date.parse(candidate.createdAt as string))) &&

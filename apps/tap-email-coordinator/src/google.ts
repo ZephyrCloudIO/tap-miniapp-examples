@@ -1,3 +1,4 @@
+import { sentFollowUpStatements, type SentMessageIdentity } from './follow-up';
 import {
   isMailDraftPayload,
   type MailCommand,
@@ -606,12 +607,12 @@ async function mimeFor(
   payload: MailDraftPayload,
   now: Date,
 ): Promise<{ readonly raw: string; readonly threadId?: string } | null> {
-  const to = safeHeader(payload.to, 2_000);
+  const to = payload.to === '' ? '' : safeHeader(payload.to, 2_000);
   const cc = payload.cc === undefined ? null : safeHeader(payload.cc, 2_000);
   const bcc = payload.bcc === undefined ? null : safeHeader(payload.bcc, 2_000);
-  const subject = safeHeader(payload.subject, 998);
+  const subject = payload.subject === '' ? '' : safeHeader(payload.subject, 998);
   const bodyText = payload.bodyText.length <= 500_000 ? payload.bodyText : null;
-  if (!to || !subject || bodyText === null) return null;
+  if (to === null || subject === null || bodyText === null) return null;
   if ((payload.cc !== undefined && !cc) || (payload.bcc !== undefined && !bcc)) {
     return null;
   }
@@ -619,7 +620,7 @@ async function mimeFor(
   const attachments = payload.attachments ?? [];
   const boundary = `tap_email_${payload.draftKey.replace(/[^A-Za-z0-9_-]/gu, '_').slice(0, 80)}`;
   const headers = [
-    `To: ${to}`,
+    ...(to ? [`To: ${to}`] : []),
     ...(cc ? [`Cc: ${cc}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
     `Subject: ${encodedSubject(subject)}`,
@@ -657,6 +658,9 @@ interface ProviderDraftRow {
   readonly provider_draft_id: string | null;
   readonly latest_revision: number;
   readonly state: 'active' | 'sent' | 'discarded';
+  readonly thread_id: string | null;
+  readonly sent_message_id: string | null;
+  readonly sent_at: string | null;
 }
 
 async function providerDraftRow(
@@ -665,7 +669,7 @@ async function providerDraftRow(
   draftKey: string,
 ): Promise<ProviderDraftRow | null> {
   return env.DB.prepare(
-    `SELECT provider_draft_id, latest_revision, state
+    `SELECT provider_draft_id, latest_revision, state, thread_id, sent_message_id, sent_at
        FROM provider_drafts
       WHERE profile_id = ? AND account_id = ? AND draft_key = ?`,
   )
@@ -681,12 +685,13 @@ async function recordProviderDraft(
   providerDraftId: string | null,
   state: ProviderDraftRow['state'],
   now: string,
+  sent?: SentMessageIdentity | null,
 ): Promise<void> {
-  await env.DB.prepare(
+  const checkpoint = env.DB.prepare(
     `INSERT INTO provider_drafts
        (profile_id, account_id, draft_key, provider_draft_id, thread_id,
-        latest_revision, state, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        latest_revision, state, updated_at, sent_message_id, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id, account_id, draft_key) DO UPDATE SET
        provider_draft_id = CASE
          WHEN excluded.state IN ('sent', 'discarded')
@@ -695,7 +700,10 @@ async function recordProviderDraft(
            THEN provider_drafts.provider_draft_id
          ELSE COALESCE(excluded.provider_draft_id, provider_drafts.provider_draft_id)
        END,
-       thread_id = COALESCE(excluded.thread_id, provider_drafts.thread_id),
+       thread_id = CASE WHEN provider_drafts.state = 'sent' AND provider_drafts.sent_message_id IS NOT NULL
+         THEN provider_drafts.thread_id ELSE COALESCE(excluded.thread_id, provider_drafts.thread_id) END,
+       sent_message_id = COALESCE(provider_drafts.sent_message_id, excluded.sent_message_id),
+       sent_at = COALESCE(provider_drafts.sent_at, excluded.sent_at),
        latest_revision = MAX(provider_drafts.latest_revision, excluded.latest_revision),
        state = CASE
          WHEN provider_drafts.state IN ('sent', 'discarded')
@@ -709,12 +717,17 @@ async function recordProviderDraft(
       scope.accountId,
       payload.draftKey,
       providerDraftId,
-      command.threadId,
+      sent?.threadId ?? command.threadId,
       payload.draftRevision,
       state,
       now,
-    )
-    .run();
+      sent?.messageId ?? null,
+      sent?.sentAt ?? null,
+    );
+  const reminders = state === 'sent' && sent && payload.followUp
+    ? await sentFollowUpStatements(env, scope, payload.draftKey, payload.followUp, sent, now)
+    : [];
+  await env.DB.batch([checkpoint, ...reminders]);
 }
 
 async function listedProviderDraftId(
@@ -732,10 +745,19 @@ async function listedProviderDraftId(
     : null;
 }
 
-async function acknowledgedSentRevision(
+function sentMessageIdentity(message: Readonly<Record<string, unknown>>, fallbackTime?: string): SentMessageIdentity | null {
+  const millis = typeof message.internalDate === 'string' && /^\d+$/u.test(message.internalDate)
+    ? Number(message.internalDate) : NaN;
+  const sentAt = Number.isFinite(millis) && millis > 0 && millis <= 8.64e15
+    ? new Date(millis).toISOString() : fallbackTime;
+  return typeof message.id === 'string' && typeof message.threadId === 'string' && sentAt
+    ? { messageId: message.id, threadId: message.threadId, sentAt } : null;
+}
+
+async function acknowledgedSentMessage(
   accessToken: string,
   draftIdentity: string,
-): Promise<string | null | undefined> {
+): Promise<{ revision: string | null; identity: SentMessageIdentity | null } | undefined> {
   const search = await googleJson(
     accessToken,
     `/gmail/v1/users/me/messages?maxResults=10&includeSpamTrash=true&q=${encodeURIComponent(`rfc822msgid:${draftIdentity}`)}`,
@@ -750,7 +772,7 @@ async function acknowledgedSentRevision(
       `/gmail/v1/users/me/messages/${encodeURIComponent(listed.id)}?format=minimal`,
     );
     if (Array.isArray(message.labelIds) && message.labelIds.includes('SENT')) {
-      return typeof message.historyId === 'string' ? message.historyId : null;
+      return { revision: typeof message.historyId === 'string' ? message.historyId : null, identity: sentMessageIdentity(message) };
     }
   }
   return undefined;
@@ -832,7 +854,7 @@ async function executeSend(
   command: MailCommand,
   now: string,
 ): Promise<ProviderExecutionResult> {
-  if (!isMailDraftPayload(command.payload)) {
+  if (!isMailDraftPayload(command.payload) || !command.payload.to.trim()) {
     return { outcome: 'failed', errorCode: 'invalid_message' };
   }
   const payload = command.payload;
@@ -854,11 +876,19 @@ async function executeSend(
     }
   };
   if (recorded?.state === 'sent') {
+    if (payload.followUp) {
+      const sent = recorded.sent_message_id && recorded.thread_id && recorded.sent_at
+        ? { messageId: recorded.sent_message_id, threadId: recorded.thread_id, sentAt: recorded.sent_at }
+        : (await acknowledgedSentMessage(accessToken, identity))?.identity;
+      // Delivery is known: retry only its missing checkpoint, never send again.
+      if (!sent) return { outcome: 'retryable', errorCode: 'sent_follow_up_identity_pending' };
+      await recordProviderDraft(env, scope, command, payload, null, 'sent', now, sent);
+    }
     await consumeConfirmedAttachments();
     return { outcome: 'acknowledged', providerRevision: null };
   }
-  const sentRevision = await acknowledgedSentRevision(accessToken, identity);
-  if (sentRevision !== undefined) {
+  const sentMessage = await acknowledgedSentMessage(accessToken, identity);
+  if (sentMessage !== undefined) {
     await recordProviderDraft(
       env,
       scope,
@@ -867,9 +897,11 @@ async function executeSend(
       null,
       'sent',
       now,
+      sentMessage.identity,
     );
+    if (payload.followUp && !sentMessage.identity) return { outcome: 'retryable', errorCode: 'sent_follow_up_identity_pending' };
     await consumeConfirmedAttachments();
-    return { outcome: 'acknowledged', providerRevision: sentRevision };
+    return { outcome: 'acknowledged', providerRevision: sentMessage.revision };
   }
   const listedDraftId = recorded?.provider_draft_id
     ? null
@@ -919,7 +951,9 @@ async function executeSend(
     null,
     'sent',
     now,
+    sentMessageIdentity(sent, now),
   );
+  if (payload.followUp && !sentMessageIdentity(sent, now)) return { outcome: 'retryable', errorCode: 'sent_follow_up_identity_pending' };
   await consumeConfirmedAttachments();
   return {
     outcome: 'acknowledged',

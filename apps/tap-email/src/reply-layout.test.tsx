@@ -50,6 +50,17 @@ describe('reply layout', () => {
 
       if (!textarea) throw new Error('Inline reply textarea not found');
       await typeInto(textarea, 'Keep this draft while moving it.');
+      expect(composer?.querySelector('[aria-label="Reply Cc recipients"]')).toBeNull();
+      expect(composer?.querySelector('[aria-label="Reply Bcc recipients"]')).toBeNull();
+      await act(async () => {
+        textarea!.dispatchEvent(new KeyboardEvent('keydown', { key: 'B', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+      });
+      const bcc = composer!.querySelector<HTMLInputElement>('[aria-label="Reply Bcc recipients"]')!;
+      expect(document.activeElement).toBe(bcc);
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(bcc, 'private@example.com');
+        bcc.dispatchEvent(new Event('input', { bubbles: true }));
+      });
       await act(async () => (await waitForButton(container, 'Pop out reply')).click());
 
       composer = container.querySelector<HTMLFormElement>('.reply-composer');
@@ -57,6 +68,8 @@ describe('reply layout', () => {
       expect(composer?.dataset.replyPlacement).toBe('sidecar');
       expect(composer?.closest('aside.reply-sidecar')).not.toBeNull();
       expect(textarea?.value).toBe('Keep this draft while moving it.');
+      expect(composer?.querySelector<HTMLInputElement>('[aria-label="Reply Bcc recipients"]')?.value).toBe('private@example.com');
+      expect(composer?.querySelector('[aria-label="Reply Cc recipients"]')).toBeNull();
       expect(container.querySelector('.mail-shell')?.classList.contains('is-thread-list-collapsed')).toBe(true);
 
       await act(async () => (await waitForButton(container, 'Return reply inline')).click());
@@ -64,6 +77,7 @@ describe('reply layout', () => {
       expect(composer?.dataset.replyPlacement).toBe('inline');
       expect(composer?.querySelector<HTMLTextAreaElement>('textarea')?.value)
         .toBe('Keep this draft while moving it.');
+      expect(composer?.querySelector<HTMLInputElement>('[aria-label="Reply Bcc recipients"]')?.value).toBe('private@example.com');
       expect(container.querySelector('.mail-shell')?.classList.contains('is-thread-list-collapsed')).toBe(false);
     } finally {
       await act(async () => root.unmount());

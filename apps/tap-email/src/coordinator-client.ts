@@ -1,3 +1,4 @@
+import type { RecipientSuggestion } from './recipient-history';
 import {
   sdk,
   type MiniAppHttpRequestInput,
@@ -375,6 +376,29 @@ export function createCoordinatorClient(
         throw new CoordinatorError(502, 'invalid_response', 'Google connection response is malformed.');
       }
       return body.authorizationUrl;
+    },
+    async searchRecipients(query: string): Promise<readonly RecipientSuggestion[]> {
+      const needle = query.trim();
+      if (!needle) return [];
+      if (needle.length > 254 || /[\r\n\0]/u.test(needle)) {
+        throw new CoordinatorError(400, 'invalid_recipient_query', 'Recipient search is too long or invalid.');
+      }
+      const body = asRecord(await call(resolved, {
+        method: 'GET', url: `${origin}/v1/recipients?q=${encodeURIComponent(needle)}`,
+      }, 65_536, origin));
+      if (!Array.isArray(body.recipients) || body.recipients.length > 20) {
+        throw new CoordinatorError(502, 'invalid_response', 'Recipient suggestions are malformed.');
+      }
+      return body.recipients.map(value => {
+        const item = asRecord(value);
+        if (typeof item.name !== 'string' || item.name.length > 320 ||
+            typeof item.address !== 'string' || item.address.length > 320 ||
+            !/^[^\s@,;<>]+@[^\s@,;<>]+$/u.test(item.address) ||
+            typeof item.lastSentAt !== 'string' || !Number.isFinite(Date.parse(item.lastSentAt))) {
+          throw new CoordinatorError(502, 'invalid_response', 'Recipient suggestions are malformed.');
+        }
+        return { name: item.name, address: item.address, lastSentAt: item.lastSentAt };
+      });
     },
     async getMailbox(): Promise<MailboxSnapshot> {
       const threads: MailboxSnapshot['threads'][number][] = [];

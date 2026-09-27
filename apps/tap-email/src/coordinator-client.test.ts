@@ -9,6 +9,31 @@ import {
 } from './coordinator-client';
 
 describe('TAP Email coordinator client', () => {
+  it('searches prior recipients through the authenticated transport and validates results', async () => {
+    const calls: unknown[] = [];
+    let recipients: unknown = [{ name: 'Maya Chen', address: 'maya@example.com', lastSentAt: '2026-09-26T12:00:00Z' }];
+    const client = createCoordinatorClient({
+      request(input, options) {
+        calls.push({ input, options });
+        return {
+          finalUrl: input.url, status: 200, statusText: 'OK', headers: [],
+          bodyText: JSON.stringify({ recipients }), bodyBase64: null, bodyKind: 'text',
+          bodyTruncated: false, sizeBytes: 200, elapsedMs: 5, contentType: 'application/json',
+        };
+      },
+    });
+    await expect(client.searchRecipients(' Maya + ')).resolves.toEqual(recipients);
+    expect(calls).toEqual([expect.objectContaining({
+      input: expect.objectContaining({ method: 'GET', url: `${coordinatorOrigin}/v1/recipients?q=Maya%20%2B` }),
+      options: { credentialRef: 'platform-session' },
+    })]);
+    await expect(client.searchRecipients(' ')).resolves.toEqual([]);
+    await expect(client.searchRecipients('x'.repeat(255))).rejects.toMatchObject({ code: 'invalid_recipient_query' });
+    expect(calls).toHaveLength(1);
+    recipients = [{ name: 'Malformed', address: 'not an email', lastSentAt: '2026-09-26T12:00:00Z' }];
+    await expect(client.searchRecipients('bad')).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
   it('loads every cursor-paginated mailbox page before replacing the local snapshot', async () => {
     const urls: string[] = [];
     const thread = (threadId: string, receivedAt: string) => ({

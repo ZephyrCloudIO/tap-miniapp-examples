@@ -77,6 +77,8 @@
           "storage.profile.zvec",
           "embeddings.models.read",
           "embeddings.compute",
+          "inference.list",
+          "inference.invoke",
           "chat.compose",
           "task.write",
           "artifacts.read",
@@ -114,6 +116,8 @@
               "tap.channels:list",
               "tap.channels:send-message",
               "tap.chat:send-text",
+              "tap.platform.inference:list-models",
+              "tap.platform.inference:send",
               "tap.workflows:list",
               "tap.workflows:invoke",
               "tap.workflow-runs:read"
@@ -294,6 +298,36 @@
       "apiVersion": 1,
       "options": {
         "actions": [
+          {
+            "id": "inference.list",
+            "resource": "tap.platform.inference:list-models",
+            "scopes": [
+              "workspace",
+              "conversation"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "inference.invoke",
+            "resource": "tap.platform.inference:send",
+            "scopes": [
+              "workspace",
+              "conversation"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          },
           {
             "id": "tap-email.view",
             "resource": "tap.tap-email:view",
@@ -595,6 +629,8 @@
               "storage.profile.zvec",
               "embeddings.models.read",
               "embeddings.compute",
+              "inference.list",
+              "inference.invoke",
               "chat.compose",
               "task.write",
               "artifacts.read",

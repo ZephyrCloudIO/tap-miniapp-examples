@@ -1341,6 +1341,7 @@ export function composeMessage(
     readonly bcc?: string;
     readonly attachments?: readonly MailDraftAttachment[];
     readonly sendAfter?: string;
+    readonly followUp?: MailDraftPayload['followUp'];
   },
 ): MailState {
   if (!state.accounts.some(account => account.accountId === accountId)) return state;
@@ -1372,6 +1373,7 @@ export function composeMessage(
         ? { attachments: draftIdentity.attachments }
         : {}),
       ...(draftIdentity?.sendAfter ? { sendAfter: draftIdentity.sendAfter } : {}),
+      ...(draftIdentity?.followUp ? { followUp: draftIdentity.followUp } : {}),
     },
   };
   return {
