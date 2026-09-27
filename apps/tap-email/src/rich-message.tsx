@@ -249,6 +249,11 @@ const isolatedDocumentStyles = `
   --tap-message-canvas: #fff;
   --tap-message-copy: #171817;
 }
+/* Simple mobile mail shares the reader canvas; authored newsletters keep their design. */
+:root[data-tap-mobile="true"][data-tap-presentation="adaptive"] { --tap-message-canvas: #FFFFFF; --tap-message-copy: #171717; }
+:root[data-tap-mobile="true"][data-tap-presentation="adaptive"][data-theme="dark"] { --tap-message-canvas: #171717; --tap-message-copy: #F5F5F5; }
+:root[data-tap-mobile="true"] body[data-tap-presentation="adaptive"] { font-size: 16px; line-height: 1.5; }
+:root[data-tap-mobile="true"] body[data-tap-presentation="adaptive"] > :first-child { margin-top: 0; }
 html, body { box-sizing: border-box; margin: 0; min-width: 0; max-width: 100%; }
 html { background: var(--tap-message-canvas); }
 body {
@@ -684,6 +689,7 @@ export function buildRichMessageDocument(
   value: string,
   remoteImages: Readonly<Record<string, string>> = {},
   options: {
+    readonly mobile?: boolean;
     readonly scriptsEnabled?: boolean;
     readonly presentation?: RichMessagePresentation;
     readonly showQuotedContent?: boolean;
@@ -709,6 +715,7 @@ export function buildRichMessageDocument(
   const baseStyles = parsed.createElement('style');
   baseStyles.setAttribute('data-tap-message-styles', '');
   baseStyles.textContent = isolatedDocumentStyles;
+  parsed.documentElement.dataset.tapMobile = String(options.mobile ?? false);
   parsed.documentElement.dataset.theme = theme;
   parsed.documentElement.dataset.tapPresentation = presentation;
   parsed.documentElement.dataset.tapShowQuoted = String(showQuotedContent);
@@ -737,6 +744,7 @@ function measuredFrameHeight(frame: HTMLIFrameElement): number {
 }
 
 interface RichMessageBodyProps {
+  readonly mobile?: boolean;
   readonly html: string;
   readonly scriptsEnabled?: boolean;
   readonly imagesEnabled?: boolean;
@@ -760,6 +768,7 @@ export function listenForRichMessageKeyDown(
 }
 
 export function RichMessageBody({
+  mobile = false,
   html,
   imagesEnabled = false,
   scriptsEnabled = true,
@@ -795,11 +804,12 @@ export function RichMessageBody({
   const source = useMemo(
     () => buildRichMessageDocument(html, remoteImages, {
       presentation,
+      mobile,
       scriptsEnabled: runScripts,
       showQuotedContent,
       theme,
     }),
-    [html, presentation, remoteImages, runScripts, showQuotedContent, theme],
+    [html, mobile, presentation, remoteImages, runScripts, showQuotedContent, theme],
   );
   const frameRef = useRef<HTMLIFrameElement>(null);
   const heightUpdateTimerRef = useRef<number | null>(null);
@@ -901,7 +911,7 @@ export function RichMessageBody({
       className="rich-message-shell"
       data-presentation={presentation}
       data-theme={theme}
-      style={{ padding: richMessageGutter }}
+      style={{ padding: mobile ? 0 : richMessageGutter }}
     >
       {runScripts && rendererUrl ? <IsolatedMessageFrame
         key={source}
