@@ -364,6 +364,7 @@ export async function queryMailWindow(sql: Sql, options: MailWindowQuery, journa
     const result = { rows: [...candidatesByKey.values()].sort((a, b) =>
       compare(String(b[2]), String(a[2])) || compare(String(a[0]), String(b[0])) || compare(String(a[1]), String(b[1]))).slice(0, 100) };
     for (let offset = 0; offset < result.rows.length; offset += 20) {
+      const previousCount = threads.length;
       const batch = result.rows.slice(offset, offset + 20);
       const candidates = batch.filter(([accountId, threadId, , matchesResource]) =>
         Number(matchesResource) === 1 || resourceOverrides.has(emailThreadKey({ accountId: String(accountId), threadId: String(threadId) })));
@@ -401,7 +402,7 @@ export async function queryMailWindow(sql: Sql, options: MailWindowQuery, journa
         }
         cursor = next;
       }
-      if (threads.length) options.onProgress?.([...threads]);
+      if (threads.length > previousCount) options.onProgress?.([...threads]);
     }
     if (result.rows.length < 100) return { threads, next: null };
   }

@@ -30,4 +30,4 @@ The old queries also attempted 1–7 LRU writes per view; new list queries perfo
 
 Regression coverage includes first-batch delivery, cancellation, metadata response boundaries and missing records, account-scoped startup, paging, hundreds of pending folder overrides, foreground read priority, staged corrections, and React navigation with delayed/stale reads. Existing command durability, migration, rollback, body budgets, and revision reconciliation tests remain part of the suite.
 
-Local validation: 438 Email tests passed; Email and TAP TypeScript checks passed; manifest validation passed; the 0.3.5 production package passed SDK, private React runtime, and source-map verification.
+Local validation: 439 Email tests passed; Email and TAP TypeScript checks passed; manifest validation passed; the 0.3.5 production package passed SDK, private React runtime, and source-map verification.

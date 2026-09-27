@@ -272,6 +272,16 @@ print('native SQL limits passed')
     expect((await store.loadThread(threads[0]!.accountId, threads[0]!.threadId))!.messages[0]!.bodyHtml).toHaveLength(1000);
   });
 
+  it('does not rerender unchanged search results while scanning later history', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...template, threads: Array.from({ length: 120 }, (_, index) => ({ ...thread(index), subject: index === 0 ? 'Only match' : 'Unrelated' })) });
+    const progress: number[] = [];
+    const result = await store.queryThreads({ query: 'Only match', onProgress: threads => progress.push(threads.length) });
+    expect(result.threads).toHaveLength(1);
+    expect(progress).toEqual([1]);
+  });
+
   it('cancels after the first visible batch without reading the rest of history', async () => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);
