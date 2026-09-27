@@ -157,3 +157,24 @@ Browser review confirmed aligned fields on desktop, no horizontal overflow at
 restoration states. All 343 Calendar tests and both typechecks pass. The
 production miniapp build and manifest validation pass. Deploy the updated
 gateway before the miniapp; no new migration is required.
+
+## Reminder settings
+
+Moved personal reminders, delivery channels, quiet hours, test notification, and
+shared channel configuration into Settings under “Reminders & notifications.”
+Removed the separate Notifications navigation item and screen. Private channel
+updates and booking approval actions remain available below the preferences;
+the pending-approval badge and count now appear with Settings.
+
+Preferences keep their existing saved state. Input handlers capture values
+before asynchronous authorization so checkbox and quiet-hour edits survive
+the event handler returning. The reminder select has an explicit accessible
+name. Quiet-hour labels span the row above their two time inputs, avoiding
+narrow wrapped copy on mobile.
+
+Browser review verified navigation, the SDK reminder select, saved timing and
+system notification changes after reload, and quiet-hours keyboard editing and
+persistence. Desktop, 390px, and 320px layouts fit without horizontal overflow.
+All 343 Calendar unit tests, typecheck, and production miniapp build pass. The
+existing hosted first-run test now expects reminders and the private channel
+inside Settings; the hosted TAP suite was not rerun for this relocation.

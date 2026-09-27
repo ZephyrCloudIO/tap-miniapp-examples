@@ -238,7 +238,6 @@ type Section =
   | "calendar"
   | "availability"
   | "booking-pages"
-  | "notifications"
   | "automations"
   | "settings";
 
@@ -960,7 +959,6 @@ const navigation = [
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "availability", label: "Availability", icon: CalendarClock },
   { id: "booking-pages", label: "Booking pages", icon: Globe2 },
-  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "automations", label: "Automations", icon: Workflow },
   { id: "settings", label: "Settings", icon: Settings2 },
 ] as const;
@@ -977,10 +975,6 @@ const sectionCopy: Readonly<Record<Section, { title: string; description: string
   "booking-pages": {
     title: "Booking pages",
     description: "Publish accountless scheduling at cal.with-tap.ai and understand conversion.",
-  },
-  notifications: {
-    title: "Calendar notifications",
-    description: "Approvals, meeting changes, reminders, and shared scheduling summaries.",
   },
   automations: {
     title: "Automations & tools",
@@ -2840,13 +2834,14 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
               <button
                 type="button"
                 className={section === item.id ? "active" : ""}
+                aria-label={item.label}
                 aria-current={section === item.id ? "page" : undefined}
                 key={item.id}
                 onClick={() => navigate(item.id)}
               >
                 <Icon />
                 <span>{item.label}</span>
-                {item.id === "notifications" && pendingCount > 0 ? <b>{pendingCount}</b> : null}
+                {item.id === "settings" && pendingCount > 0 ? <b aria-label={`${pendingCount} pending booking approvals`}>{pendingCount}</b> : null}
               </button>
             );
           })}
@@ -2995,22 +2990,15 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
               announce={announce}
             />
           ) : null}
-          {section === "notifications" ? (
-            <NotificationsScreen
-              state={state}
-              commit={commit}
-              announce={announce}
-              platform={calendarPlatform}
-              workspaceId={context?.workspaceId}
-              onApproveBooking={requestId => resolveBookingApproval(requestId, "approve")}
-              onDeclineBooking={requestId => resolveBookingApproval(requestId, "decline")}
-            />
-          ) : null}
           {section === "automations" ? <AutomationsScreen state={state} specialistPanel={<CalendarMcpPanel activityError={calendarActivitySync.error} gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
           {section === "settings" ? (
             <SettingsScreen
               state={state}
               commit={commit}
+              platform={calendarPlatform}
+              workspaceId={context?.workspaceId}
+              onApproveBooking={requestId => resolveBookingApproval(requestId, "approve")}
+              onDeclineBooking={requestId => resolveBookingApproval(requestId, "decline")}
               gateway={calendarGateway}
               meetingProviderConnections={meetingProviderConnections}
               onManageZoom={() => setConnectionTarget({ kind: "zoom" })}
@@ -3349,15 +3337,12 @@ function RailContext({ section, state, snapshot, analyticsAvailable }: { readonl
       { label: "Published profiles", value: String(state.bookingProfiles.filter(profile => profile.published).length), icon: <Globe2 /> },
       { label: "Confirmed bookings", value: analyticsAvailable ? String(confirmedBookings) : "—", icon: <CheckCircle2 /> },
     ],
-    notifications: [
-      { label: "Pending approvals", value: String(state.bookingRequests.filter(request => request.status === "pending").length), icon: <Bell /> },
-      { label: "Default reminder", value: `${state.notificationPreferences.reminderMinutes[0] ?? 10} minutes`, icon: <Clock3 /> },
-    ],
     automations: [
       { label: "Workflow nodes", value: String(state.workflowNodes.length), icon: <Workflow /> },
       { label: "Live specialist tools", value: "8", icon: <Bot /> },
     ],
     settings: [
+      { label: "Pending approvals", value: String(state.bookingRequests.filter(isActivePendingRequest).length), icon: <Bell /> },
       { label: "Connections", value: String(state.accounts.length), icon: <Cloud /> },
       { label: "Visible calendars", value: String(allCalendars(state).filter(calendar => calendar.visible).length), icon: <Eye /> },
     ],
@@ -5081,7 +5066,7 @@ function BookingInsightsDialog({ profile, eventType, snapshot, liveAnalytics, on
   );
 }
 
-function NotificationsScreen({ state, commit, announce, platform, workspaceId, onApproveBooking, onDeclineBooking }: { readonly state: CalendarState; readonly commit: CommitCalendarState; readonly announce: (message: string) => void; readonly platform: CalendarPlatform; readonly workspaceId: string | undefined; readonly onApproveBooking: (requestId: string) => Promise<void>; readonly onDeclineBooking: (requestId: string) => Promise<void> }) {
+function NotificationSettings({ state, commit, announce, platform, workspaceId, onApproveBooking, onDeclineBooking }: { readonly state: CalendarState; readonly commit: CommitCalendarState; readonly announce: (message: string) => void; readonly platform: CalendarPlatform; readonly workspaceId: string | undefined; readonly onApproveBooking: (requestId: string) => Promise<void>; readonly onDeclineBooking: (requestId: string) => Promise<void> }) {
   const createEntityId = useEntityId();
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
   const [resolvingRequestId, setResolvingRequestId] = useState<string | null>(null);
@@ -5134,7 +5119,20 @@ function NotificationsScreen({ state, commit, announce, platform, workspaceId, o
   };
   return (
     <>
-    <div className="notifications-layout">
+    <div className="notification-settings-group">
+      <section className="notification-settings panel" aria-labelledby="reminder-settings-title">
+        <header><span className="eyebrow">Preferences</span><h2 id="reminder-settings-title">Reminders & notifications</h2><p>Defaults apply unless an Event Type overrides them.</p></header>
+        <label className="setting-row"><span><strong>System notification</strong><small>Show a notification before meetings</small></span><span className="switch"><input type="checkbox" checked={state.notificationPreferences.system} onChange={event => { const system = event.currentTarget.checked; void commit(current => updateNotificationPreferences(current, { system })); }} /><span /></span></label>
+        <label className="field"><span>Remind me</span><CalendarSelect aria-label="Remind me" value={String(state.notificationPreferences.reminderMinutes[0] ?? 10)} onValueChange={value => void commit(current => updateNotificationPreferences(current, { reminderMinutes: [Number(value)] }))}><SelectItem value="5">5 minutes before</SelectItem><SelectItem value="10">10 minutes before</SelectItem><SelectItem value="15">15 minutes before</SelectItem><SelectItem value="30">30 minutes before</SelectItem></CalendarSelect></label>
+        <div className="delivery-grid">
+          {(["tap", "email", "sms", "whatsapp", "telegram"] as const).map(channel => (
+            <label key={channel}><input type="checkbox" checked={state.notificationPreferences[channel]} onChange={event => { const enabled = event.currentTarget.checked; void commit(current => updateNotificationPreferences(current, { [channel]: enabled })); }} /><span>{channel === "tap" ? "TAP channel" : channel === "sms" ? "SMS" : channel === "whatsapp" ? "WhatsApp" : channel.charAt(0).toUpperCase() + channel.slice(1)}</span>{channel === "sms" || channel === "whatsapp" ? <small>Consent required</small> : null}</label>
+          ))}
+        </div>
+        <div className="quiet-hours"><MoonIcon /><div><strong>Quiet hours</strong><small>Urgent changes still appear in TAP</small></div><label className="field"><span>Start</span><input type="time" value={state.notificationPreferences.quietHoursStart} onChange={event => { const value = event.currentTarget.value; void commit(current => updateNotificationPreferences(current, { quietHoursStart: value })); }} /></label><label className="field"><span>End</span><input type="time" value={state.notificationPreferences.quietHoursEnd} onChange={event => { const value = event.currentTarget.value; void commit(current => updateNotificationPreferences(current, { quietHoursEnd: value })); }} /></label></div>
+        <button type="button" className="secondary-button full-width" onClick={() => void testNotification()}><Bell /> Send test notification</button>
+        <div className="shared-channels"><header><div><span className="eyebrow">Shared summaries</span><h3>Configured channels</h3></div><button type="button" className="icon-button" aria-label="Add shared channel" onClick={() => setChannelDialogOpen(true)}><Plus /></button></header>{sharedChannels.map(channel => <div key={channel.id}><span><Users /></span><p><strong>{channel.name}</strong><small>{channel.scope} · Permission-aware summaries</small></p><span className="switch"><input type="checkbox" checked={channel.enabled} onChange={event => { const enabled = event.currentTarget.checked; void commit(current => ({ ...current, notificationChannels: current.notificationChannels.map(item => item.id === channel.id ? { ...item, enabled } : item) })); }} aria-label={`${channel.enabled ? "Disable" : "Enable"} ${channel.name}`} /><span /></span></div>)}{sharedChannels.length === 0 ? <div className="shared-channel-empty"><span><Users /></span><p><strong>No shared channels yet</strong><small>Add one for a team, calendar, or Event Type.</small></p></div> : null}</div>
+      </section>
       <section className="channel-panel panel">
         <header><div className="channel-title"><span><MessageSquareText /></span><div><span className="eyebrow">Private channel</span><h2>{privateChannel?.name ?? "TAP Calendar Notifications"}</h2><p>Only you and authorized delegates can see full details.</p></div></div><button type="button" className="secondary-button" onClick={() => void ensureChannel()}><ExternalLink /> {privateChannel ? "Verify in TAP" : "Create in TAP"}</button></header>
         <div className="channel-feed">
@@ -5154,19 +5152,6 @@ function NotificationsScreen({ state, commit, announce, platform, workspaceId, o
           })}
         </div>
       </section>
-      <aside className="notification-settings panel">
-        <header><span className="eyebrow">Personal reminders</span><h2>Before a meeting</h2><p>Defaults apply unless an Event Type overrides them.</p></header>
-        <label className="setting-row"><span><strong>System notification</strong><small>Default: 10 minutes before</small></span><span className="switch"><input type="checkbox" checked={state.notificationPreferences.system} onChange={event => void commit(current => updateNotificationPreferences(current, { system: event.currentTarget.checked }))} /><span /></span></label>
-        <label className="field"><span>Reminder offsets</span><CalendarSelect value={String(state.notificationPreferences.reminderMinutes[0] ?? 10)} onValueChange={value => void commit(current => updateNotificationPreferences(current, { reminderMinutes: [Number(value)] }))}><SelectItem value="5">5 minutes before</SelectItem><SelectItem value="10">10 minutes before</SelectItem><SelectItem value="15">15 minutes before</SelectItem><SelectItem value="30">30 minutes before</SelectItem></CalendarSelect></label>
-        <div className="delivery-grid">
-          {(["tap", "email", "sms", "whatsapp", "telegram"] as const).map(channel => (
-            <label key={channel}><input type="checkbox" checked={state.notificationPreferences[channel]} onChange={event => void commit(current => updateNotificationPreferences(current, { [channel]: event.currentTarget.checked }))} /><span>{channel === "tap" ? "TAP channel" : channel.charAt(0).toUpperCase() + channel.slice(1)}</span>{channel === "sms" || channel === "whatsapp" ? <small>Consent required</small> : null}</label>
-          ))}
-        </div>
-        <div className="quiet-hours"><MoonIcon /><div><strong>Quiet hours</strong><small>Urgent changes still appear in TAP</small></div><label className="field"><span>Start</span><input type="time" value={state.notificationPreferences.quietHoursStart} onChange={event => void commit(current => updateNotificationPreferences(current, { quietHoursStart: event.currentTarget.value }))} /></label><label className="field"><span>End</span><input type="time" value={state.notificationPreferences.quietHoursEnd} onChange={event => void commit(current => updateNotificationPreferences(current, { quietHoursEnd: event.currentTarget.value }))} /></label></div>
-        <button type="button" className="secondary-button full-width" onClick={() => void testNotification()}><Bell /> Send test notification</button>
-        <div className="shared-channels"><header><div><span className="eyebrow">Shared summaries</span><h3>Configured channels</h3></div><button type="button" className="icon-button" aria-label="Add shared channel" onClick={() => setChannelDialogOpen(true)}><Plus /></button></header>{sharedChannels.map(channel => <div key={channel.id}><span><Users /></span><p><strong>{channel.name}</strong><small>{channel.scope} · Permission-aware summaries</small></p><span className="switch"><input type="checkbox" checked={channel.enabled} onChange={event => void commit(current => ({ ...current, notificationChannels: current.notificationChannels.map(item => item.id === channel.id ? { ...item, enabled: event.currentTarget.checked } : item) }))} aria-label={`${channel.enabled ? "Disable" : "Enable"} ${channel.name}`} /><span /></span></div>)}{sharedChannels.length === 0 ? <div className="shared-channel-empty"><span><Users /></span><p><strong>No shared channels yet</strong><small>Add one for a team, calendar, or Event Type.</small></p></div> : null}</div>
-      </aside>
     </div>
     {channelDialogOpen ? (
       <AddNotificationChannelDialog
@@ -5256,6 +5241,10 @@ function AutomationsScreen({ state, specialistPanel }: { readonly state: Calenda
 function SettingsScreen({
   state,
   commit,
+  platform,
+  workspaceId,
+  onApproveBooking,
+  onDeclineBooking,
   gateway,
   meetingProviderConnections,
   onManageZoom,
@@ -5266,6 +5255,10 @@ function SettingsScreen({
 }: {
   readonly state: CalendarState;
   readonly commit: CommitCalendarState;
+  readonly platform: CalendarPlatform;
+  readonly workspaceId: string | undefined;
+  readonly onApproveBooking: (requestId: string) => Promise<void>;
+  readonly onDeclineBooking: (requestId: string) => Promise<void>;
   readonly gateway: CalendarGatewayClient;
   readonly meetingProviderConnections: MeetingProviderConnectionsState;
   readonly onManageZoom: () => void;
@@ -5349,65 +5342,76 @@ function SettingsScreen({
   return (
     <>
       <div className="settings-layout">
-        <section className="connections-panel panel">
-          <header>
-            <div><span className="eyebrow">Provider connections</span><h2>Accounts & calendars</h2><p>Visibility, conflicts, and destination are intentionally independent.</p></div>
-            <button type="button" className="primary-button" onClick={onAddAccount}><Plus /> Add account</button>
-          </header>
-          {state.accounts.length === 0 ? (
-            <ProductEmptyState
-              icon={<Cloud />}
-              title="No calendar accounts connected"
-              description="Add an account you own or one shared with you, then choose exactly how each calendar participates."
-              action={<button type="button" className="primary-button" onClick={onAddAccount}><Plus /> Add calendar account</button>}
-            />
-          ) : null}
-          {state.accounts.map(account => (
-            <CalendarAccountGroup
-              account={account}
-              commit={commit}
-              key={account.id}
-              onAddCalendar={() => onAddCalendar(account.id)}
-              onDisconnect={() => setDisconnectingAccountId(account.id)}
-              onEdit={() => setEditingAccountId(account.id)}
-            />
-          ))}
-          <div className="meeting-provider-settings" aria-labelledby="meeting-provider-settings-title">
+        <div className="settings-main">
+          <section className="connections-panel panel">
             <header>
-              <div>
-                <span className="eyebrow">Conferencing</span>
-                <h3 id="meeting-provider-settings-title">Meeting providers</h3>
-                <p>Choose which service creates the join link when TAP Calendar books a meeting.</p>
-              </div>
+              <div><span className="eyebrow">Provider connections</span><h2>Accounts & calendars</h2><p>Visibility, conflicts, and destination are intentionally independent.</p></div>
+              <button type="button" className="primary-button" onClick={onAddAccount}><Plus /> Add account</button>
             </header>
-            {meetingProviderConnections.status === "error" ? (
-              <Alert variant="destructive" role="alert">
-                <AlertTriangle aria-hidden="true" />
-                <AlertTitle>Zoom status unavailable</AlertTitle>
-                <AlertDescription>{meetingProviderConnections.message}</AlertDescription>
-              </Alert>
+            {state.accounts.length === 0 ? (
+              <ProductEmptyState
+                icon={<Cloud />}
+                title="No calendar accounts connected"
+                description="Add an account you own or one shared with you, then choose exactly how each calendar participates."
+                action={<button type="button" className="primary-button" onClick={onAddAccount}><Plus /> Add calendar account</button>}
+              />
             ) : null}
-            <div className="meeting-provider-row">
-              <span className="provider-icon provider-google"><Video /></span>
-              <span className="meeting-provider-copy">
-                <strong>Google Meet</strong>
-                <small>Included automatically with your Google Destination Calendar.</small>
-              </span>
-              <span className="status-chip status-confirmed"><CheckCircle2 /> Available</span>
+            {state.accounts.map(account => (
+              <CalendarAccountGroup
+                account={account}
+                commit={commit}
+                key={account.id}
+                onAddCalendar={() => onAddCalendar(account.id)}
+                onDisconnect={() => setDisconnectingAccountId(account.id)}
+                onEdit={() => setEditingAccountId(account.id)}
+              />
+            ))}
+            <div className="meeting-provider-settings" aria-labelledby="meeting-provider-settings-title">
+              <header>
+                <div>
+                  <span className="eyebrow">Conferencing</span>
+                  <h3 id="meeting-provider-settings-title">Meeting providers</h3>
+                  <p>Choose which service creates the join link when TAP Calendar books a meeting.</p>
+                </div>
+              </header>
+              {meetingProviderConnections.status === "error" ? (
+                <Alert variant="destructive" role="alert">
+                  <AlertTriangle aria-hidden="true" />
+                  <AlertTitle>Zoom status unavailable</AlertTitle>
+                  <AlertDescription>{meetingProviderConnections.message}</AlertDescription>
+                </Alert>
+              ) : null}
+              <div className="meeting-provider-row">
+                <span className="provider-icon provider-google"><Video /></span>
+                <span className="meeting-provider-copy">
+                  <strong>Google Meet</strong>
+                  <small>Included automatically with your Google Destination Calendar.</small>
+                </span>
+                <span className="status-chip status-confirmed"><CheckCircle2 /> Available</span>
+              </div>
+              <div className="meeting-provider-row">
+                <span className="provider-icon provider-zoom"><Video /></span>
+                <span className="meeting-provider-copy">
+                  <strong>Zoom</strong>
+                  <small>{zoomConnection?.status === "connected" ? zoomConnection.label : "Connect your Zoom account to create real Zoom meeting links."}</small>
+                </span>
+                <span className={`status-chip ${zoomStatusClass}`}>{zoomConnection?.status === "connected" ? <CheckCircle2 /> : zoomConnection?.status === "attention" || meetingProviderConnections.status === "error" ? <AlertTriangle /> : null}{zoomStatusLabel}</span>
+                <Button type="button" variant="outline" size="sm" disabled={meetingProviderConnections.status === "loading"} onClick={onManageZoom}>
+                  {zoomConnection?.status === "connected" ? "Manage" : zoomConnection ? "Continue" : meetingProviderConnections.status === "error" ? "Review" : "Connect Zoom"}
+                </Button>
+              </div>
             </div>
-            <div className="meeting-provider-row">
-              <span className="provider-icon provider-zoom"><Video /></span>
-              <span className="meeting-provider-copy">
-                <strong>Zoom</strong>
-                <small>{zoomConnection?.status === "connected" ? zoomConnection.label : "Connect your Zoom account to create real Zoom meeting links."}</small>
-              </span>
-              <span className={`status-chip ${zoomStatusClass}`}>{zoomConnection?.status === "connected" ? <CheckCircle2 /> : zoomConnection?.status === "attention" || meetingProviderConnections.status === "error" ? <AlertTriangle /> : null}{zoomStatusLabel}</span>
-              <Button type="button" variant="outline" size="sm" disabled={meetingProviderConnections.status === "loading"} onClick={onManageZoom}>
-                {zoomConnection?.status === "connected" ? "Manage" : zoomConnection ? "Continue" : meetingProviderConnections.status === "error" ? "Review" : "Connect Zoom"}
-              </Button>
-            </div>
-          </div>
-        </section>
+          </section>
+          <NotificationSettings
+            state={state}
+            commit={commit}
+            announce={announce}
+            platform={platform}
+            workspaceId={workspaceId}
+            onApproveBooking={onApproveBooking}
+            onDeclineBooking={onDeclineBooking}
+          />
+        </div>
         <aside className="settings-aside"><section className="panel"><span className="eyebrow">Default behavior</span><h2>Scheduling</h2><label className="field"><span>Destination calendar</span><CalendarSelect placeholder="No writable calendar" value={allCalendars(state).find(calendar => calendar.destination)?.id ?? ""} disabled={!allCalendars(state).some(calendar => calendar.writable)} onValueChange={value => void commit(current => updateCalendar(current, value, { destination: true }), "Destination Calendar updated.")}>{allCalendars(state).filter(calendar => calendar.writable).map(calendar => <SelectItem value={calendar.id} key={calendar.id}>{calendar.name}</SelectItem>)}</CalendarSelect></label><div className="field"><span>Viewer time zone</span><div className="viewer-time-zone"><Globe2 /><span><strong>Automatic</strong><small>{detectedTimeZone()}</small></span></div><small>Calendar views follow this device. Availability schedules have their own configurable time zone.</small></div><label className="setting-row"><span><strong>Offline read-only</strong><small>Keep the last safe calendar view available</small></span><span className="switch"><input type="checkbox" defaultChecked /><span /></span></label></section><section className="panel privacy-card"><ShieldCheck /><div><span className="eyebrow">Privacy boundary</span><h3>Busy by default</h3><p>Shared calendars and team views expose free/busy unless every viewer can read event details. Work Blocks never copy private task or message content to a provider.</p></div></section>{preview ? <section className="panel danger-card"><span className="eyebrow">Local preview</span><h3>Clear local Calendar data</h3><p>Remove locally configured accounts, events, availability, booking pages, and channels.</p><button type="button" className="secondary-button" onClick={() => { resetPreviewCalendar(gateway.principalId); announce("Local Calendar data cleared."); globalThis.location.reload(); }}><RefreshCw /> Clear local data</button></section> : null}</aside>
       </div>
       {editingAccount ? (
