@@ -1335,7 +1335,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       setWindowRead(current => ({ scope: windowScope, pending: true,
         status: current?.scope === windowScope && current.status === 'ready' ? 'ready' : 'loading' }));
       // Flush local overlays/corrections before replacing the displayed window.
-      await persistenceQueue.flush();
+      await persistenceQueue.flushCurrent();
       signal.throwIfAborted();
       const result = await store.queryThreads!({ accountId: state.selectedAccountId,
         split: state.selectedSplit, query, after: windowCursor, signal, bodies: true,
@@ -1456,7 +1456,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     if (!hydrated || !store.summarize) return;
     let active = true;
     const timer = setTimeout(() => {
-      void persistenceQueue.flush().then(() => store.summarize!(state.selectedAccountId)).then(summary => {
+      void persistenceQueue.flushCurrent().then(() => store.summarize!(state.selectedAccountId)).then(summary => {
         if (active) setReplicaSummary({ accountId: state.selectedAccountId, value: summary });
       }).catch(() => undefined);
     }, 250);
