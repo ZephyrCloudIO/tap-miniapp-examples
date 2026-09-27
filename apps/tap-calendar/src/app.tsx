@@ -285,6 +285,7 @@ interface ProviderBackedSubmissionResult {
 }
 
 type CalendarConnectionTarget =
+  | { readonly kind: "zoom" }
   | { readonly kind: "account" }
   | { readonly kind: "calendars"; readonly accountId: string };
 
@@ -2981,10 +2982,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
               commit={commit}
               gateway={calendarGateway}
               meetingProviderConnections={meetingProviderConnections}
-              onRefreshMeetingProviderConnections={refreshMeetingProviderConnections}
-              onRequireManage={() =>
-                requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)
-              }
+              onManageZoom={() => setConnectionTarget({ kind: "zoom" })}
               preview={preview}
               announce={announce}
               onAddAccount={() => setConnectionTarget({ kind: "account" })}
@@ -3086,7 +3084,16 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
           }}
         />
       ) : null}
-      {connectionTarget ? (
+      {connectionTarget?.kind === "zoom" ? (
+        <ZoomConnectionDialog
+          gateway={calendarGateway}
+          connectionsState={meetingProviderConnections}
+          onRefresh={refreshMeetingProviderConnections}
+          onRequireManage={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)}
+          onClose={() => setConnectionTarget(null)}
+          announce={announce}
+        />
+      ) : connectionTarget ? (
         <ConnectCalendarDialog
           gateway={calendarGateway}
           destinationExists={Boolean(writableDestination)}
@@ -3094,6 +3101,7 @@ export function TapCalendarApp({ preview = false, context }: TapCalendarAppProps
             ? state.accounts.find(account => account.id === connectionTarget.accountId) ?? null
             : null}
           onClose={() => setConnectionTarget(null)}
+          onConnectZoom={() => setConnectionTarget({ kind: "zoom" })}
           onSubmitAccount={async input => {
             let domainError: string | null = null;
             const changed = await commit(current => {
@@ -4872,7 +4880,7 @@ function EventTypeDialog({
               <FieldLabel htmlFor="event-type-provider">Meeting provider</FieldLabel>
               <NativeSelect id="event-type-provider" name="event-type-provider" value={location} disabled={submitting} onChange={event => setLocation(event.currentTarget.value as MeetingLocation)}>
                 <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
-                {zoomConnected ? <NativeSelectOption value="zoom">Zoom</NativeSelectOption> : null}
+                <NativeSelectOption value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</NativeSelectOption>
               </NativeSelect>
               <FieldDescription>{meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
             </Field>
@@ -5101,8 +5109,7 @@ function SettingsScreen({
   commit,
   gateway,
   meetingProviderConnections,
-  onRefreshMeetingProviderConnections,
-  onRequireManage,
+  onManageZoom,
   preview,
   announce,
   onAddAccount,
@@ -5112,8 +5119,7 @@ function SettingsScreen({
   readonly commit: CommitCalendarState;
   readonly gateway: CalendarGatewayClient;
   readonly meetingProviderConnections: MeetingProviderConnectionsState;
-  readonly onRefreshMeetingProviderConnections: RefreshMeetingProviderConnections;
-  readonly onRequireManage: RequireCalendarManage;
+  readonly onManageZoom: () => void;
   readonly preview: boolean;
   readonly announce: (message: string) => void;
   readonly onAddAccount: () => void;
@@ -5121,7 +5127,6 @@ function SettingsScreen({
 }) {
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [disconnectingAccountId, setDisconnectingAccountId] = useState<string | null>(null);
-  const [zoomDialogOpen, setZoomDialogOpen] = useState(false);
   const editingAccount = state.accounts.find(account => account.id === editingAccountId) ?? null;
   const disconnectingAccount = state.accounts.find(account => account.id === disconnectingAccountId) ?? null;
   const zoomConnection = meetingProviderConnections.status === "ready"
@@ -5248,7 +5253,7 @@ function SettingsScreen({
                 <small>{zoomConnection?.status === "connected" ? zoomConnection.label : "Connect your Zoom account to create real Zoom meeting links."}</small>
               </span>
               <span className={`status-chip ${zoomStatusClass}`}>{zoomConnection?.status === "connected" ? <CheckCircle2 /> : zoomConnection?.status === "attention" || meetingProviderConnections.status === "error" ? <AlertTriangle /> : null}{zoomStatusLabel}</span>
-              <Button type="button" variant="outline" size="sm" disabled={meetingProviderConnections.status === "loading"} onClick={() => setZoomDialogOpen(true)}>
+              <Button type="button" variant="outline" size="sm" disabled={meetingProviderConnections.status === "loading"} onClick={onManageZoom}>
                 {zoomConnection?.status === "connected" ? "Manage" : zoomConnection ? "Continue" : meetingProviderConnections.status === "error" ? "Review" : "Connect Zoom"}
               </Button>
             </div>
@@ -5271,16 +5276,6 @@ function SettingsScreen({
           onSubmit={replacementId => disconnectAccount(disconnectingAccount.id, replacementId)}
         />
       ) : null}
-      {zoomDialogOpen ? (
-        <ZoomConnectionDialog
-          gateway={gateway}
-          connectionsState={meetingProviderConnections}
-          onRefresh={onRefreshMeetingProviderConnections}
-          onRequireManage={onRequireManage}
-          onClose={() => setZoomDialogOpen(false)}
-          announce={announce}
-        />
-      ) : null}
     </>
   );
 }
@@ -5297,7 +5292,7 @@ const isMissingMeetingProviderConnection = (cause: unknown): boolean =>
   cause instanceof CalendarGatewayError &&
   (cause.code === "meeting_provider_connection_not_found" || cause.code === "connection_not_found");
 
-function ZoomConnectionDialog({
+export function ZoomConnectionDialog({
   gateway,
   connectionsState,
   onRefresh,
@@ -5312,6 +5307,7 @@ function ZoomConnectionDialog({
   readonly onClose: () => void;
   readonly announce: (message: string) => void;
 }) {
+  const createEntityId = useEntityId();
   const connection = connectionsState.status === "ready"
     ? preferredZoomConnection(connectionsState.connections)
     : null;
@@ -5320,6 +5316,7 @@ function ZoomConnectionDialog({
   const [busy, setBusy] = useState<"start" | "open" | "check" | "disconnect" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const checkingRef = useRef(false);
 
   const beginConnection = async (): Promise<void> => {
     if (busy !== null || connection?.status === "connected") return;
@@ -5329,14 +5326,14 @@ function ZoomConnectionDialog({
     try {
       await onRequireManage();
       const result = await gateway.startOAuth({
-        id: `zoom-${globalThis.crypto.randomUUID()}`,
+        id: createEntityId("zoom"),
         provider: "zoom",
         label: "Zoom",
       });
       setPendingConnectionId(result.connectionId);
       setAuthorizationUrl(result.authorizationUrl);
       setNotice("Zoom is ready to authorize. Open Zoom, approve access, then return here.");
-      void onRefresh().catch(() => {
+      await onRefresh().catch(() => {
         // The authorization link remains usable; the status can be checked after returning.
       });
     } catch (cause: unknown) {
@@ -5355,12 +5352,13 @@ function ZoomConnectionDialog({
       authorizationUrl,
     );
     if (message) setError(message);
-    else setNotice("Zoom opened in your browser. Approve access there, then return and check the connection.");
+    else setNotice("Zoom opened in your browser. Approve access there, then return here to finish connecting.");
     setBusy(null);
   };
 
   const checkConnection = async (): Promise<void> => {
-    if (busy !== null) return;
+    if (busy !== null || checkingRef.current) return;
+    checkingRef.current = true;
     setBusy("check");
     setError(null);
     setNotice(null);
@@ -5382,12 +5380,32 @@ function ZoomConnectionDialog({
       } else {
         setNotice("Zoom is still waiting for authorization. Finish approving access in your browser, then check again.");
       }
-    } catch {
-      setError("TAP Calendar couldn't check your Zoom connection. Try again.");
+    } catch (cause: unknown) {
+      await onRefresh().catch(() => {
+        // Keep the verification error visible if the status refresh also fails.
+      });
+      setError(providerConnectionErrorMessage(cause, "Zoom", "verify"));
     } finally {
+      checkingRef.current = false;
       setBusy(null);
     }
   };
+
+  const checkOnReturn = useEffectEvent(() => {
+    if (document.visibilityState === "visible" &&
+      (authorizationUrl !== null || connection?.status === "pending")) {
+      void checkConnection();
+    }
+  });
+  useEffect(() => {
+    const onReturn = () => checkOnReturn();
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, []);
 
   const refreshStatus = async (): Promise<void> => {
     if (busy !== null) return;
@@ -5418,8 +5436,8 @@ function ZoomConnectionDialog({
       await onRefresh();
       announce("Zoom disconnected.");
       onClose();
-    } catch {
-      setError("TAP Calendar couldn't disconnect Zoom. Try again.");
+    } catch (cause: unknown) {
+      setError(providerConnectionErrorMessage(cause, "Zoom", "disconnect"));
     } finally {
       setBusy(null);
     }
@@ -5428,7 +5446,7 @@ function ZoomConnectionDialog({
   const authorizationPending = authorizationUrl !== null;
   const connected = connection?.status === "connected";
   return (
-    <Modal title={connected ? "Manage Zoom" : "Connect Zoom"} description="Authorize your Zoom account so TAP Calendar can create real Zoom meeting links." onClose={onClose}>
+    <Modal title={connected ? "Manage Zoom" : "Connect Zoom"} description="Connect Zoom for meeting links. A Google Destination Calendar is still required to save your events." onClose={onClose}>
       <div className="zoom-connection-dialog" aria-busy={busy !== null}>
         {error ? (
           <Alert variant="destructive" role="alert">
@@ -5453,7 +5471,7 @@ function ZoomConnectionDialog({
         ) : authorizationPending ? (
           <div className="meeting-provider-dialog-summary">
             <span className="provider-icon provider-zoom"><ExternalLink /></span>
-            <span><strong>Authorization waiting</strong><small>Connection {pendingConnectionId ?? "pending"}</small></span>
+            <span><strong>Authorization waiting</strong><small>Approve access in Zoom, then return here.</small></span>
             <span className="status-chip status-pending">Pending</span>
           </div>
         ) : connection ? (
@@ -5484,6 +5502,7 @@ function ZoomConnectionDialog({
             <>
               <Button type="button" variant="outline" onClick={() => void launchAuthorization()} disabled={busy !== null}><ExternalLink data-icon="inline-start" />{busy === "open" ? "Opening…" : "Open Zoom"}</Button>
               <Button type="button" onClick={() => void checkConnection()} disabled={busy !== null}><RefreshCw data-icon="inline-start" className={busy === "check" ? "is-spinning" : undefined} />Check connection</Button>
+              <Button type="button" variant="outline" onClick={() => void beginConnection()} disabled={busy !== null}>Restart connection</Button>
             </>
           ) : connection?.status === "pending" ? (
             <>
@@ -6185,7 +6204,7 @@ function ScheduleMeetingEditor({
             >
               {mode === "workspace" ? <NativeSelectOption value="none">No video call</NativeSelectOption> : null}
               <NativeSelectOption value="google-meet">Google Meet</NativeSelectOption>
-              {zoomConnected ? <NativeSelectOption value="zoom">Zoom</NativeSelectOption> : null}
+              <NativeSelectOption value="zoom" disabled={!zoomConnected}>{zoomConnected ? "Zoom" : "Zoom (connect in Settings)"}</NativeSelectOption>
             </NativeSelect>
             <FieldDescription>{location === null ? "This event marks you as busy. Add a video call if you need one." : meetingProviderConnectionDescription(zoomConnected)}</FieldDescription>
           </Field>
@@ -6238,11 +6257,12 @@ const createCalendarDraft = (key: string, destination: boolean): CalendarDraft =
   destination,
 });
 
-function ConnectCalendarDialog({
+export function ConnectCalendarDialog({
   gateway,
   destinationExists,
   existingAccount,
   onClose,
+  onConnectZoom,
   onSubmitAccount,
   onSubmitCalendars,
 }: {
@@ -6250,6 +6270,7 @@ function ConnectCalendarDialog({
   readonly destinationExists: boolean;
   readonly existingAccount: CalendarAccount | null;
   readonly onClose: () => void;
+  readonly onConnectZoom: () => void;
   readonly onSubmitAccount: (
     input: Parameters<typeof addConnectedAccount>[1],
   ) => Promise<string | null>;
@@ -6488,10 +6509,10 @@ function ConnectCalendarDialog({
   };
   return (
     <Modal
-      title={addingToExisting ? `Add calendars to ${existingAccount.label}` : "Add a calendar account"}
+      title={addingToExisting ? `Add calendars to ${existingAccount.label}` : "Add an account"}
       description={addingToExisting
         ? "Add one or more calendars from this provider account and configure each calendar independently."
-        : "Configure an account and all calendars you want TAP Calendar to use."}
+        : "Connect a calendar account or Zoom for meeting links."}
       onClose={onClose}
     >
       <form
@@ -6634,10 +6655,14 @@ function ConnectCalendarDialog({
           <div className="form-grid provider-account-fields">
             <Field>
               <FieldLabel htmlFor="calendar-account-provider">Provider</FieldLabel>
-              <NativeSelect id="calendar-account-provider" name="calendar-account-provider" value={provider} disabled={submitting || oauthPendingId !== null || gatewayStatus !== "online" || providerStatuses.length === 0} onChange={event => setProvider(event.currentTarget.value as CalendarProvider)}>
+              <NativeSelect id="calendar-account-provider" name="calendar-account-provider" value={provider} disabled={submitting || oauthPendingId !== null} onChange={event => {
+                if (event.currentTarget.value === "zoom") onConnectZoom();
+                else setProvider(event.currentTarget.value as CalendarProvider);
+              }}>
                 {providerStatuses.length > 0
                   ? providerStatuses.map(status => <NativeSelectOption value={status.id} key={status.id}>{providerNames[status.id]}</NativeSelectOption>)
                   : <NativeSelectOption value={provider}>{providerNames[provider]}</NativeSelectOption>}
+                <NativeSelectOption value="zoom">Zoom</NativeSelectOption>
               </NativeSelect>
             </Field>
             <Field>

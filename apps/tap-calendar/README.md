@@ -156,6 +156,23 @@ be removed, including the last one. Personal events use the same live conflict
 validation, Google provider commit, and durable recovery as meetings. The channel
 scheduler continues to require an explicit attendee.
 
+### Connect Zoom
+
+Choose **Add account → Provider → Zoom**, or use **Settings → Meeting providers →
+Connect Zoom**. Select **Connect Zoom**, then **Open Zoom** and approve access in
+your browser. Returning to Calendar checks the connection automatically;
+**Check connection** also works manually. Use **Restart connection** if the
+authorization link expires or access was cancelled.
+
+Once connected, Zoom is available for scheduled meetings and booking Event Types.
+Before connection, the Zoom option shows a setup hint and cannot be selected.
+A writable Google Destination Calendar is still required to save the event.
+Manage or disconnect Zoom from Settings; upcoming Zoom bookings must be cancelled
+before disconnecting their account.
+
+The gateway needs the Zoom OAuth app credentials and callback configuration
+described in [the gateway setup guide](../tap-calendar-gateway/README.md#enable-real-google-microsoft-or-zoom-authorization).
+
 ## Install in TAP
 
 Build the production host-installable package from the repository root. This
