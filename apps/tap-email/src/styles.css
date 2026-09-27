@@ -938,3 +938,6 @@ kbd {
 .body-coverage-account { padding-block: 12px; border-top: 1px solid var(--mail-border); overflow-wrap: anywhere; }
 .body-coverage-account button { margin-inline-end: 8px; margin-block-end: 8px; }
 .body-coverage-account small { display: block; }
+
+.mail-pull-sync { display: contents; }
+.mail-pull-sync-indicator { display: none; }
