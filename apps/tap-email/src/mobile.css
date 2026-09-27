@@ -71,3 +71,15 @@
   :root[data-tap-mobile] .thread-toolbar { display: grid; grid-template-columns: minmax(160px, .4fr) minmax(0, 1fr); align-items: center; padding: 6px 16px; }
   :root[data-tap-mobile] .capability-banner { padding: 4px 16px; }
 }
+
+:root[data-tap-mobile] .mail-pull-sync { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+:root[data-tap-mobile] .mail-pull-sync > .thread-list { height: auto; overscroll-behavior-y: none; transition: transform 180ms ease-out; }
+:root[data-tap-mobile] .mail-pull-sync.is-pulling > .thread-list { transition: none; }
+:root[data-tap-mobile] .mail-pull-sync-indicator { position: absolute; inset: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; overflow: hidden; pointer-events: none; color: var(--mail-muted); font-size: .8125rem; }
+:root[data-tap-mobile] .mail-pull-sync-indicator svg { width: 18px; height: 18px; flex-shrink: 0; transition: transform 160ms ease; }
+:root[data-tap-mobile] .mail-pull-sync-indicator .is-ready { transform: rotate(180deg); }
+:root[data-tap-mobile] .mail-pull-sync.is-syncing .mail-pull-sync-indicator svg { animation: sync-status-spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-tap-mobile] .mail-pull-sync > .thread-list,
+  :root[data-tap-mobile] .mail-pull-sync-indicator svg { transition: none; animation: none; }
+}
