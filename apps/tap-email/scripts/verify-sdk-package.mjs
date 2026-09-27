@@ -25,4 +25,4 @@ const activityModule = await (await container.get(activity.targets.quickjs.expos
 assert.deepEqual(Object.keys(activityModule), ['activitySource']);
 assert.equal(typeof activityModule.activitySource.get, 'function');
 await assert.rejects(() => activityModule.activitySource.get({ scope: 'workspace' }), /trusted self scope/);
-console.log(`verified SDK 0.19 package, signed live-tool schemas, and activity source ABI at ${output}`);
+console.log(`verified SDK ${descriptor.compatibility.tapSdk} package, signed live-tool schemas, and activity source ABI at ${output}`);

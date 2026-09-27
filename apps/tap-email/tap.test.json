@@ -11,8 +11,14 @@
       "permissionScenario": "default",
       "deniedActions": [],
       "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
-      "httpRouteFiles": ["tests/fixtures/tap-email.coordinator.http-routes.json", "tests/fixtures/tap-email.booking-links.http-routes.json"],
-      "requiredOrigins": ["https://tap-email-coordinator.theaiplatform.app", "https://calendar-api.theaiplatform.app"],
+      "httpRouteFiles": [
+        "tests/fixtures/tap-email.coordinator.http-routes.json",
+        "tests/fixtures/tap-email.booking-links.http-routes.json"
+      ],
+      "requiredOrigins": [
+        "https://tap-email-coordinator.theaiplatform.app",
+        "https://calendar-api.theaiplatform.app"
+      ],
       "requiredEffects": [
         "effect:external-network:https://calendar-api.theaiplatform.app",
         "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
@@ -32,11 +38,15 @@
         "effect:user-file:pick-open",
         "effect:user-file:read",
         "effect:user-file:pick-save",
-        "effect:user-file:overwrite"
+        "effect:user-file:overwrite",
+        "effect:host-api:tap.chat:ask-chloe"
       ],
       "credentialSlots": ["platform-session"],
       "environment": {
-        "viewport": { "width": 1440, "height": 900 },
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
         "locale": "en-US",
         "timezone": "America/New_York",
         "theme": "dark",
@@ -44,7 +54,10 @@
         "seed": 7401,
         "fixedNow": "2026-08-18T15:30:00Z"
       },
-      "artifacts": { "trace": "failure-only", "screenshots": "always" }
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always"
+      }
     },
     "tap-email-booking-links-denied": {
       "surface": "tap-email",
@@ -55,10 +68,17 @@
       "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
       "httpRouteFiles": [],
       "requiredOrigins": ["https://calendar-api.theaiplatform.app"],
-      "requiredEffects": ["effect:external-network:https://calendar-api.theaiplatform.app", "effect:credentials:http", "effect:storage:tap-email"],
+      "requiredEffects": [
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:storage:tap-email"
+      ],
       "credentialSlots": ["platform-session"],
       "environment": {
-        "viewport": { "width": 1440, "height": 900 },
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
         "locale": "en-US",
         "timezone": "America/New_York",
         "theme": "dark",
@@ -66,7 +86,10 @@
         "seed": 7403,
         "fixedNow": "2026-08-18T15:30:00Z"
       },
-      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
     },
     "tap-email-desktop-post-projection-revoked": {
       "surface": "tap-email",
@@ -84,7 +107,10 @@
       ],
       "credentialSlots": [],
       "environment": {
-        "viewport": { "width": 1440, "height": 900 },
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
         "locale": "en-US",
         "timezone": "America/New_York",
         "theme": "dark",
@@ -92,7 +118,118 @@
         "seed": 7402,
         "fixedNow": "2026-08-18T15:30:00Z"
       },
-      "artifacts": { "trace": "failure-only", "screenshots": "failure-only" }
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      }
+    },
+    "tap-email-chloe": {
+      "surface": "tap-email",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
+      "httpRouteFiles": [
+        "tests/fixtures/tap-email.chloe.http-routes.json",
+        "tests/fixtures/tap-email.booking-links.http-routes.json"
+      ],
+      "requiredOrigins": [
+        "https://tap-email-coordinator.theaiplatform.app",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:storage:tap-email",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.chat:ask-chloe",
+        "effect:host-api:tap.platform.inference:list-models",
+        "effect:host-api:tap.platform.inference:send",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:user-notification:os",
+        "effect:user-file:pick-open",
+        "effect:user-file:read",
+        "effect:user-file:pick-save",
+        "effect:user-file:overwrite"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7401,
+        "fixedNow": "2026-08-18T15:30:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always"
+      }
+    },
+    "tap-email-chloe-denied": {
+      "surface": "tap-email",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "deny:chat.ask-chloe",
+      "deniedActions": ["chat.ask-chloe"],
+      "fixtureFiles": ["tests/fixtures/tap-email.seed.json"],
+      "httpRouteFiles": [
+        "tests/fixtures/tap-email.chloe.http-routes.json",
+        "tests/fixtures/tap-email.booking-links.http-routes.json"
+      ],
+      "requiredOrigins": [
+        "https://tap-email-coordinator.theaiplatform.app",
+        "https://calendar-api.theaiplatform.app"
+      ],
+      "requiredEffects": [
+        "effect:external-network:https://calendar-api.theaiplatform.app",
+        "effect:external-network:https://tap-email-coordinator.theaiplatform.app",
+        "effect:credentials:http",
+        "effect:external-navigation:https://accounts.google.com",
+        "effect:storage:tap-email",
+        "effect:host-api:tap.channels:list",
+        "effect:host-api:tap.channels:create",
+        "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.chat:ask-chloe",
+        "effect:host-api:tap.platform.inference:list-models",
+        "effect:host-api:tap.platform.inference:send",
+        "effect:host-api:tap.workflows:list",
+        "effect:host-api:tap.workflows:invoke",
+        "effect:host-api:tap.workflow-runs:read",
+        "effect:user-notification:os",
+        "effect:user-file:pick-open",
+        "effect:user-file:read",
+        "effect:user-file:pick-save",
+        "effect:user-file:overwrite"
+      ],
+      "credentialSlots": ["platform-session"],
+      "environment": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 7401,
+        "fixedNow": "2026-08-18T15:30:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always"
+      }
     }
   },
   "matrix": [
@@ -146,7 +283,9 @@
         "effect:user-file:pick-open",
         "effect:user-file:read",
         "effect:user-file:pick-save",
-        "effect:user-file:overwrite"
+        "effect:user-file:overwrite",
+        "action:chat.ask-chloe",
+        "effect:host-api:tap.chat:ask-chloe"
       ]
     },
     {
@@ -188,6 +327,18 @@
         "effect:user-file:pick-save",
         "effect:user-file:overwrite"
       ]
+    },
+    {
+      "id": "tap-email-chloe",
+      "profile": "tap-email-chloe",
+      "testMatch": ["tests/e2e/tap-email.chloe.test.ts"],
+      "capabilities": ["action:chat.ask-chloe", "effect:host-api:tap.chat:ask-chloe"]
+    },
+    {
+      "id": "tap-email-chloe-denied",
+      "profile": "tap-email-chloe-denied",
+      "testMatch": ["tests/e2e/tap-email.chloe-denied.test.ts"],
+      "capabilities": ["action:chat.ask-chloe", "effect:host-api:tap.chat:ask-chloe"]
     }
   ],
   "waivers": [
@@ -233,12 +384,12 @@
     },
     {
       "capability": "action:chat.compose",
-      "reason": "Chloe prompting requires a user-selected email, while the default Test Lab mailbox intentionally contains no private email body to place in the host Chat composer.",
+      "reason": "The separate send-to-conversation action still stages an editable draft after choosing an existing conversation. Ask Chloe submission has dedicated synthetic coverage through chat.ask-chloe.",
       "expiresAt": "2027-02-28T00:00:00Z"
     },
     {
       "capability": "effect:host-api:tap.chat:send-text",
-      "reason": "The host Chat handoff is exercised only from a user-selected private email; the default Test Lab mailbox intentionally provides no email body to stage.",
+      "reason": "The separate send-to-conversation action still stages an editable draft after choosing an existing conversation. Ask Chloe submission has dedicated synthetic coverage through chat.ask-chloe.",
       "expiresAt": "2027-02-28T00:00:00Z"
     },
     {

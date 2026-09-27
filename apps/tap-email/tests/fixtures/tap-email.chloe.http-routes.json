@@ -1,0 +1,33 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "url": "https://tap-email-coordinator.theaiplatform.app/v1/mailbox",
+      "headers": [],
+      "body": null,
+      "timeoutMs": 30000,
+      "responseBodyLimitBytes": 2097152,
+      "followRedirects": false
+    },
+    "credentialRef": "platform-session",
+    "response": {
+      "finalUrl": "https://tap-email-coordinator.theaiplatform.app/v1/mailbox",
+      "status": 200,
+      "statusText": "OK",
+      "headers": [
+        {
+          "name": "content-type",
+          "value": "application/json; charset=utf-8"
+        }
+      ],
+      "bodyText": "{\"mailbox\":{\"schemaVersion\":1,\"accounts\":[{\"accountId\":\"synthetic-email\",\"provider\":\"google\",\"address\":\"reader@example.test\",\"displayName\":\"Synthetic Inbox\",\"accent\":\"#74a7a1\",\"coverage\":{\"accountId\":\"synthetic-email\",\"state\":\"current\",\"newestHistoryId\":\"fixture-1\",\"observedAt\":\"2026-08-18T15:29:00.000Z\",\"backfillCompleteThrough\":\"2026-08-01T00:00:00.000Z\",\"unresolvedFailures\":0}}],\"threads\":[{\"threadId\":\"synthetic-chloe-thread\",\"accountId\":\"synthetic-email\",\"providerRevision\":\"fixture-1\",\"subject\":\"Synthetic launch checklist\",\"participants\":[{\"name\":\"Synthetic Sender\",\"address\":\"sender@example.test\"}],\"snippet\":\"Please review the checklist by Friday.\",\"receivedAt\":\"2026-08-18T15:24:00.000Z\",\"unread\":true,\"starred\":false,\"critical\":false,\"needsResponse\":true,\"waitingOnOthers\":false,\"status\":\"inbox\",\"labels\":[\"Inbox\"],\"messages\":[{\"messageId\":\"synthetic-chloe-message\",\"from\":{\"name\":\"Synthetic Sender\",\"address\":\"sender@example.test\"},\"to\":[{\"name\":\"Reader\",\"address\":\"reader@example.test\"}],\"sentAt\":\"2026-08-18T15:24:00.000Z\",\"bodyText\":\"Please review the launch checklist by Friday. This is a synthetic test email.\"}],\"reminder\":null}]}}",
+      "bodyBase64": null,
+      "bodyKind": "text",
+      "bodyTruncated": false,
+      "sizeBytes": 1152,
+      "elapsedMs": 4,
+      "contentType": "application/json; charset=utf-8"
+    },
+    "repeat": 1
+  }
+]

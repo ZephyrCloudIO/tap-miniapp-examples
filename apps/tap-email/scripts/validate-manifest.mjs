@@ -52,7 +52,7 @@ assert.equal('descriptorVersion' in manifest, false);
 assert.equal('package' in manifest, false);
 assert.equal('release' in manifest, false);
 assert.equal('lifecycle' in manifest, false);
-assert.equal(manifest.compatibility.tapSdk, '0.19.0');
+assert.equal(manifest.compatibility.tapSdk, '0.20.0');
 assert.equal(manifest.compatibility.tapHost, '>=2.24.1');
 assert.ok(!JSON.stringify(manifest).includes('workflows.runs.read'),
   'Workflow observation must request the host workflows.read action.');

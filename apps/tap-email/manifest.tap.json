@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
   "buildSchemaVersion": 2,
-  "versionLabel": "0.3.8",
+  "versionLabel": "0.3.9",
   "presentation": {
     "name": "TAP Email",
     "slug": "tap-email",
@@ -27,7 +27,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.19.0",
+    "tapSdk": "0.20.0",
     "tapHost": ">=2.24.1"
   },
   "targets": {
@@ -610,7 +610,8 @@
           "files.overwrite",
           "workflows.list",
           "workflows.invoke",
-          "workflows.read"
+          "workflows.read",
+          "chat.ask-chloe"
         ],
         "effects": [
           {
@@ -649,7 +650,8 @@
               "tap.platform.inference:send",
               "tap.workflows:list",
               "tap.workflows:invoke",
-              "tap.workflow-runs:read"
+              "tap.workflow-runs:read",
+              "tap.chat:ask-chloe"
             ]
           },
           {
@@ -729,7 +731,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/tap-email-specialist/0.3.8.json"
+        "manifest": "specialists/tap-email-specialist/0.3.9.json"
       }
     },
     {
@@ -1422,6 +1424,20 @@
             "autonomyCeiling": "do",
             "consent": "reusable",
             "risk": "consequential"
+          },
+          {
+            "id": "chat.ask-chloe",
+            "resource": "tap.chat:ask-chloe",
+            "scopes": [
+              "workspace"
+            ],
+            "directActors": [
+              "human"
+            ],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
           }
         ],
         "levels": [
@@ -1470,7 +1486,8 @@
               "workflows.read",
               "email.metadata.read",
               "email.content.read",
-              "email.write"
+              "email.write",
+              "chat.ask-chloe"
             ],
             "assignableTo": [
               "human"

@@ -125,7 +125,8 @@ import {
   type EmailKeyCommand,
 } from './keybindings';
 import {
-  stageChloeEmailPrompt,
+  createChloeEmailHandoff,
+  chloeEmailFailureMessage,
   CHLOE_EMAIL_ACTIONS,
   type ChloeEmailIntent,
 } from './chloe-email';
@@ -786,6 +787,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const rootRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<Overlay>('none');
   const emailTasksInFlight = useRef(new Set<string>());
+  const chloeHandoff = useRef(createChloeEmailHandoff());
   const threadListCollapsedBeforeSidecarRef = useRef(false);
   const shortcutHandlerRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => undefined);
   const coordinatorRef = useRef<CoordinatorClient | null>(null);
@@ -2203,15 +2205,15 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       return;
     }
     try {
-      const stagedPrompt = stageChloeEmailPrompt(sdk.chat, thread, intent);
-      void Promise.resolve(stagedPrompt).then(
-        () => flash('Editable Chloe prompt ready in Chat.'),
-        () => flash('Chloe could not open. Check Chat composer access and try again.'),
-      );
-    } catch {
-      flash('Chloe could not open. Check Chat composer access and try again.');
+      void chloeHandoff.current(sdk.chat, surfaceContext?.workspaceId ?? '', thread, intent, receipt => {
+        if (receipt.status === 'queued') flash('Chloe opened · request queued.');
+        if (receipt.status === 'persisted') flash('Request saved · waiting for Chloe to start.');
+        if (receipt.status === 'dispatched') flash('Chloe accepted the request.');
+      }).catch(error => flash(chloeEmailFailureMessage(error)));
+    } catch (error) {
+      flash(chloeEmailFailureMessage(error));
     }
-  }, [flash, preview, thread]);
+  }, [flash, preview, surfaceContext?.workspaceId, thread]);
 
   const beginReply = useCallback((target: EmailThread) => {
     const threadKey = emailThreadKey(target);
