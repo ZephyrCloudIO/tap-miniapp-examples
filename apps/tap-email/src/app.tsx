@@ -244,6 +244,7 @@ import {
 } from './thread-messages';
 import { PagedThreadMessages } from './paged-thread-messages';
 import { MailSyncButton } from './sync-button';
+import { PullToSync } from './pull-to-sync';
 import { ScheduledSendList } from './scheduled-send-list';
 import { OutboxList } from './outbox-list';
 import {
@@ -1900,6 +1901,16 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     return sync;
   }, [refreshMailbox, reconcileActivity, enqueueActivityProjection, activityLedger]);
 
+  const syncMailFromGesture = useCallback(async (): Promise<void> => {
+    try {
+      await requestFreshMail();
+    } catch (error) {
+      setMailboxError(`Mailbox synchronization failed: ${String(error)}`);
+      flash('Mailbox synchronization failed. Try again.');
+      throw error;
+    }
+  }, [requestFreshMail, flash]);
+
   const retryDeviceCache = useCallback(async (): Promise<void> => {
     try {
       const recovered = await store.load();
@@ -3133,7 +3144,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               ) : null}
             </div>
           </div>
-          <div className="thread-list" role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outbox items needing attention' : 'Email threads'}>
+          <PullToSync
+            enabled={nativeHeader && !preview && initialLoadSettled && !readerScreen && overlay === 'none' && state.accounts.length > 0 && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox'}
+            syncing={syncing}
+            onSync={syncMailFromGesture}
+            role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'}
+            label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outbox items needing attention' : 'Email threads'}
+          >
             {state.selectedSplit === 'scheduled' ? (
               <ScheduledSendList
                 accounts={state.accounts}
@@ -3176,7 +3193,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             {windowReady && !windowPending && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' && rows.length === 0 ? (
               <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 || emptyPageOnly || pendingViewCommands ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{emptyMailTitle}</h2><p>{emptyMailDescription}</p>{state.accounts.length === 0 && !preview ? <GoogleConnectButton busy={connectionBusy} className="primary-button" onLaunch={continueGoogleConnection} onPrepare={prepareGoogleConnection} prepared={googleAuthorizationUrl !== null} /> : null}</div>
             ) : null}
-          </div>
+          </PullToSync>
           {store.queryThreads && !semanticSearch && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' ? (
             <nav className="mail-history-pagination" aria-label="Mail history pages">
               <button type="button" disabled={!windowReady || !windowHistory.length} onClick={() => {
