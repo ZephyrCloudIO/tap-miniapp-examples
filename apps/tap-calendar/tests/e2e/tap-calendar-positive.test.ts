@@ -283,10 +283,14 @@ test("configures and persists the booking policy from Availability", async ({
 
   await policy.getByLabel("Preferred end", { exact: true }).fill("17:00");
   await preferredStart.fill("11:00");
-  await policy.getByLabel("Minimum notice", { exact: true }).selectOption("1440");
-  await policy.getByLabel("Booking horizon", { exact: true }).selectOption("90");
-  await policy.getByLabel("Buffer before", { exact: true }).selectOption("15");
-  await policy.getByLabel("Buffer after", { exact: true }).selectOption("30");
+  await policy.getByLabel("Minimum notice", { exact: true }).click();
+  await surface.getByRole("option", { name: "1 day", exact: true }).click();
+  await policy.getByLabel("Booking horizon", { exact: true }).click();
+  await surface.getByRole("option", { name: "90 days", exact: true }).click();
+  await policy.getByLabel("Buffer before", { exact: true }).click();
+  await surface.getByRole("option", { name: "15 min", exact: true }).click();
+  await policy.getByLabel("Buffer after", { exact: true }).click();
+  await surface.getByRole("option", { name: "30 min", exact: true }).click();
   const conflictCheckboxes = policy.getByRole("checkbox", {
     name: /^Check .+ for conflicts$/u,
   });
@@ -360,7 +364,7 @@ test("configures and persists the booking policy from Availability", async ({
   await surface.getByRole("button", { name: "Calendar", exact: true }).click();
   await surface.getByRole("button", { name: "Availability", exact: true }).click();
   await expect(surface.getByLabel("Preferred start", { exact: true })).toHaveValue("11:00");
-  await expect(surface.getByLabel("Booking horizon", { exact: true })).toHaveValue("90");
+  await expect(surface.getByLabel("Booking horizon", { exact: true })).toHaveText("90 days");
 });
 
 test("adds, edits, persists, and removes multiple daily time ranges", async ({

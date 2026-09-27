@@ -85,6 +85,30 @@ describe("calendar slot scheduling", () => {
 });
 
 describe("personal calendar events", () => {
+  it("selects duration with the keyboard and dismisses the menu without closing the draft", async () => {
+    const submit = rs.fn().mockResolvedValue({ error: null, retrySameAttempt: false });
+    const close = rs.fn();
+    await render(<ScheduleDialog state={state} principalAccess={principalAccess} zoomConnected={false} initialStart="2026-08-14T09:30" onClose={close} onSubmit={submit} />);
+    const duration = container.querySelector<HTMLButtonElement>("#schedule-duration")!;
+    await act(async () => duration.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    const hour = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent === "1 hour")!;
+    await act(async () => {
+      hour.focus();
+      hour.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(duration.textContent).toBe("1 hour");
+    await act(async () => duration.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    await input("meeting-title", "Planning");
+    await click(button("Save event"));
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      start: new Date("2026-08-14T09:30").toISOString(),
+      end: new Date("2026-08-14T10:30").toISOString(),
+    }));
+  });
+
   it("prefills local time and submits a busy event without guests or video", async () => {
     const submit = rs.fn().mockResolvedValue({ error: null, retrySameAttempt: false });
     await render(<ScheduleDialog state={state} principalAccess={principalAccess} zoomConnected={false} initialStart="2026-08-14T23:30" onClose={rs.fn()} onSubmit={submit} />);

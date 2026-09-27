@@ -42,7 +42,8 @@ test("renders honest first-run states without demo customer data", async ({ surf
 
   await surface.getByRole("button", { name: "Add account", exact: true }).click();
   const accountDialog = surface.getByRole("dialog", { name: "Add an account" });
-  await accountDialog.getByLabel("Provider", { exact: true }).selectOption("zoom");
+  await accountDialog.getByLabel("Provider", { exact: true }).click();
+  await surface.getByRole("option", { name: "Zoom", exact: true }).click();
   await expect(surface.getByRole("dialog", { name: "Connect Zoom", exact: true })).toBeVisible();
   await expect(accountDialog).not.toBeVisible();
   await surface.getByRole("button", { name: "Close dialog", exact: true }).click();
@@ -132,8 +133,11 @@ test("guides Event Type creation to the missing Availability Schedule", async ({
     name: "Meeting provider",
     exact: true,
   });
-  await expect(meetingProvider).toHaveValue("google-meet");
-  await expect(meetingProvider.locator("option")).toHaveCount(1);
+  await expect(meetingProvider).toHaveText("Google Meet");
+  await meetingProvider.click();
+  await expect(surface.getByRole("option", { name: "Google Meet", exact: true })).toBeEnabled();
+  await expect(surface.getByRole("option", { name: "Zoom (connect in Settings)", exact: true })).toBeDisabled();
+  await meetingProvider.press("Escape");
   await expect(eventTypeDialog.getByText(
     "Google Meet is included with your Google Destination Calendar. Connect Zoom in Settings to use it.",
     { exact: true },
@@ -148,7 +152,8 @@ test("adds several calendars and persists another calendar on the same account",
   await surface.locator('input[name="calendar-name-0"]').fill("Primary");
   await surface.getByRole("button", { name: "Add another calendar", exact: true }).click();
   await surface.locator('input[name="calendar-name-1"]').fill("Shared availability");
-  await surface.locator(".calendar-draft-card").nth(1).getByRole("combobox", { name: "Access" }).selectOption("reader");
+  await surface.locator(".calendar-draft-card").nth(1).getByRole("combobox", { name: "Access" }).click();
+  await surface.getByRole("option", { name: "Shared · read only", exact: true }).click();
   await surface.getByRole("button", { name: "Add account & calendars", exact: true }).click();
 
   await expect(surface.getByText("me@example.com", { exact: true }).first()).toBeVisible();

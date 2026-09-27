@@ -47,20 +47,24 @@ test("renders an honest channel scheduler without creating a booking", async ({
   const duration = surface.getByLabel("Duration", { exact: true });
   const location = surface.getByLabel("Location", { exact: true });
   await expect(starts).toBeVisible();
-  await expect(duration).toHaveValue("30");
-  await expect(location).toHaveValue("google-meet");
-  await expect(location.locator("option")).toHaveCount(1);
+  await expect(duration).toHaveText("30 minutes");
+  await expect(location).toHaveText("Google Meet");
+  await location.click();
+  await expect(surface.getByRole("option", { name: "Google Meet", exact: true })).toBeEnabled();
+  await expect(surface.getByRole("option", { name: "Zoom (connect in Settings)", exact: true })).toBeDisabled();
+  await location.press("Escape");
   await expect(surface.getByText(
     "Google Meet is included with your Google Destination Calendar. Connect Zoom in Settings to use it.",
     { exact: true },
   )).toBeVisible();
-  await duration.selectOption("60");
-  await expect(duration).toHaveValue("60");
+  await duration.click();
+  await surface.getByRole("option", { name: "1 hour", exact: true }).click();
+  await expect(duration).toHaveText("1 hour");
   await expect(surface.locator(".mutual-slot-summary")).toContainText("60 minutes");
 
   const sharedControlLayout = await surface.locator(".date-duration-grid").evaluate(element => {
     const startControl = element.querySelector<HTMLElement>('[name="schedule-start"]');
-    const durationControl = element.querySelector<HTMLElement>('[name="schedule-duration"]');
+    const durationControl = element.querySelector<HTMLElement>('#schedule-duration');
     if (!startControl || !durationControl) throw new Error("Scheduling controls were not rendered.");
     const startBounds = startControl.getBoundingClientRect();
     const durationBounds = durationControl.getBoundingClientRect();
