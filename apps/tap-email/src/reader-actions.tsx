@@ -171,7 +171,7 @@ function ChloeActions({
         >
           <div className="chloe-action-menu-heading">
             <Sparkles aria-hidden="true" />
-            <span><strong>Ask Chloe</strong><small>Stages an editable prompt in Chat</small></span>
+            <span><strong>Ask Chloe</strong><small>Opens Chloe and submits your request</small></span>
           </div>
           {CHLOE_EMAIL_ACTIONS.map(action => (
             <button
