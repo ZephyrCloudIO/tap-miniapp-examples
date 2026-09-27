@@ -268,17 +268,38 @@ export async function queryMailWindow(sql: Sql, options: MailWindowQuery, journa
   let cursor = options.after ?? null;
   const threads: EmailThread[] = [];
   let bodyBytes = 0;
+  const resource = !options.query?.trim() &&
+    (options.split === 'sent' || options.split === 'drafts' || options.split === 'spam')
+    ? options.split : null;
+  const resourceOverrides = new Set(resource ? (journal?.pendingThreadIntents ?? [])
+    .filter(intent => intent.patch.providerResources !== undefined &&
+      (!options.accountId || options.accountId === 'all' || intent.accountId === options.accountId))
+    .map(emailThreadKey) : []);
+  // Filter provider folders in SQLite before crossing the host bridge for each
+  // message. Pending resource patches still get their normal projected match.
+  const resourceMatch = resource ? `EXISTS (SELECT 1 FROM local_mail_thread_resources AS resource
+    WHERE resource.account_id = thread.account_id AND resource.thread_id = thread.thread_id
+      AND resource.resource_kind = ?)` : '1';
   while (true) {
     options.signal?.throwIfAborted();
-    const result = await sql.query(`SELECT account_id, thread_id, received_at FROM local_mail_threads
+    const result = await sql.query(`WITH candidates AS (
+      SELECT account_id, thread_id, received_at, ${resourceMatch} AS resource_match
+      FROM local_mail_threads AS thread
       WHERE (? = 'all' OR account_id = ?) AND (? IS NULL OR received_at < ? OR
-        (received_at = ? AND (account_id > ? OR (account_id = ? AND thread_id > ?))))
+        (received_at = ? AND (account_id > ? OR (account_id = ? AND thread_id > ?)))))
+      SELECT account_id, thread_id, received_at, resource_match FROM candidates
+      WHERE resource_match = 1 OR ? = 1
       ORDER BY received_at DESC, account_id, thread_id LIMIT 100`,
-    [options.accountId ?? 'all', options.accountId ?? 'all', cursor?.receivedAt ?? null,
-      cursor?.receivedAt ?? null, cursor?.receivedAt ?? null, cursor?.accountId ?? null, cursor?.accountId ?? null, cursor?.threadId ?? null]);
-    for (const [accountId, threadId, receivedAt] of result.rows) {
+    [...(resource ? [resource] : []), options.accountId ?? 'all', options.accountId ?? 'all', cursor?.receivedAt ?? null,
+      cursor?.receivedAt ?? null, cursor?.receivedAt ?? null, cursor?.accountId ?? null, cursor?.accountId ?? null, cursor?.threadId ?? null,
+      resourceOverrides.size > 0 ? 1 : 0]);
+    for (const [accountId, threadId, receivedAt, matchesResource] of result.rows) {
       options.signal?.throwIfAborted();
       const next = { accountId: String(accountId), threadId: String(threadId), receivedAt: String(receivedAt) };
+      if (Number(matchesResource) !== 1 && !resourceOverrides.has(emailThreadKey(next))) {
+        cursor = next;
+        continue;
+      }
       let thread = await readThread(sql, next.accountId, next.threadId, false);
       if (!thread) throw new Error('The local mail thread record is incomplete.');
       const projected = journal ? projectedThreads({ ...emptyMailState(), ...journal, threads: [thread] })[0]! : thread;

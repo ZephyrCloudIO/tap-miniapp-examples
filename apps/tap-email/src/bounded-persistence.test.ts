@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { ProfileSqliteMailStore } from './local-store';
 import { CommandPersistenceBarrier } from './command-persistence-barrier';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
-import { boundMailWindow, diskBodyBudgetBytes, mailWindowSize, memoryBodyBudgetBytes, readRecord, writeRecord } from './bounded-mail-replica';
+import { boundMailWindow, diskBodyBudgetBytes, mailWindowSize, memoryBodyBudgetBytes, queryMailWindow, readRecord, writeRecord } from './bounded-mail-replica';
 import { maximumRecordPartBytes, maximumSqlRequestBytes, recordParts, serializedBytes } from './bounded-sql';
 import { composeMessage, emptyMailState, previewMailState, settleMailCommand, type EmailThread, type MailState } from './domain';
 import { sqliteStoreFixture } from './sqlite-store-fixture';
@@ -227,6 +227,53 @@ print('native SQL limits passed')
     release();
     await flushing;
     expect(written).toEqual([template, latest]);
+  });
+
+  it.each(['sent', 'drafts', 'spam'] as const)('loads a sparse %s view without reading unrelated message records', async split => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 240 }, (_, index) => ({ ...thread(index),
+      providerResources: [index === 237 ? split : 'inbox'] as EmailThread['providerResources'] }));
+    await store.save({ ...template, threads });
+    fixture.statements.length = 0;
+    const page = await store.queryThreads({ accountId: threads[0]!.accountId, split });
+    expect(page.threads.map(item => item.threadId)).toEqual([threads[237]!.threadId]);
+    expect(page.next).toBeNull();
+    expect(fixture.statements.length).toBeLessThan(12);
+  });
+
+  it('pages sent threads within the selected account without overlaps or omissions', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 220 }, (_, index) => ({ ...thread(index),
+      providerResources: [index % 2 === 0 ? 'sent' : 'inbox'] as EmailThread['providerResources'] }));
+    const otherAccount = template.accounts.find(account => account.accountId !== threads[0]!.accountId)!;
+    await store.save({ ...template, threads: [...threads, { ...threads[0]!, accountId: otherAccount.accountId }] });
+    const first = await store.queryThreads({ accountId: threads[0]!.accountId, split: 'sent' });
+    const second = await store.queryThreads({ accountId: threads[0]!.accountId, split: 'sent', after: first.next });
+    expect(first.threads).toHaveLength(100);
+    expect(second.threads).toHaveLength(10);
+    expect(second.next).toBeNull();
+    expect([...first.threads, ...second.threads].map(item => item.threadId))
+      .toEqual(threads.filter(item => item.providerResources?.includes('sent')).map(item => item.threadId));
+    expect([...first.threads, ...second.threads].every(item => item.accountId === threads[0]!.accountId)).toBe(true);
+  });
+
+  it('preserves pending resource changes and cross-folder searches in sent views', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const inbox = { ...thread(0), providerResources: ['inbox'] as const };
+    const sent = { ...thread(1), providerResources: ['sent'] as const };
+    await store.save({ ...template, threads: [inbox, sent] });
+    const page = await queryMailWindow(fixture.database, { accountId: inbox.accountId, split: 'sent' }, {
+      commands: [], undo: null, pendingThreadIntents: [
+        { commandId: 'add', accountId: inbox.accountId, threadId: inbox.threadId, patch: { providerResources: ['sent'] } },
+        { commandId: 'remove', accountId: sent.accountId, threadId: sent.threadId, patch: { providerResources: ['inbox'] } },
+      ],
+    });
+    expect(page.threads.map(item => item.threadId)).toEqual([inbox.threadId]);
+    const search = await store.queryThreads({ accountId: inbox.accountId, split: 'sent', query: 'History 0' });
+    expect(search.threads.map(item => item.threadId)).toEqual([inbox.threadId]);
   });
 
   it('lets navigation read once its snapshot is saved while later history writes continue', async () => {
