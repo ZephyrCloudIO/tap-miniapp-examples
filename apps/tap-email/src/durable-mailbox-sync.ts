@@ -14,6 +14,8 @@ export class DurableMailboxSync {
   private bootstrap: string | undefined = crypto.randomUUID();
   private changeRevision = 0;
   private changesInFlight: Promise<void> | null = null;
+  private historyInFlight: Promise<void> | null = null;
+  private historyComplete = false;
 
   constructor(private readonly source: Source, private readonly store: LocalMailStore,
     private readonly update: (apply: (state: MailState) => MailState) => void,
@@ -50,7 +52,17 @@ export class DurableMailboxSync {
     return page;
   }
 
-  async loadHistory(head: MailboxPage): Promise<void> {
+  loadHistory(head: MailboxPage): Promise<void> {
+    if (!this.active || this.historyComplete) return Promise.resolve();
+    if (this.historyInFlight) return this.historyInFlight;
+    const pending = this.resumeHistory(head).then(() => {
+      if (this.active) this.historyComplete = true;
+    }).finally(() => { this.historyInFlight = null; });
+    this.historyInFlight = pending;
+    return pending;
+  }
+
+  private async resumeHistory(head: MailboxPage): Promise<void> {
     let checkpoint = await this.store.beginMailboxSync!();
     if (!this.active) return;
     if (checkpoint.pagesLoaded === 0) {

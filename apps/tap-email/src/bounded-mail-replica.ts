@@ -1,3 +1,4 @@
+import { semanticSourceRevision } from './semantic-email-index';
 import type { MiniAppPrivateSqlTransaction, MiniAppSqlMigration, MiniAppSqlValue } from '@theaiplatform/miniapp-sdk/sdk';
 import {
   emptyMailState, emailThreadKey, isMailState, projectedThreads, mailboxSummary,
@@ -7,6 +8,7 @@ import { filterMailThreads, type MailSearchContext } from './mail-search';
 import { insertBoundedRows, recordParts, serializedBytes } from './bounded-sql';
 import { replaceNormalizedLocalReplica, type LocalReplicaStatistics } from './local-replica';
 import type { MailboxSummary } from '@tap-examples/tap-email-protocol';
+import { queueSemanticChanges } from './semantic-index-queue';
 
 export const mailWindowSize = 100;
 export const memoryBodyBudgetBytes = 8 * 1024 * 1024;
@@ -42,6 +44,10 @@ export const boundedReplicaMigrations = [
   { version: 29, sql: `CREATE TABLE IF NOT EXISTS local_mail_versions (
     account_id TEXT NOT NULL, thread_id TEXT NOT NULL, revision INTEGER NOT NULL,
     present INTEGER NOT NULL, bootstrap TEXT, PRIMARY KEY (account_id, thread_id)
+  )` },
+  { version: 30, sql: `CREATE TABLE IF NOT EXISTS local_mail_semantic_changes (
+    account_id TEXT NOT NULL, thread_id TEXT NOT NULL, token TEXT NOT NULL,
+    PRIMARY KEY (account_id, thread_id)
   )` },
 ] satisfies readonly MiniAppSqlMigration[];
 
@@ -223,6 +229,11 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
     ['account_id', 'thread_id', 'provider_revision', 'bytes', 'last_accessed_at'], bodies);
   await replaceNormalizedLocalReplica(tx, { ...emptyMailState(), accounts,
     threads: projectedThreads({ ...emptyMailState(), threads }) }, updatedAt, updatedAt, true);
+  await queueSemanticChanges(tx, threads.filter(thread => {
+    const previous = previousThreads.get(emailThreadKey(thread));
+    const stored = { ...thread, messages: thread.messages.map(message => ({ ...message, bodyText: message.bodyText.slice(0, 8000) })) };
+    return !previous || semanticSourceRevision(previous) !== semanticSourceRevision(stored);
+  }));
   await evictBodies(tx);
 }
 

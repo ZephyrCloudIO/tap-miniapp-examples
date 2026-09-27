@@ -183,6 +183,7 @@ function indexFixture() {
   return {
     profileStorage,
     embeddings,
+    collection,
     diagnostics: () => ({
       documents,
       embedCalls,
@@ -254,7 +255,7 @@ describe('TAP Email semantic profile index', () => {
     ]);
     expect(diagnostics.embedCalls[1]?.texts).toHaveLength(2);
     expect(diagnostics.embedCalls[2]?.texts).toHaveLength(1);
-    expect(diagnostics.flushes).toBe(2);
+    expect(diagnostics.flushes).toBe(3);
   });
 
   it('uses query-role embeddings and typed account, unread, and status filters', async () => {
@@ -289,6 +290,45 @@ describe('TAP Email semantic profile index', () => {
       },
     });
     expect(fixture.diagnostics().embedCalls.at(-1)?.role).toBe('query');
+  });
+
+  it('flushes an unchanged retry after a write succeeded but persistence failed', async () => {
+    const fixture = indexFixture();
+    const index = await openEmailSemanticIndex(fixture.profileStorage, fixture.embeddings);
+    const flush = fixture.collection.flush.bind(fixture.collection);
+    let attempts = 0;
+    fixture.collection.flush = async () => {
+      if (++attempts === 1) throw new Error('disk unavailable');
+      return flush();
+    };
+    await expect(index.indexThreads([thread()])).rejects.toThrow('disk unavailable');
+    await expect(index.indexThreads([thread()])).resolves.toMatchObject({ indexedCount: 0, skippedCount: 1 });
+    expect(attempts).toBe(2);
+    expect(fixture.diagnostics().embedCalls).toHaveLength(2);
+    await index.deleteThreads([thread()]);
+    await expect(index.deleteThreads([thread()])).resolves.toBe(0);
+    expect(fixture.diagnostics().documents.size).toBe(0);
+  });
+
+  it('allows a query while document embedding is pending, then discards the cancelled batch', async () => {
+    const fixture = indexFixture();
+    const index = await openEmailSemanticIndex(fixture.profileStorage, fixture.embeddings);
+    const embed = fixture.embeddings.embed.bind(fixture.embeddings);
+    let start!: () => void, resume!: () => void;
+    const started = new Promise<void>(resolve => { start = resolve; });
+    const release = new Promise<void>(resolve => { resume = resolve; });
+    fixture.embeddings.embed = async options => {
+      if (options.role === 'document') { start(); await release; }
+      return embed(options);
+    };
+    const abort = new AbortController();
+    const indexing = index.indexThreads([thread()], abort.signal);
+    const rejected = expect(indexing).rejects.toThrow();
+    await started;
+    await expect(index.search('launch plan')).resolves.toEqual([]);
+    abort.abort(); resume();
+    await rejected;
+    expect(fixture.diagnostics().documents.size).toBe(0);
   });
 
   it('closes both native capabilities and rejects later operations', async () => {

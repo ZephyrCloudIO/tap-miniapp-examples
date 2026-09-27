@@ -60,7 +60,7 @@ export interface EmailSemanticIndex {
   readonly capability: 'private-profile-zvec';
   readonly collectionName: string;
   readonly binding: MiniAppEmbeddingSpaceBinding;
-  indexThreads(threads: readonly EmailThread[]): Promise<EmailSemanticIndexResult>;
+  indexThreads(threads: readonly EmailThread[], signal?: AbortSignal): Promise<EmailSemanticIndexResult>;
   deleteThreads(threads: readonly Pick<EmailThread, 'accountId' | 'threadId'>[]): Promise<number>;
   search(query: string, options?: EmailSemanticSearchOptions): Promise<readonly EmailSemanticMatch[]>;
   stats(): Promise<MiniAppZvecStats>;
@@ -164,7 +164,7 @@ function documentKey(thread: Pick<EmailThread, 'accountId' | 'threadId'>): strin
   return JSON.stringify([thread.accountId, thread.threadId]);
 }
 
-function hashSource(thread: EmailThread): string {
+export function semanticSourceRevision(thread: EmailThread): string {
   let hash = 0x811c9dc5;
   const add = (value: string) => {
     for (let index = 0; index < value.length; index += 1) {
@@ -366,11 +366,13 @@ export async function openEmailSemanticIndex(
     collectionName,
     binding: calibration.binding,
 
-    async indexThreads(inputThreads) {
+    async indexThreads(inputThreads, signal) {
       ensureOpen();
+      signal?.throwIfAborted();
       const unique = [...new Map(inputThreads.map(thread => [documentKey(thread), thread])).values()];
       const existingRevision = new Map<string, string>();
       for (let offset = 0; offset < unique.length; offset += FETCH_BATCH_SIZE) {
+        signal?.throwIfAborted();
         const keys = unique.slice(offset, offset + FETCH_BATCH_SIZE).map(documentKey);
         if (keys.length === 0) continue;
         for (const result of await collection.fetch(keys)) {
@@ -379,17 +381,21 @@ export async function openEmailSemanticIndex(
         }
       }
       const changed = unique.filter(thread =>
-        existingRevision.get(documentKey(thread)) !== hashSource(thread));
-      const batchSize = Math.max(1, model.capabilities.maxInputs);
+        existingRevision.get(documentKey(thread)) !== semanticSourceRevision(thread));
+      const batchSize = Math.max(1, Math.min(8, model.capabilities.maxInputs));
       for (let offset = 0; offset < changed.length; offset += batchSize) {
+        signal?.throwIfAborted();
         const batch = changed.slice(offset, offset + batchSize);
         const vectors = await embed(batch.map(semanticText), 'document');
+        // SDK embedding calls cannot be interrupted. Discard their result after
+        // cancellation instead of committing it or starting another batch.
+        signal?.throwIfAborted();
         const result = await collection.upsert(batch.map((thread, index) => ({
           pk: documentKey(thread),
           fields: {
             account_id: thread.accountId,
             thread_id: thread.threadId,
-            source_revision: hashSource(thread),
+            source_revision: semanticSourceRevision(thread),
             subject: thread.subject,
             snippet: thread.snippet,
             received_at: thread.receivedAt,
@@ -405,7 +411,9 @@ export async function openEmailSemanticIndex(
         })));
         mutationFailures('upsert', batch.length, result.writeResults);
       }
-      const stats = changed.length > 0 ? await collection.flush() : await collection.stats();
+      // A previous attempt may have upserted successfully but failed to flush.
+      // Even unchanged retries must cross the persistence barrier before ack.
+      const stats = unique.length > 0 ? await collection.flush() : await collection.stats();
       return {
         indexedCount: changed.length,
         skippedCount: unique.length - changed.length,
@@ -419,7 +427,8 @@ export async function openEmailSemanticIndex(
       if (keys.length === 0) return 0;
       let deleted = 0;
       for (let offset = 0; offset < keys.length; offset += FETCH_BATCH_SIZE) {
-        const batch = keys.slice(offset, offset + FETCH_BATCH_SIZE);
+        const batch = (await collection.fetch(keys.slice(offset, offset + FETCH_BATCH_SIZE))).map(item => item.pk);
+        if (!batch.length) continue;
         const result = await collection.delete({ pks: batch });
         mutationFailures('delete', batch.length, result.writeResults);
         deleted += result.affectedCount ?? batch.length;

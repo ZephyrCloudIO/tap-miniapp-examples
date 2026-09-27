@@ -26,6 +26,8 @@ export type EmailMcpScope = 'email.metadata.read' | 'email.content.read' | 'emai
  * authenticated owner explicitly enables metadata/content reads and optionally writes.
  */
 export interface EmailMcpPrincipal extends ProfileIdentity {
+  /** Internal rotation fence; never returned in a tool response. */
+  readonly credentialHash?: string;
   readonly senderContext?: MailSenderContext;
   readonly audience: 'tap-email-mcp';
   readonly scopes: readonly EmailMcpScope[];
@@ -126,7 +128,7 @@ async function writeReadAudit(
   outcome: string,
   observedAt: Date,
 ): Promise<void> {
-  await env.DB.prepare(
+  const statement = env.DB.prepare(
     `INSERT INTO coordinator_audit
        (audit_id, profile_id, account_id, operation, object_id, outcome, occurred_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -138,7 +140,15 @@ async function writeReadAudit(
     audit.objectId,
     outcome,
     observedAt.toISOString(),
-  ).run();
+  );
+  const statements = [statement];
+  if (outcome === 'succeeded' && principal.credentialHash) {
+    statements.push(env.DB.prepare(`UPDATE email_mcp_credentials
+      SET last_verified_at = ?, last_verified_operation = ?
+      WHERE profile_id = ? AND token_hash = ? AND expires_at > ?`)
+      .bind(observedAt.toISOString(), audit.operation, principal.profileId, principal.credentialHash, observedAt.toISOString()));
+  }
+  await env.DB.batch(statements);
 }
 
 function mcpProtocolError(status: number, message: string): Response {

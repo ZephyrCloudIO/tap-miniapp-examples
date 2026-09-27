@@ -162,6 +162,7 @@ import {
 } from './local-store';
 import { MailboxSync } from './mailbox-sync';
 import { DurableMailboxSync } from './durable-mailbox-sync';
+import { maintainSemanticIndexBatch } from './semantic-index-maintenance';
 import { mailStateWithoutAccount } from './local-replica';
 import { StoragePrivacyPanel } from './storage-privacy-panel';
 import { persistProviderVisibleMailMergeDrafts } from './email-workflows';
@@ -632,10 +633,11 @@ function ShortcutDialog({ onClose }: { readonly onClose: () => void }) {
   );
 }
 
-function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWipe, preview, senderContext }: {
+function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWipe, preview, senderContext, openToolSettings }: {
   readonly accounts: readonly EmailAccount[];
   readonly preview: boolean;
   readonly senderContext?: { readonly userId: string; readonly workspaceId: string };
+  readonly openToolSettings?: () => Promise<void>;
   readonly preferences: MailPreferences;
   readonly store: LocalMailStore;
   readonly onChange: (preferences: MailPreferences) => void;
@@ -703,7 +705,7 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
         {accounts.length === 0 ? <div className="settings-empty">Connect Google to configure account notifications.</div> : null}
         <div className="settings-note">Rich HTML stays in an isolated frame. Images are validated through the coordinator, then cached privately on this device for repeat opens; message scripts cannot access TAP or other messages. Remote scripts, form submissions, and direct sender requests remain blocked.</div>
         <div className="settings-note">Meaning search embeds and indexes mail with an installed local model in private profile zvec storage. Email content is not sent to a remote embedding service.</div>
-        {!preview ? <EmailToolAccessPanel senderContext={senderContext} /> : null}
+        {!preview ? <EmailToolAccessPanel senderContext={senderContext} openSettings={openToolSettings} /> : null}
         <StoragePrivacyPanel accounts={accounts} onWipe={onWipe} store={store} />
         <div className="settings-note">Shortcut remapping will move to the host keybinding registry when the SDK capability lands.</div>
       </DialogContent>
@@ -750,6 +752,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [query, setQuery] = useState('');
   const [semanticSearch, setSemanticSearch] = useState<SemanticSearchState | null>(null);
   const [semanticSearchBusy, setSemanticSearchBusy] = useState(false);
+  const [semanticIndexStatus, setSemanticIndexStatus] = useState('Meaning index has not started.');
+  const [semanticIndexError, setSemanticIndexError] = useState(false);
+  const [semanticIndexAttempt, setSemanticIndexAttempt] = useState(0);
   const [toast, setToast] = useState('');
   const [conversationHandoff, setConversationHandoff] =
     useState<ConversationHandoffUiState | null>(null);
@@ -818,6 +823,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     windowRead?.scope === windowScope && windowRead.pending);
   const semanticIndexRef = useRef<Promise<EmailSemanticIndex> | null>(null);
   const semanticAbort = useRef<AbortController | null>(null);
+  const semanticMaintenanceAbort = useRef<AbortController | null>(null);
+  const semanticMaintenanceWork = useRef<Promise<void> | null>(null);
+  const semanticQueryWork = useRef<Promise<void> | null>(null);
   const idFactory = useCallback(
     () => surfaceContext?.entropy.randomUUID() ?? crypto.randomUUID(),
     [surfaceContext],
@@ -1193,7 +1201,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   useEffect(
     () => () => {
-      void persistenceQueue.flush().then(() => store.close()).catch(() => undefined);
+      semanticAbort.current?.abort();
+      semanticMaintenanceAbort.current?.abort();
+      const semanticWork = Promise.allSettled([semanticMaintenanceWork.current, semanticQueryWork.current]);
+      void semanticWork.then(() => persistenceQueue.flush()).then(() => store.close()).catch(() => undefined);
       const pendingActivity = activityCommitQueue.current;
       void pendingActivity
         .catch(() => undefined)
@@ -1202,7 +1213,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       const semanticIndex = semanticIndexRef.current;
       semanticIndexRef.current = null;
       if (semanticIndex) {
-        void semanticIndex.then(index => index.close()).catch(() => undefined);
+        void Promise.all([semanticIndex, semanticWork]).then(([index]) => index.close()).catch(() => undefined);
       }
     },
     [activityLedger, store, persistenceQueue],
@@ -1245,7 +1256,65 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     });
   }, [hydrated, preview, store]);
 
-  useEffect(() => () => semanticAbort.current?.abort(), [query]);
+  useEffect(() => {
+    setSemanticSearch(null);
+    return () => semanticAbort.current?.abort();
+  }, [query, state.selectedAccountId, state.selectedSplit]);
+
+  const getSemanticIndex = useCallback(async () => {
+    if (!sdk.storage.profile || !sdk.embeddings) throw new Error('This TAP host does not provide local embeddings and private vector storage.');
+    let pending = semanticIndexRef.current;
+    if (!pending) {
+      pending = openEmailSemanticIndex(sdk.storage.profile, sdk.embeddings);
+      semanticIndexRef.current = pending;
+    }
+    try { return await pending; }
+    catch (error) {
+      if (semanticIndexRef.current === pending) semanticIndexRef.current = null;
+      throw error;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || preview || !store.prepareSemanticIndex || !store.readSemanticBatch || !store.acknowledgeSemanticBatch) return;
+    const abort = new AbortController();
+    semanticMaintenanceAbort.current = abort;
+    const queue = { prepareSemanticIndex: store.prepareSemanticIndex.bind(store),
+      readSemanticBatch: store.readSemanticBatch.bind(store),
+      acknowledgeSemanticBatch: store.acknowledgeSemanticBatch.bind(store) };
+    const pause = (ms: number) => new Promise<void>(resolve => {
+      const done = () => { clearTimeout(timer); abort.signal.removeEventListener('abort', done); resolve(); };
+      const timer = setTimeout(done, ms);
+      abort.signal.addEventListener('abort', done, { once: true });
+      if (abort.signal.aborted) done();
+    });
+    const run = async () => {
+      setSemanticIndexError(false);
+      setSemanticIndexStatus('Opening the local meaning index…');
+      try {
+        const index = await getSemanticIndex();
+        abort.signal.throwIfAborted();
+        await queue.prepareSemanticIndex(index.collectionName);
+        while (!abort.signal.aborted) {
+          const progress = await maintainSemanticIndexBatch(index, queue, abort.signal);
+          if (abort.signal.aborted) return;
+          setSemanticIndexStatus(`${progress.indexed.toLocaleString()} threads in the meaning index${progress.pending
+            ? ` · ${progress.pending.toLocaleString()} updates waiting. Search uses the index built so far.`
+            : ' · caught up with observed local changes.'}`);
+          await pause(progress.pending ? 250 : 10_000);
+        }
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          setSemanticIndexError(true);
+          setSemanticIndexStatus(`Meaning index paused: ${error instanceof Error ? error.message : 'Local indexing failed.'}`);
+        }
+      }
+    };
+    const previous = semanticMaintenanceWork.current;
+    const work = Promise.resolve(previous).then(() => { if (!abort.signal.aborted) return run(); });
+    semanticMaintenanceWork.current = work;
+    return () => abort.abort();
+  }, [hydrated, preview, store, getSemanticIndex, semanticIndexAttempt]);
 
   const runSemanticSearch = useCallback(async () => {
     const searchQuery = query.trim();
@@ -1253,102 +1322,87 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     setSemanticSearchBusy(true);
     const abort = new AbortController();
     semanticAbort.current = abort;
-    try {
-      const searchContext = { now: new Date(), timeZone: mailSearchTimeZone };
-      const parsedSearch = parseMailSearchQuery(searchQuery, searchContext);
-      const current = stateRef.current;
-      let candidates = store.queryThreads
-        ? (await store.queryThreads({ accountId: current.selectedAccountId, query: searchQuery, context: searchContext, signal: abort.signal })).threads
-        : accountScopedThreads(current);
-      if (!parsedSearch.textQuery) {
-        const threadKeys = filterMailThreads(
+    const work = (async () => {
+      try {
+        const searchContext = { now: new Date(), timeZone: mailSearchTimeZone };
+        const parsedSearch = parseMailSearchQuery(searchQuery, searchContext);
+        const current = stateRef.current;
+        let candidates = store.queryThreads
+          ? (await store.queryThreads({ accountId: current.selectedAccountId, query: searchQuery, context: searchContext, signal: abort.signal })).threads
+          : accountScopedThreads(current);
+        abort.signal.throwIfAborted();
+        if (!parsedSearch.textQuery) {
+          const threadKeys = filterMailThreads(
+            candidates,
+            searchQuery,
+            searchContext,
+          ).map(emailThreadKey);
+          setSemanticSearch({ query: searchQuery, threadKeys });
+          setToast(threadKeys.length === 1
+            ? '1 exact local match.'
+            : `${threadKeys.length} exact local matches.`);
+          return;
+        }
+        const index = await getSemanticIndex();
+        abort.signal.throwIfAborted();
+        // Search the durable index immediately. Maintenance runs independently;
+        // a large mailbox must never become a prerequisite for a query.
+        if (preview) await index.indexThreads(current.threads, abort.signal);
+        const matches = await index.search(parsedSearch.textQuery || searchQuery, {
+          topK: 100,
+          ...(current.selectedAccountId === 'all'
+            ? {}
+            : { accountId: current.selectedAccountId }),
+        });
+        abort.signal.throwIfAborted();
+        const candidatesByKey = new Map(candidates.map(item => [emailThreadKey(item), item] as const));
+        if (store.loadThread) for (const match of matches) {
+          abort.signal.throwIfAborted();
+          if (candidatesByKey.has(match.threadKey)) continue;
+          const item = await store.loadThread(match.accountId, match.threadId, false);
+          if (item) candidatesByKey.set(match.threadKey, item);
+        }
+        const semanticThreadKeys = matches
+          .map(match => match.threadKey)
+          .filter(threadKey => {
+            const item = candidatesByKey.get(threadKey);
+            return item && threadMatchesMailSearchConstraints(
+              item,
+              parsedSearch,
+              searchContext.timeZone,
+            );
+          });
+        const deterministicThreadKeys = filterMailThreads(
           candidates,
           searchQuery,
           searchContext,
         ).map(emailThreadKey);
+        const threadKeys = fuseMailSearchRanks(
+          deterministicThreadKeys,
+          semanticThreadKeys,
+        ).slice(0, 100);
+        abort.signal.throwIfAborted();
+        if (store.queryThreads) {
+          candidates = threadKeys.flatMap(key => candidatesByKey.has(key) ? [candidatesByKey.get(key)!] : []);
+          setState(state => boundMailWindow({ ...state, threads: candidates }));
+          setWindowKeys(new Set(threadKeys));
+          setNextWindowCursor(null);
+        }
         setSemanticSearch({ query: searchQuery, threadKeys });
         setToast(threadKeys.length === 1
-          ? '1 exact local match.'
-          : `${threadKeys.length} exact local matches.`);
-        return;
-      }
-      const profileStorage = sdk.storage.profile;
-      const embeddings = sdk.embeddings;
-      if (!profileStorage || !embeddings) {
-        throw new Error('Local semantic search is unavailable on this TAP host.');
-      }
-      let pendingIndex = semanticIndexRef.current;
-      if (!pendingIndex) {
-        pendingIndex = openEmailSemanticIndex(profileStorage, embeddings);
-        semanticIndexRef.current = pendingIndex;
-      }
-      let index: EmailSemanticIndex;
-      try {
-        index = await pendingIndex;
+          ? '1 combined match from the available local index.'
+          : `${threadKeys.length} combined matches from the available local index.`);
       } catch (error) {
-        if (semanticIndexRef.current === pendingIndex) semanticIndexRef.current = null;
-        throw error;
+        if (abort.signal.aborted) return;
+        setSemanticSearch(null);
+        setToast(`Meaning search could not complete: ${error instanceof Error ? error.message : 'Local search failed.'}`);
+      } finally {
+        setSemanticSearchBusy(false);
       }
-      if (store.queryThreads) {
-        let after: MailWindowCursor | null = null;
-        do {
-          abort.signal.throwIfAborted();
-          const page = await store.queryThreads({ accountId: current.selectedAccountId, after, signal: abort.signal });
-          await index.indexThreads(page.threads);
-          after = page.next;
-        } while (after);
-      } else await index.indexThreads(current.threads);
-      const matches = await index.search(parsedSearch.textQuery || searchQuery, {
-        topK: 100,
-        ...(current.selectedAccountId === 'all'
-          ? {}
-          : { accountId: current.selectedAccountId }),
-      });
-      const candidatesByKey = new Map(candidates.map(item => [emailThreadKey(item), item] as const));
-      if (store.loadThread) for (const match of matches) {
-        abort.signal.throwIfAborted();
-        if (candidatesByKey.has(match.threadKey)) continue;
-        const item = await store.loadThread(match.accountId, match.threadId, false);
-        if (item) candidatesByKey.set(match.threadKey, item);
-      }
-      const semanticThreadKeys = matches
-        .map(match => match.threadKey)
-        .filter(threadKey => {
-          const item = candidatesByKey.get(threadKey);
-          return item && threadMatchesMailSearchConstraints(
-            item,
-            parsedSearch,
-            searchContext.timeZone,
-          );
-        });
-      const deterministicThreadKeys = filterMailThreads(
-        candidates,
-        searchQuery,
-        searchContext,
-      ).map(emailThreadKey);
-      const threadKeys = fuseMailSearchRanks(
-        deterministicThreadKeys,
-        semanticThreadKeys,
-      ).slice(0, 100);
-      abort.signal.throwIfAborted();
-      if (store.queryThreads) {
-        candidates = threadKeys.flatMap(key => candidatesByKey.has(key) ? [candidatesByKey.get(key)!] : []);
-        setState(state => boundMailWindow({ ...state, threads: candidates }));
-        setWindowKeys(new Set(threadKeys));
-        setNextWindowCursor(null);
-      }
-      setSemanticSearch({ query: searchQuery, threadKeys });
-      setToast(threadKeys.length === 1
-        ? '1 meaning match from the local index.'
-        : `${threadKeys.length} meaning matches from the local index.`);
-    } catch {
-      if (abort.signal.aborted) return;
-      setSemanticSearch(null);
-      setToast('Meaning search needs an installed local embedding model and private vector storage.');
-    } finally {
-      setSemanticSearchBusy(false);
-    }
-  }, [query, semanticSearchBusy, store]);
+    })();
+    semanticQueryWork.current = work;
+    await work;
+  }, [query, semanticSearchBusy, store, getSemanticIndex, preview]);
   useEffect(() => {
     setWindowCursor(null);
     setWindowHistory([]);
@@ -1738,9 +1792,14 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       coordinatorRef.current = client;
       const sync = mailboxSyncRef.current ?? createMailboxSync(client);
       mailboxSyncRef.current = sync;
-      await sync.refreshHead();
+      const page = await sync.refreshHead();
       setCoordinatorNetworkReady(true);
       setMailboxError('');
+      if (sync instanceof DurableMailboxSync) {
+        void sync.loadHistory(page).catch(error => {
+          setMailboxError(`Older cloud history will retry from the device checkpoint: ${String(error)}`);
+        });
+      }
       void sync.reconcile().catch(error => {
         setMailboxError(`Mailbox reconciliation will retry: ${String(error)}`);
       });
@@ -3059,7 +3118,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               <h1>{activeMailView.label}</h1>
             </div>
             <div className="mail-search-stack">
-              <div className="mail-search"><Search aria-hidden="true" /><input ref={searchRef} autoComplete="off" name="mail-search" type="search" value={query} onChange={event => { setQuery(event.target.value); setSemanticSearch(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void runSemanticSearch(); } }} placeholder="Search…" aria-label="Search mail" /><button className={semanticSearch?.query === query.trim() ? 'is-active' : ''} type="button" disabled={!query.trim() || semanticSearchBusy} onClick={() => { void runSemanticSearch(); }} aria-label="Search by meaning using the local semantic index">{semanticSearchBusy ? 'Indexing…' : 'Meaning'}</button><kbd>/</kbd></div>
+              <div className="mail-search"><Search aria-hidden="true" /><input ref={searchRef} autoComplete="off" name="mail-search" type="search" value={query} onChange={event => { setQuery(event.target.value); setSemanticSearch(null); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void runSemanticSearch(); } }} placeholder="Search…" aria-label="Search mail" /><button className={semanticSearch?.query === query.trim() ? 'is-active' : ''} type="button" disabled={!query.trim() || semanticSearchBusy} onClick={() => { void runSemanticSearch(); }} aria-label="Search by meaning using the local semantic index">{semanticSearchBusy ? 'Searching…' : 'Meaning'}</button><kbd>/</kbd></div>
+              {!preview ? <div className="mail-search-coverage mail-index-progress">{semanticIndexStatus}{semanticIndexError ? <button type="button" onClick={() => setSemanticIndexAttempt(value => value + 1)}>Retry meaning index</button> : null}</div> : null}
               {searchCoverage ? (
                 <span
                   className={`mail-search-coverage${searchCoverage.complete ? '' : ' is-partial'}`}
@@ -3367,6 +3427,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {overlay === 'settings' ? (
         <SettingsDialog
           preview={preview}
+          openToolSettings={!preview && surfaceContext?.workspaceId && surfaceContext.installationId
+            ? async () => { await sdk.navigation.open({ path: `/workspace/${encodeURIComponent(surfaceContext.workspaceId!)}/marketplace?miniapps=installed&installationId=${encodeURIComponent(surfaceContext.installationId)}` }); }
+            : undefined}
           senderContext={surfaceContext?.userId && surfaceContext.workspaceId
             ? { userId: surfaceContext.userId, workspaceId: surfaceContext.workspaceId } : undefined}
           accounts={state.accounts}

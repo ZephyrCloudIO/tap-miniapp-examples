@@ -415,6 +415,8 @@ export interface EmailToolAccess {
   readonly connected: boolean;
   readonly scopes: readonly string[];
   readonly expiresAt: string | null;
+  readonly verifiedAt?: string | null;
+  readonly verifiedOperation?: string | null;
 }
 function parseEmailToolAccess(value: unknown): EmailToolAccess {
   const body = asRecord(value);
@@ -423,7 +425,12 @@ function parseEmailToolAccess(value: unknown): EmailToolAccess {
     !(body.expiresAt === null || (typeof body.expiresAt === 'string' && Number.isFinite(Date.parse(body.expiresAt))))) {
     throw new CoordinatorError(502, 'invalid_response', 'Email tool access response is malformed.');
   }
-  return { connected: body.connected, scopes: body.scopes, expiresAt: body.expiresAt };
+  if (body.verifiedAt != null && (typeof body.verifiedAt !== 'string' || !Number.isFinite(Date.parse(body.verifiedAt)))) {
+    throw new CoordinatorError(502, 'invalid_response', 'Email tool verification response is malformed.');
+  }
+  return { connected: body.connected, scopes: body.scopes, expiresAt: body.expiresAt,
+    verifiedAt: typeof body.verifiedAt === 'string' ? body.verifiedAt : null,
+    verifiedOperation: typeof body.verifiedOperation === 'string' ? body.verifiedOperation : null };
 }
 
 export function createCoordinatorClient(

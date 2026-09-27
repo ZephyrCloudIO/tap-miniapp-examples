@@ -1034,6 +1034,9 @@ async function newestPage(
   ) {
     return;
   }
+  // Redelivered or recovered continuations must not move a newer checkpoint
+  // backwards, even when they belong to the same full traversal.
+  if (!reset && pageToken !== row.backfill_page_token) return;
   const parameters = new URLSearchParams({
     includeSpamTrash: 'true',
     maxResults: String(gmailThreadPageSize),
@@ -1057,9 +1060,9 @@ async function newestPage(
     pageToken ? 'metadata' : 'full',
   );
   const nextPageToken = typeof listed.nextPageToken === 'string' ? listed.nextPageToken : null;
-  let oldest = reset ? null : row.backfill_complete_through;
+  let oldest = !reset && Date.parse(row.backfill_complete_through ?? '') > 0 ? row.backfill_complete_through : null;
   for (const thread of parsed) {
-    if (!oldest || thread.receivedAt < oldest) oldest = thread.receivedAt;
+    if (Date.parse(thread.receivedAt) > 0 && (!oldest || thread.receivedAt < oldest)) oldest = thread.receivedAt;
   }
   const historyId =
     profile && typeof profile.historyId === 'string'
@@ -1080,7 +1083,8 @@ async function newestPage(
             END,
             updated_at = ?
       WHERE profile_id = ? AND account_id = ?
-        AND (? OR sync_generation IS NULL OR sync_generation = ?)`,
+        AND (? OR sync_generation IS NULL OR sync_generation = ?)
+        AND (? OR backfill_page_token = ?)`,
   ).bind(
     nextPageToken ? 'backfilling' : 'current',
     historyId,
@@ -1096,6 +1100,8 @@ async function newestPage(
     scope.accountId,
     Number(reset),
     syncGeneration,
+    Number(reset),
+    pageToken ?? null,
   );
   if (nextPageToken || !syncGeneration) {
     await accountUpdate.run();
@@ -1240,7 +1246,7 @@ async function partialPage(
   }
   await env.DB.prepare(
     `UPDATE google_accounts
-        SET coverage_state = 'current', newest_history_id = ?,
+        SET coverage_state = CASE WHEN backfill_page_token IS NOT NULL THEN 'backfilling' ELSE 'current' END, newest_history_id = ?,
             updated_at = ?
       WHERE profile_id = ? AND account_id = ?`,
   )
@@ -1375,7 +1381,31 @@ export async function requestAccountSync(
       : { profileId, accountId, mode: 'partial' },
     now,
   );
+  await recoverOrphanedBackfills(env, now, { profileId, accountId });
   return true;
+}
+
+/** A dead-lettered/lost continuation must not strand a saved provider cursor. */
+async function recoverOrphanedBackfills(env: Env, now: Date, scope?: ProviderScope): Promise<void> {
+  const rows = await env.DB.prepare(`SELECT profile_id, account_id, backfill_page_token, sync_generation
+    FROM google_accounts
+    WHERE connection_state = 'active' AND backfill_page_token IS NOT NULL
+      ${scope ? 'AND profile_id = ? AND account_id = ?' : ''}
+      AND NOT EXISTS (
+        SELECT 1 FROM provider_events e
+        WHERE e.profile_id = google_accounts.profile_id AND e.account_id = google_accounts.account_id
+          AND e.state IN ('received', 'processing', 'retryable')
+          AND json_extract(e.payload_json, '$.mode') = 'continue'
+          AND json_extract(e.payload_json, '$.pageToken') = google_accounts.backfill_page_token
+          AND COALESCE(json_extract(e.payload_json, '$.syncGeneration'), '') = COALESCE(google_accounts.sync_generation, '')
+      ) ORDER BY updated_at LIMIT 20`)
+    .bind(...(scope ? [scope.profileId, scope.accountId] : []))
+    .all<{ profile_id: string; account_id: string; backfill_page_token: string; sync_generation: string | null }>();
+  if (rows.results.length) await enqueueSyncEvents(env, rows.results.map(row => ({
+    profileId: row.profile_id, accountId: row.account_id, mode: 'continue',
+    pageToken: row.backfill_page_token,
+    ...(row.sync_generation ? { syncGeneration: row.sync_generation } : {}),
+  })), now, backfillContinuationDelaySeconds);
 }
 
 function safeJson<T>(value: string, fallback: T): T {
@@ -2198,6 +2228,7 @@ export async function markDueReminders(env: Env, now: string): Promise<void> {
 }
 
 export async function enqueueScheduledSyncs(env: Env, now: Date): Promise<void> {
+  await recoverOrphanedBackfills(env, now);
   const staleBefore = new Date(now.getTime() - 4 * 60_000).toISOString();
   const accounts = await env.DB.prepare(
     `SELECT profile_id, account_id, backfill_page_token, unresolved_failures
