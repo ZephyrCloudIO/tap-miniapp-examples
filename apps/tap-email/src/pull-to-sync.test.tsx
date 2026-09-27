@@ -84,6 +84,7 @@ describe('mobile pull to sync', () => {
     await ui.render(false, false); await pull(ui);
     await ui.render(true, true); await pull(ui);
     expect(ui.calls()).toBe(0);
+    expect(ui.list.style.transform).toBe('translateY(0px)');
     await ui.render(true, false); await pull(ui);
     await ui.finish(true);
     expect(ui.container.querySelector('[role="status"]')?.textContent).toContain('Could not sync');
