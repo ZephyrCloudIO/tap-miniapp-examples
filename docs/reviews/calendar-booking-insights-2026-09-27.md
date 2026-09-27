@@ -49,13 +49,14 @@ Reviewed against the [Web Interface Guidelines](https://github.com/vercel-labs/w
 - Checked populated, no-traffic, and unavailable states; expanded definitions
   with the keyboard; verified focus containment, dismissal, and focus restoration.
 - Mobile footer retained approximately 14px below the Close button after scrolling.
-- Calendar: 326 unit tests, typecheck, production miniapp build, and manifest check.
+- Calendar: 333 unit tests, typecheck, production miniapp build, and manifest check.
 - Gateway: 18 public booking route tests, including a regression with twelve
   pre-tracking bookings and four later visits. Existing cases cover retries,
   multiple bookings per visit, cancellation, and mismatched coverage periods.
 
-The change uses the existing v2 analytics API. No gateway deployment or database
-migration is required. Calendar remains version 0.3.6 in this pending release.
+The analytics changes use the existing v2 analytics API. The workspace host
+changes below require a gateway deployment before the miniapp update, with no
+new database migration. Calendar remains version 0.3.6 in this pending release.
 
 ## Booking page management
 
@@ -93,4 +94,31 @@ moves to the name field on edit and back to Edit profile after Save or Cancel.
 Verified desktop and 390px/320px layouts with no horizontal overflow. Seven new
 UI tests cover the claim transition, explicit edit/cancel, saved name and URL,
 offline edits, failed claim/edit retries, and confirmed versus stale meetings.
-All 326 Calendar tests, typecheck, production build, and manifest validation pass.
+All 333 Calendar tests, typecheck, production build, and manifest validation pass.
+
+## Workspace hosts and Zoom readiness
+
+The host picker now uses all joined workspace members from the SDK roster,
+including people who have not opened Calendar. The manifest declares the SDK's
+`workspace.read-members` authority. Gateway metadata supplies each member's
+Calendar, availability, and Zoom readiness; it does not supply provider secrets.
+
+Removed the separate shared-booking enrollment step. Opening Booking pages syncs
+the caller's connected Google calendar and saved availability. Missing Calendar
+setup is visible beside each host and blocks publishing a meeting that needs
+them. Availability is never invented for another member.
+
+Zoom readiness belongs to the selected organizer. Choosing an organizer without
+Zoom shows their name and connection guidance, and blocks publication. Switching
+to an organizer with Zoom clears the error. Other required hosts do not need
+Zoom. The gateway also validates the organizer's connection when publishing.
+
+Verified the real editor at desktop and 390px widths without horizontal overflow,
+including the missing-Zoom error, organizer change, enabled Save, and completed
+summary. Seven additional Calendar tests cover roster merging, automatic sync,
+policy comparison, and Zoom validation. Twelve collective-booking gateway tests
+and five organizer-authorization tests pass, alongside both typechecks, the
+miniapp production build, and manifest validation.
+
+Deploy the updated gateway before installing Calendar 0.3.6. No new D1 migration
+is needed for host readiness or workspace roster support.

@@ -1136,6 +1136,9 @@ p { text-wrap: pretty; }
 .shared-booking-check { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; line-height: 1.5; }
 .shared-booking-panel small { color: var(--muted-foreground); overflow-wrap: anywhere; }
 .shared-booking-error { color: #ad2828; }
+.shared-booking-validation { border: 1px solid color-mix(in srgb, #dc554b 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, #dc554b 8%, var(--card)); padding: 12px 16px; font-size: 13px; }
+.shared-booking-validation ul { margin: 0; padding-left: 18px; }
+.shared-booking-validation li + li { margin-top: 6px; }
 .shared-booking-actions { justify-content: flex-start; }
 
 .workspace-profile-summary { display: grid; gap: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); padding: 20px; }

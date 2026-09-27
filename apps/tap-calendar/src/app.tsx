@@ -1409,6 +1409,11 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
       transport,
     });
   }, [calendarPrincipalId, context, preview]);
+  const loadWorkspaceMembers = useCallback(async () => {
+    await requireCalendarAuthority(context, false, "workspace.read-members");
+    if (!sdk.workspace?.listMembers) throw new Error("Update TAP to load workspace members for shared bookings.");
+    return (await sdk.workspace.listMembers(context?.workspaceId ? { workspaceId: context.workspaceId } : {})).members;
+  }, [context]);
   const calendarActivitySync = useCalendarActivitySync(calendarGateway, context?.workspaceId, state, !preview);
   const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview);
   const bookingAnalytics = usePublicBookingAnalytics(
@@ -2945,7 +2950,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
           {section === "availability" ? (
             <AvailabilityScreen state={state} commit={commit} />
           ) : null}
-          {section === "booking-pages" && !preview ? <WorkspaceBookingPanel gateway={calendarGateway} state={state} authorize={action => requireCalendarAuthority(context, false, action)} /> : null}
+          {section === "booking-pages" && !preview ? <WorkspaceBookingPanel loadMembers={loadWorkspaceMembers} gateway={calendarGateway} state={state} authorize={action => requireCalendarAuthority(context, false, action)} /> : null}
           {section === "booking-pages" ? (
             <BookingPagesScreen
               state={state}

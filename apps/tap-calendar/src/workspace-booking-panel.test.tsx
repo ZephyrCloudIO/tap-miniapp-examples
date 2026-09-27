@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { sharedHostInput } from "./workspace-hosts";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
 import { createCalendarGatewayClient } from "./gateway";
 import { createInitialCalendarState } from "./test-fixtures";
@@ -11,6 +12,9 @@ let root: Root;
 let container: HTMLDivElement;
 let data: WorkspaceBookings;
 let failSave: boolean;
+let roster: { userId: string; displayName: string }[];
+const loadMembers = async () => roster;
+const hostSaves: unknown[] = [];
 const saves: WorkspaceBookingProfileInput[] = [];
 const claimed = (): WorkspaceBookings => ({
   canManage: true, pendingApprovals: [], self: null, hosts: [], publicBaseUrl: "https://cal.with-tap.ai",
@@ -19,7 +23,13 @@ const claimed = (): WorkspaceBookings => ({
 });
 const gateway = createCalendarGatewayClient({
   baseUrl: "https://calendar-api.example.com", workspaceId: "workspace", principalId: "user-alex",
-  transport: async (_url, init) => {
+  transport: async (url, init) => {
+    if (url.endsWith("/host") && init.method === "POST") {
+      const input = JSON.parse(init.body!) as NonNullable<ReturnType<typeof sharedHostInput>>;
+      hostSaves.push(input);
+      data = { ...data, self: { enabled: true, host: { ...input, principalId: "user-alex", email: "alex@example.com", version: input.expectedVersion + 1 } } };
+      return { status: 200, headers: [], bodyText: JSON.stringify(data.self) };
+    }
     if (init.method === "POST") {
       const input = JSON.parse(init.body!) as WorkspaceBookingProfileInput;
       if (failSave) return { status: 503, headers: [], bodyText: JSON.stringify({ error: "unavailable", message: "Could not save the workspace profile. Try again." }) };
@@ -33,7 +43,7 @@ const gateway = createCalendarGatewayClient({
   },
 });
 const render = async () => {
-  await act(async () => root.render(<WorkspaceBookingPanel gateway={gateway} state={createInitialCalendarState()} authorize={async () => {}} />));
+  await act(async () => root.render(<WorkspaceBookingPanel loadMembers={loadMembers} gateway={gateway} state={createInitialCalendarState()} authorize={async () => {}} />));
 };
 const button = (label: string) => [...container.querySelectorAll("button")].find(item => item.textContent?.trim() === label);
 const click = async (label: string) => { expect(button(label), `Missing ${label}`).toBeDefined(); await act(async () => button(label)!.click()); };
@@ -46,7 +56,7 @@ const input = async (name: string, value: string) => {
   });
 };
 beforeEach(() => {
-  data = claimed(); failSave = false; saves.length = 0;
+  data = claimed(); failSave = false; saves.length = 0; hostSaves.length = 0; roster = [{ userId: "alex", displayName: "Alex" }];
   rs.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -67,7 +77,7 @@ describe("workspace profile claimed state", () => {
     expect(container.querySelector('[name="workspace-profile-slug"]')).toBeNull();
     expect(container.textContent).toContain("Setup needed");
     expect(container.textContent).not.toContain("Accepting bookings");
-    expect(container.textContent).toContain("Next, enable your shared availability above");
+    expect(container.textContent).not.toContain("enrolled");
   });
 
   it("requires Edit profile and discards edits when cancelled", async () => {
@@ -122,7 +132,7 @@ describe("workspace profile claimed state", () => {
   });
 
   it("shows confirmed meetings without edit fields and distinguishes stale publications", async () => {
-    data = { ...data, hosts: [{ principalId: "alex", displayName: "Alex", email: "alex@example.com", version: 1 }],
+    data = { ...data, hosts: [{ principalId: "alex", displayName: "Alex", email: "alex@example.com", version: 1, calendarConnected: true, availabilityReady: true, zoomConnected: false }],
       definition: { ...data.definition!, events: [{ id: "team", slug: "meet-us", title: "Meet the team", description: "", durationMinutes: 30, hostIds: ["alex"], organizerId: "alex", location: "google-meet", approvalRequired: false }] },
     };
     await render();
@@ -139,4 +149,55 @@ describe("workspace profile claimed state", () => {
     expect(button("Refresh shared links")).toBeDefined();
     expect(container.querySelector('.workspace-profile-meetings button')).toBeNull();
   });
+
+  it("lists all workspace members even when they have never configured Calendar", async () => {
+    roster = [{ userId: "alex", displayName: "Alex" }, { userId: "maya", displayName: "Maya" }];
+    await render(); await click("Add shared meeting");
+    const choices = container.querySelector('.shared-booking-hosts')!;
+    expect(choices.textContent).toContain("Alex");
+    expect(choices.textContent).toContain("Maya");
+    expect(choices.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(choices.textContent).toContain("Google calendar not connected");
+    expect(container.textContent).not.toContain("Enable shared bookings");
+  });
+
+  it("automatically syncs the current member's configured availability once", async () => {
+    roster = [{ userId: "user-alex", displayName: "Alex Morgan" }];
+    await render();
+    expect(hostSaves).toHaveLength(1);
+    expect(data.self?.enabled).toBe(true);
+    expect(data.self?.host.displayName).toBe("Alex Morgan");
+    await click("Refresh");
+    expect(hostSaves).toHaveLength(1);
+    expect(container.textContent).not.toContain("Allow this workspace");
+  });
+
+  it("blocks Zoom for an unconnected organizer and clears the error after connecting", async () => {
+    const meeting = { id: "team", slug: "meet-us", title: "Meet the team", description: "", durationMinutes: 30, hostIds: ["alex"], organizerId: "alex", location: "zoom" as const, approvalRequired: false };
+    data = { ...data, hosts: [{ principalId: "alex", displayName: "Alex", email: "alex@example.com", version: 1, calendarConnected: true, availabilityReady: true, zoomConnected: false }], definition: { ...data.definition!, events: [meeting] } };
+    await render(); await click("Edit profile");
+    expect(container.querySelector('.shared-booking-validation')?.textContent).toContain("Alex hasn’t connected Zoom");
+    expect(button("Save changes")!.disabled).toBe(true);
+    await click("Save changes"); expect(saves).toHaveLength(0);
+    data = { ...data, hosts: data.hosts.map(host => ({ ...host, zoomConnected: true })) };
+    await click("Refresh");
+    expect(container.querySelector('.shared-booking-validation')).toBeNull();
+    expect(button("Save changes")!.disabled).toBe(false);
+    await click("Save changes"); expect(saves[0]!.events[0]!.location).toBe("zoom");
+  });
+
+  it("requires Zoom only for the organizer, and does not require it for Google Meet", async () => {
+    roster = [{ userId: "alex", displayName: "Alex" }, { userId: "maya", displayName: "Maya" }];
+    data = { ...data, hosts: roster.map(member => ({ principalId: member.userId, displayName: member.displayName, email: "", version: 1, calendarConnected: true, availabilityReady: true, zoomConnected: member.userId === "alex" })),
+      definition: { ...data.definition!, events: [{ id: "team", slug: "meet-us", title: "Meet the team", description: "", durationMinutes: 30, hostIds: ["alex", "maya"], organizerId: "alex", location: "zoom", approvalRequired: false }] } };
+    await render(); await click("Edit profile");
+    expect(button("Save changes")!.disabled).toBe(false);
+    await click("Save changes");
+    expect(saves[0]!.events[0]!.hostIds).toEqual(["alex", "maya"]);
+    data = { ...data, definition: { ...data.definition!, version: 3, events: data.definition!.events.map(event => ({ ...event, organizerId: "maya", location: "google-meet" })) } };
+    await click("Refresh"); await click("Edit profile");
+    expect(container.querySelector('.shared-booking-validation')).toBeNull();
+    expect(button("Save changes")!.disabled).toBe(false);
+  });
+
 });

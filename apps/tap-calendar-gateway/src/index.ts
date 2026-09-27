@@ -942,7 +942,30 @@ async function workspaceBookingsRoute(request: Request, env: CalendarGatewayEnv,
       canManage ? readWorkspaceDefinition(env.CALENDAR_DB, scope.workspace) : null,
       canManage ? listHosts(env.CALENDAR_DB, scope.workspace) : [],
     ]);
-    const active = await Promise.all(allHosts.map(host => workspacePermission(env, { workspace: scope.workspace, principal: host.principalId }, "workspace:read")));
+    const connectionRows = canManage ? await env.CALENDAR_DB.prepare(`
+      SELECT principal_id, MAX(calendar_connected) AS calendar_connected, MAX(zoom_connected) AS zoom_connected, json_group_array(calendar_id) AS calendar_ids, json_group_array(writable_id) AS writable_ids FROM (
+        SELECT a.principal_id, c.writable AS calendar_connected, 0 AS zoom_connected, c.id AS calendar_id, CASE WHEN c.writable = 1 THEN c.id END AS writable_id
+        FROM calendar_connections a JOIN provider_calendars c ON c.connection_id = a.id
+        WHERE a.workspace_id = ? AND a.provider = 'google' AND a.mode = 'oauth' AND a.status = 'connected' AND a.principal_id IS NOT NULL
+        UNION ALL
+        SELECT principal_id, 0, 1, NULL, NULL FROM meeting_provider_connections
+        WHERE workspace_id = ? AND provider = 'zoom' AND status = 'connected' AND principal_id IS NOT NULL
+      ) GROUP BY principal_id`).bind(scope.workspace, scope.workspace).all<{ principal_id: string; calendar_connected: number; zoom_connected: number; calendar_ids: string; writable_ids: string }>() : { results: [] };
+    const connections = new Map(connectionRows.results.map(row => [row.principal_id, row]));
+    const knownIds = [...new Set([...allHosts.map(host => host.principalId), ...connections.keys()])];
+    const active = await Promise.all(knownIds.map(principal => workspacePermission(env, { workspace: scope.workspace, principal }, "workspace:read")));
+    const members = new Set(knownIds.filter((_, index) => active[index]));
+    const configured = new Map(allHosts.map(host => [host.principalId, host]));
+    const hosts = [...members].map(principalId => {
+      const host = configured.get(principalId);
+      const connection = connections.get(principalId);
+      const calendars = new Set<string>(connection ? JSON.parse(connection.calendar_ids) : []);
+      const writable = new Set<string>(connection ? JSON.parse(connection.writable_ids) : []);
+      return { principalId, displayName: host?.displayName ?? "", email: host?.email ?? "", version: host?.version ?? 0,
+        calendarConnected: connection?.calendar_connected === 1,
+        availabilityReady: Boolean(host && writable.has(host.destinationCalendarId) && host.conflictCalendarIds.every(id => calendars.has(id))),
+        zoomConnected: connection?.zoom_connected === 1 };
+    });
     const pendingRows = await env.CALENDAR_DB.prepare(`SELECT m.provider_operation_id, m.event_title, m.guest_name, m.guest_email, m.start_at,
       c.conflict_calendar_ids_json, r.public_snapshot_json
       FROM public_booking_management_credentials m
@@ -972,10 +995,9 @@ async function workspaceBookingsRoute(request: Request, env: CalendarGatewayEnv,
       FROM public_booking_profiles p JOIN calendar_workspace_booking_profiles d ON d.workspace_id = p.workspace_id
       WHERE p.workspace_id = ? AND p.principal_id = ? AND p.source_profile_id = ? AND p.owner_kind = 'workspace'`)
       .bind(scope.workspace, owner.principal, workspaceProfileSourceId).first() : null;
-    const members = new Set(allHosts.filter((_, index) => active[index]).map(host => host.principalId));
-    const ready = publication?.hosts_current === 1 && definition?.events.every(event => event.hostIds.every(id => members.has(id)));
+    const ready = publication?.hosts_current === 1 && definition?.events.every(event => event.hostIds.every(id => hosts.some(host => host.principalId === id && host.availabilityReady)) && (event.location !== "zoom" || hosts.some(host => host.principalId === event.organizerId && host.zoomConnected)));
     return json({ canManage, self, definition, pendingApprovals, publication: publication ? { ...publication, hosts_current: Boolean(ready) } : null, publicBaseUrl: publicBookingBaseUrl(env),
-      hosts: allHosts.filter((_, index) => active[index]).map(host => ({ principalId: host.principalId, displayName: host.displayName, email: host.email, version: host.version })) });
+      hosts });
   }
   if (!canManage) throw new ApiError(403, "workspace_management_required", "Only workspace owners and admins can manage shared booking pages.");
   if (request.method !== "POST" || path !== "/v1/workspace-bookings/profile") throw new ApiError(404, "not_found", "The shared booking route was not found.");
@@ -993,7 +1015,7 @@ async function workspaceBookingsRoute(request: Request, env: CalendarGatewayEnv,
         await assertCollectiveHostsAuthorized(env, scope.workspace, page.collectiveHosts ?? []);
         if (page.location === "zoom" && !await env.CALENDAR_DB.prepare(`SELECT 1 FROM meeting_provider_connections WHERE workspace_id = ? AND principal_id = ? AND provider = 'zoom' AND status = 'connected'`)
           .bind(scope.workspace, page.collectiveHosts![0]!.principalId).first()) {
-          throw new CollectiveBookingError(409, "organizer_zoom_unavailable", "The organizer must connect Zoom in Settings before publishing a Zoom booking link.");
+          throw new CollectiveBookingError(409, "organizer_zoom_unavailable", `${page.collectiveHosts![0]!.displayName} must connect Zoom in Calendar Settings before publishing this Zoom meeting.`);
         }
       }
     }
