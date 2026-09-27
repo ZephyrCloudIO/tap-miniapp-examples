@@ -43,6 +43,7 @@ export type ContextualAttachmentLoader = (
 ) => Promise<Uint8Array>;
 
 interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
+  readonly mobile?: boolean;
   readonly appTheme: MiniAppTheme;
   readonly html: string;
   readonly scriptsEnabled?: boolean;
@@ -54,6 +55,7 @@ interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
 }
 
 export interface ThreadMessageListProps {
+  readonly mobile?: boolean;
   readonly accountId: string;
   readonly appTheme: MiniAppTheme;
   readonly attachmentExportSupported: boolean;
@@ -86,6 +88,7 @@ interface ThreadMessageCardProps extends Omit<ThreadMessageListProps, 'messages'
 }
 
 interface MessageHeaderContentProps {
+  readonly mobile?: boolean;
   readonly expanded: boolean;
   readonly message: EmailMessage;
   readonly showToggle: boolean;
@@ -101,6 +104,8 @@ const messageDateFormatter = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
   minute: '2-digit',
 });
+const messageTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const messageDayFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
 const maximumMessageSnippetLength = 240;
 const plainQuotedMessageMarker = /^(?:On .{1,500} wrote:|-----Original Message-----)\s*$/gimu;
 
@@ -173,6 +178,7 @@ function PlainMessageBody({ bodyText }: PlainMessageBodyProps) {
 }
 
 function CachedRichMessageBody({
+  mobile,
   accountId,
   appTheme,
   html,
@@ -194,6 +200,7 @@ function CachedRichMessageBody({
   );
   return (
     <RichMessageBody
+      mobile={mobile}
       html={html}
       imagesEnabled={imagesEnabled}
       scriptsEnabled={scriptsEnabled}
@@ -207,11 +214,15 @@ function CachedRichMessageBody({
 }
 
 function MessageHeaderContent({
+  mobile = false,
   expanded,
   message,
   showToggle,
 }: MessageHeaderContentProps) {
   const senderName = displayName(message);
+  const sent = new Date(message.sentAt);
+  const compactDate = (sent.toDateString() === new Date().toDateString()
+    ? messageTimeFormatter : messageDayFormatter).format(sent);
   return (
     <>
       {expanded ? (
@@ -225,8 +236,8 @@ function MessageHeaderContent({
       ) : (
         <span className="thread-message-snippet">{messageSnippet(message)}</span>
       )}
-      <time className="thread-message-date" dateTime={message.sentAt}>
-        {messageDateFormatter.format(new Date(message.sentAt))}
+      <time className="thread-message-date" dateTime={message.sentAt} title={messageDateFormatter.format(sent)}>
+        {mobile ? compactDate : messageDateFormatter.format(sent)}
       </time>
       {showToggle ? (
         <span className="thread-message-chevron" aria-hidden="true">
@@ -238,6 +249,7 @@ function MessageHeaderContent({
 }
 
 function ThreadMessageCard({
+  mobile,
   htmlEnabled = true,
   accountId,
   appTheme,
@@ -295,17 +307,18 @@ function ThreadMessageCard({
           }}
           type="button"
         >
-          <MessageHeaderContent expanded={expanded} message={message} showToggle />
+          <MessageHeaderContent mobile={mobile} expanded={expanded} message={message} showToggle />
         </button>
       ) : (
         <div className="thread-message-toggle is-static">
-          <MessageHeaderContent expanded message={message} showToggle={false} />
+          <MessageHeaderContent mobile={mobile} expanded message={message} showToggle={false} />
         </div>
       )}
       {expanded ? (
         <div className="thread-message-content" id={contentId}>
           {htmlEnabled && message.bodyHtml ? (
             <CachedRichMessageBody
+              mobile={mobile}
               accountId={accountId}
               appTheme={appTheme}
               html={message.bodyHtml}
@@ -340,6 +353,7 @@ function ThreadMessageCard({
  * choices survive while a newly arrived last message opens automatically.
  */
 export function ThreadMessageList({
+  mobile,
   accountId,
   appTheme,
   attachmentExportSupported,
@@ -410,6 +424,7 @@ export function ThreadMessageList({
 
   return messages.map(message => (
     <ThreadMessageCard
+      mobile={mobile}
       htmlEnabled={htmlEnabled}
       accountId={accountId}
       appTheme={appTheme}
