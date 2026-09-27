@@ -49,7 +49,7 @@ Reviewed against the [Web Interface Guidelines](https://github.com/vercel-labs/w
 - Checked populated, no-traffic, and unavailable states; expanded definitions
   with the keyboard; verified focus containment, dismissal, and focus restoration.
 - Mobile footer retained approximately 14px below the Close button after scrolling.
-- Calendar: 333 unit tests, typecheck, production miniapp build, and manifest check.
+- Calendar: 337 unit tests, typecheck, production miniapp build, and manifest check.
 - Gateway: 18 public booking route tests, including a regression with twelve
   pre-tracking bookings and four later visits. Existing cases cover retries,
   multiple bookings per visit, cancellation, and mismatched coverage periods.
@@ -94,7 +94,7 @@ moves to the name field on edit and back to Edit profile after Save or Cancel.
 Verified desktop and 390px/320px layouts with no horizontal overflow. Seven new
 UI tests cover the claim transition, explicit edit/cancel, saved name and URL,
 offline edits, failed claim/edit retries, and confirmed versus stale meetings.
-All 333 Calendar tests, typecheck, production build, and manifest validation pass.
+All 337 Calendar tests, typecheck, production build, and manifest validation pass.
 
 ## Workspace hosts and Zoom readiness
 
@@ -122,3 +122,22 @@ miniapp production build, and manifest validation.
 
 Deploy the updated gateway before installing Calendar 0.3.6. No new D1 migration
 is needed for host readiness or workspace roster support.
+
+## Individual booking profile settings
+
+The Owner select had one usable choice and stretched next to the time-zone
+field's helper text. Removed that select and aligned Display name and Time zone
+in one row, stacking them on mobile. Removed the local profile-count callout,
+which did not establish whether a global booking address was available.
+
+Claimed addresses now appear in a dedicated URL card with a lock and “Name
+claimed” status, instead of an input that looks editable. They remain locked
+when the profile is offline. A saved draft's address requires an explicit
+“Change address” action; cancelling restores the original address and focus.
+New profiles explain that the address becomes permanent after a successful
+claim. Publish/offline guidance reflects the form's current choice.
+
+Four regression tests cover locked claimed addresses, taking a profile offline,
+draft address changes and cancellation, and failed first-claim recovery.
+Browser review confirmed equal field positions and heights on desktop, no
+horizontal overflow at 390px and 320px, and the draft change/cancel/save flow.

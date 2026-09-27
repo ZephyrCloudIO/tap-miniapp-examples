@@ -4834,28 +4834,29 @@ export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsA
           </div>
         </section>
       );})}
-      {profileEditor ? <BookingProfileDialog state={state} profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} /> : null}
+      {profileEditor ? <BookingProfileDialog profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} /> : null}
       {eventTypeEditor ? <EventTypeDialog key={eventTypeEditor.eventTypeId ?? eventTypeEditor.profileId} state={state} profileId={eventTypeEditor.profileId} existing={state.bookingProfiles.find(profile => profile.id === eventTypeEditor.profileId)?.eventTypes.find(eventType => eventType.id === eventTypeEditor.eventTypeId)} zoomConnected={zoomConnected} onClose={() => setEventTypeEditor(null)} onNavigate={onNavigate} onSubmit={saveEventType} /> : null}
       {insightsProfile && insightsEventType ? <BookingInsightsDialog snapshot={snapshot} liveAnalytics={liveAnalytics} profile={insightsProfile} eventType={insightsEventType} onClose={() => setInsights(null)} /> : null}
     </div>
   );
 }
 
-function BookingProfileDialog({
-  state,
+export function BookingProfileDialog({
   profile,
   onClose,
   onSubmit,
 }: {
-  readonly state: CalendarState;
   readonly profile: BookingProfile | undefined;
   readonly onClose: () => void;
   readonly onSubmit: (profile: BookingProfile) => Promise<string | null>;
 }) {
   const createEntityId = useEntityId();
   const [displayName, setDisplayName] = useState(profile?.displayName ?? "");
-  const [slug, setSlug] = useState(profile?.slug ?? "");
-  const [ownerType, setOwnerType] = useState<BookingProfile["ownerType"]>(profile?.ownerType ?? "individual");
+  const [slug, setSlug] = useState(profile?.publication?.reservedSlug ?? profile?.slug ?? "");
+  const [editingAddress, setEditingAddress] = useState(!profile);
+  const addressInput = useRef<HTMLInputElement>(null);
+  const changeAddressButton = useRef<HTMLButtonElement>(null);
+  const ownerType = profile?.ownerType ?? "individual";
   const [timezone, setTimezone] = useState(() => profile?.timezone ?? detectedTimeZone());
   const [published, setPublished] = useState(profile?.published ?? false);
   const [error, setError] = useState<string | null>(null);
@@ -4863,16 +4864,34 @@ function BookingProfileDialog({
   const editing = Boolean(profile);
   const slugReserved = profile?.publication !== undefined;
   const hasActiveEventTypes = profile?.eventTypes.some(eventType => eventType.active) ?? false;
+  useEffect(() => {
+    if (profile && editingAddress) addressInput.current?.focus();
+  }, [profile, editingAddress]);
+  const cancelAddressChange = () => {
+    setSlug(profile!.slug);
+    setEditingAddress(false);
+    // The button stays mounted while editing, so focus can return immediately.
+    changeAddressButton.current?.focus();
+  };
   return (
-    <Modal title={editing ? "Booking Profile settings" : "New Booking Profile"} description="Choose the globally unique first segment of every public scheduling URL in this profile." onClose={onClose}>
-      <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; if (!isSupportedTimeZone(timezone)) { setError("Choose a valid IANA time zone."); return; } if (ownerType !== "individual" && published) { setError("Public booking v1 supports individual profiles only."); return; } setSubmitting(true); const next: BookingProfile = { id: profile?.id ?? createEntityId("profile"), displayName: displayName.trim(), ownerType, slug: slug.trim(), timezone, published, eventTypes: profile?.eventTypes ?? [], ...(profile?.publication === undefined ? {} : { publication: profile.publication }), ...(profile?.pendingPublication === undefined ? {} : { pendingPublication: profile.pendingPublication }) }; void onSubmit(next).then(message => setError(message)).finally(() => setSubmitting(false)); }}>
-        {error ? <div className="dialog-warning" role="alert"><AlertTriangle /><span>{error}</span></div> : null}
-        <div className="form-grid"><label className="field"><span>Owner</span><CalendarSelect value={ownerType} disabled={submitting} onValueChange={value => setOwnerType(value as BookingProfile["ownerType"])}><SelectItem value="individual">Individual</SelectItem><SelectItem value="team" disabled>Team · not supported in public v1</SelectItem><SelectItem value="organization" disabled>Organization · not supported in public v1</SelectItem></CalendarSelect></label><TimeZoneCombobox label="Time zone" name="profile-timezone" value={timezone} onValueChange={setTimezone} required disabled={submitting} /></div>
-        <label className="field"><span>Display name</span><input name="profile-name" autoComplete="organization" value={displayName} required maxLength={120} onChange={event => setDisplayName(event.currentTarget.value)} /></label>
-        <label className="field"><span>Profile Slug</span><input name="profile-slug" autoComplete="off" value={slug} required readOnly={slugReserved} aria-describedby="profile-slug-description" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" onChange={event => setSlug(event.currentTarget.value.toLowerCase())} /><small id="profile-slug-description">{slugReserved ? "This globally reserved slug cannot be changed." : `cal.with-tap.ai/${slug || "your-slug"}`}</small></label>
-        <label className="approval-check"><input type="checkbox" checked={published} disabled={submitting} onChange={event => setPublished(event.currentTarget.checked)} /><span><strong>Claim and publish this profile</strong><small>{hasActiveEventTypes ? "Reserve the profile URL and publish every active Event Type." : `Reserve cal.with-tap.ai/${slug || "your-slug"} now. Add Event Types whenever you’re ready.`}</small></span></label>
-        <div className="privacy-preview"><Globe2 /><div><strong>Globally unique profile namespace</strong><p>{state.bookingProfiles.filter(item => item.id !== profile?.id).length} other profile slugs are reserved in this Calendar state.</p><small>Event Type slugs only need to be unique inside this profile.</small></div></div>
-        <DialogActions onCancel={onClose} submitLabel={editing ? "Save profile" : "Create profile"} submitting={submitting} />
+    <Modal title={editing ? "Booking profile settings" : "New booking profile"} description="Manage your public name, booking address, and visibility." onClose={onClose} className="booking-profile-dialog">
+      <form className="schedule-form" onSubmit={event => { event.preventDefault(); if (submitting) return; if (!isSupportedTimeZone(timezone)) { setError("Choose a valid IANA time zone."); return; } if (ownerType !== "individual" && published) { setError("Public booking supports individual profiles only."); return; } setSubmitting(true); const next: BookingProfile = { id: profile?.id ?? createEntityId("profile"), displayName: displayName.trim(), ownerType, slug: slug.trim(), timezone, published, eventTypes: profile?.eventTypes ?? [], ...(profile?.publication === undefined ? {} : { publication: profile.publication }), ...(profile?.pendingPublication === undefined ? {} : { pendingPublication: profile.pendingPublication }) }; void onSubmit(next).then(message => setError(message)).catch(() => setError("Your profile could not be saved. Try again.")).finally(() => setSubmitting(false)); }}>
+        {error ? <div className="dialog-warning" role="alert"><AlertTriangle aria-hidden="true" /><span>{error}</span></div> : null}
+        <section className="booking-profile-address" aria-labelledby="booking-address-heading">
+          <div className="booking-profile-address-heading">
+            <h3 id="booking-address-heading">Booking address</h3>
+            {slugReserved ? <span className="booking-profile-address-status"><LockKeyhole aria-hidden="true" /> Name claimed</span> : <span className="booking-profile-address-status">Draft address</span>}
+          </div>
+          {slugReserved || !editingAddress ? <p className="booking-profile-url" translate="no">cal.with-tap.ai/<strong>{slug}</strong></p> : <label className="field"><span>URL name</span><input ref={addressInput} name="profile-slug" autoComplete="off" autoCapitalize="none" spellCheck={false} disabled={submitting} value={slug} required minLength={2} maxLength={64} aria-describedby="profile-slug-description" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" onChange={event => setSlug(event.currentTarget.value.toLowerCase())} /><small className="booking-profile-url-preview" translate="no">cal.with-tap.ai/{slug || "your-name"}</small></label>}
+          <p id="profile-slug-description" className="booking-profile-address-help">{slugReserved ? "This address is permanent. It stays reserved when your profile is offline." : "Choose carefully: your address becomes permanent once claimed. Availability is checked when you publish."}</p>
+          {profile && !slugReserved ? <Button ref={changeAddressButton} type="button" variant="outline" size="sm" disabled={submitting} aria-expanded={editingAddress} onClick={() => { if (editingAddress) cancelAddressChange(); else setEditingAddress(true); }}>{editingAddress ? "Cancel address change" : "Change address"}</Button> : null}
+        </section>
+        <div className="form-grid booking-profile-details">
+          <label className="field"><span>Display name</span><input name="profile-name" autoComplete="name" value={displayName} disabled={submitting} required maxLength={120} onChange={event => setDisplayName(event.currentTarget.value)} /><small>The name guests see on your booking pages.</small></label>
+          <TimeZoneCombobox label="Time zone" name="profile-timezone" value={timezone} onValueChange={setTimezone} description="Used for your booking profile. Search by city or time zone." required disabled={submitting} />
+        </div>
+        <label className="approval-check booking-profile-visibility"><input type="checkbox" name="profile-published" checked={published} disabled={submitting} onChange={event => setPublished(event.currentTarget.checked)} /><span><strong>{slugReserved ? "Publish this profile" : "Claim and publish this profile"}</strong><small>{published ? hasActiveEventTypes ? "Your profile and every active booking page will be public." : "Your profile page will be public. Add booking pages when you’re ready." : slugReserved ? "Saving takes this profile and its booking pages offline. Your address stays reserved." : "Save a draft now and claim your address when you’re ready to publish."}</small></span></label>
+        <DialogActions onCancel={onClose} submitLabel={editing ? "Save profile" : published ? "Claim and publish" : "Save draft"} submitting={submitting} />
       </form>
     </Modal>
   );

@@ -672,6 +672,19 @@ p { text-wrap: pretty; }
 .participant-roster-state strong { font-size: 9px; }
 .participant-roster-state small { color: var(--muted-foreground); font-size: 8px; line-height: 1.45; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.booking-profile-details { align-items: start; }
+.booking-profile-details > .field { min-width: 0; align-content: start; }
+.booking-profile-address { display: grid; min-width: 0; gap: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); padding: 14px; }
+.booking-profile-address-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.booking-profile-address-heading h3 { margin: 0; font-size: 12px; }
+.booking-profile-address-status { display: inline-flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 10px; }
+.booking-profile-address-status svg { width: 13px; height: 13px; }
+.booking-profile-url { margin: 0; overflow-wrap: anywhere; color: var(--muted-foreground); font-size: 16px; line-height: 1.5; }
+.booking-profile-url strong { color: var(--foreground); font-weight: 650; }
+.booking-profile-address-help { margin: 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.5; }
+.booking-profile-address > button { justify-self: start; }
+.booking-profile-url-preview { overflow-wrap: anywhere; }
+.booking-profile-visibility input { flex: 0 0 auto; margin-top: 3px; }
 .calendar-form-fields { gap: 14px; }
 .date-duration-grid { grid-template-columns: minmax(0, 2fr) minmax(160px, 1fr); }
 .date-duration-grid > .field, .date-duration-grid > [data-slot="field"] { min-width: 0; }
