@@ -29,6 +29,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workspace:read-members",
         "effect:host-api:tap.workflows:list",
         "effect:host-api:tap.workflows:invoke"
       ],
@@ -142,6 +143,32 @@
         "theme": "dark",
         "reducedMotion": true,
         "seed": 8148,
+        "fixedNow": "2026-08-14T15:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only",
+        "maxBytes": 8388608
+      }
+    },
+    "tap-calendar-desktop-workspace-members-all-denied": {
+      "surface": "tap-calendar",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "all-denied",
+      "deniedActions": ["*"],
+      "fixtureFiles": ["tests/fixtures/tap-calendar.seed.json"],
+      "httpRouteFiles": [],
+      "requiredOrigins": [],
+      "requiredEffects": ["effect:host-api:tap.workspace:read-members"],
+      "credentialSlots": [],
+      "environment": {
+        "viewport": { "width": 1440, "height": 900 },
+        "locale": "en-US",
+        "timezone": "America/New_York",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 8149,
         "fixedNow": "2026-08-14T15:00:00Z"
       },
       "artifacts": {
@@ -309,6 +336,7 @@
         "action:channels.read",
         "action:channels.send-message",
         "action:task.read",
+        "action:workspace.read-members",
         "action:workflows.list",
         "action:workflows.invoke",
         "action:navigation.open-external",
@@ -324,6 +352,7 @@
         "effect:host-api:tap.channels:list",
         "effect:host-api:tap.channels:read",
         "effect:host-api:tap.channels:send-message",
+        "effect:host-api:tap.workspace:read-members",
         "effect:host-api:tap.workflows:list",
         "effect:host-api:tap.workflows:invoke"
       ]
@@ -364,6 +393,15 @@
         "action:credentials.use",
         "action:network.request",
         "effect:credentials:http"
+      ]
+    },
+    {
+      "id": "tap-calendar-desktop-workspace-members-all-denied",
+      "profile": "tap-calendar-desktop-workspace-members-all-denied",
+      "testMatch": ["tests/e2e/tap-calendar-workspace-members-all-denied.test.ts"],
+      "capabilities": [
+        "action:workspace.read-members",
+        "effect:host-api:tap.workspace:read-members"
       ]
     },
     {
