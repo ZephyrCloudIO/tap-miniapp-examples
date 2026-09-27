@@ -1,4 +1,5 @@
 import { CalendarSelect } from "./calendar-select";
+import { MeetingProviderIcon } from "./meeting-provider-icon";
 import { useCalendarActivitySync } from "./use-calendar-activity-sync";
 import { NativeHeader, useMobileDismiss, useCompactLayout } from '@tap-examples/tap-mobile-ui';
 import { appendAvailabilityActivity } from "./activity-journal";
@@ -4735,7 +4736,7 @@ function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailabl
                 <div className="event-type-stripe" />
                 <header><div><span className="event-type-icon"><CalendarClock /></span><span className={`status-chip ${pageIsLive ? "status-confirmed" : "status-pending"}`}>{eventTypeStatus}</span></div></header>
                 <h3>{eventType.title}</h3><p>{eventType.description}</p>
-                <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><Video /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
+                <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><MeetingProviderIcon provider={eventType.location} /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
                 <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span>{pageIsLive ? <button type="button" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button> : null}</div>
                 <div className="conversion-row"><div><span>Views</span><strong>{analyticsAvailable ? analytics.views.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Starts</span><strong>{analyticsAvailable ? analytics.starts.toLocaleString() : "—"}</strong></div><ArrowRight /><div><span>Confirmed</span><strong>{analyticsAvailable ? analytics.confirmed.toLocaleString() : "—"}</strong></div><b title="Share of tracked visits that produced a confirmed booking">{liveAnalytics ? snapshot ? publicBookingConversion(publicMetrics) : "—" : `${(conversionRate(analytics) * 100).toFixed(1)}%`}</b></div>
                 {liveAnalytics ? <div className="booking-metric-breakdown compact"><span>Lifetime confirmed <strong>{snapshot ? publicMetrics.lifetimeConfirmed.toLocaleString() : "—"}</strong></span><span>Cancelled <strong>{snapshot ? publicMetrics.cancelled.toLocaleString() : "—"}</strong></span></div> : null}
