@@ -5,6 +5,34 @@ Gmail. It owns Google OAuth credentials, the encrypted mailbox read model,
 coverage state, reminders, and the durable command outbox. The miniapp never
 receives a Google refresh token or calls Gmail directly.
 
+## Recipient suggestions
+
+`GET /v1/recipients?q=...` requires `tap-email.view` and searches the current
+profile's sent recipients across connected accounts. It returns up to 20
+deduplicated name/address matches, ranked by prefix match and recency. To, Cc,
+and Bcc metadata from Gmail messages marked SENT is indexed independently of
+the reader's body hydration window. Drafts and incoming senders are excluded. Account
+deletion cascades to the index; revoked accounts are excluded from searches.
+
+Apply migration `0017_recipient_history.sql` before deploying the coordinator.
+It seeds known To recipients from the existing cache and marks existing accounts
+for one complete mailbox backfill on their next sync. That pass recovers older
+recipients, send-as aliases, and Cc/Bcc metadata missing from the cached reader
+projection. Suggestions become more complete as the paginated backfill runs;
+new sends enter history when Gmail sync observes them. Deploy the coordinator
+before the miniapp. While offline, the miniapp can suggest outgoing recipients
+already in its local cache and always permits manual address entry.
+
+## Composer follow-ups
+
+Apply `0018_sent_follow_up.sql` after `0017_recipient_history.sql`, then deploy
+the coordinator before the miniapp. Follow-up intent is stored with the draft
+and scheduled send. The provider's acknowledged message ID, thread ID, and sent
+time are checkpointed together with a single reminder. Its timer begins after
+actual delivery, including when reconciling an uncertain send. Retries do not
+restart or resurrect a cancelled reminder. Saving, cancelling, or undoing an
+unsent draft does not activate a reminder.
+
 ## Google setup
 
 1. Create a Google Cloud OAuth web client and enable the Gmail API.

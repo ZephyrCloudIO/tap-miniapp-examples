@@ -1,3 +1,4 @@
+import { searchSentRecipients } from './recipient-history';
 import { createEmailMcpCredential, emailMcpCredentialStatus, revokeEmailMcpCredential, verifyEmailMcpCredential } from './mcp-auth';
 import { createTapEmailLiveMcpHandler } from './mcp';
 import {
@@ -975,6 +976,7 @@ async function applyProviderResult(
         ...(payload.bcc === undefined ? {} : { bcc: payload.bcc }),
         subject: payload.subject,
         bodyText: payload.bodyText,
+        ...(payload.followUp ? { followUp: payload.followUp } : {}),
         ...(payload.expectedContext ? { expectedContext: payload.expectedContext } : {}),
         ...(payload.replyToMessageId === undefined
           ? {}
@@ -2269,6 +2271,14 @@ export function createTapEmailCoordinator(
         }
         if (request.method === 'POST' && url.pathname === '/v1/accounts/google/connect') {
           return json(await beginGoogleOAuth(env, identity, now()), 200, cors);
+        }
+        if (request.method === 'GET' && url.pathname === '/v1/recipients') {
+          const queries = url.searchParams.getAll('q');
+          const query = queries[0] ?? '';
+          if (queries.length > 1 || query.length > 254 || /[\r\n\0]/u.test(query)) {
+            throw new ApiError(400, 'invalid_recipient_query', 'Recipient search must be at most 254 characters.');
+          }
+          return json({ recipients: await searchSentRecipients(env, identity.profileId, query) }, 200, cors);
         }
         if (request.method === 'GET' && (url.pathname === '/v1/mailbox' || url.pathname === '/v1/mailbox/changes')) {
           const afterValues = url.searchParams.getAll('after');

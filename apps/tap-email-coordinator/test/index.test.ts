@@ -1136,6 +1136,7 @@ describe('TAP Email coordinator command outbox', () => {
       payload: {
         draftKey: 'draft_scheduled_1',
         draftRevision: 1,
+        followUp: { delayMinutes: 2880, condition: 'if_no_reply' },
         to: 'maya@example.com',
         subject: 'Launch review',
         bodyText: 'Following up.',
@@ -1217,6 +1218,7 @@ describe('TAP Email coordinator command outbox', () => {
     });
     await worker.queue(batch(queuedSend.message), env);
     expect(calls.map(value => value.kind)).toEqual(['schedule_send', 'send_draft']);
+    expect(calls[1]?.payload.followUp).toEqual({ delayMinutes: 2880, condition: 'if_no_reply' });
     expect(await env.DB.prepare(
       `SELECT state, error_code FROM scheduled_sends
         WHERE profile_id = ? AND schedule_command_id = ?`,

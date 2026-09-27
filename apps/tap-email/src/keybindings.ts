@@ -62,6 +62,8 @@ export interface ShortcutResolution {
 export type ComposeKeyCommand =
   | 'send'
   | 'focus-to'
+  | 'focus-cc'
+  | 'focus-bcc'
   | 'focus-from'
   | 'focus-subject'
   | 'focus-message'
@@ -73,6 +75,8 @@ export const COMPOSE_SHORTCUTS: readonly {
 }[] = [
   { keys: '⌘Enter', label: 'Send' },
   { keys: '⌘⇧O', label: 'Focus To' },
+  { keys: '⌘⇧C', label: 'Show / focus Cc' },
+  { keys: '⌘⇧B', label: 'Show / focus Bcc' },
   { keys: '⌘⇧F', label: 'Focus From' },
   { keys: '⌘⇧S', label: 'Focus Subject' },
   { keys: '⌘⇧M', label: 'Focus message' },
@@ -339,6 +343,8 @@ export function resolveComposeShortcut(stroke: KeyStroke): ComposeKeyCommand | n
   if (!stroke.shiftKey) return null;
   const commands: Readonly<Record<string, ComposeKeyCommand>> = {
     o: 'focus-to',
+    c: 'focus-cc',
+    b: 'focus-bcc',
     f: 'focus-from',
     s: 'focus-subject',
     m: 'focus-message',

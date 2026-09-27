@@ -132,8 +132,7 @@ describe('ReplyComposer', () => {
       expect(prompts).toBe(1);
       expect(sends).toBe(0);
 
-      await act(async () => mounted.container
-        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+      await act(async () => [...mounted.container.querySelectorAll('button')].find(button => button.textContent === 'Send')!
         .click());
       expect(sends).toBe(1);
 

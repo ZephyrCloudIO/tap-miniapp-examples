@@ -1,3 +1,5 @@
+import { useComposerServices } from './use-composer-services';
+import { localSentRecipients } from './recipient-history';
 import { activityCommandFromReceipt } from './activity';
 import { EmailToolAccessPanel } from './email-tool-access-panel';
 import { boundMailWindow, journalOf, type MailWindowCursor } from './bounded-mail-replica';
@@ -269,6 +271,7 @@ interface TapEmailAppProps {
 type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'shortcuts' | 'settings' | 'handoff' | 'workflows';
 
 interface ReplyDraft {
+  readonly followUp?: MailDraftPayload['followUp'];
   readonly accountId: string;
   readonly attachmentBusy: boolean;
   readonly attachmentError: string;
@@ -746,6 +749,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [conversationHandoff, setConversationHandoff] =
     useState<ConversationHandoffUiState | null>(null);
   const [emailTask, setEmailTask] = useState<EmailTaskUiState | null>(null);
+  const composerServices = useComposerServices(surfaceContext, preview);
   const [composeSeed, setComposeSeed] = useState<ComposeSeed | null>(null);
   const [composeDraftKey, setComposeDraftKey] = useState<string | null>(null);
   const [scheduledSends, setScheduledSends] = useState<readonly ScheduledSendSummary[]>([]);
@@ -2457,6 +2461,17 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     if (!preview) void savePreferences(normalized).catch(error => flash(`Settings were not saved: ${String(error)}`));
   };
 
+  const recipientContacts = useMemo(
+    () => localSentRecipients(state.accounts, state.threads),
+    [state.accounts, state.threads],
+  );
+  const searchRecipients = useCallback(async (query: string) => {
+    if (preview) return [];
+    if (!coordinatorNetworkReady) throw new Error('Sent history is unavailable.');
+    const client = coordinatorRef.current ??= createCoordinatorClient();
+    return client.searchRecipients(query);
+  }, [coordinatorNetworkReady, preview]);
+
   const queueComposeDraftAutosave = useCallback((message: ComposeDraftMessage) => {
     if ((queuedDraftRevisions.current.get(message.draftKey) ?? 0) >= message.draftRevision) return;
     queuedDraftRevisions.current.set(message.draftKey, message.draftRevision);
@@ -2468,6 +2483,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {
         draftKey: message.draftKey,
         draftRevision: message.draftRevision,
+        ...(message.followUp ? { followUp: message.followUp } : {}),
         to: message.to,
         ...(message.cc ? { cc: message.cc } : {}),
         ...(message.bcc ? { bcc: message.bcc } : {}),
@@ -2505,6 +2521,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {
         draftKey: message.draftKey,
         draftRevision: message.draftRevision,
+        ...(message.followUp ? { followUp: message.followUp } : {}),
         ...(message.cc ? { cc: message.cc } : {}),
         ...(message.bcc ? { bcc: message.bcc } : {}),
         ...(message.attachments.length ? { attachments: message.attachments } : {}),
@@ -2533,6 +2550,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {
         draftKey: message.draftKey,
         draftRevision: message.draftRevision,
+        ...(message.followUp ? { followUp: message.followUp } : {}),
         to: message.to,
         ...(message.cc ? { cc: message.cc } : {}),
         ...(message.bcc ? { bcc: message.bcc } : {}),
@@ -2622,6 +2640,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       | 'bodyText'
       | 'cc'
       | 'focusRequestId'
+      | 'followUp'
       | 'placement'
       | 'to'
     >>,
@@ -2630,6 +2649,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       const draft = current[threadKey];
       if (!draft) return current;
       const contentChanged = (
+        ('followUp' in updates && updates.followUp !== draft.followUp) ||
         (updates.bodyText !== undefined && updates.bodyText !== draft.bodyText) ||
         (updates.to !== undefined && updates.to !== draft.to) ||
         (updates.cc !== undefined && updates.cc !== draft.cc) ||
@@ -2662,6 +2682,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {
         draftKey: draft.draftKey,
         draftRevision: draft.draftRevision,
+        ...(draft.followUp ? { followUp: draft.followUp } : {}),
         to: draft.to,
         ...(draft.cc ? { cc: draft.cc } : {}),
         ...(draft.bcc ? { bcc: draft.bcc } : {}),
@@ -2725,6 +2746,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {
         draftKey: draft.draftKey,
         draftRevision: draft.draftRevision,
+        ...(draft.followUp ? { followUp: draft.followUp } : {}),
         ...(draft.cc ? { cc: draft.cc } : {}),
         ...(draft.bcc ? { bcc: draft.bcc } : {}),
         ...(draft.attachments.length ? { attachments: draft.attachments } : {}),
@@ -2752,6 +2774,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {
         draftKey: draft.draftKey,
         draftRevision: draft.draftRevision,
+        ...(draft.followUp ? { followUp: draft.followUp } : {}),
         to: draft.to,
         ...(draft.cc ? { cc: draft.cc } : {}),
         ...(draft.bcc ? { bcc: draft.bcc } : {}),
@@ -3159,6 +3182,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                   />
                   {activeReplyDraft?.placement === 'inline' ? (
                     <ReplyComposer
+                      recipientContacts={recipientContacts}
+                      searchRecipients={searchRecipients}
+                      services={composerServices}
+                      draftKey={activeReplyDraft.draftKey}
+                      subject={activeReplyDraft.subject}
+                      followUp={activeReplyDraft.followUp}
+                      onFollowUpChange={value => updateReplyDraft(activeReplyDraft.threadKey, { followUp: value })}
                       attachmentBusy={activeReplyDraft.attachmentBusy}
                       attachmentError={activeReplyDraft.attachmentError}
                       attachments={activeReplyDraft.attachments}
@@ -3195,6 +3225,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 {poppedReplyDraft?.placement === 'sidecar' ? (
                   <aside className="reply-sidecar" aria-label={`Popped out reply to ${poppedReplyDraft.recipientLabel}`}>
                     <ReplyComposer
+                      recipientContacts={recipientContacts}
+                      searchRecipients={searchRecipients}
+                      services={composerServices}
+                      draftKey={poppedReplyDraft.draftKey}
+                      subject={poppedReplyDraft.subject}
+                      followUp={poppedReplyDraft.followUp}
+                      onFollowUpChange={value => updateReplyDraft(poppedReplyDraft.threadKey, { followUp: value })}
                       attachmentBusy={poppedReplyDraft.attachmentBusy}
                       attachmentError={poppedReplyDraft.attachmentError}
                       attachments={poppedReplyDraft.attachments}
@@ -3247,6 +3284,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       {overlay === 'remind' && thread ? <ReminderDialog thread={thread} onClose={() => setOverlay('none')} onConfirm={confirmReminder} /> : null}
       {overlay === 'compose' && composeDraftKey ? (
         <ComposeDialog
+          services={composerServices}
+          recipientContacts={recipientContacts}
+          searchRecipients={searchRecipients}
           accounts={state.accounts}
           draftKey={composeDraftKey}
           initialAccountId={thread?.accountId ?? state.accounts[0]?.accountId ?? ''}

@@ -1,6 +1,15 @@
-import type { MailDraftAttachment } from '@tap-examples/tap-email-protocol';
-import { Clock3, PanelBottom, PanelRightOpen, Paperclip, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import { AiWriter } from './ai-writer';
+import { ComposerToolbar, FollowUpDialog, FollowUpSummary, ShareDraftDialog } from './composer-tools';
+import type { ComposerServices } from './composer-services';
+import { recipientError } from './recipient-validation';
+import type { MailDraftAttachment, MailFollowUp } from '@tap-examples/tap-email-protocol';
+import { Button } from '@theaiplatform/miniapp-sdk/ui';
+import { PanelBottom, PanelRightOpen, Paperclip, X } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { MessageEditor } from './message-editor';
+import { RecipientInput } from './recipient-input';
+import { RecipientOptions, useCopyRecipients } from './recipient-options';
+import { NO_RECIPIENTS, type RecipientSearch, type RecipientSuggestion } from './recipient-history';
 import { resolveComposeShortcut } from './keybindings';
 import { mentionsMissingAttachment } from './outbound-attachment';
 import { SendLaterDialog } from './send-later-dialog';
@@ -8,6 +17,13 @@ import { SendLaterDialog } from './send-later-dialog';
 export type ReplyPlacement = 'inline' | 'sidecar';
 
 export interface ReplyComposerProps {
+  readonly services?: ComposerServices;
+  readonly draftKey?: string;
+  readonly subject?: string;
+  readonly followUp?: MailFollowUp;
+  readonly onFollowUpChange?: (value: MailFollowUp | undefined) => void;
+  readonly recipientContacts?: readonly RecipientSuggestion[];
+  readonly searchRecipients?: RecipientSearch;
   readonly attachmentBusy: boolean;
   readonly attachmentError: string;
   readonly attachments: readonly MailDraftAttachment[];
@@ -39,6 +55,9 @@ function isPlacementShortcut(event: React.KeyboardEvent): boolean {
 }
 
 export function ReplyComposer({
+  services, draftKey = 'reply', subject = '', followUp, onFollowUpChange,
+  recipientContacts = NO_RECIPIENTS,
+  searchRecipients,
   attachmentBusy,
   attachmentError,
   attachments,
@@ -59,18 +78,23 @@ export function ReplyComposer({
   recipientLabel,
   to,
 }: ReplyComposerProps) {
+  const recipientId = useId();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const toRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLFormElement>(null);
-  const [showCopies, setShowCopies] = useState(Boolean(cc || bcc));
+  const copies = useCopyRecipients(toRef, cc, bcc);
   const [missingAttachmentConfirmation, setMissingAttachmentConfirmation] = useState(false);
   const [sendLaterOpen, setSendLaterOpen] = useState(false);
+  const [tool, setTool] = useState<'ai' | 'remind' | 'share' | null>(null);
+  const [validationError, setValidationError] = useState('');
   const canSend = bodyText.trim().length > 0 && to.trim().length > 0 && !attachmentBusy;
   const popped = placement === 'sidecar';
   const missingAttachment = mentionsMissingAttachment(bodyText, attachments);
 
   const requestSend = () => {
     if (!canSend) return;
+    const error = recipientError({ to, cc, bcc });
+    if (error) { setValidationError(error); return; }
     if (missingAttachment && !missingAttachmentConfirmation) {
       setMissingAttachmentConfirmation(true);
       return;
@@ -92,7 +116,8 @@ export function ReplyComposer({
       className={`reply-composer is-${placement}`}
       data-reply-placement={placement}
       onKeyDown={event => {
-        if (event.nativeEvent.isComposing || event.repeat) return;
+        if (event.nativeEvent.isComposing || event.repeat || (event.target instanceof Element && event.target.closest('[data-composer-tool]'))) return;
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) { event.preventDefault(); setTool('ai'); return; }
         if (isPlacementShortcut(event)) {
           event.preventDefault();
           onTogglePlacement();
@@ -115,6 +140,9 @@ export function ReplyComposer({
         } else if (command === 'focus-to') {
           event.preventDefault();
           toRef.current?.focus();
+        } else if (command === 'focus-cc' || command === 'focus-bcc') {
+          event.preventDefault();
+          copies.reveal(command === 'focus-cc' ? 'cc' : 'bcc');
         } else if (command === 'focus-message') {
           event.preventDefault();
           bodyRef.current?.focus();
@@ -131,37 +159,44 @@ export function ReplyComposer({
     >
       <header className="reply-composer-header">
         <div className="reply-addresses">
-          <label>
-            <span>To</span>
-            <input
-              aria-label="Reply recipients"
-              autoComplete="off"
-              multiple
-              onChange={event => {
-                setMissingAttachmentConfirmation(false);
-                onAddressChange('to', event.target.value);
-              }}
-              ref={toRef}
-              type="email"
-              value={to}
-            />
-          </label>
-          {!showCopies ? (
-            <button className="reply-copy-toggle" onClick={() => setShowCopies(true)} type="button">
-              Cc/Bcc
-            </button>
-          ) : (
-            <>
-              <label>
-                <span>Cc</span>
-                <input aria-label="Reply Cc recipients" autoComplete="off" multiple onChange={event => onAddressChange('cc', event.target.value)} type="email" value={cc} />
-              </label>
-              <label>
-                <span>Bcc</span>
-                <input aria-label="Reply Bcc recipients" autoComplete="off" multiple onChange={event => onAddressChange('bcc', event.target.value)} type="email" value={bcc} />
-              </label>
-            </>
-          )}
+          <div className="reply-recipient-line">
+            <label htmlFor={`${recipientId}-to`}>To</label>
+            <div className="recipient-field-control">
+              <RecipientInput
+                id={`${recipientId}-to`}
+                label="Reply recipients"
+                name="reply-recipients"
+                contacts={recipientContacts}
+                searchRecipients={searchRecipients}
+                otherRecipients={[cc, bcc]}
+                onValueChange={value => {
+                  setMissingAttachmentConfirmation(false);
+                  onAddressChange('to', value);
+                }}
+                ref={toRef}
+                value={to}
+              />
+              <RecipientOptions ccVisible={copies.ccVisible} bccVisible={copies.bccVisible} onReveal={copies.reveal} />
+            </div>
+          </div>
+          {copies.ccVisible ? (
+            <div className="reply-recipient-line">
+              <label htmlFor={`${recipientId}-cc`}>Cc</label>
+              <div className="recipient-field-control">
+                <RecipientInput id={`${recipientId}-cc`} ref={copies.ccRef} label="Reply Cc recipients" name="reply-cc" value={cc} onValueChange={value => onAddressChange('cc', value)} contacts={recipientContacts} searchRecipients={searchRecipients} otherRecipients={[to, bcc]} />
+                {!cc.trim() ? <Button type="button" variant="ghost" size="icon-sm" aria-label="Hide Cc" title="Hide Cc" onClick={() => copies.hide('cc')}><X aria-hidden="true" /></Button> : null}
+              </div>
+            </div>
+          ) : null}
+          {copies.bccVisible ? (
+            <div className="reply-recipient-line">
+              <label htmlFor={`${recipientId}-bcc`}>Bcc</label>
+              <div className="recipient-field-control">
+                <RecipientInput id={`${recipientId}-bcc`} ref={copies.bccRef} label="Reply Bcc recipients" name="reply-bcc" value={bcc} onValueChange={value => onAddressChange('bcc', value)} contacts={recipientContacts} searchRecipients={searchRecipients} otherRecipients={[to, cc]} />
+                {!bcc.trim() ? <Button type="button" variant="ghost" size="icon-sm" aria-label="Hide Bcc" title="Hide Bcc" onClick={() => copies.hide('bcc')}><X aria-hidden="true" /></Button> : null}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="reply-composer-actions">
           <button
@@ -178,18 +213,18 @@ export function ReplyComposer({
           </button>
         </div>
       </header>
-      <textarea
-        aria-label="Reply message"
-        autoComplete="off"
-        className="reply-composer-body"
+      {tool === 'ai' ? <AiWriter key={services?.conversationId} services={services} subject={subject} bodyText={bodyText} onApply={onBodyTextChange} onClose={() => { setTool(null); bodyRef.current?.focus(); }} /> : null}
+      <MessageEditor
+        label="Reply message"
         name="reply-message"
-        onChange={event => {
+        onValueChange={value => {
           setMissingAttachmentConfirmation(false);
-          onBodyTextChange(event.target.value);
+          onBodyTextChange(value);
         }}
         placeholder="Write your reply…"
-        ref={bodyRef}
+        inputRef={bodyRef}
         value={bodyText}
+        variant="reply"
       />
       {attachments.length > 0 ? (
         <div className="draft-attachments" aria-label="Reply attachments">
@@ -218,36 +253,16 @@ export function ReplyComposer({
           This reply mentions an attachment, but no file is attached. Send again to confirm.
         </p>
       ) : null}
+      {validationError ? <p className="draft-attachment-error" role="alert">{validationError}</p> : null}
+      <FollowUpSummary value={followUp} onEdit={() => setTool('remind')} onRemove={() => onFollowUpChange?.(undefined)} />
       <footer className="reply-composer-footer">
-        <button
-          aria-label="Attach files"
-          disabled={attachmentBusy}
-          onClick={() => { void onAttach(); }}
-          title="Attach files"
-          type="button"
-        >
-          <Paperclip aria-hidden="true" />
-          <span>{attachmentBusy ? 'Attaching…' : 'Attach'}</span>
-        </button>
-        <button
-          aria-label="Send reply later"
-          disabled={!canSend}
-          onClick={() => setSendLaterOpen(true)}
-          title="Send later"
-          type="button"
-        >
-          <Clock3 aria-hidden="true" />
-          <span>Send later</span>
-        </button>
-        <span className="reply-footer-spacer" />
-        <button
-          className="primary-button"
-          disabled={!canSend}
-          type="submit"
-        >
-          {missingAttachmentConfirmation ? 'Send anyway' : 'Send'}
-        </button>
+        <ComposerToolbar canSend={canSend} attachmentBusy={attachmentBusy} sendAnyway={missingAttachmentConfirmation}
+          onAttach={() => { void onAttach(); }} onSend={requestSend}
+          onSchedule={() => { const error = recipientError({ to, cc, bcc }); if (error) setValidationError(error); else setSendLaterOpen(true); }}
+          onRemind={() => setTool('remind')} onShare={() => setTool('share')} onWriteAi={() => setTool('ai')} />
       </footer>
+      {tool === 'remind' ? <FollowUpDialog value={followUp} onChange={value => onFollowUpChange?.(value)} onClose={() => setTool(null)} /> : null}
+      {tool === 'share' ? <ShareDraftDialog key={services?.workspaceId} services={services} draft={{ draftKey, subject, to, cc, bodyText }} onClose={() => setTool(null)} /> : null}
       {sendLaterOpen ? (
         <SendLaterDialog
           cancelIfReplyDefault

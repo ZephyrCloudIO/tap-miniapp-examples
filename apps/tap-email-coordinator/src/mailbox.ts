@@ -22,6 +22,7 @@ import {
   maximumGoogleAttachmentBytes,
 } from './google';
 import type { ProviderExecutionResult, ProviderScope } from './provider';
+import type { SentRecipient } from './recipient-history';
 import {
   enqueueSyncEvent,
   enqueueSyncEvents,
@@ -40,6 +41,7 @@ interface AccountRow {
   readonly unresolved_failures: number;
   readonly updated_at: string;
   readonly backfill_page_token: string | null;
+  readonly recipient_history_backfill_pending: number;
   readonly sync_generation: string | null;
   readonly sync_generation_started_at: string | null;
 }
@@ -173,6 +175,7 @@ interface ParsedThread {
   readonly waitingOnOthers: boolean;
   readonly labelIds: readonly string[];
   readonly messages: readonly ParsedMessage[];
+  readonly sentRecipients: readonly SentRecipient[];
 }
 
 const maximumMessageBodyBytes = 500_000;
@@ -269,7 +272,7 @@ function headerValue(
   return '';
 }
 
-function participants(value: string): readonly Participant[] {
+function participants(value: string, limit = 50): readonly Participant[] {
   const result: Participant[] = [];
   const expression = /(?:"([^"]+)"\s*|([^,<]+?)\s*)?<([^>\s]+@[^>\s]+)>|([^,\s<>]+@[^,\s<>]+)/gu;
   for (const match of value.matchAll(expression)) {
@@ -278,7 +281,7 @@ function participants(value: string): readonly Participant[] {
     const name = (match[1] ?? match[2] ?? address.split('@')[0] ?? address).trim();
     if (!result.some(item => item.address === address)) result.push({ name, address });
   }
-  return result.slice(0, 50);
+  return result.slice(0, limit);
 }
 
 function normalizedContentId(value: string): string | null {
@@ -573,6 +576,27 @@ async function parseThread(value: unknown, accountAddress: string): Promise<Pars
   const thread = asRecord(value);
   if (!thread || typeof thread.id !== 'string') return null;
   const rawMessages = Array.isArray(thread.messages) ? thread.messages : [];
+  // Index sent headers independently of the reader's body hydration window.
+  const sentRecipients = new Map<string, SentRecipient>();
+  for (const value of rawMessages) {
+    const message = asRecord(value);
+    const labels = stringArray(message?.labelIds);
+    if (!labels.includes('SENT') || labels.includes('DRAFT')) continue;
+    const payload = asRecord(message?.payload);
+    const timestamp = typeof message?.internalDate === 'string'
+      ? Number(message.internalDate) : Date.parse(headerValue(payload, 'Date'));
+    if (!Number.isFinite(timestamp) || !Number.isFinite(new Date(timestamp).getTime())) continue;
+    const lastSentAt = new Date(timestamp).toISOString();
+    for (const header of ['To', 'Cc', 'Bcc']) {
+      for (const recipient of participants(headerValue(payload, header), Number.POSITIVE_INFINITY)) {
+        if (recipient.address.length > 320 || !/^[^\s@,;<>]+@[^\s@,;<>]+$/u.test(recipient.address)) continue;
+        const previous = sentRecipients.get(recipient.address);
+        if (!previous || lastSentAt > previous.lastSentAt) {
+          sentRecipients.set(recipient.address, { ...recipient, name: recipient.name.slice(0, 320), lastSentAt });
+        }
+      }
+    }
+  }
   const retainedRawMessages = rawMessages
     .map((message, index) => {
       const internalDate = Number(asRecord(message)?.internalDate);
@@ -621,6 +645,7 @@ async function parseThread(value: unknown, accountAddress: string): Promise<Pars
     waitingOnOthers: allLabels.has('INBOX') && latestFromSelf,
     labelIds: [...allLabels].toSorted(),
     messages: parsedMessages,
+    sentRecipients: [...sentRecipients.values()],
   };
 }
 
@@ -641,6 +666,8 @@ const fallbackMessageLimit = 20;
 const fallbackMetadataHeaders = [
   'From',
   'To',
+  'Cc',
+  'Bcc',
   'Date',
   'Subject',
   'Message-ID',
@@ -716,7 +743,12 @@ async function recoverOversizedThread(
   });
   return {
     ...metadata,
-    messages: hydrated.filter(message => message !== null),
+    // Retain older metadata for recipient history even when only the newest
+    // messages can have bodies hydrated in this bounded recovery pass.
+    messages: (Array.isArray(metadata.messages) ? metadata.messages : []).flatMap(value => {
+      const index = messages.findIndex(item => asRecord(item)?.id === asRecord(value)?.id);
+      return index < 0 ? [value] : hydrated[index] === null ? [] : [hydrated[index]];
+    }),
   };
 }
 
@@ -851,6 +883,20 @@ async function persistThread(
         ...messageChunks,
       ),
     ]),
+    ...bulkJsonChunks(thread.sentRecipients.map(recipient => ({ ...recipient }))).map(chunk =>
+      env.DB.prepare(
+        `INSERT INTO mail_recipient_history
+           (profile_id, account_id, address, display_name, last_sent_at)
+         SELECT ?1, ?2, json_extract(value, '$.address'),
+                json_extract(value, '$.name'), json_extract(value, '$.lastSentAt')
+           FROM json_each(?3) WHERE true
+         ON CONFLICT(profile_id, account_id, address) DO UPDATE SET
+           display_name = CASE WHEN excluded.last_sent_at >= mail_recipient_history.last_sent_at
+                                    AND excluded.display_name != ''
+                               THEN excluded.display_name ELSE mail_recipient_history.display_name END,
+           last_sent_at = max(mail_recipient_history.last_sent_at, excluded.last_sent_at)`,
+      ).bind(scope.profileId, scope.accountId, chunk),
+    ),
     ...(attachmentChunks.length === 0 ? [] : [
       env.DB.prepare(
         `WITH input(value) AS (
@@ -882,8 +928,8 @@ async function persistThread(
     ]),
   ];
   await env.DB.batch(statements);
-  const latest = thread.messages.at(-1);
-  if (latest && latest.from.address !== accountAddress.toLowerCase()) {
+  const latest = thread.messages.findLast(message => message.from.address !== accountAddress.toLowerCase());
+  if (latest) {
     await env.DB.prepare(
       `UPDATE tap_reminders
           SET state = 'satisfied', updated_at = ?
@@ -954,6 +1000,7 @@ async function accountRow(env: Env, scope: ProviderScope): Promise<AccountRow> {
     `SELECT profile_id, account_id, email_address, display_name, accent,
             coverage_state, newest_history_id, backfill_complete_through,
             unresolved_failures, updated_at, backfill_page_token,
+            recipient_history_backfill_pending,
             sync_generation, sync_generation_started_at
        FROM google_accounts
       WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'`,
@@ -1023,6 +1070,7 @@ async function newestPage(
     `UPDATE google_accounts
         SET coverage_state = ?, newest_history_id = ?,
             backfill_complete_through = ?, backfill_page_token = ?,
+            recipient_history_backfill_pending = 0,
             sync_generation = ?,
             sync_generation_started_at = CASE
               WHEN ? THEN ? ELSE sync_generation_started_at
@@ -1213,7 +1261,7 @@ export async function syncGoogleMailbox(
   const scope = { profileId: message.profileId, accountId: message.accountId };
   const row = await accountRow(env, scope);
   const accessToken = await accessTokenFor(env, scope, now);
-  if (message.mode === 'newest') {
+  if (message.mode === 'newest' || row.recipient_history_backfill_pending === 1) {
     await newestPage(
       env,
       scope,
