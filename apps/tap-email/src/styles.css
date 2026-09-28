@@ -728,6 +728,7 @@ kbd {
 .search-dialog-input > svg { width: 21px; height: 21px; flex-shrink: 0; color: var(--mail-accent); }
 .search-dialog-input input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--mail-text); font-size: 18px; }
 .search-dialog-close { border: 0; background: transparent; color: var(--mail-dim); padding: 5px; cursor: pointer; }
+.mobile-search-cancel { display: none; }
 .search-dialog-filters { display: flex; align-items: center; gap: 12px; padding: 12px 20px; font-size: 12px; color: var(--mail-dim); }
 .search-dialog-filters select { min-width: 0; max-width: 75%; border: 1px solid var(--mail-border); border-radius: 6px; padding: 5px 8px; background: var(--mail-input); color: var(--mail-text); font-size: 12px; }
 .search-dialog-hints { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 12px; }
