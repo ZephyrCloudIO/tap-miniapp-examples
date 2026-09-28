@@ -1,9 +1,11 @@
+import googleMeetLogo from "./assets/google-meet.svg";
+import zoomLogo from "./assets/zoom.ico";
 import { Video } from "lucide-react";
 import type { MeetingLocation } from "./domain";
 
 const providerLogos = {
-  "google-meet": new URL("./assets/google-meet.svg", import.meta.url).href,
-  zoom: new URL("./assets/zoom.ico", import.meta.url).href,
+  "google-meet": googleMeetLogo,
+  zoom: zoomLogo,
 };
 
 export function MeetingProviderIcon({ provider }: { readonly provider: MeetingLocation }) {
