@@ -1,5 +1,7 @@
 import { providerDescription } from "./event-details";
 import { changeBookingProfileAddress } from "./profile-address";
+import { SharedState, SettingsNotSavedError, replicaStore, equal } from '@tap-examples/tap-shared-state';
+import { applyCalendarDocument, calendarDocument, restoreCalendarConnections, updateCalendarDocument } from './shared-state';
 import { CalendarSelect } from "./calendar-select";
 import { MeetingProviderIcon } from "./meeting-provider-icon";
 import { useCalendarActivitySync } from "./use-calendar-activity-sync";
@@ -1418,6 +1420,13 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
     if (!sdk.workspace?.listMembers) throw new Error("Update TAP to load workspace members for shared bookings.");
     return (await sdk.workspace.listMembers(context?.workspaceId ? { workspaceId: context.workspaceId } : {})).members;
   }, [context]);
+  const sharedCalendarRef = useRef<SharedState | null>(null);
+  const calendarWork = useRef<Promise<unknown>>(Promise.resolve());
+  const queueCalendarWork = useCallback(<T,>(run: () => Promise<T>): Promise<T> => {
+    const pending = calendarWork.current.catch(() => {}).then(run);
+    calendarWork.current = pending;
+    return pending;
+  }, []);
   const calendarActivitySync = useCalendarActivitySync(calendarGateway, context?.workspaceId, state, !preview);
   const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview);
   const bookingAnalytics = usePublicBookingAnalytics(
@@ -1737,23 +1746,45 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
 
   useEffect(() => {
     let cancelled = false;
-    void requireCalendarMountAuthority(context, preview)
-      .then(() => loadCalendarState(preview, calendarPrincipalId))
-      .then(loaded => {
-        if (cancelled) return;
-        stateRef.current = loaded.state;
-        revisionRef.current = loaded.revision;
-        setState(loaded.state);
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "TAP Calendar could not be loaded.");
+    const shared = preview ? null : new SharedState({
+      read: () => calendarGateway.readSettings(), write: value => calendarGateway.writeSettings(value),
+    }, replicaStore(sdk.storage, { namespace: 'tap-calendar', key: `users/${calendarPrincipalId}/shared-state/v1` }));
+    sharedCalendarRef.current = shared;
+    const refresh = () => { void queueCalendarWork(async () => {
+      await requireCalendarMountAuthority(context, preview);
+      const loaded = await loadCalendarState(preview, calendarPrincipalId);
+      if (cancelled) return;
+      let next = loaded.state;
+      let revision = loaded.revision;
+      try {
+        if (shared) {
+          const [document, connections] = await Promise.all([
+            shared.open(calendarDocument(loaded.state, true)), calendarGateway.listConnections(),
+          ]);
+          if (cancelled) return;
+          next = restoreCalendarConnections(applyCalendarDocument(loaded.state, document), connections);
+          if (!equal(next, loaded.state)) revision = await saveCalendarState(next, false, revision, calendarPrincipalId);
         }
-      });
+        if (cancelled) return;
+        stateRef.current = next; revisionRef.current = revision; setState(next); setError(null);
+      } catch (cause) {
+        // Keep existing offline data visible, but never infer a new account from
+        // a failed cloud read. The focus/online/timer paths retry the journal.
+        if (!cancelled) {
+          if (next.accounts.length) { stateRef.current = next; revisionRef.current = revision; setState(next); }
+          setError(`Calendar sync is pending: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+    }).catch(cause => { if (!cancelled) setError(String(cause)); }); };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh); window.addEventListener('online', refresh);
     return () => {
-      cancelled = true;
+      cancelled = true; shared?.dispose();
+      if (sharedCalendarRef.current === shared) sharedCalendarRef.current = null;
+      window.clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh);
     };
-  }, [calendarPrincipalId, context, preview]);
+  }, [calendarGateway, calendarPrincipalId, context, preview, queueCalendarWork]);
 
   useEffect(() => {
     if (preview || !context) return;
@@ -1768,8 +1799,8 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
         ) {
           return;
         }
-        void loadCalendarState(false, calendarPrincipalId)
-          .then(loaded => {
+        void queueCalendarWork(async () => {
+            const loaded = await loadCalendarState(false, calendarPrincipalId);
             if (!active || loaded.revision === null) return;
             const currentRevision = revisionRef.current;
             if (
@@ -1790,7 +1821,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
       active = false;
       unsubscribe();
     };
-  }, [calendarPrincipalId, context, preview]);
+  }, [calendarPrincipalId, context, preview, queueCalendarWork]);
 
   useEffect(() => {
     if (!preview || !state) return;
@@ -1803,12 +1834,15 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
   }, [preview, state]);
 
   const persistCalendarMutation = useCallback<PersistCalendarState>(
-    async (
+    (
       mutation: StateMutation,
       successMessage?: string,
-    ): Promise<boolean> => {
+    ): Promise<boolean> => queueCalendarWork(async () => {
       const current = stateRef.current;
       if (!current) return false;
+      if (!preview && !sharedCalendarRef.current?.ready) {
+        setError('Reconnect once to load shared settings before editing Calendar.'); return false;
+      }
       const mutated = mutation(current);
       if (mutated === current) return false;
       const publicationState = preview
@@ -1831,6 +1865,26 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
         stateRef.current = next;
         setState(next);
         setError(null);
+        if (!preview) {
+          try {
+            const shared = sharedCalendarRef.current;
+            if (!shared) throw new Error('Shared settings have not loaded.');
+            const document = await shared.change(value => updateCalendarDocument(current, next, value));
+            const merged = applyCalendarDocument(next, document);
+            // Gateway-derived accounts remain available before their first edit.
+            const displayed = { ...merged, accounts: document.accounts === undefined ? next.accounts : merged.accounts };
+            if (!equal(displayed, next)) {
+              revisionRef.current = await saveCalendarState(displayed, false, revisionRef.current, calendarPrincipalId);
+              stateRef.current = displayed; setState(displayed);
+            }
+          } catch (cause) {
+            if (cause instanceof SettingsNotSavedError) {
+              revisionRef.current = await saveCalendarState(current, false, revisionRef.current, calendarPrincipalId);
+              stateRef.current = current; setState(current); throw cause;
+            }
+            setError(`Saved on this device; cloud sync is pending: ${cause instanceof Error ? cause.message : String(cause)}`);
+          }
+        }
         if (successMessage) announce(successMessage);
         if (!preview && context) {
           void context.events.publish("calendar.changed", {
@@ -1851,8 +1905,8 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
       } finally {
         setSaving(false);
       }
-    },
-    [announce, calendarPrincipalId, context, preview],
+    }),
+    [announce, calendarPrincipalId, context, preview, queueCalendarWork],
   );
 
   const commit = useCallback<CommitCalendarState>(

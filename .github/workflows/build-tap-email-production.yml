@@ -9,6 +9,7 @@ on:
       - ".github/scripts/guard-tap-email-production-artifact.mjs"
       - "apps/tap-email/**"
       - "apps/tap-email-protocol/**"
+      - "apps/tap-shared-state/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
 

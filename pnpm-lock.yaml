@@ -440,6 +440,9 @@ importers:
       '@tap-examples/tap-mobile-ui':
         specifier: workspace:*
         version: link:../tap-mobile-ui
+      '@tap-examples/tap-shared-state':
+        specifier: workspace:*
+        version: link:../tap-shared-state
       '@theaiplatform/miniapp-sdk':
         specifier: 0.19.0
         version: 0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -507,6 +510,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0
+      '@tap-examples/tap-shared-state':
+        specifier: workspace:*
+        version: link:../tap-shared-state
       agents:
         specifier: 0.20.1
         version: 0.20.1(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260911.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.3.0)(rolldown@1.2.8)(vite@8.3.0(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))(zod@4.4.3)
@@ -590,6 +596,9 @@ importers:
       '@tap-examples/tap-mobile-ui':
         specifier: workspace:*
         version: link:../tap-mobile-ui
+      '@tap-examples/tap-shared-state':
+        specifier: workspace:*
+        version: link:../tap-shared-state
       '@theaiplatform/miniapp-sdk':
         specifier: 0.19.0
         version: 0.19.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.2.3(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -654,6 +663,9 @@ importers:
       '@tap-examples/tap-email-protocol':
         specifier: workspace:*
         version: link:../tap-email-protocol
+      '@tap-examples/tap-shared-state':
+        specifier: workspace:*
+        version: link:../tap-shared-state
       agents:
         specifier: 0.20.1
         version: 0.20.1(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260911.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@modelcontextprotocol/server@2.0.0)(react@19.3.0)(rolldown@1.2.8)(vite@8.3.0(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))(zod@4.4.3)
@@ -704,6 +716,8 @@ importers:
       '@types/react':
         specifier: ^19.2.0
         version: 19.3.0
+
+  apps/tap-shared-state: {}
 
   apps/unofficial-suno-player:
     dependencies:

@@ -74,6 +74,9 @@ jobs:
                 .github/workflows/deploy-tap-email-coordinator.yml | \
                   apps/tap-email-coordinator/* | \
                   apps/tap-email-protocol/* | \
+                  apps/tap-shared-state/* | \
+                  apps/tap-email/src/shared-state.ts | \
+                  apps/tap-email/src/domain.ts | \
                   package.json | \
                   pnpm-lock.yaml | \
                   pnpm-workspace.yaml)

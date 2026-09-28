@@ -9,7 +9,8 @@
     "agents": "0.20.1",
     "html-to-text": "10.0.1",
     "jose": "6.2.3",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "@tap-examples/tap-shared-state": "workspace:*"
   },
   "scripts": {
     "build": "wrangler deploy --dry-run --env=\"\" --outdir dist",

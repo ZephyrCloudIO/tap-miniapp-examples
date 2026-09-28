@@ -1,3 +1,5 @@
+import { isDocument, type Document } from '@tap-examples/tap-shared-state';
+import { applyEmailDocument, emailMigration } from './shared-state';
 import type { MailboxPage } from './coordinator-client';
 import type { SemanticIndexQueue, SemanticIndexJob } from './semantic-index-queue';
 import { writeRevisionedMailboxPage, type RevisionedMailboxUpdate } from './revisioned-mail-replica';
@@ -35,6 +37,8 @@ export interface LocalMailStore extends Partial<SemanticIndexQueue> {
   readonly capability: LocalMailStoreCapability;
   load(options?: { initialWindow?: boolean }): Promise<MailState | null>;
   save(state: MailState): Promise<void>;
+  migrateSharedState?(): Promise<Document>;
+  applySharedState?(value: Document): Promise<void>;
   saveJournal?(state: MailJournal): Promise<void>;
   loadJournal?(): Promise<MailJournal | null>;
   commitMailboxUpdate?(page: MailboxPage, options?: RevisionedMailboxUpdate & { checkpoint?: MailboxSyncCheckpoint }): Promise<{
@@ -899,8 +903,45 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     const accounts = state.accounts.filter(account => !this.persistedObjects.has(account));
     const threads = state.threads.filter(thread => !this.persistedObjects.has(thread));
     if (accounts.length || threads.length) {
-      await writeReplicaThreads(transaction, { schemaVersion: 1, accounts, threads }, updatedAt, true, true);
+      await writeReplicaThreads(transaction, { schemaVersion: 1, accounts, threads }, updatedAt, true, true, this.sharedDocument);
     }
+  }
+
+  private sharedDocument: Document | undefined;
+  migrateSharedState(): Promise<Document> {
+    return this.enqueue(async database => {
+      await this.migrateLegacy(database);
+      const state = await readReplicaState(database, true) ?? emptyMailState();
+      const migrated = emailMigration(state);
+      const corrections: Document = {};
+      for (let offset = 0;; offset += 100) {
+        const rows = await database.query('SELECT account_id, thread_id FROM local_mail_threads ORDER BY account_id, thread_id LIMIT 100 OFFSET ?', [offset]);
+        const threads = [...(await readThreads(database, rows.rows.map(row => ({ accountId: String(row[0]), threadId: String(row[1]) })))).values()];
+        const page = emailMigration({ ...state, threads });
+        if (isDocument(page.corrections)) Object.assign(corrections, page.corrections);
+        if (rows.rows.length < 100) break;
+      }
+      return { ...migrated, corrections };
+    });
+  }
+  applySharedState(value: Document): Promise<void> {
+    return this.enqueue(async database => {
+      const previous = await readRecord<Document>(database, 'local_mail_records', 'shared-settings');
+      this.sharedDocument = value;
+      const corrections = isDocument(value.corrections) ? value.corrections : {};
+      const prior = isDocument(previous?.corrections) ? previous.corrections : {};
+      for (const key of new Set([...Object.keys(corrections), ...Object.keys(prior)])) {
+        const [accountId, threadId] = JSON.parse(key) as [string, string];
+        const thread = await readThread(database, accountId, threadId, false);
+        if (!thread) continue;
+        const updated = applyEmailDocument({ ...emptyMailState(), threads: [thread] }, value);
+        if (updated.threads[0] !== thread) {
+          await database.transaction(tx => writeReplicaThreads(tx, { schemaVersion: 1, accounts: [], threads: updated.threads }, new Date(this.now()).toISOString(), true, true, value));
+        }
+      }
+      await writeRecord(database, 'local_mail_records', 'shared-settings', '', '', '', value);
+      await database.checkpoint();
+    });
   }
 
   load(options?: { initialWindow?: boolean }): Promise<MailState | null> {
@@ -924,6 +965,11 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   commitMailboxUpdate(page: MailboxPage, options: RevisionedMailboxUpdate & { checkpoint?: MailboxSyncCheckpoint } = {}) {
     return this.enqueue(async database => {
       await this.migrateLegacy(database);
+      if (this.sharedDocument) {
+        const projected = applyEmailDocument({ ...emptyMailState(), accounts: page.mailbox.accounts, threads: page.mailbox.threads }, this.sharedDocument);
+        page = { ...page, mailbox: { ...page.mailbox, threads: projected.threads } };
+        options = { ...options, sharedState: this.sharedDocument };
+      }
       const updatedAt = new Date(this.now()).toISOString();
       const result = await database.transaction(async tx => {
         const expected = options.checkpoint;
@@ -950,7 +996,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   commitMailboxRefresh(mailbox: MailboxSnapshot): Promise<void> {
     return this.enqueue(async database => {
       await this.migrateLegacy(database);
-      await database.transaction(tx => writeReplicaThreads(tx, mailbox, new Date(this.now()).toISOString(), false));
+      await database.transaction(tx => writeReplicaThreads(tx, mailbox, new Date(this.now()).toISOString(), false, true, this.sharedDocument));
       await database.checkpoint();
     });
   }
@@ -1080,7 +1126,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           current.nextCursor !== expected.nextCursor || current.pagesLoaded !== expected.pagesLoaded) {
           throw new Error('This mailbox page belongs to a superseded sync checkpoint.');
         }
-        await writeReplicaThreads(tx, mailbox, next.updatedAt, false);
+        await writeReplicaThreads(tx, mailbox, next.updatedAt, false, true, this.sharedDocument);
         if (!await readRecord(tx, 'local_mail_records', 'ui')) await writeReplicaUi(tx, emptyMailState());
         await writeSync(tx, next);
       });

@@ -1,4 +1,5 @@
 import { isBookingProfileServerPublicationReceipt, type BookingProfileServerPublicationReceipt } from "./domain";
+import { parseSnapshot, type Snapshot } from '@tap-examples/tap-shared-state';
 import { isCalendarActivityProjection, type CalendarActivityProjection, type AvailabilityActivityReceipt } from "./activity-contract";
 import { isAttendeeResponse } from "./attendee-response";
 import { isCalendarMcpConfiguration, type CalendarMcpConfiguration, type CalendarMcpConfigurationSnapshot, type CalendarMcpConsent, type CalendarMcpGrant, type CalendarMcpScope } from "./mcp-contract";
@@ -903,6 +904,8 @@ export function createTapCalendarGatewayTransport(
 }
 
 export interface CalendarGatewayClient {
+  readSettings(): Promise<Snapshot>;
+  writeSettings(snapshot: Snapshot): Promise<Snapshot>;
   activity(): Promise<CalendarActivityProjection>;
   syncAvailabilityActivity(entries: readonly Omit<AvailabilityActivityReceipt, "workspaceId">[]): Promise<void>;
   readMcpConfiguration(): Promise<CalendarMcpConfigurationSnapshot>;
@@ -1208,6 +1211,8 @@ export function createCalendarGatewayClient(input: {
   return {
     baseUrl,
     principalId,
+    async readSettings() { return parseSnapshot(await request("GET", "/v1/settings")); },
+    async writeSettings(snapshot) { return parseSnapshot(await request("POST", "/v1/settings", { ...snapshot })); },
     async activity() {
       const result = await request<unknown>("GET", "/v1/activity");
       if (!isCalendarActivityProjection(result) || result.userId !== principalId || result.workspaceId !== workspaceId) {

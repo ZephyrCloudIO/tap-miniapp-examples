@@ -916,6 +916,36 @@ describe('TAP Email private profile cache', () => {
     await store.close();
   });
 
+  it('migrates corrections outside the first page and applies server revisions independently of device clocks', async () => {
+    const mac = new ProfileSqliteMailStore(profileStorageFixture().profile);
+    const phone = new ProfileSqliteMailStore(profileStorageFixture().profile);
+    const original = previewMailState();
+    const template = original.threads[0]!;
+    const threads = Array.from({ length: 205 }, (_, index) => ({ ...template, threadId: `thread_${index}`,
+      receivedAt: new Date(Date.parse(template.receivedAt) - index * 1000).toISOString() }));
+    const target = threads[204]!;
+    const corrected = correctThreadAttention({ ...original, threads }, target.accountId, target.threadId,
+      { critical: true }, '2030-01-01T00:00:00Z');
+    await mac.save(corrected);
+    expect((await mac.load({ initialWindow: true }))!.threads.some(thread => thread.threadId === target.threadId)).toBe(false);
+    const migration = await mac.migrateSharedState();
+    await phone.save({ ...original, threads });
+    await phone.applySharedState(migration);
+    expect((await phone.loadThread(target.accountId, target.threadId))!.attentionCorrection?.critical).toBe(true);
+    const key = JSON.stringify([target.accountId, target.threadId]);
+    const remote = { ...migration, corrections: { [key]: { critical: false, correctedAt: '2026-09-27T00:00:00Z' } } };
+    await phone.applySharedState(remote);
+    await phone.saveCache({ ...corrected, threads: corrected.threads.map(thread => ({ ...thread })) });
+    expect((await phone.loadThread(target.accountId, target.threadId))!.attentionCorrection?.critical).toBe(false);
+    await phone.commitMailboxUpdate({ mailbox: { schemaVersion: 1, accounts: original.accounts, threads: [target] }, nextCursor: null, revision: 1 });
+    expect((await phone.loadThread(target.accountId, target.threadId))!.attentionCorrection?.critical).toBe(false);
+    await phone.commitMailboxRefresh({ schemaVersion: 1, accounts: original.accounts, threads: [target] });
+    expect((await phone.loadThread(target.accountId, target.threadId))!.attentionCorrection?.critical).toBe(false);
+    await phone.applySharedState({ ...remote, corrections: {} });
+    expect((await phone.loadThread(target.accountId, target.threadId))!.attentionCorrection).toBeUndefined();
+    await mac.close(); await phone.close();
+  });
+
   it('persists TAP-owned triage corrections in private profile state', async () => {
     const fixture = profileStorageFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);

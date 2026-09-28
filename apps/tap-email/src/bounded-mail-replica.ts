@@ -1,3 +1,5 @@
+import type { Document } from '@tap-examples/tap-shared-state';
+import { applyEmailDocument } from './shared-state';
 import { semanticSourceRevision } from './semantic-email-index';
 import type { MiniAppPrivateSqlTransaction, MiniAppSqlMigration, MiniAppSqlValue } from '@theaiplatform/miniapp-sdk/sdk';
 import {
@@ -171,7 +173,7 @@ export function boundMailWindow(state: MailState, limit = mailWindowSize): MailS
 }
 
 export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, state: MailboxSnapshot,
-  updatedAt: string, rememberBodies = true, localChangesOnly = false): Promise<void> {
+  updatedAt: string, rememberBodies = true, localChangesOnly = false, sharedState?: Document): Promise<void> {
   const accounts = localChangesOnly && await readRecord(tx, 'local_mail_records', 'revision') ? [] : state.accounts;
   const records: RecordWrite[] = accounts.map(account => ({ kind: 'account', accountId: account.accountId,
     threadId: '', entityId: '', value: account }));
@@ -204,8 +206,9 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
     const correction = !previous?.attentionCorrection ||
       (incoming.attentionCorrection && incoming.attentionCorrection.correctedAt > previous.attentionCorrection.correctedAt)
       ? incoming.attentionCorrection : previous.attentionCorrection;
-    const thread: EmailThread = { ...source, ...(correction ? { attentionCorrection: correction } : {}),
+    const localThread: EmailThread = { ...source, ...(correction ? { attentionCorrection: correction } : {}),
       messages: [...messageMap.values()].sort((a, b) => a.sentAt.localeCompare(b.sentAt)) };
+    const thread = sharedState ? applyEmailDocument({ ...emptyMailState(), threads: [localThread] }, sharedState).threads[0]! : localThread;
     threads.push(thread);
     const { messages, ...metadata } = thread;
     records.push({ kind: 'thread', accountId: thread.accountId, threadId: thread.threadId, entityId: '',
