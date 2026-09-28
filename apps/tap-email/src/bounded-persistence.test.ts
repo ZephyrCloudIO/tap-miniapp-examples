@@ -5,7 +5,7 @@ import { CommandPersistenceBarrier } from './command-persistence-barrier';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { boundMailWindow, diskBodyBudgetBytes, mailWindowSize, memoryBodyBudgetBytes, queryMailWindow, readRecord, writeRecord } from './bounded-mail-replica';
 import { maximumRecordPartBytes, maximumSqlRequestBytes, recordParts, serializedBytes } from './bounded-sql';
-import { composeMessage, emptyMailState, previewMailState, settleMailCommand, type EmailThread, type MailState } from './domain';
+import { composeMessage, emptyMailState, outboxImmediateSends, previewMailState, settleMailCommand, type EmailThread, type MailState } from './domain';
 import { sqliteStoreFixture } from './sqlite-store-fixture';
 
 const template = previewMailState();
@@ -113,6 +113,8 @@ describe('bounded durable mail persistence', () => {
     expect(restored?.threads).toHaveLength(state.threads.length);
     expect(restored?.commands).toEqual(state.commands);
     expect(restored?.undo).toEqual(state.undo);
+    expect(outboxImmediateSends(restored!)).toEqual(outboxImmediateSends(state));
+    expect(outboxImmediateSends(restored!)[0]?.attempts[0]?.command.payload.bodyText).toBe('Preserve this draft');
     expect(await new ProfileSqliteMailStore(fixture.profile).loadJournal()).toMatchObject({ commands: state.commands });
   });
 

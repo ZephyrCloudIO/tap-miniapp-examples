@@ -32,7 +32,7 @@ function Harness({ mode, bookingLinks, onSend = noOperation }: {
     bookingLinks={bookingLinks} attachmentBusy={false} attachmentError="" attachments={[]}
     bcc="" bodyText={body} cc="" focusRequestId={1} onAddressChange={noOperation}
     onAttach={noOperation} onBodyTextChange={setBody} onClose={noOperation}
-    onRemoveAttachment={noOperation} onPromptReply={noOperation} onSchedule={onSend}
+    onRemoveAttachment={noOperation} onSchedule={onSend}
     onSend={onSend} onTogglePlacement={noOperation} placement="inline"
     recipientLabel="Maya" to="maya@example.com"
   />;

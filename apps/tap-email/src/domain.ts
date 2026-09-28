@@ -182,16 +182,19 @@ export type UndoEntry = ThreadUndoEntry | SendUndoEntry;
 export interface RecoverableImmediateSendAttempt {
   /** Immutable command identity submitted for this delivery attempt. */
   readonly command: MailCommand<MailDraftPayload>;
-  /** Null only while an explicitly requested retry is still in flight. */
+  /** Null while the initial send or an explicitly requested retry is pending. */
   readonly receipt: MailCommandReceipt | null;
 }
 
-export interface RecoverableImmediateSend {
+export interface OutboxSend {
   /** The first attempt is the immutable origin for every later retry. */
   readonly attempts: readonly RecoverableImmediateSendAttempt[];
   readonly recordedAt: string;
   readonly updatedAt: string;
 }
+
+/** Persisted recovery history, whose first attempt has a failed or uncertain receipt. */
+export interface RecoverableImmediateSend extends OutboxSend {}
 
 export interface PendingThreadIntent {
   readonly commandId: string;
@@ -777,6 +780,23 @@ export function recoverableImmediateSends(
   return state.outbox ?? [];
 }
 
+/** Pending messages already live in the durable command journal; do not duplicate them in recovery history. */
+export function outboxImmediateSends(state: MailState): readonly OutboxSend[] {
+  const recovered = recoverableImmediateSends(state);
+  const represented = new Set(recovered.flatMap(item =>
+    item.attempts.map(attempt => attempt.command.commandId)));
+  return [
+    ...recovered,
+    ...state.commands.filter(isImmediateSendCommand)
+      .filter(command => !represented.has(command.commandId))
+      .map(command => ({
+        attempts: [{ command, receipt: null }],
+        recordedAt: command.createdAt,
+        updatedAt: command.createdAt,
+      })),
+  ];
+}
+
 export function isMailState(value: unknown): value is MailState {
   if (!isRecord(value)) return false;
   const commands = Array.isArray(value.commands) ? value.commands : null;
@@ -891,7 +911,7 @@ export function threadMatchesSplit(
 
 export function mailSplitThreadCount(state: MailState, split: MailSplit): number {
   if (split === 'outbox') {
-    return recoverableImmediateSends(state).filter(item => {
+    return outboxImmediateSends(state).filter(item => {
       const origin = item.attempts[0]?.command;
       return origin && (
         state.selectedAccountId === 'all' || origin.accountId === state.selectedAccountId

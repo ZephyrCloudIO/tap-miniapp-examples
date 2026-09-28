@@ -4,10 +4,13 @@ import {
   composeMessage,
   isMailState,
   mailboxSummary,
+  mailSplitThreadCount,
+  outboxImmediateSends,
   previewMailState,
   recoverableImmediateSends,
   retryRecoverableImmediateSend,
   settleMailCommand,
+  undoLastAction,
 } from './domain';
 
 const now = '2026-09-14T14:00:00.000Z';
@@ -44,6 +47,32 @@ function receipt(
 }
 
 describe('recoverable immediate-send Outbox', () => {
+  it('shows pending sends immediately, counts the selected account, and preserves the full message', () => {
+    const { state, command } = pendingSend();
+    expect(outboxImmediateSends(state)).toEqual([{
+      attempts: [{ command, receipt: null }], recordedAt: now, updatedAt: now,
+    }]);
+    expect(mailSplitThreadCount({ ...state, selectedAccountId: 'google_work' }, 'outbox')).toBe(1);
+    expect(mailSplitThreadCount({ ...state, selectedAccountId: 'google_personal' }, 'outbox')).toBe(0);
+    expect(mailSplitThreadCount({ ...state, selectedAccountId: 'all' }, 'outbox')).toBe(1);
+    expect(mailboxSummary(state, now).failedCommands).toBe(0);
+    expect(state.outbox ?? []).toEqual([]);
+    expect(isMailState(state)).toBe(true);
+  });
+
+  it('removes a pending send only when confirmed or undone', () => {
+    const { state, command } = pendingSend();
+    expect(outboxImmediateSends(settleMailCommand(state, command, receipt(command, 'accepted'), now))).toHaveLength(1);
+    expect(outboxImmediateSends(settleMailCommand(state, command, receipt(command, 'applied'), now))).toEqual([]);
+    const undoable = composeMessage(previewMailState(), 'cmd_undo', 'google_work', null,
+      'maya@example.com', 'Subject', 'Keep this body', null, now, {
+        draftKey: 'draft_undo', draftRevision: 1, sendAfter: '2026-09-14T14:00:05.000Z',
+      });
+    const undone = undoLastAction(undoable, '2026-09-14T14:00:01.000Z');
+    expect(outboxImmediateSends(undone)).toEqual([]);
+    expect(undone.commands[0]).toMatchObject({ kind: 'save_draft', payload: { bodyText: 'Keep this body' } });
+  });
+
   it('atomically preserves a failed send command and receipt before removing it from dispatch', () => {
     const { state, command } = pendingSend();
     const failed = settleMailCommand(state, command, receipt(command, 'failed'), now);
@@ -95,6 +124,8 @@ describe('recoverable immediate-send Outbox', () => {
       command.commandId,
       'cmd_retry_2',
     ]);
+    expect(outboxImmediateSends(retried)).toHaveLength(1);
+    expect(mailSplitThreadCount({ ...retried, selectedAccountId: 'all' }, 'outbox')).toBe(1);
 
     const retryUncertain = settleMailCommand(
       retried,

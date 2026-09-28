@@ -23,7 +23,7 @@ describe('rich-message late layout measurement', () => {
       frameDocument.documentElement.remove();
       await act(async () => { frame.dispatchEvent(new Event('load')); });
       expect(errors).toEqual([]);
-      expect(frame.style.height).toBe('140px');
+      expect(frame.style.height).toBe('24px');
     } finally {
       await act(async () => root.unmount());
       window.removeEventListener('error', onError);
@@ -49,7 +49,7 @@ describe('rich-message late layout measurement', () => {
       Object.defineProperty(frame, 'srcdoc', { set: denied });
       await act(async () => { frame.dispatchEvent(new Event('load')); });
       expect(errors).toEqual([]);
-      expect(frame.style.height).toBe('640px');
+      expect(frame.style.height).toBe('480px');
       expect(frame.getAttribute('sandbox')).toBe('allow-same-origin');
       expect(frame.getAttribute('srcdoc')).toContain("script-src 'none'");
       await act(async () => root.render(<RichMessageBody html="<p>Updated</p>" title="Rich email" />));
@@ -85,7 +85,7 @@ describe('rich-message late layout measurement', () => {
       });
       Object.defineProperty(frameDocument.documentElement, 'scrollHeight', {
         configurable: true,
-        get: () => contentHeight,
+        get: () => Math.max(contentHeight, Number.parseFloat(frame.style.height)),
       });
 
       await act(async () => {
@@ -99,6 +99,15 @@ describe('rich-message late layout measurement', () => {
         await new Promise(resolve => window.setTimeout(resolve, 1));
       });
       expect(frame.style.height).toBe('860px');
+
+      // Root scrollHeight retains the viewport floor after a quote is hidden or
+      // a wider reader unwraps lines. The frame must still shrink to the content.
+      contentHeight = 42;
+      await act(async () => {
+        window.dispatchEvent(new Event('resize'));
+        await new Promise(resolve => window.setTimeout(resolve, 1));
+      });
+      expect(frame.style.height).toBe('42px');
     } finally {
       await act(async () => root.unmount());
       container.remove();

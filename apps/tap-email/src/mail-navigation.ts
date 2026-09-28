@@ -20,7 +20,7 @@ export const FIXED_MAILBOX_CATEGORIES: readonly MailViewDefinition[] = [
   { id: 'done', label: 'Done', shortcut: 'G E', emptyTitle: 'Nothing marked done' },
   { id: 'auto-archived', label: 'Auto Archived', shortcut: null, emptyTitle: 'Nothing auto archived' },
   { id: 'scheduled', label: 'Scheduled', shortcut: null, emptyTitle: 'Nothing scheduled' },
-  { id: 'outbox', label: 'Outbox', shortcut: null, emptyTitle: 'No sends need attention' },
+  { id: 'outbox', label: 'Outbox', shortcut: null, emptyTitle: 'Outbox is empty' },
   { id: 'reminders', label: 'Reminders', shortcut: 'G H', emptyTitle: 'No reminders' },
   { id: 'snippets', label: 'Snippets', shortcut: 'G ;', emptyTitle: 'No snippets' },
   { id: 'spam', label: 'Spam', shortcut: 'G !', emptyTitle: 'No spam' },

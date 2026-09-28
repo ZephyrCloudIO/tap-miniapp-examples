@@ -78,7 +78,7 @@ import {
   notificationsEnabledForAccount,
   previewMailState,
   projectedThreads,
-  recoverableImmediateSends,
+  outboxImmediateSends,
   remindThread,
   resolveReminderInput,
   rollbackUnpersistedMailCommand,
@@ -101,6 +101,7 @@ import {
   type EmailThread,
   type MailPreferences,
   type RecoverableImmediateSend,
+  type OutboxSend,
   type MailSplit,
   type MailState,
 } from './domain';
@@ -258,6 +259,7 @@ import { PagedThreadMessages } from './paged-thread-messages';
 import { MailSyncButton } from './sync-button';
 import { ScheduledSendList } from './scheduled-send-list';
 import { OutboxList } from './outbox-list';
+import { outgoingThreadMessages } from './outgoing-messages';
 import {
   selectAndStageAttachments,
   type SelectAndStageAttachmentsResult,
@@ -801,6 +803,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const showLoadError = useDelayedStatus(Boolean(loadError), 15_000);
   const showStorageUnavailable = useDelayedStatus(hydrated && store.capability === 'unavailable', 15_000);
   const [dispatchTick, setDispatchTick] = useState(0);
+  const [sendErrors, setSendErrors] = useState<Readonly<Record<string, string>>>({});
+  const [confirmedSends, setConfirmedSends] = useState<readonly OutboxSend[]>([]);
   const [chord, setChord] = useState<'g' | null>(null);
   const chordRef = useRef<'g' | null>(null);
   const chordTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -927,6 +931,36 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     },
     );
   }, [activityLedger, enqueueActivityProjection]);
+
+  const rememberSentReply = useCallback((command: MailCommand, receipt: MailCommandReceipt) => {
+    if (command.kind !== 'send_draft' || !isMailDraftPayload(command.payload) || !command.threadId ||
+        receipt.state !== 'applied' || receipt.commandId !== command.commandId ||
+        receipt.idempotencyKey !== command.idempotencyKey || receipt.accountId !== command.accountId) return;
+    const send = { ...command, payload: command.payload };
+    const previous = stateRef.current.outbox?.find(item => item.attempts.some(attempt =>
+      attempt.command.commandId === command.commandId));
+    const confirmed: OutboxSend = {
+      attempts: previous ? previous.attempts.map(attempt => attempt.command.commandId === command.commandId
+        ? { command: send, receipt } : attempt) : [{ command: send, receipt }],
+      recordedAt: previous?.recordedAt ?? command.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    setConfirmedSends(current => [...current.filter(item => {
+      const origin = item.attempts[0]!.command;
+      return origin.accountId !== send.accountId || origin.payload.draftKey !== send.payload.draftKey;
+    }), confirmed].slice(-100));
+  }, []);
+
+  useEffect(() => {
+    setConfirmedSends(current => {
+      const remaining = current.filter(item => {
+        const command = item.attempts[0]!.command;
+        return !state.threads.some(thread => thread.accountId === command.accountId && thread.threadId === command.threadId &&
+          thread.messages.some(message => message.internetMessageId === `<${command.payload.draftKey}@tap-email.local>`));
+      });
+      return remaining.length === current.length ? current : remaining;
+    });
+  }, [state.threads]);
 
   const loadRemoteImages = useCallback((
     context: RemoteImageMessageContext,
@@ -1689,7 +1723,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     return () => { active = false; clearTimeout(timer); };
   }, [hydrated, store, replicaVersion, state.commands, state.pendingThreadIntents, state.outbox, state.selectedAccountId]);
 
-  const outboxItems = useMemo(() => recoverableImmediateSends(state)
+  const outboxItems = useMemo(() => outboxImmediateSends(state)
     .filter(item => {
       const accountId = item.attempts[0]?.command.accountId;
       return accountId && (
@@ -1700,6 +1734,14 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)), [
       state,
     ]);
+  useEffect(() => {
+    setSendErrors(current => {
+      const pending = new Set(state.commands.map(command => command.commandId));
+      return Object.keys(current).some(id => !pending.has(id))
+        ? Object.fromEntries(Object.entries(current).filter(([id]) => pending.has(id)))
+        : current;
+    });
+  }, [state.commands]);
   const searchCoverage = useMemo(() => {
     if (!query.trim()) return null;
     const selectedCoverage = state.accounts
@@ -2203,7 +2245,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   }, []);
 
   useEffect(() => {
-    if (preview || !hydrated || !initialLoadSettled || !coordinatorNetworkReady) return;
+    // The authenticated client exists before cached mail is opened. Dispatch
+    // depends on journal recovery, not the independent mailbox read finishing.
+    if (preview || !hydrated || !journalRecovered) return;
     const currentTime = Date.now();
     let wakeAt: number | null = null;
     for (const command of state.commands) {
@@ -2236,9 +2280,15 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       const queued = preceding.catch(() => undefined).then(async () => {
         try {
           await client.submitCommand(command);
+          if (command.kind === 'send_draft') setSendErrors(current => {
+            if (!current[command.commandId]) return current;
+            const { [command.commandId]: _error, ...remaining } = current;
+            return remaining;
+          });
           for (let attempt = 0; attempt < 120; attempt += 1) {
             const receipt = await client.getCommand(command.commandId);
             if (['applied', 'failed', 'uncertain', 'cancelled'].includes(receipt.state)) {
+              rememberSentReply(command, receipt);
               const activitySettlement = await commitActivityBeforeSettlement({
                 commit: () => recordCommittedEmailActivity(command, receipt),
                 settle: () => setState(current => settleMailCommand(
@@ -2270,9 +2320,12 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 }
               }
               if (command.kind !== 'save_draft') {
-                await client.requestSync(command.accountId).catch(() => false);
-                await wait(1_200);
-                await refreshMailbox().catch(() => undefined);
+                // A stalled mailbox refresh must not hold the next command in
+                // this account's delivery queue after this receipt is settled.
+                void client.requestSync(command.accountId).catch(() => false)
+                  .then(() => wait(1_200))
+                  .then(() => refreshMailbox())
+                  .catch(() => undefined);
               }
               return;
             }
@@ -2282,6 +2335,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           setDispatchTick(value => value + 1);
         } catch (error) {
           submittedCommands.current.delete(command.commandId);
+          if (command.kind === 'send_draft') {
+            setSendErrors(current => ({ ...current, [command.commandId]: String(error) }));
+          }
           flash(`Email action failed: ${String(error)}`);
           window.setTimeout(() => setDispatchTick(value => value + 1), 2_000);
         }
@@ -2300,7 +2356,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       );
       return () => window.clearTimeout(timer);
     }
-  }, [coordinatorNetworkReady, dispatchTick, flash, hydrated, initialLoadSettled, notify, preview, recordCommittedEmailActivity, refreshMailbox, state.commands, state.undo, store.capability, surfaceContext?.userId, surfaceContext?.workspaceId]);
+  }, [dispatchTick, flash, hydrated, journalRecovered, notify, preview, recordCommittedEmailActivity, refreshMailbox, rememberSentReply, state.commands, state.undo, store.capability, surfaceContext?.userId, surfaceContext?.workspaceId]);
 
   const openThread = useCallback((target: EmailThread, fromSearch = false) => {
     setMobileReader(true);
@@ -2724,6 +2780,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const queueMessage = (message: ComposeDraftMessage) => {
     const expectedContext = senderContext();
     if (!preview && !expectedContext) return;
+    if (!stateRef.current.accounts.some(account => account.accountId === message.accountId)) {
+      flash('The sending account is unavailable. Your message is still open.');
+      return;
+    }
     const now = new Date().toISOString();
     const sendAfter = new Date(Date.parse(now) + 5_000).toISOString();
     setState(current => composeMessage(
@@ -2749,7 +2809,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     ));
     setComposeDraftKey(null);
     setOverlay('none');
-    flash('Message queued · Undo is available for 5 seconds');
+    flash('Message queued in Outbox · Undo is available for 5 seconds');
   };
 
   const scheduleComposeMessage = (
@@ -2823,6 +2883,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     try {
       const receipt = await client.reconcileCommand(current.command.commandId,
         isMailDraftPayload(current.command.payload) ? current.command.payload.expectedContext : undefined);
+      rememberSentReply(current.command, receipt);
       // The Outbox entry remains durable until the refined provider outcome is
       // reflected in both the private activity ledger and its bounded shared
       // projection. Repeating this managed reconciliation is safe: the
@@ -2949,6 +3010,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const sendReplyDraft = (draft: ReplyDraft) => {
     const expectedContext = senderContext();
     if (!preview && !expectedContext) return;
+    if (!stateRef.current.accounts.some(account => account.accountId === draft.accountId)) {
+      flash('The sending account is unavailable. Your reply is still open.');
+      return;
+    }
     const now = new Date().toISOString();
     const sendAfter = new Date(Date.parse(now) + 5_000).toISOString();
     setState(current => composeMessage(
@@ -2973,7 +3038,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       },
     ));
     removeReplyDraft(draft.threadKey);
-    flash('Reply queued · Undo is available for 5 seconds');
+    flash('Reply queued in Outbox · Undo is available for 5 seconds');
   };
 
   const scheduleReplyDraft = (
@@ -3275,7 +3340,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             </div>
             {mobileInbox ? <button type="button" className="mobile-search-close" aria-label="Close search" onClick={() => { setMobileSearchOpen(false); setQuery(''); setSemanticSearch(null); }}><X aria-hidden="true" /></button> : null}
           </div>}
-          <div className="thread-list" role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outbox items needing attention' : 'Email threads'}>
+          <div className="thread-list" role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outgoing messages' : 'Email threads'}>
             {state.selectedSplit === 'scheduled' ? (
               <ScheduledSendList
                 accounts={state.accounts}
@@ -3287,6 +3352,34 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               <OutboxList
                 accounts={state.accounts}
                 items={outboxItems}
+                pendingStatus={item => {
+                  const command = item.attempts.at(-1)!.command;
+                  if (preview) return { label: 'Preview only', detail: 'This preview keeps your message in Outbox and does not send email.' };
+                  const context = command.payload.expectedContext;
+                  if (context && (context.userId !== surfaceContext?.userId || context.workspaceId !== surfaceContext?.workspaceId)) {
+                    return { label: 'Waiting for original workspace', detail: 'Open the TAP user and workspace where you wrote this message to send it.' };
+                  }
+                  const persistence = commandPersistenceBarrier.current.readiness(command, store.capability);
+                  if (!persistence.ready) return {
+                    label: cacheError ? 'Waiting for device storage' : 'Saving message',
+                    detail: 'Your message has not been submitted. Keep TAP Email open until its recovery copy is saved on this device.',
+                  };
+                  if (state.undo?.commandId === command.commandId && Date.parse(state.undo.expiresAt) > Date.now()) {
+                    return { label: 'Queued', detail: 'Your message will send after the five-second Undo window.' };
+                  }
+                  if (!coordinatorRef.current) return {
+                    label: 'Waiting for mail service', detail: 'Your message remains queued while TAP connects to the mail service.',
+                  };
+                  if (sendErrors[command.commandId]) return {
+                    label: 'Send delayed', detail: `Delivery has not been confirmed. TAP will keep checking this send. ${sendErrors[command.commandId]}`,
+                  };
+                  return {
+                    label: 'Waiting for confirmation',
+                    detail: persistence.durable
+                      ? 'Your message is saved on this device and will stay here until delivery is confirmed.'
+                      : 'Delivery has not been confirmed. This device cannot save a recovery copy, so keep TAP Email open.',
+                  };
+                }}
                 onReconcile={reconcileOutboxSend}
                 onRetry={retryOutboxSend}
               />
@@ -3350,8 +3443,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             <div className="empty-reader outbox-reader">
               <ThreadListToggle collapsed={threadListCollapsed} onToggle={toggleThreadList} />
               <MailOpen aria-hidden="true" />
-              <h2>Recover sends safely</h2>
-              <p>Retry only definite failures. Recheck delivery-unknown sends without creating another send identity.</p>
+              <h2>Outgoing messages</h2>
+              <p>Review queued messages and their delivery status in Outbox. Messages stay here until delivery is confirmed.</p>
             </div>
           ) : thread ? (
             <>
@@ -3418,6 +3511,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                     loadAttachment={preview ? null : loadMessageAttachment}
                     loadRemoteImages={loadRemoteImages}
                     messages={thread.messages}
+                    outgoingMessages={outgoingThreadMessages(state, thread, confirmedSends, sendErrors)}
+                    unread={thread.unread}
                     onKeyDown={handleKeyDown}
                     saveAttachment={saveMessageAttachment}
                     threadId={thread.threadId}
@@ -3447,7 +3542,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                       onRemoveAttachment={stageId => updateReplyDraft(activeReplyDraft.threadKey, {
                         attachments: activeReplyDraft.attachments.filter(attachment => attachment.stageId !== stageId),
                       })}
-                      onPromptReply={() => askChloe('draft-reply')}
                       onSchedule={(scheduledFor, cancelIfReply) => scheduleReplyDraft(activeReplyDraft, scheduledFor, cancelIfReply)}
                       onSend={() => sendReplyDraft(activeReplyDraft)}
                       onTogglePlacement={() => toggleReplyPlacement(activeReplyDraft)}
@@ -3491,7 +3585,6 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                       onRemoveAttachment={stageId => updateReplyDraft(poppedReplyDraft.threadKey, {
                         attachments: poppedReplyDraft.attachments.filter(attachment => attachment.stageId !== stageId),
                       })}
-                      onPromptReply={() => askChloe('draft-reply')}
                       onSchedule={(scheduledFor, cancelIfReply) => scheduleReplyDraft(poppedReplyDraft, scheduledFor, cancelIfReply)}
                       onSend={() => sendReplyDraft(poppedReplyDraft)}
                       onTogglePlacement={() => toggleReplyPlacement(poppedReplyDraft)}

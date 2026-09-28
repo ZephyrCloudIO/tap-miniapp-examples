@@ -12,7 +12,6 @@ import {
   isLikelyTrackingImage,
   listenForRichMessageKeyDown,
   RichMessageBody,
-  richMessageGutter,
   richMessagePresentation,
   richMessageContentSecurityPolicy,
   sanitizeRichMessageCss,
@@ -309,7 +308,7 @@ describe('TAP Email rich-message isolation', () => {
     expect(baseStyles).toContain('background-image: none !important');
   });
 
-  it('keeps sender-designed canvases authored while still adding a gutter', () => {
+  it('keeps sender-designed canvases authored', () => {
     const html = `
       <style>.hero { background: #000; color: #fff; }</style>
       <table class="hero" width="640"><tbody><tr><td>Launch</td></tr></tbody></table>
@@ -424,7 +423,7 @@ describe('TAP Email rich-message isolation', () => {
     const shell = frame?.parentElement;
 
     expect(shell?.classList.contains('rich-message-shell')).toBe(true);
-    expect(shell?.getAttribute('style')).toContain(`padding:${richMessageGutter}`);
+    expect(shell?.hasAttribute('style')).toBe(false);
     expect(shell?.getAttribute('data-theme')).toBe('dark');
     expect(shell?.getAttribute('data-presentation')).toBe('adaptive');
     expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin');

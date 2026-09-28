@@ -1,9 +1,15 @@
 import React from 'react';
-import type { EmailAccount, RecoverableImmediateSend } from './domain';
+import type { EmailAccount, OutboxSend, RecoverableImmediateSend } from './domain';
+
+export interface PendingSendStatus {
+  readonly label: string;
+  readonly detail: string;
+}
 
 export interface OutboxListProps {
   readonly accounts: readonly EmailAccount[];
-  readonly items: readonly RecoverableImmediateSend[];
+  readonly items: readonly OutboxSend[];
+  readonly pendingStatus?: (item: OutboxSend) => PendingSendStatus;
   readonly onReconcile: (item: RecoverableImmediateSend) => void | Promise<void>;
   readonly onRetry: (item: RecoverableImmediateSend) => void;
 }
@@ -20,24 +26,26 @@ function recordedLabel(value: string): string {
 export function OutboxList({
   accounts,
   items,
+  pendingStatus,
   onReconcile,
   onRetry,
 }: OutboxListProps) {
   if (items.length === 0) {
     return (
       <div className="zero-state outbox-zero-state">
-        <h2>No sends need attention</h2>
-        <p>Failed or delivery-unknown sends will remain here until safely resolved.</p>
+        <h2>Outbox is empty</h2>
+        <p>Messages waiting to send will appear here until delivery is confirmed.</p>
       </div>
     );
   }
   return (
-    <div aria-label="Outbox items needing attention" className="outbox-list" role="list">
+    <div aria-label="Outgoing messages" className="outbox-list" role="list">
       {items.map(item => {
         const origin = item.attempts[0]!.command;
         const current = item.attempts[item.attempts.length - 1]!;
         const account = accounts.find(candidate => candidate.accountId === origin.accountId);
-        const state = current.receipt?.state ?? 'retrying';
+        const state = current.receipt?.state ?? (item.attempts.length > 1 ? 'retrying' : 'queued');
+        const pending = current.receipt === null ? pendingStatus?.(item) : undefined;
         const uncertain = state === 'uncertain';
         const failed = state === 'failed';
         return (
@@ -48,7 +56,7 @@ export function OutboxList({
                 <span>To {origin.payload.to}</span>
               </div>
               <div className="outbox-status" role="status">
-                <strong>{uncertain ? 'Delivery unknown' : failed ? 'Not sent' : 'Retry in progress'}</strong>
+                <strong>{uncertain ? 'Delivery unknown' : failed ? 'Not sent' : pending?.label ?? (state === 'retrying' ? 'Retry in progress' : 'Queued')}</strong>
                 <time dateTime={item.updatedAt}>{recordedLabel(item.updatedAt)}</time>
               </div>
             </header>
@@ -57,7 +65,7 @@ export function OutboxList({
                 ? 'Do not resend. Recheck the original send identity to learn whether the provider applied it.'
                 : failed
                   ? 'The provider reported a definite failure. Retry will reuse the original draft and Message-ID.'
-                  : 'The original draft and Message-ID are being reused. Wait for this attempt to settle.'}
+                  : pending?.detail ?? 'Your message is waiting for delivery confirmation. It will stay here until the send is resolved.'}
             </p>
             <small>
               {account?.displayName || account?.address || origin.accountId}

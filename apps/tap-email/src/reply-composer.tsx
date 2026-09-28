@@ -39,7 +39,6 @@ export interface ReplyComposerProps {
   readonly onBodyTextChange: (bodyText: string) => void;
   readonly onClose: () => void;
   readonly onRemoveAttachment: (stageId: string) => void;
-  readonly onPromptReply: () => void;
   readonly onSchedule: (scheduledFor: string, cancelIfReply: boolean) => void;
   readonly onSend: () => void;
   readonly onTogglePlacement: () => void;
@@ -74,7 +73,6 @@ export function ReplyComposer({
   onBodyTextChange,
   onClose,
   onRemoveAttachment,
-  onPromptReply,
   onSchedule,
   onSend,
   onTogglePlacement,
@@ -120,21 +118,13 @@ export function ReplyComposer({
       className={`reply-composer is-${placement}`}
       data-reply-placement={placement}
       onKeyDown={event => {
-        if (event.nativeEvent.isComposing || event.repeat || (event.target instanceof Element && event.target.closest('[data-composer-tool]'))) return;
+        // Portaled composer dialogs own their shortcuts; they must not send the reply.
+        if (event.target instanceof Element && !event.currentTarget.contains(event.target)) return;
+        if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.repeat || (event.target instanceof Element && event.target.closest('[data-composer-tool]'))) return;
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) { event.preventDefault(); setTool('ai'); return; }
         if (isPlacementShortcut(event)) {
           event.preventDefault();
           onTogglePlacement();
-          return;
-        }
-        if (
-          event.key === 'Enter' &&
-          Boolean(event.metaKey || event.ctrlKey) &&
-          !event.altKey &&
-          !event.shiftKey
-        ) {
-          event.preventDefault();
-          onPromptReply();
           return;
         }
         const command = resolveComposeShortcut(event);

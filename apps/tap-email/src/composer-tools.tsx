@@ -29,7 +29,7 @@ export function ComposerToolbar({ canSend, attachmentBusy, sendAnyway, onAttach,
   const [toolsOpen, setToolsOpen] = useState(false);
   if (compact && document.documentElement.dataset.tapMobile) return <>
     <div className="mobile-compose-toolbar">
-      <Button type="button" disabled={!canSend} onClick={onSend}>{sendAnyway ? 'Send anyway' : 'Send'}</Button>
+      <Button type="button" disabled={!canSend} onClick={onSend} title="Send · ⌘Enter" aria-keyshortcuts="Meta+Enter Control+Enter">{sendAnyway ? 'Send anyway' : 'Send'}</Button>
       <Button type="button" variant="ghost" disabled={attachmentBusy} onClick={onAttach} aria-label={attachmentBusy ? 'Attaching files' : 'Attach files'}><Paperclip aria-hidden="true" /></Button>
       <Button type="button" variant="ghost" onClick={() => setToolsOpen(true)}>More options</Button>
     </div>
@@ -47,7 +47,7 @@ export function ComposerToolbar({ canSend, attachmentBusy, sendAnyway, onAttach,
   </>;
   return <div className="composer-toolbar">
     <div className="composer-primary-actions">
-      <Button type="button" disabled={!canSend} onClick={onSend}>{sendAnyway ? 'Send anyway' : 'Send'}</Button>
+      <Button type="button" disabled={!canSend} onClick={onSend} title="Send · ⌘Enter" aria-keyshortcuts="Meta+Enter Control+Enter">{sendAnyway ? 'Send anyway' : 'Send'}</Button>
       <Button type="button" variant="ghost" disabled={!canSend} onClick={onSchedule}>Send later</Button>
       <Button type="button" variant="ghost" onClick={onRemind}>Remind me</Button>
       <Button type="button" variant="ghost" onClick={onShare}>Share draft</Button>
