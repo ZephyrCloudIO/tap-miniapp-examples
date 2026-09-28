@@ -106,6 +106,16 @@ describe('disk-backed mail history UI', () => {
         expect(container.querySelectorAll('.mail-row')).toHaveLength(1);
         expect(container.querySelector('.mail-row')?.textContent).toContain('Historical item 249');
       });
+      await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true })));
+      const searchDialog = document.querySelector<HTMLInputElement>('input[name="mail-search-dialog"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchDialog, 'Historical item 225');
+        searchDialog.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await eventually(() => expect(document.querySelector('.search-dialog-result')?.textContent).toContain('Historical item 225'));
+      await act(async () => searchDialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+      await eventually(() => expect(container.querySelector('.message-header h2')?.textContent).toBe('Historical item 225'));
+      expect(document.querySelector('input[name="mail-search-dialog"]')).toBeNull();
       expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM local_mail_threads').get()?.n).toBe(250);
     } finally {
       await act(async () => root.unmount());

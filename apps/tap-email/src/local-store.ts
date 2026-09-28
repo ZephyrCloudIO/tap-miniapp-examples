@@ -1,6 +1,7 @@
 import type { MailboxPage } from './coordinator-client';
 import type { SemanticIndexQueue, SemanticIndexJob } from './semantic-index-queue';
 import { writeRevisionedMailboxPage, type RevisionedMailboxUpdate } from './revisioned-mail-replica';
+import type { MailboxChangesCheckpoint } from './mailbox-changes-checkpoint';
 import {
   boundedReplicaMigrations, journalOf, readJournal, writeJournal, readReplicaState,
   readRecord, writeRecord, writeReplicaThreads, writeReplicaUi, queryMailWindow,
@@ -43,10 +44,12 @@ export interface LocalMailStore extends Partial<SemanticIndexQueue> {
   commitMailboxRefresh?(mailbox: MailboxSnapshot): Promise<void>;
   stageCache?(state: MailState): void;
   saveCache?(state: MailState): Promise<void>;
+  maintainCache?(): Promise<void>;
   queryThreads?(query: MailWindowQuery): Promise<MailWindow>;
   summarize?(accountId?: string, journal?: MailJournal): Promise<MailboxSummary>;
   loadThread?(accountId: string, threadId: string, bodies?: boolean, signal?: AbortSignal): Promise<MailState['threads'][number] | null>;
   beginMailboxSync?(): Promise<MailboxSyncCheckpoint>;
+  beginMailboxChanges?(): Promise<MailboxChangesCheckpoint>;
   commitMailboxPage?(expected: MailboxSyncCheckpoint, mailbox: MailboxSnapshot, nextCursor: string | null): Promise<MailboxSyncCheckpoint>;
   loadMailboxPageProgress(): Promise<MailboxPageProgress | null>;
   saveMailboxPageProgress(progress: MailboxPageProgress): Promise<void>;
@@ -774,15 +777,8 @@ export class ProfileSqliteMailStore implements LocalMailStore {
         throw error;
       }
 
-      // Cache cleanup is housekeeping, not a prerequisite for reading mail.
-      // A transient file-list or delete failure must not take down the mailbox.
-      try {
-        if (await this.evictAttachments(database, storage, this.now())) {
-          await database.checkpoint();
-        }
-      } catch {
-        // The next open or cache write retries bounded cleanup.
-      }
+      // Attachment reads enforce expiry and writes evict old files. Opening a
+      // mailbox must not wait for a file-cache scan or deletion over the host bridge.
       return { storage, database };
     })();
     try {
@@ -919,6 +915,23 @@ export class ProfileSqliteMailStore implements LocalMailStore {
 
   loadJournal(): Promise<MailJournal | null> {
     return this.enqueue(database => readJournal(database));
+  }
+
+  maintainCache(): Promise<void> {
+    return this.enqueue(async database => {
+      const { storage } = await this.connect();
+      if (await this.evictAttachments(database, storage, this.now())) await database.checkpoint();
+    });
+  }
+
+  beginMailboxChanges(): Promise<MailboxChangesCheckpoint> {
+    return this.enqueue(async database => database.transaction(async tx => {
+      const saved = await readRecord<MailboxChangesCheckpoint>(tx, 'local_mail_records', 'changes-cursor');
+      if (saved) return saved;
+      const checkpoint = { revision: 0, bootstrap: crypto.randomUUID() };
+      await writeRecord(tx, 'local_mail_records', 'changes-cursor', '', '', '', checkpoint);
+      return checkpoint;
+    }));
   }
 
   commitMailboxUpdate(page: MailboxPage, options: RevisionedMailboxUpdate & { checkpoint?: MailboxSyncCheckpoint } = {}) {
@@ -1827,7 +1840,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           await transaction.execute('DELETE FROM local_mail_records WHERE account_id = ?', [accountId]);
           await transaction.execute('DELETE FROM local_mail_bodies WHERE account_id = ?', [accountId]);
           await transaction.execute('DELETE FROM local_mail_versions WHERE account_id = ?', [accountId]);
-          await transaction.execute("DELETE FROM local_mail_records WHERE kind = 'revision'");
+          await transaction.execute("DELETE FROM local_mail_records WHERE kind IN ('revision', 'changes-cursor')");
           const journal = await readJournal(transaction);
           if (journal) await writeJournal(transaction, journalOf(mailStateWithoutAccount({ ...emptyMailState(), ...journal }, accountId)));
           await transaction.execute('DELETE FROM local_mail_sync');

@@ -774,7 +774,7 @@ describe('TAP Email private profile cache', () => {
     expect(fixture.diagnostics()).toMatchObject({ attachmentRows: [] });
   });
 
-  it('prunes expired attachment bytes when the private store reopens', async () => {
+  it('opens mail before pruning expired attachments in deferred maintenance', async () => {
     const fixture = profileStorageFixture();
     const identity: AttachmentCacheIdentity = {
       accountId: 'google_work',
@@ -790,6 +790,8 @@ describe('TAP Email private profile cache', () => {
 
     const reopenedStore = new ProfileSqliteMailStore(fixture.profile, () => 1_000_002);
     await reopenedStore.load();
+    expect(fixture.diagnostics().attachmentRows).toHaveLength(1);
+    await reopenedStore.maintainCache();
     await reopenedStore.close();
     expect(fixture.diagnostics()).toMatchObject({ attachmentRows: [], files: [] });
   });
@@ -888,11 +890,12 @@ describe('TAP Email private profile cache', () => {
     const secondStore = new ProfileSqliteMailStore(fixture.profile, () => 1_000_000);
     const gate = fixture.pauseNextAttachmentList();
 
-    const firstOpening = firstStore.load();
+    await expect(firstStore.load()).resolves.toBeNull();
+    const firstOpening = firstStore.maintainCache();
     await gate.entered;
     await secondStore.saveAttachment(identity, new Uint8Array([1, 2]));
     gate.release();
-    await expect(firstOpening).resolves.toBeNull();
+    await expect(firstOpening).resolves.toBeUndefined();
     await expect(secondStore.loadAttachment(identity)).resolves.toEqual(
       new Uint8Array([1, 2]),
     );
@@ -911,6 +914,7 @@ describe('TAP Email private profile cache', () => {
     const store = new ProfileSqliteMailStore(fixture.profile);
 
     await expect(store.load()).resolves.toBeNull();
+    await expect(store.maintainCache()).rejects.toThrow();
     await expect(store.save(previewMailState())).resolves.toBeUndefined();
     expect((await store.load())?.threads).toHaveLength(previewMailState().threads.length);
     await store.close();

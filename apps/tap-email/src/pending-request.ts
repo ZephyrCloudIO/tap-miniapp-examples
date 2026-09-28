@@ -1,4 +1,4 @@
-export const INITIAL_MAILBOX_PENDING_DELAY_MS = 1_500;
+export const INITIAL_MAILBOX_PENDING_DELAY_MS = 8_000;
 
 export const INITIAL_MAILBOX_PENDING_MESSAGE =
   'TAP Email is waiting for a response from the mail service.';

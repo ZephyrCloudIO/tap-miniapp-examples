@@ -34,12 +34,76 @@ describe('durable revisioned mailbox synchronization', () => {
     await store.commitMailboxUpdate(page([starred], 5));
     await store.saveCache({ ...seed, threads: [threads[0]!] });
     expect((await store.loadThread(starred.accountId, starred.threadId))?.starred).toBe(true);
-    // Restart replays from zero; previous revision guards must not cause valid members to be pruned.
-    const replay = [changes(threads.slice(0, 100), 1, true), changes(threads.slice(100, 200), 2, true), changes(threads.slice(200, 249), 3)];
-    const restarted = new DurableMailboxSync({ getMailboxPage: async () => page(), getMailboxChanges: async () => replay.shift()! },
+    // Restart resumes after the last committed change, without replaying history.
+    const resumedFrom: number[] = [];
+    const restarted = new DurableMailboxSync({ getMailboxPage: async () => page(), getMailboxChanges: async after => {
+      resumedFrom.push(after); return changes([], 5);
+    } },
       store, () => {}, () => {}, () => {});
     await restarted.reconcile();
+    expect(resumedFrom).toEqual([3]);
     expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM local_mail_threads').get()?.n).toBe(249);
+  });
+
+  it('resumes an interrupted bootstrap and commits its cursor atomically with the rows', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.save({ ...seed, threads: [threads[249]!] });
+    const source = { getMailboxPage: async () => page(), getMailboxChanges: async (after: number) => {
+      if (after === 0) return changes(threads.slice(0, 100), 1, true);
+      throw new Error('offline');
+    } };
+    const first = new DurableMailboxSync(source, store, () => {}, () => {}, () => {});
+    await expect(first.reconcile()).rejects.toThrow('offline');
+    const saved = await store.beginMailboxChanges();
+    expect(saved.revision).toBe(1);
+    expect(saved.bootstrap).toBeDefined();
+    const requested: number[] = [];
+    const restarted = new DurableMailboxSync({ ...source, getMailboxChanges: async after => {
+      requested.push(after); return changes(threads.slice(100, 200), 2);
+    } }, store, () => {}, () => {}, () => {});
+    fixture.failOnce(sql => sql.startsWith('INSERT OR REPLACE INTO local_mail_versions'));
+    await expect(restarted.reconcile()).rejects.toThrow('injected');
+    expect(await store.beginMailboxChanges()).toEqual(saved);
+    await restarted.reconcile();
+    expect(requested).toEqual([1, 1]);
+    expect(await store.beginMailboxChanges()).toEqual({ revision: 2 });
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM local_mail_threads').get()?.n).toBe(200);
+    expect(await store.loadThread(threads[249]!.accountId, threads[249]!.threadId)).toBeNull();
+  });
+
+  it('does not rewrite identical revisioned mail on a head refresh', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    await store.commitMailboxUpdate(page(threads.slice(0, 100), 1));
+    fixture.statements.length = 0;
+    await store.commitMailboxUpdate(page(threads.slice(0, 100), 1));
+    expect(fixture.statements.some(sql => sql.startsWith('DELETE FROM local_mail_threads'))).toBe(false);
+    expect((await store.queryThreads({})).threads).toHaveLength(100);
+  });
+
+  it('re-reads a checkpoint advanced by another surface instead of committing a stale change page', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    let release!: (page: MailboxChanges) => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const requested: number[] = [];
+    const first = new DurableMailboxSync({ getMailboxPage: async () => page(), getMailboxChanges: async after => {
+      requested.push(after);
+      if (requested.length === 1) { entered(); return new Promise(resolve => { release = resolve; }); }
+      return changes([], 2);
+    } }, store, () => {}, () => {}, () => {});
+    const second = new DurableMailboxSync({ getMailboxPage: async () => page(), getMailboxChanges: async () => changes([threads[0]!], 2) },
+      store, () => {}, () => {}, () => {});
+    const pending = first.reconcile();
+    await waiting;
+    await second.reconcile();
+    release(changes([threads[1]!], 1));
+    await pending;
+    expect(requested).toEqual([0, 2]);
+    expect(await store.beginMailboxChanges()).toEqual({ revision: 2 });
+    expect((await store.queryThreads({})).threads.map(thread => thread.threadId)).toEqual([threads[0]!.threadId]);
   });
 
   it('backs off a failed revisioned page without advancing its checkpoint or change cursor', async () => {

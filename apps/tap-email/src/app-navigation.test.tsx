@@ -41,8 +41,10 @@ describe('progressive mailbox navigation', () => {
       await act(async () => root.render(<TapEmailApp preview />));
       const inbox = rows('Inbox row', 40);
       expect(pending.length).toBeGreaterThan(0);
+      expect(container.querySelectorAll('[role="option"]')).toHaveLength(5);
+      expect(container.textContent).not.toContain('Loading mail');
       await act(async () => pending.at(-1)!.query.onProgress!(inbox.slice(0, 20)));
-      expect(container.querySelectorAll('[role="option"]')).toHaveLength(20);
+      expect(container.querySelectorAll('[role="option"]')).toHaveLength(25);
       expect(container.textContent).not.toContain('Loading mail');
       await act(async () => pending.at(-1)!.resolve({ threads: inbox, next: null }));
       expect(container.querySelectorAll('[role="option"]')).toHaveLength(40);
