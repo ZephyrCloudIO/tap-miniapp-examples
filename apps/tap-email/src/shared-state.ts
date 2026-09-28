@@ -20,7 +20,7 @@ export function emailMigration(state: MailState): Document {
   const corrections = Object.fromEntries(state.threads.filter(thread => thread.attentionCorrection)
     .map(thread => [correctionKey(thread.accountId, thread.threadId), thread.attentionCorrection]));
   return JSON.parse(JSON.stringify({
-    ...(!equal(state.preferences, defaultPreferences) ? { preferences: state.preferences } : {}),
+    ...(!equal(normalizeMailPreferences(state.preferences), normalizeMailPreferences(defaultPreferences)) ? { preferences: state.preferences } : {}),
     ...(Object.keys(corrections).length ? { corrections } : {}),
   }));
 }

@@ -27,6 +27,35 @@ async function commitProviderThreads(store: ProfileSqliteMailStore, threads: Ema
 }
 
 describe('bounded durable mail persistence', () => {
+  it('opens a bounded first screen without reading message records or attachment housekeeping', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const threads = Array.from({ length: 200 }, (_, index) => thread(index, 100));
+    await store.save({ ...template, selectedAccountId: 'all', selectedSplit: 'inbox', threads });
+    fixture.statements.length = 0;
+    const restored = await new ProfileSqliteMailStore(fixture.profile).load({ initialWindow: true });
+    expect(restored?.threads).toHaveLength(20);
+    expect(fixture.statements.some(sql => sql.includes("kind IN ('thread', 'message')"))).toBe(false);
+    expect(fixture.statements.some(sql => sql.includes('FROM attachment_cache'))).toBe(false);
+    expect(fixture.statements.length).toBeLessThanOrEqual(10);
+  });
+
+  it('does not restore deleted or superseded rows from the startup snapshot', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const original = thread(0);
+    const unchanged = thread(1);
+    const mailbox = { schemaVersion: 1 as const, accounts: template.accounts, threads: [original, unchanged] };
+    const committed = await store.commitMailboxUpdate({ mailbox, revision: 1, nextCursor: null });
+    await store.saveCache({ ...template, ...committed.mailbox, schemaVersion: 2, selectedThreadKey: null });
+    await store.commitMailboxUpdate({ mailbox: { ...mailbox, threads: [] }, revision: 2, nextCursor: null }, {
+      changes: { mailbox: { ...mailbox, threads: [] }, revision: 2, nextRevision: 2, nextCursor: null, hasMore: false,
+        deletedThreads: [{ accountId: original.accountId, threadId: original.threadId }] },
+    });
+    const restored = await new ProfileSqliteMailStore(fixture.profile).load({ initialWindow: true });
+    expect(restored?.threads.map(item => item.threadId)).toEqual([unchanged.threadId]);
+  });
+
   it.each(['page', 'refresh'] as const)('preserves searchable body enrichment only at the same provider revision during %s', async mode => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);

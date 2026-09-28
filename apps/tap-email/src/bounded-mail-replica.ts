@@ -4,7 +4,7 @@ import { semanticSourceRevision } from './semantic-email-index';
 import type { MiniAppPrivateSqlTransaction, MiniAppSqlMigration, MiniAppSqlValue } from '@theaiplatform/miniapp-sdk/sdk';
 import {
   emptyMailState, emailThreadKey, isMailState, projectedThreads, mailboxSummary,
-  threadMatchesSplit, type EmailThread, type MailboxSnapshot, type MailState,
+  threadMatchesSplit, visibleThreads, type EmailThread, type MailboxSnapshot, type MailState,
 } from './domain';
 import { filterMailThreads, type MailSearchContext } from './mail-search';
 import { insertBoundedRows, recordParts, serializedBytes } from './bounded-sql';
@@ -329,6 +329,8 @@ export interface MailWindowQuery {
   readonly signal?: AbortSignal;
   readonly bodies?: boolean;
   readonly limit?: number;
+  /** First paint only needs its visible rows; pagination can look ahead later. */
+  readonly lookahead?: boolean;
   /** Cumulative rows, delivered before the rest of the page or lookahead finishes. */
   readonly onProgress?: (threads: readonly EmailThread[]) => void;
   /** Current UI overlays need not wait for their durable journal write to display. */
@@ -422,6 +424,7 @@ export async function queryMailWindow(sql: Sql, options: MailWindowQuery, journa
           if (bodyBytes + bytes <= memoryBodyBudgetBytes) bodyBytes += bytes;
           else thread = withoutBodies(thread);
           threads.push(thread);
+          if (options.lookahead === false && threads.length === limit) return { threads, next };
         }
         cursor = next;
       }
@@ -451,14 +454,28 @@ export async function writeSync(tx: MiniAppPrivateSqlTransaction, checkpoint: Ma
 }
 
 export async function readReplicaState(sql: Sql, initialWindow = false): Promise<MailState | null> {
-  const ui = await readRecord<Omit<MailState, 'threads' | 'accounts' | keyof MailJournal>>(sql, 'local_mail_records', 'ui');
+  const saved = await readRecord<Omit<MailState, 'threads' | 'accounts' | keyof MailJournal> & { initialThreads?: EmailThread[] }>(sql, 'local_mail_records', 'ui');
+  const { initialThreads, ...ui }: Partial<NonNullable<typeof saved>> = saved ?? {};
   const journal = await readJournal(sql);
-  if (!ui && !journal) return null;
+  if (!saved && !journal) return null;
   const accounts = await readReplicaAccounts(sql);
   const { pendingThreadIntents: _intents, outbox: _outbox, ...base } = emptyMailState();
+  let startup: EmailThread[] = [];
+  if (initialWindow && initialThreads?.length) {
+    const versions = await sql.query(`SELECT account_id, thread_id, revision, present FROM local_mail_versions
+      WHERE (account_id, thread_id) IN (VALUES ${initialThreads.map(() => '(?, ?)').join(', ')})`,
+    initialThreads.flatMap(thread => [thread.accountId, thread.threadId]));
+    const byKey = new Map(versions.rows.map(([accountId, threadId, revision, present]) =>
+      [emailThreadKey({ accountId: String(accountId), threadId: String(threadId) }), { revision, present }]));
+    startup = initialThreads.filter(thread => {
+      const version = byKey.get(emailThreadKey(thread));
+      return accounts.some(account => account.accountId === thread.accountId) && (!version ||
+        (version.present === 1 && version.revision === (thread as EmailThread & { localReplicaRevision?: number }).localReplicaRevision));
+    });
+  }
   const state = { ...base, ...ui, ...journal, accounts,
-    threads: (await queryMailWindow(sql, initialWindow
-      ? { accountId: ui?.selectedAccountId, split: ui?.selectedSplit, limit: 20 } : { bodies: true }, journal)).threads };
+    threads: startup.length ? startup : (await queryMailWindow(sql, initialWindow
+      ? { accountId: ui?.selectedAccountId, split: ui?.selectedSplit, limit: 20, lookahead: false } : { bodies: true }, journal)).threads };
   if (!isMailState(state)) throw new Error('The local mail replica is malformed.');
   return state;
 }
@@ -466,7 +483,20 @@ export async function readReplicaState(sql: Sql, initialWindow = false): Promise
 export async function writeReplicaUi(tx: MiniAppPrivateSqlTransaction, state: MailState): Promise<void> {
   const { accounts: _accounts, threads: _threads, commands: _commands, pendingThreadIntents: _intents,
     outbox: _outbox, undo: _undo, ...ui } = state;
-  await writeRecord(tx, 'local_mail_records', 'ui', '', '', '', ui);
+  // The first screen is a bounded private read-through cache, not another
+  // replica. Recovery still loads the current journal and checks row revisions.
+  const visible = new Set(visibleThreads(state).slice(0, 20).map(emailThreadKey));
+  const initialThreads: EmailThread[] = [];
+  let bytes = 0;
+  for (const source of state.threads) {
+    if (!visible.has(emailThreadKey(source))) continue;
+    const thread = { ...source, messages: source.messages.map(({ bodyHtml: _html, ...message }) =>
+      ({ ...message, bodyText: message.bodyText.slice(0, 8000) })) };
+    bytes += serializedBytes(thread);
+    if (bytes > 256 * 1024) break;
+    initialThreads.push(thread);
+  }
+  await writeRecord(tx, 'local_mail_records', 'ui', '', '', '', { ...ui, initialThreads });
 }
 
 export async function readReplicaAccounts(sql: Sql): Promise<MailState['accounts']> {

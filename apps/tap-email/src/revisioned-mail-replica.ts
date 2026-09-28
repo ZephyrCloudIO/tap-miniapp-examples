@@ -6,12 +6,14 @@ import { emailThreadKey } from './domain';
 import { insertBoundedRows } from './bounded-sql';
 import { deleteNormalizedLocalThread } from './local-replica';
 import { queueSemanticChanges } from './semantic-index-queue';
+import { MailboxChangesSupersededError, type MailboxChangesCheckpoint } from './mailbox-changes-checkpoint';
 
 export interface RevisionedMailboxUpdate {
   readonly changes?: MailboxChanges;
   readonly sharedState?: Document;
   /** A session identifier, present only until the initial change replay completes. */
   readonly bootstrap?: string;
+  readonly expectedChanges?: MailboxChangesCheckpoint;
 }
 
 async function removeThread(tx: MiniAppPrivateSqlTransaction, accountId: string, threadId: string) {
@@ -27,6 +29,12 @@ export async function writeRevisionedMailboxPage(tx: MiniAppPrivateSqlTransactio
   const revision = page.revision;
   if (revision === undefined) throw new CoordinatorError(502, 'mailbox_upgrade_required',
     'The coordinator must support revisioned mailbox synchronization.');
+  if (options.expectedChanges) {
+    const current = await readRecord<MailboxChangesCheckpoint>(tx, 'local_mail_records', 'changes-cursor');
+    if (current?.revision !== options.expectedChanges.revision || current?.bootstrap !== options.expectedChanges.bootstrap) {
+      throw new MailboxChangesSupersededError();
+    }
+  }
   const control = await readRecord<{ complete: number; accounts: number }>(tx, 'local_mail_records', 'revision')
     ?? { complete: -1, accounts: -1 };
   const threads: typeof page.mailbox.threads[number][] = [];
@@ -51,6 +59,9 @@ export async function writeRevisionedMailboxPage(tx: MiniAppPrivateSqlTransactio
     for (const thread of items) {
       const previous = previousVersions.get(emailThreadKey(thread));
       if (revision < Math.max(Number(previous?.[0] ?? control.complete + 1), control.complete)) continue;
+      // Bootstrap membership above still advances, but identical revisioned rows
+      // do not need another metadata/index rewrite on a routine head refresh.
+      if (Number(previous?.[0]) === revision && Number(previous?.[2]) === present) continue;
       versions.push([thread.accountId, thread.threadId, revision, present,
         options.bootstrap ?? (typeof previous?.[1] === 'string' ? previous[1] : null)]);
       if (present && 'providerRevision' in thread) {
@@ -88,5 +99,11 @@ export async function writeRevisionedMailboxPage(tx: MiniAppPrivateSqlTransactio
     control.complete = revision;
   }
   await writeRecord(tx, 'local_mail_records', 'revision', '', '', '', control);
+  if (options.changes && options.expectedChanges) {
+    await writeRecord(tx, 'local_mail_records', 'changes-cursor', '', '', '', {
+      revision: options.changes.nextRevision,
+      ...(options.changes.hasMore && options.bootstrap ? { bootstrap: options.bootstrap } : {}),
+    } satisfies MailboxChangesCheckpoint);
+  }
   return { mailbox: { schemaVersion: 1 as const, accounts: await readReplicaAccounts(tx), threads }, deleted };
 }

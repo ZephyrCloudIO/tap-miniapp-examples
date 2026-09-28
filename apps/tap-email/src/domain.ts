@@ -141,7 +141,14 @@ export interface ThreadAttentionCorrectionRecord {
   readonly correctedAt: string;
 }
 
+export interface MailColumnWidths {
+  readonly sidebar: number;
+  readonly threads: number;
+}
+
 export interface MailPreferences {
+  readonly columnWidths?: MailColumnWidths;
+  readonly sidebarCollapsed?: boolean;
   readonly htmlEnabled?: boolean;
   readonly scriptsEnabled?: boolean;
   readonly imagePolicyVersion?: 1;
@@ -231,6 +238,8 @@ export function normalizeMailPreferences(
 ): MailPreferences {
   return {
     ...preferences,
+    columnWidths: isMailColumnWidths(preferences.columnWidths) ? preferences.columnWidths : undefined,
+    sidebarCollapsed: preferences.sidebarCollapsed === true,
     htmlEnabled: preferences.htmlEnabled ?? true,
     scriptsEnabled: preferences.scriptsEnabled ?? true,
     imagePolicyVersion: 1,
@@ -672,6 +681,11 @@ export function isMailboxSnapshot(value: unknown): value is MailboxSnapshot {
     Array.isArray(value.threads) &&
     value.threads.every(isEmailThread)
   );
+}
+
+function isMailColumnWidths(value: unknown): value is MailColumnWidths {
+  return isRecord(value) && typeof value.sidebar === 'number' && Number.isFinite(value.sidebar) && value.sidebar >= 160 && value.sidebar <= 480 &&
+    typeof value.threads === 'number' && Number.isFinite(value.threads) && value.threads >= 260 && value.threads <= 10_000;
 }
 
 export function isMailPreferences(value: unknown): value is MailPreferences {

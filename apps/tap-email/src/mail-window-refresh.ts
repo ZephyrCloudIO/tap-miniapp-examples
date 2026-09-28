@@ -1,4 +1,4 @@
-import { emailThreadKey, type EmailThread, type MailState } from './domain';
+import { emailThreadKey, visibleThreads, type EmailThread, type MailState } from './domain';
 
 /** Finish each read, then service at most one accumulated refresh request. */
 export class MailWindowRefresh {
@@ -46,6 +46,19 @@ export class MailWindowCache {
     this.pages.delete(scope);
     this.pages.set(scope, page);
     return page.threads;
+  }
+
+  /** Seed a newly selected account/folder from resident mail while SQLite catches up. */
+  matching(state: MailState): readonly EmailThread[] {
+    const rows = new Map<string, EmailThread>();
+    for (const page of this.pages.values()) for (const thread of page.threads) rows.set(emailThreadKey(thread), thread);
+    for (const thread of state.threads) rows.set(emailThreadKey(thread), thread);
+    const knownAccounts = new Set(state.accounts.map(account => account.accountId));
+    const candidates = [...rows.values()].filter(thread => knownAccounts.has(thread.accountId));
+    const keys = new Set(visibleThreads({ ...state, threads: candidates }).map(emailThreadKey));
+    // Return the stored objects; optimistic journal overlays are applied by the view.
+    return candidates.filter(thread => keys.has(emailThreadKey(thread)))
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).slice(0, 100);
   }
 
   set(scope: string, threads: readonly EmailThread[]): void {
