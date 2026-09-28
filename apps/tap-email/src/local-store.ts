@@ -996,7 +996,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   commitMailboxRefresh(mailbox: MailboxSnapshot): Promise<void> {
     return this.enqueue(async database => {
       await this.migrateLegacy(database);
-      await database.transaction(tx => writeReplicaThreads(tx, mailbox, new Date(this.now()).toISOString(), false, true, this.sharedDocument));
+      await database.transaction(tx => writeReplicaThreads(tx, mailbox, new Date(this.now()).toISOString(), false, false, this.sharedDocument));
       await database.checkpoint();
     });
   }
@@ -1126,7 +1126,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
           current.nextCursor !== expected.nextCursor || current.pagesLoaded !== expected.pagesLoaded) {
           throw new Error('This mailbox page belongs to a superseded sync checkpoint.');
         }
-        await writeReplicaThreads(tx, mailbox, next.updatedAt, false, true, this.sharedDocument);
+        await writeReplicaThreads(tx, mailbox, next.updatedAt, false, false, this.sharedDocument);
         if (!await readRecord(tx, 'local_mail_records', 'ui')) await writeReplicaUi(tx, emptyMailState());
         await writeSync(tx, next);
       });
