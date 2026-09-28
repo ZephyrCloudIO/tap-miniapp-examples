@@ -1,3 +1,5 @@
+import { sharedStateResponse } from '@tap-examples/tap-shared-state/server';
+import { validEmailDocument } from '../../tap-email/src/shared-state';
 import { listBodyCoverage, setBodyBackfill, enqueueBodyBackfills, processBodyBackfill } from './body-backfill';
 import { searchSentRecipients } from './recipient-history';
 import { createEmailMcpCredential, emailMcpCredentialStatus, revokeEmailMcpCredential, verifyEmailMcpCredential } from './mcp-auth';
@@ -2195,6 +2197,12 @@ export function createTapEmailCoordinator(
           ? 'tap-email.view'
           : 'tap-email.manage';
         const identity = await verifyAccess(request, env, requiredAction);
+        if (url.pathname === '/v1/settings') {
+          const response = await sharedStateResponse(request, env.DB.withSession('first-primary'), identity.profileId, validEmailDocument);
+          const headers = new Headers(response.headers);
+          new Headers(cors).forEach((value, key) => headers.set(key, value));
+          return new Response(response.body, { status: response.status, headers });
+        }
         if (request.method === 'GET' && url.pathname === '/v1/activity/receipts') {
           const after = url.searchParams.get('after') ?? new Date(now().getTime() - 90 * 86_400_000).toISOString();
           const afterId = url.searchParams.get('afterId') ?? '';

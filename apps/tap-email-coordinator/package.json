@@ -22,7 +22,8 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@tap-examples/tap-email-protocol": "workspace:*",
     "agents": "0.20.1",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "@tap-examples/tap-shared-state": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.6",

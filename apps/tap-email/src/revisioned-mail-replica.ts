@@ -1,3 +1,4 @@
+import type { Document } from '@tap-examples/tap-shared-state';
 import type { MiniAppPrivateSqlTransaction } from '@theaiplatform/miniapp-sdk/sdk';
 import { CoordinatorError, type MailboxChanges, type MailboxPage } from './coordinator-client';
 import { readRecord, readReplicaAccounts, writeRecord, writeReplicaThreads } from './bounded-mail-replica';
@@ -9,6 +10,7 @@ import { MailboxChangesSupersededError, type MailboxChangesCheckpoint } from './
 
 export interface RevisionedMailboxUpdate {
   readonly changes?: MailboxChanges;
+  readonly sharedState?: Document;
   /** A session identifier, present only until the initial change replay completes. */
   readonly bootstrap?: string;
   readonly expectedChanges?: MailboxChangesCheckpoint;
@@ -80,7 +82,7 @@ export async function writeRevisionedMailboxPage(tx: MiniAppPrivateSqlTransactio
     await tx.execute('DELETE FROM local_mail_accounts');
     control.accounts = revision;
   }
-  await writeReplicaThreads(tx, { schemaVersion: 1, accounts, threads }, updatedAt, false);
+  await writeReplicaThreads(tx, { schemaVersion: 1, accounts, threads }, updatedAt, false, false, options.sharedState);
   if (options.bootstrap && options.changes && !options.changes.hasMore) {
     // Prune only after a complete replay. Newer head rows survive its watermark.
     while (true) {

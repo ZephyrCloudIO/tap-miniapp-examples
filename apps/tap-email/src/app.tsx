@@ -1,3 +1,5 @@
+import { SharedState, SettingsNotSavedError, replicaStore, isDocument, type Document } from '@tap-examples/tap-shared-state';
+import { applyEmailDocument, emailMigration, correctionKey } from './shared-state';
 import { BodyCoveragePanel } from './body-coverage-panel';
 import { MailRefreshScheduler } from './mail-refresh-scheduler';
 import { useDelayedStatus } from './use-delayed-status';
@@ -262,7 +264,6 @@ import {
   loadPreferences,
   publishEmailActivityProjection,
   publishOperationalProjection,
-  savePreferences,
 } from './storage';
 import {
   mailViewDeepLink,
@@ -751,6 +752,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [locationReady, setLocationReady] = useState(false);
   const [mailboxError, setMailboxError] = useState('');
   const [cacheError, setCacheError] = useState('');
+  const [sharedSyncError, setSharedSyncError] = useState('');
+  const sharedEmailRef = useRef<SharedState | null>(null);
+  const emailDocumentRef = useRef<Document>({});
+  const sharedEditVersion = useRef(0);
+  const refreshEmailSettingsRef = useRef<() => Promise<void>>(async () => {});
   const [activityError, setActivityError] = useState('');
   const [initialMailboxRequestPending, setInitialMailboxRequestPending] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>('none');
@@ -786,7 +792,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [syncing, setSyncing] = useState(false);
   const [bulkTransfer, setBulkTransfer] = useState(false);
   const showBulkTransfer = useDelayedStatus(bulkTransfer, 8_000);
-  const loadError = mailboxError || cacheError || activityError;
+  const loadError = mailboxError || sharedSyncError || cacheError || activityError;
   const showLoadError = useDelayedStatus(Boolean(loadError), 15_000);
   const showStorageUnavailable = useDelayedStatus(hydrated && store.capability === 'unavailable', 15_000);
   const [dispatchTick, setDispatchTick] = useState(0);
@@ -1181,6 +1187,77 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       if (mailboxSyncRef.current === mailboxSync) mailboxSyncRef.current = null;
     };
   }, [preview, store, surfaceContext, diagnostics, createMailboxSync]);
+
+  useEffect(() => {
+    if (preview || !hydrated || !surfaceContext?.userId) return;
+    let active = true;
+    const client = createCoordinatorClient();
+    const shared = new SharedState({ read: () => client.readSettings(), write: value => client.writeSettings(value) },
+      replicaStore(sdk.storage, { namespace: 'tap-email', key: `users/${surfaceContext.userId}/shared-state/v1` }));
+    sharedEmailRef.current = shared;
+    const refresh = () => {
+      const version = sharedEditVersion.current;
+      return shared.open(async () => {
+        // Migrate legacy preferences after first paint; cached mailbox settings take precedence.
+        const [preferences, stored] = await Promise.all([loadPreferences(false), store.migrateSharedState?.()]);
+        return { ...emailMigration({ ...stateRef.current, preferences }), ...emailMigration(stateRef.current), ...stored };
+      })
+        .then(async document => {
+          if (!active || version !== sharedEditVersion.current) return;
+          emailDocumentRef.current = document;
+          setState(current => applyEmailDocument(current, document));
+          await store.applySharedState?.(document);
+          if (active) { setSharedSyncError(''); setReplicaVersion(value => value + 1); }
+        }).catch(async cause => {
+          if (!active || version !== sharedEditVersion.current) return;
+          if (shared.ready) {
+            emailDocumentRef.current = shared.document;
+            setState(current => applyEmailDocument(current, shared.document));
+            await store.applySharedState?.(shared.document).catch(() => {});
+          }
+          if (active) setSharedSyncError(`Settings sync is pending: ${String(cause)}`);
+        });
+    };
+    refreshEmailSettingsRef.current = refresh;
+    void refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh); window.addEventListener('online', refresh);
+    return () => {
+      active = false; shared.dispose();
+      if (sharedEmailRef.current === shared) {
+        sharedEmailRef.current = null; refreshEmailSettingsRef.current = async () => {};
+      }
+      window.clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh);
+    };
+  }, [preview, hydrated, surfaceContext?.userId, surfaceContext?.workspaceId, store]);
+
+  const saveSharedEmail = useCallback((update: (document: Document) => Document) => {
+    const shared = sharedEmailRef.current;
+    if (!shared?.ready) { setSharedSyncError('Reconnect once to load shared settings before editing them.'); return; }
+    const version = ++sharedEditVersion.current;
+    emailDocumentRef.current = update(emailDocumentRef.current);
+    setState(current => applyEmailDocument(current, emailDocumentRef.current));
+    void shared.change(update).then(async document => {
+      if (sharedEmailRef.current !== shared || version !== sharedEditVersion.current) return;
+      emailDocumentRef.current = document;
+      setState(current => applyEmailDocument(current, document));
+      await store.applySharedState?.(document);
+      if (sharedEmailRef.current === shared) { setSharedSyncError(''); setReplicaVersion(value => value + 1); }
+    }).catch(cause => {
+      if (sharedEmailRef.current !== shared) return;
+      if (cause instanceof SettingsNotSavedError && version === sharedEditVersion.current) {
+        emailDocumentRef.current = shared.document;
+        setState(current => applyEmailDocument(current, shared.document));
+      }
+      setSharedSyncError(cause instanceof SettingsNotSavedError ? cause.message : `Saved on this device; settings sync is pending: ${String(cause)}`);
+    });
+  }, [store]);
+
+  // Newly paged provider rows and device-cache rows receive the same shared
+  // correction overlay as the initial inbox.
+  useEffect(() => {
+    if (!preview && sharedEmailRef.current?.ready) setState(current => applyEmailDocument(current, emailDocumentRef.current));
+  }, [preview, state.threads]);
 
   const persistenceQueue = useMemo(() => new MailPersistenceQueue(async snapshot => {
     try {
@@ -1722,15 +1799,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     correction: ThreadAttentionCorrectionInput,
   ) => {
     if (!selectedThreadAccountId || !selectedThreadId) return;
-    setState(current => correctThreadAttention(
-      current,
-      selectedThreadAccountId,
-      selectedThreadId,
-      correction,
-      new Date().toISOString(),
-    ));
-    flash('Triage correction saved in TAP Email.');
-  }, [flash, selectedThreadAccountId, selectedThreadId]);
+    if (preview) {
+      setState(current => correctThreadAttention(current, selectedThreadAccountId, selectedThreadId, correction, new Date().toISOString()));
+      return;
+    }
+    const key = correctionKey(selectedThreadAccountId, selectedThreadId);
+    const correctedAt = new Date().toISOString();
+    saveSharedEmail(document => {
+      const corrections = isDocument(document.corrections) ? document.corrections : {};
+      const previous = isDocument(corrections[key]) ? corrections[key] : {};
+      return { ...document, corrections: { ...corrections, [key]: { ...previous, ...correction, correctedAt } } };
+    });
+  }, [preview, saveSharedEmail, selectedThreadAccountId, selectedThreadId]);
 
   overlayRef.current = overlay;
 
@@ -1838,7 +1918,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         });
         return;
       }
-      const page = await sync.refreshHead();
+      const [page] = await Promise.all([sync.refreshHead(), refreshEmailSettingsRef.current()]);
       setCoordinatorNetworkReady(true);
       setMailboxError('');
       if (sync instanceof DurableMailboxSync) {
@@ -2589,8 +2669,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   const updatePreferences = (preferences: MailPreferences) => {
     const normalized = normalizeMailPreferences(preferences);
-    setState(current => ({ ...current, preferences: normalized }));
-    if (!preview) void savePreferences(normalized).catch(error => flash(`Settings were not saved: ${String(error)}`));
+    if (preview) setState(current => ({ ...current, preferences: normalized }));
+    else saveSharedEmail(document => ({ ...document, preferences: JSON.parse(JSON.stringify(normalized)) }));
   };
 
   const recipientContacts = useMemo(
@@ -3013,6 +3093,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     ? state.accounts.length > 0
       ? 'Cached mailbox'
       : 'Mailbox unavailable'
+    : showLoadError && sharedSyncError
+      ? 'Settings sync pending'
     : showLoadError && cacheError
       ? 'Device cache unavailable'
       : showLoadError && activityError

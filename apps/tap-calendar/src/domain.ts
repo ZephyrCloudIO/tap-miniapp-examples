@@ -393,14 +393,6 @@ export interface AddAvailabilityScheduleOptions {
   readonly makeDefault?: boolean;
 }
 
-const days = [1, 2, 3, 4, 5, 6, 0] as const;
-const baseWindows = days.map<AvailabilityWindow>(day => ({
-  day,
-  enabled: day >= 1 && day <= 5,
-  start: "09:00",
-  end: "17:00",
-}));
-
 const availabilityWeekdayNames = [
   "Sunday",
   "Monday",
@@ -507,14 +499,6 @@ export function createAdditionalAvailabilityWindow(
   }
   return null;
 }
-
-const emptyAnalytics = (): FunnelAnalytics => ({
-  views: 0,
-  slotViews: 0,
-  starts: 0,
-  requests: 0,
-  confirmed: 0,
-});
 
 const defaultNotificationPreferences = (): NotificationPreferences => ({
   reminderMinutes: [10],

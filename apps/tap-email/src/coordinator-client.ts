@@ -1,3 +1,4 @@
+import { parseSnapshot, type Snapshot } from '@tap-examples/tap-shared-state';
 import type { RecipientSuggestion } from './recipient-history';
 import {
   sdk,
@@ -464,6 +465,8 @@ export function createCoordinatorClient(
     );
   }
   return {
+    async readSettings() { return parseSnapshot(await call(resolved, { method: 'GET', url: `${origin}/v1/settings` }, 1_100_000, origin)); },
+    async writeSettings(snapshot: Snapshot) { return parseSnapshot(await call(resolved, { method: 'POST', url: `${origin}/v1/settings`, headers: [{ name: 'Content-Type', value: 'application/json' }], body: JSON.stringify(snapshot) }, 1_100_000, origin)); },
     async getActivityReceipts(cursor: ActivityCursor, viewCursor: ActivityCursor = cursor) {
       const query = new URLSearchParams({ ...cursor, viewAfter: viewCursor.after, viewAfterId: viewCursor.afterId }).toString();
       const body = asRecord(await call(resolved, { method: 'GET', url: `${origin}/v1/activity/receipts?${query}` }, 524_288, origin));

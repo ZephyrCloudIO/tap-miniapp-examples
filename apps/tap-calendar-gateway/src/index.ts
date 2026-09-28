@@ -1,4 +1,6 @@
 import { compile as compileHtmlToText } from "html-to-text";
+import { sharedStateResponse } from '@tap-examples/tap-shared-state/server';
+import { validCalendarDocument } from '../../tap-calendar/src/shared-state-contract';
 import OAuthProvider, { type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -10305,6 +10307,11 @@ async function route(
     if (!coverage) throw new ApiError(503, "analytics_unavailable", "Booking analytics is not initialized.");
     return json({ schemaVersion: PUBLIC_BOOKING_ANALYTICS_SCHEMA, ready: true,
       trafficSince: coverage.traffic_since, conversionSince: coverage.conversion_since });
+  }
+  if (path === "/v1/settings") {
+    const owner = await principalScope(request, env);
+    return sharedStateResponse(request, env.CALENDAR_DB.withSession("first-primary"),
+      JSON.stringify([owner.workspace, owner.principal]), validCalendarDocument);
   }
   if (path === "/v1/activity" && request.method === "GET") {
     return json(await readCalendarActivity(env.CALENDAR_DB, await principalScope(request, env)));

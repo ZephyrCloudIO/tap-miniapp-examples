@@ -20,6 +20,12 @@ function withCommand(state: MailState, id: string): MailState {
     '2026-09-24T00:00:00.000Z', { draftKey: `draft_${id}`, draftRevision: 1 });
 }
 
+async function commitProviderThreads(store: ProfileSqliteMailStore, threads: EmailThread[], mode: 'page' | 'refresh') {
+  const mailbox = { schemaVersion: 1 as const, accounts: template.accounts, threads };
+  if (mode === 'refresh') await store.commitMailboxRefresh(mailbox);
+  else await store.commitMailboxPage(await store.beginMailboxSync(), mailbox, null);
+}
+
 describe('bounded durable mail persistence', () => {
   it('opens a bounded first screen without reading message records or attachment housekeeping', async () => {
     const fixture = sqliteStoreFixture();
@@ -50,14 +56,13 @@ describe('bounded durable mail persistence', () => {
     expect(restored?.threads.map(item => item.threadId)).toEqual([unchanged.threadId]);
   });
 
-  it('preserves searchable body enrichment across same-revision metadata refreshes', async () => {
+  it.each(['page', 'refresh'] as const)('preserves searchable body enrichment only at the same provider revision during %s', async mode => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);
     const metadata = thread(0);
     const hydrated = { ...metadata, messages: [{ ...metadata.messages[0]!, bodyText: 'saffron contract' }] };
     await store.save({ ...template, threads: [hydrated] });
-    let sync = await store.beginMailboxSync();
-    await store.commitMailboxPage(sync, { schemaVersion: 1, accounts: template.accounts, threads: [metadata] }, null);
+    await commitProviderThreads(store, [metadata], mode);
 
     const restarted = new ProfileSqliteMailStore(fixture.profile);
     expect((await restarted.queryThreads({ query: 'saffron contract' })).threads.map(item => item.threadId))
@@ -66,9 +71,7 @@ describe('bounded durable mail persistence', () => {
       .toBe('saffron contract');
 
     // New source revisions can invalidate old content; this is not indefinite retention.
-    sync = await restarted.beginMailboxSync();
-    await restarted.commitMailboxPage(sync, { schemaVersion: 1, accounts: template.accounts,
-      threads: [{ ...metadata, providerRevision: 'new_content_revision' }] }, null);
+    await commitProviderThreads(restarted, [{ ...metadata, providerRevision: 'new_content_revision' }], mode);
     expect((await restarted.queryThreads({ query: 'saffron contract' })).threads).toEqual([]);
     expect((await restarted.loadThread(metadata.accountId, metadata.threadId))?.messages[0]?.bodyText).toBe('');
   });
@@ -626,17 +629,22 @@ print('bounded rows recovered')
     } finally { rs.useRealTimers(); }
   });
 
-  it('does not overwrite a newer provider page with a delayed UI save', async () => {
+  it.each([
+    ['page', false], ['page', true], ['refresh', false], ['refresh', true],
+  ] as const)('preserves newer provider data through delayed UI saves (%s, shared settings: %s)', async (mode, shared) => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);
-    const old = thread(0);
+    const old = { ...thread(0), attentionCorrection: { critical: true, correctedAt: '2030-01-01T00:00:00Z' } };
+    const correction = { critical: false, correctedAt: '2026-09-27T00:00:00Z' };
     await store.save({ ...template, threads: [old] });
-    const checkpoint = await store.beginMailboxSync();
-    await store.commitMailboxPage(checkpoint, { schemaVersion: 1, accounts: template.accounts,
-      threads: [{ ...old, providerRevision: 'new_revision', subject: 'Fresh subject' }] }, null);
+    if (shared) await store.applySharedState({ corrections: { [JSON.stringify([old.accountId, old.threadId])]: correction } });
+    await commitProviderThreads(store, [{ ...old, providerRevision: 'new_revision', subject: 'Fresh subject' }], mode);
     await store.saveCache({ ...template, threads: [{ ...old, messages: [{ ...old.messages[0]!, bodyText: 'Late detail' }] }] });
     expect((await store.queryThreads({})).threads[0]?.subject).toBe('Fresh subject');
-    expect((await store.loadThread(old.accountId, old.threadId))?.providerRevision).toBe('new_revision');
+    const loaded = await store.loadThread(old.accountId, old.threadId);
+    expect(loaded?.providerRevision).toBe('new_revision');
+    expect(loaded?.attentionCorrection).toEqual(shared ? correction : old.attentionCorrection);
+    expect(loaded?.messages[0]?.bodyText).toBe('');
   });
 
   it('merges recovered commands and receipt history with actions created while opening failed', () => {
