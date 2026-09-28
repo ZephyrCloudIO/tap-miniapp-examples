@@ -96,7 +96,7 @@ export function MailSearchDialog({ state, store, initialQuery, onClose, onSelect
               setActiveIndex(index => (Math.min(index, rows.length - 1) + offset + rows.length) % rows.length);
             } else if (event.key === 'Enter' && active) { event.preventDefault(); choose(active); }
           }} />
-        <button type="button" className="search-dialog-close" onClick={onClose} aria-label="Close search"><kbd>esc</kbd></button>
+        <button type="button" className="search-dialog-close" onClick={onClose} aria-label="Close search"><kbd>esc</kbd><span className="mobile-search-cancel">Cancel</span></button>
       </div>
       <div className="search-dialog-filters">
         <select aria-label="Search account" value={accountId} onChange={event => {

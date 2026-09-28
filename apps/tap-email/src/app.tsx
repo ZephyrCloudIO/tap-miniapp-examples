@@ -4,6 +4,7 @@ import { BodyCoveragePanel } from './body-coverage-panel';
 import { MailRefreshScheduler } from './mail-refresh-scheduler';
 import { useDelayedStatus } from './use-delayed-status';
 import { MailSearchDialog } from './mail-search-dialog';
+import { MobileMailNavigation, MobileMailToolbar } from './mobile-mail-navigation';
 import { ResizableMailShell } from './resizable-mail-shell';
 import { useComposerServices } from './use-composer-services';
 import { NativeHeader, useCompactLayout } from '@tap-examples/tap-mobile-ui';
@@ -58,6 +59,7 @@ import {
   MoreHorizontal,
   Search,
   Settings,
+  X,
 } from 'lucide-react';
 import {
   defaultPreferences,
@@ -281,7 +283,7 @@ interface TapEmailAppProps {
   readonly diagnostics?: EmailDiagnostics;
 }
 
-type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'search' | 'shortcuts' | 'settings' | 'handoff' | 'workflows' | 'message-options';
+type Overlay = 'none' | 'remind' | 'compose' | 'palette' | 'search' | 'shortcuts' | 'settings' | 'handoff' | 'workflows' | 'message-options' | 'mailboxes';
 
 interface ReplyDraft {
   readonly followUp?: MailDraftPayload['followUp'];
@@ -762,6 +764,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const [overlay, setOverlay] = useState<Overlay>('none');
   const compact = useCompactLayout();
   const [mobileReader, setMobileReader] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const mobileInbox = nativeHeader && compact;
   const readerScreen = nativeHeader && compact && mobileReader;
   const [replyDrafts, setReplyDrafts] = useState<Readonly<Record<string, ReplyDraft>>>({});
   const [poppedReplyKey, setPoppedReplyKey] = useState<string | null>(null);
@@ -770,6 +774,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     useState<MessageExpansionRequest | null>(null);
   const [query, setQuery] = useState('');
   const [semanticSearch, setSemanticSearch] = useState<SemanticSearchState | null>(null);
+  const mobileSearchVisible = mobileSearchOpen || Boolean(query.trim());
   const [semanticSearchBusy, setSemanticSearchBusy] = useState(false);
   const [semanticIndexStatus, setSemanticIndexStatus] = useState('Meaning index has not started.');
   const [semanticIndexError, setSemanticIndexError] = useState(false);
@@ -801,6 +806,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const chordTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const searchReturnFocus = useRef<HTMLElement | null>(null);
+  const navigationReturnFocus = useRef<HTMLElement | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<Overlay>('none');
@@ -3128,7 +3134,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     <div className={`tap-email${readerScreen ? ' mobile-reader' : ''}`} ref={rootRef} tabIndex={-1}>
       <a className="skip-link" href="#tap-email-main">Skip to Mailbox</a>
       {nativeHeader && surfaceContext ? <>
-        <NativeHeader context={surfaceContext} title="Email" back={readerScreen ? { label: "Back to inbox", onPress: () => setMobileReader(false) } : undefined} actions={[
+        <NativeHeader context={surfaceContext} title="Email" back={readerScreen ? { label: "Back to inbox", onPress: () => setMobileReader(false) } : mobileInbox && mobileSearchVisible ? { label: 'Close search', onPress: () => { setMobileSearchOpen(false); setQuery(''); setSemanticSearch(null); } } : undefined} actions={[
           ...(readerScreen && thread ? [{ id: 'done', label: 'Archive email', icon: 'check' as const, primary: true, onPress: () => runCommand('done') }, { id: 'message-options', label: 'Message options', icon: 'menu' as const, onPress: () => setOverlay('message-options') }] : []),
           { id: 'compose', label: 'Compose email', icon: 'compose', primary: !readerScreen, disabled: state.accounts.length === 0, onPress: () => runCommand('compose') },
           ...(showBulkTransfer ? [{ id: 'mail-download', label: 'Downloading mail', icon: 'refresh' as const, primary: !readerScreen, disabled: true, busy: true, onPress: () => {} }] : []),
@@ -3136,9 +3142,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           { id: 'workflows', label: 'Email workflows', icon: 'check', disabled: state.accounts.length === 0, onPress: () => setOverlay('workflows') },
           { id: 'settings', label: 'Email settings', icon: 'settings', onPress: () => setOverlay('settings') },
         ]} />
-        <div className="mobile-account-toolbar">
+        {!compact ? <div className="mobile-account-toolbar">
           <AccountSwitcher accounts={state.accounts} onSelect={accountId => setState(current => selectAccount(current, accountId))} selectedAccountId={state.selectedAccountId} />
-        </div>
+        </div> : null}
       </> : <header className="app-bar">
         <div className="brand"><span className="brand-mark">T</span><span>TAP Email</span></div>
         <AccountSwitcher
@@ -3242,7 +3248,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           hidden={nativeHeader && compact ? readerScreen : threadListCollapsed}
           id={THREAD_LIST_PANE_ID}
         >
-          <div className="thread-toolbar">
+          {mobileInbox && !mobileSearchVisible ? <MobileMailToolbar folder={state.selectedSplit}
+            account={state.selectedAccountId === 'all' ? 'All accounts' : accountFor(state.accounts, state.selectedAccountId)?.displayName ?? 'Email account'}
+            onNavigate={() => { navigationReturnFocus.current = document.activeElement as HTMLElement | null; setOverlay('mailboxes'); }}
+            onSearch={() => setMobileSearchOpen(true)} /> : <div className={`thread-toolbar${mobileInbox ? ' mobile-search-open' : ''}`}>
+            {!mobileInbox ?
             <div className="thread-view-heading">
               <CompactMailViewSelect
                 selected={state.selectedSplit}
@@ -3250,9 +3260,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               />
               <span className="eyebrow">{state.selectedAccountId === 'all' ? 'Unified' : accountFor(state.accounts, state.selectedAccountId)?.displayName}</span>
               <h1>{activeMailView.label}</h1>
-            </div>
+            </div> : null}
             <div className="mail-search-stack">
-              <div className="mail-search"><button className="mail-search-launch" type="button" aria-label="Open mail search" aria-keyshortcuts="/" onClick={() => runCommand('search')}><Search aria-hidden="true" /></button><input ref={searchRef} autoComplete="off" name="mail-search" type="search" value={query} onChange={event => { setQuery(event.target.value); setSemanticSearch(null); }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); runCommand('search'); } }} placeholder="Search…" aria-label="Search mail" /><button className={semanticSearch?.query === query.trim() ? 'is-active' : ''} type="button" disabled={!query.trim() || semanticSearchBusy} onClick={() => { void runSemanticSearch(); }} aria-label="Search by meaning using the local semantic index">{semanticSearchBusy ? 'Searching…' : 'Meaning'}</button><kbd>/</kbd></div>
+              <div className="mail-search"><button className="mail-search-launch" type="button" aria-label="Open mail search" aria-keyshortcuts="/" onClick={() => runCommand('search')}><Search aria-hidden="true" /></button><input ref={searchRef} autoFocus={mobileInbox} autoComplete="off" name="mail-search" type="search" value={query} onChange={event => { setQuery(event.target.value); setSemanticSearch(null); }} onKeyDown={event => { if (event.key === 'Escape' && mobileInbox) { event.preventDefault(); setMobileSearchOpen(false); setQuery(''); setSemanticSearch(null); } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); runCommand('search'); } }} placeholder="Search…" aria-label="Search mail" /><button className={semanticSearch?.query === query.trim() ? 'is-active' : ''} type="button" disabled={!query.trim() || semanticSearchBusy} onClick={() => { void runSemanticSearch(); }} aria-label="Search by meaning using the local semantic index">{semanticSearchBusy ? 'Searching…' : 'Meaning'}</button><kbd>/</kbd></div>
               {searchCoverage ? (
                 <span
                   className={`mail-search-coverage${searchCoverage.complete ? '' : ' is-partial'}`}
@@ -3263,7 +3273,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 </span>
               ) : null}
             </div>
-          </div>
+            {mobileInbox ? <button type="button" className="mobile-search-close" aria-label="Close search" onClick={() => { setMobileSearchOpen(false); setQuery(''); setSemanticSearch(null); }}><X aria-hidden="true" /></button> : null}
+          </div>}
           <div className="thread-list" role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outbox items needing attention' : 'Email threads'}>
             {state.selectedSplit === 'scheduled' ? (
               <ScheduledSendList
@@ -3566,6 +3577,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           }}
         />
       ) : null}
+      {overlay === 'mailboxes' ? <MobileMailNavigation accounts={state.accounts} accountId={state.selectedAccountId} folder={state.selectedSplit}
+        onAccount={accountId => { setState(current => selectAccount(current, accountId)); setOverlay('none'); }}
+        onFolder={split => { setState(current => selectSplit(current, split)); setOverlay('none'); }}
+        onClose={() => setOverlay('none')} onRestoreFocus={() => (navigationReturnFocus.current?.isConnected ? navigationReturnFocus.current : rootRef.current)?.focus({ preventScroll: true })} /> : null}
       {overlay === 'search' ? <MailSearchDialog state={state} store={store} initialQuery={query}
         onClose={() => setOverlay('none')} onSelect={target => openThread(target, true)}
         onRestoreFocus={opened => {
