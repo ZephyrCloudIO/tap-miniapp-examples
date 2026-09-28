@@ -387,7 +387,8 @@ kbd {
 
 .mail-row { width: 100%; min-height: 91px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 9px; padding: 13px 12px 12px 15px; border: 0; border-bottom: 1px solid var(--mail-border-soft); background: transparent; color: var(--mail-muted); text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: 91px; }
 .mail-row:hover { background: var(--mail-hover); }
-.mail-row.is-selected { background: linear-gradient(90deg, var(--mail-accent-soft), transparent); box-shadow: inset 2px 0 var(--mail-accent); }
+.mail-row.is-selected { background: var(--mail-hover); }
+.mail-row.is-selected.is-unread { background: linear-gradient(90deg, var(--mail-accent-soft), transparent); box-shadow: inset 2px 0 var(--mail-accent); }
 .mail-row.is-unread { color: var(--mail-text); }
 .mail-row .account-dot { margin-top: 5px; }
 .mail-row:not(.is-unread) .account-dot { opacity: .3; filter: saturate(.4); }
@@ -478,7 +479,7 @@ kbd {
 .reader-workspace { flex: 1 1 0; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
 .message-pane.has-reply-sidecar .reader-workspace { grid-template-columns: minmax(360px, 1fr) minmax(340px, 420px); }
 .message-body { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 14px clamp(18px, 2.3vw, 30px) 22px; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
-.thread-message { width: min(100%, 940px); margin-inline: auto; border: 1px solid transparent; border-radius: 9px; }
+.thread-message { --message-inset: 24px; width: min(100%, 940px); margin-inline: auto; border: 0; border-radius: 3px; }
 .thread-page-controls { width: min(100%, 940px); margin: 0 auto 8px; color: var(--mail-muted); font-size: 12px; }
 .thread-page-controls:empty { display: none; }
 .thread-page-controls p { margin: 6px 0; }
@@ -488,22 +489,39 @@ kbd {
 .thread-page-controls button:focus-visible { outline: 2px solid var(--mail-focus-border); outline-offset: 2px; }
 .thread-page-controls button:disabled { opacity: .6; cursor: wait; }
 .thread-message + .thread-message { margin-top: 3px; }
-.thread-message.is-expanded { margin-block: 4px; border-color: var(--mail-border-soft); background: var(--mail-panel-soft); box-shadow: inset 3px 0 var(--mail-accent); }
-.thread-message-toggle { width: 100%; min-width: 0; min-height: 45px; display: grid; grid-template-columns: minmax(80px, 138px) minmax(0, 1fr) auto 18px; align-items: center; gap: 13px; border: 0; border-radius: 8px; outline: 0; background: transparent; color: var(--mail-muted); padding: 9px 11px; cursor: pointer; text-align: left; font: inherit; }
+.thread-message.is-expanded { margin-block: 4px; background: var(--mail-panel-soft); }
+.thread-message.is-unread { box-shadow: inset 3px 0 var(--mail-accent); }
+.thread-message-toggle { width: 100%; min-width: 0; min-height: 45px; display: grid; grid-template-columns: minmax(80px, 138px) minmax(0, 1fr) auto 18px; align-items: center; gap: 13px; border: 0; border-radius: 3px; outline: 0; background: transparent; color: var(--mail-muted); padding: 9px var(--message-inset); cursor: pointer; text-align: left; font: inherit; }
 .thread-message-toggle:hover { background: var(--mail-hover); color: var(--mail-text); }
 .thread-message-toggle:focus-visible { box-shadow: inset 0 0 0 2px var(--mail-focus-border); }
 .thread-message-toggle.is-static { cursor: default; }
 .thread-message-toggle.is-static:hover { background: transparent; }
-.thread-message.is-expanded .thread-message-toggle { grid-template-columns: 31px auto minmax(0, 1fr) auto 18px; align-items: center; padding: 13px 14px 7px 15px; color: var(--mail-text); }
-.thread-message.is-expanded .thread-message-toggle.is-static { grid-template-columns: 31px auto minmax(0, 1fr) auto; }
-.thread-message-avatar { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid var(--mail-border); border-radius: 9px; background: var(--mail-panel-raised); color: var(--mail-accent); font-size: 12px; font-weight: 700; }
+/* Sender disclosure and message collapse are separate keyboard targets. */
+.thread-message-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 8px var(--message-inset); }
+.thread-message.is-collapsed .thread-message-header { padding: 0; }
+.thread-message-sender-toggle { display: flex; align-items: center; gap: 10px; min-width: 0; border: 0; border-radius: 3px; background: transparent; padding: 4px 0; cursor: pointer; text-align: left; }
+.thread-message-sender-toggle:hover .thread-message-sender { text-decoration: underline; text-underline-offset: 3px; }
+.thread-message-sender-toggle:focus-visible { outline: 2px solid var(--mail-focus-border); outline-offset: 4px; }
+.thread-message-details-chevron { width: 12px; height: 12px; flex: 0 0 auto; color: var(--mail-dim); }
+.thread-message-sender-toggle[aria-expanded='true'] .thread-message-details-chevron { transform: rotate(180deg); }
+.thread-message.is-expanded .thread-message-toggle { flex: 0 0 auto; width: auto; min-height: 28px; grid-template-columns: auto 18px; gap: 10px; padding: 4px 0; color: var(--mail-muted); }
+.thread-message.is-expanded .thread-message-toggle.is-static { grid-template-columns: auto; }
+.thread-message-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 16px; margin: 0 0 16px; font-size: 12px; line-height: 1.5; }
+.thread-message-details dt { color: var(--mail-dim); }
+.thread-message-details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--mail-text); user-select: text; }
+.thread-message-address { display: block; }
+.thread-message-address-email { color: var(--mail-muted); }
 .thread-message-sender { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mail-text); font-size: 12px; font-weight: 650; }
 .thread-message-recipients, .thread-message-snippet { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mail-dim); font-size: 11px; }
 .thread-message-date { white-space: nowrap; color: var(--mail-dim); font: 500 9px/1.5 ui-monospace, monospace; text-transform: uppercase; }
+.thread-message-delivery { white-space: nowrap; color: var(--mail-muted); font-size: 11px; }
+.thread-message-delivery.is-failed, .thread-message-delivery.is-uncertain, .thread-message-delivery.is-delayed { color: var(--mail-danger); }
+.thread-message-delivery-note { margin: 12px 0 0; color: var(--mail-muted); font-size: 12px; }
+.outgoing-message-attachments { margin: 12px 0 0; padding-left: 18px; color: var(--mail-muted); font-size: 12px; }
 .thread-message-chevron { width: 18px; height: 18px; display: grid; place-items: center; transition: transform .15s ease; }
 .thread-message-chevron > svg { width: 14px; height: 14px; }
 .thread-message.is-collapsed .thread-message-chevron { transform: rotate(-90deg); }
-.thread-message-content { min-width: 0; padding: 0 15px 19px 58px; }
+.thread-message-content { min-width: 0; padding: 4px var(--message-inset) 16px; }
 .message-attachments { margin: 13px 0 0; border-top: 1px solid var(--mail-border-soft); padding-top: 9px; }
 .message-attachments h3 { margin: 0 0 4px; color: var(--mail-dim); font: 650 9px/1.4 ui-sans-serif, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .message-attachments ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -541,11 +559,11 @@ kbd {
 .attachment-preview-status > svg { width: 22px; height: 22px; color: var(--mail-accent); }
 .attachment-preview-status .is-spinning { animation: sync-status-spin .8s linear infinite; }
 .attachment-preview-status > button { margin-top: 3px; }
-.plain-message-body { max-width: 72ch; margin: 10px 0 0; overflow-wrap: anywhere; color: var(--mail-copy); white-space: pre-wrap; font: 400 15px/1.72 Georgia, Charter, serif; }
+.plain-message-body { max-width: 72ch; margin: 0; overflow-wrap: anywhere; color: var(--mail-copy); white-space: pre-wrap; font: 400 15px/1.68 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .plain-message-quote { border-inline-start: 2px solid var(--mail-border); padding-inline-start: 16px; color: var(--mail-muted); }
-.rich-message-shell { width: 100%; min-width: 0; margin: 15px 0 0; padding: clamp(16px, 2.4vw, 26px); border: 1px solid var(--mail-border-soft); border-radius: 9px; background: var(--mail-reader); color-scheme: inherit; }
+.rich-message-shell { width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; color-scheme: inherit; }
 .rich-message-shell[data-presentation='authored'] { background: #fff; color-scheme: light; }
-.rich-message-frame { display: block; width: 100%; min-height: 140px; overflow: auto; border: 0; background: transparent; color-scheme: inherit; }
+.rich-message-frame { display: block; width: 100%; min-height: 0; overflow: auto; border: 0; background: transparent; color-scheme: inherit; }
 .quoted-content-toggle, .rich-message-quote-toggle { margin: 9px 0 0; border: 1px solid var(--mail-border); border-radius: 6px; background: var(--mail-panel-soft); color: var(--mail-muted); padding: 5px 8px; cursor: pointer; font: 600 10px/1.2 ui-sans-serif, sans-serif; }
 .quoted-content-toggle:hover, .rich-message-quote-toggle:hover { border-color: var(--mail-focus-border); background: var(--mail-panel-raised); color: var(--mail-text); }
 .remote-image-status { margin: 8px 0 0; color: var(--mail-muted); font-size: 11px; }
@@ -694,6 +712,7 @@ kbd {
 .outbox-list { display: grid; align-content: start; }
 .outbox-item { min-width: 0; display: grid; gap: 8px; border-bottom: 1px solid var(--mail-border-soft); box-shadow: inset 3px 0 var(--mail-danger); padding: 12px 14px; }
 .outbox-item.is-uncertain { box-shadow: inset 3px 0 var(--mail-accent); }
+.outbox-item.is-queued, .outbox-item.is-retrying { box-shadow: none; }
 .outbox-item > header { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
 .outbox-item > header > div { min-width: 0; display: grid; gap: 3px; }
 .outbox-item > header strong, .outbox-item > header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -702,6 +721,7 @@ kbd {
 .outbox-status { justify-items: end; text-align: right; }
 .outbox-status > strong { color: var(--mail-danger); font-size: 9px !important; }
 .outbox-item.is-uncertain .outbox-status > strong { color: var(--mail-accent); }
+.outbox-item.is-queued .outbox-status > strong, .outbox-item.is-retrying .outbox-status > strong { color: var(--mail-muted); }
 .outbox-status time { color: var(--mail-dim); font: 500 8px/1.3 ui-monospace, monospace; }
 .outbox-guidance { margin: 0; color: var(--mail-muted); font-size: 9px; line-height: 1.45; }
 .outbox-item details { min-width: 0; border: 1px solid var(--mail-border-soft); border-radius: 7px; background: var(--mail-panel-soft); color: var(--mail-muted); font-size: 9px; }
@@ -861,9 +881,8 @@ kbd {
   .message-header, .message-body { padding-inline: 18px; }
   .attention-panel-details { grid-template-columns: minmax(0, 1fr); }
   .thread-message-toggle { grid-template-columns: minmax(72px, 105px) minmax(0, 1fr) auto 18px; gap: 9px; }
-  .thread-message.is-expanded .thread-message-toggle { grid-template-columns: 31px minmax(0, 1fr) auto 18px; }
   .thread-message.is-expanded .thread-message-recipients { display: none; }
-  .thread-message-content { padding-left: 15px; }
+  .thread-message { --message-inset: 16px; }
 }
 
 @media (hover: none) and (pointer: coarse) {
@@ -921,7 +940,6 @@ kbd {
   .attention-panel-summary > span:not(.attention-action):not(.attention-urgency):not(.attention-expand-label),
   .attention-panel-summary > time { display: none; }
   .thread-message-toggle { grid-template-columns: minmax(64px, 92px) minmax(0, 1fr) auto 18px; gap: 7px; }
-  .thread-message.is-expanded .thread-message-toggle { grid-template-columns: 31px minmax(0, 1fr) auto 18px; }
   .attachment-preview-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
   .attachment-preview-stage { height: min(520px, 68dvh, max(0px, calc(100dvh - 96px))); min-height: 0; max-height: none; padding: 10px; }
   .attachment-preview-stage > img { max-height: 100%; }

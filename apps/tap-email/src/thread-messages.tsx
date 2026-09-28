@@ -16,7 +16,7 @@ import type {
   AttachmentExportPhase,
   AttachmentExportResult,
 } from './attachment-export';
-import type { EmailAttachment, EmailMessage } from './domain';
+import type { EmailAttachment, EmailMessage, EmailParticipant } from './domain';
 import {
   MessageAttachments,
   type AttachmentLoadOptions,
@@ -24,6 +24,7 @@ import {
   type SaveMessageAttachment,
 } from './message-attachments';
 import { plainTextFromRichMessage, RichMessageBody } from './rich-message';
+import type { OutgoingThreadMessage } from './outgoing-messages';
 
 export type ContextualRemoteImageLoader = (
   context: RemoteImageMessageContext,
@@ -66,10 +67,12 @@ export interface ThreadMessageListProps {
   readonly loadAttachment: ContextualAttachmentLoader | null;
   readonly loadRemoteImages: ContextualRemoteImageLoader;
   readonly messages: readonly EmailMessage[];
+  readonly outgoingMessages?: readonly OutgoingThreadMessage[];
   readonly onKeyDown: (event: globalThis.KeyboardEvent) => void;
   readonly saveAttachment: ContextualAttachmentSaver;
   readonly threadId: string;
   readonly trackingPixelsEnabled: boolean;
+  readonly unread?: boolean;
 }
 
 export interface MessageExpansionRequest {
@@ -83,15 +86,15 @@ interface ThreadMessageCardProps extends Omit<ThreadMessageListProps, 'messages'
   readonly collapsible: boolean;
   readonly expanded: boolean;
   readonly message: EmailMessage;
+  readonly outgoing?: OutgoingThreadMessage;
   readonly onToggle: (messageId: string) => void;
   readonly sectionRef?: Ref<HTMLElement>;
 }
 
-interface MessageHeaderContentProps {
+interface MessageDateProps {
   readonly mobile?: boolean;
-  readonly expanded: boolean;
   readonly message: EmailMessage;
-  readonly showToggle: boolean;
+  readonly outgoing?: OutgoingThreadMessage;
 }
 
 interface PlainMessageBodyProps {
@@ -106,6 +109,10 @@ const messageDateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 const messageTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const messageDayFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const messageDetailsDateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'full',
+  timeStyle: 'long',
+});
 const maximumMessageSnippetLength = 240;
 const plainQuotedMessageMarker = /^(?:On .{1,500} wrote:|-----Original Message-----)\s*$/gimu;
 
@@ -213,39 +220,30 @@ function CachedRichMessageBody({
   );
 }
 
-function MessageHeaderContent({
+function MessageDate({
   mobile = false,
-  expanded,
   message,
-  showToggle,
-}: MessageHeaderContentProps) {
-  const senderName = displayName(message);
+  outgoing,
+}: MessageDateProps) {
+  if (outgoing) {
+    const labels = { sending: 'Sending…', delayed: 'Send delayed', failed: 'Not sent', uncertain: 'Delivery unknown', sent: 'Sent' };
+    return <span className={`thread-message-delivery is-${outgoing.status}`} role="status">{labels[outgoing.status]}</span>;
+  }
   const sent = new Date(message.sentAt);
   const compactDate = (sent.toDateString() === new Date().toDateString()
     ? messageTimeFormatter : messageDayFormatter).format(sent);
-  return (
-    <>
-      {expanded ? (
-        <span className="thread-message-avatar" aria-hidden="true">
-          {senderName.slice(0, 1).toUpperCase()}
-        </span>
-      ) : null}
-      <span className="thread-message-sender">{senderName}</span>
-      {expanded ? (
-        <span className="thread-message-recipients">{recipientLabel(message)}</span>
-      ) : (
-        <span className="thread-message-snippet">{messageSnippet(message)}</span>
-      )}
-      <time className="thread-message-date" dateTime={message.sentAt} title={messageDateFormatter.format(sent)}>
-        {mobile ? compactDate : messageDateFormatter.format(sent)}
-      </time>
-      {showToggle ? (
-        <span className="thread-message-chevron" aria-hidden="true">
-          <ChevronDown />
-        </span>
-      ) : null}
-    </>
-  );
+  return <time className="thread-message-date" dateTime={message.sentAt} title={messageDetailsDateFormatter.format(sent)}>
+    {mobile ? compactDate : messageDateFormatter.format(sent)}
+  </time>;
+}
+
+function ParticipantDetails({ participant }: { readonly participant: EmailParticipant }) {
+  return <span className="thread-message-address">
+    {participant.name ? <span>{participant.name} </span> : null}
+    {participant.address ? <span className="thread-message-address-email">
+      {participant.name ? `<${participant.address}>` : participant.address}
+    </span> : null}
+  </span>;
 }
 
 function ThreadMessageCard({
@@ -261,14 +259,18 @@ function ThreadMessageCard({
   loadAttachment,
   loadRemoteImages,
   message,
+  outgoing,
   onKeyDown,
   onToggle,
   saveAttachment,
   sectionRef,
   threadId,
   trackingPixelsEnabled,
+  unread = false,
 }: ThreadMessageCardProps) {
   const contentId = useId();
+  const detailsId = useId();
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const senderName = displayName(message);
   const toggle = () => onToggle(message.messageId);
   const saveMessageAttachment = useCallback<SaveMessageAttachment>(
@@ -292,30 +294,64 @@ function ThreadMessageCard({
     },
     [accountId, loadAttachment, message.messageId, threadId],
   );
-  const className = `thread-message${expanded ? ' is-expanded' : ' is-collapsed'}`;
+  const className = `thread-message${expanded ? ' is-expanded' : ' is-collapsed'}${unread ? ' is-unread' : ''}${outgoing ? ' is-outgoing' : ''}`;
 
   return (
     <section className={className} aria-label={`Message from ${senderName}`} ref={sectionRef}>
-      {collapsible ? (
-        <button
-          aria-controls={contentId}
-          aria-expanded={expanded}
-          className="thread-message-toggle"
-          onClick={event => {
-            event.stopPropagation();
-            toggle();
-          }}
-          type="button"
-        >
-          <MessageHeaderContent mobile={mobile} expanded={expanded} message={message} showToggle />
-        </button>
-      ) : (
-        <div className="thread-message-toggle is-static">
-          <MessageHeaderContent mobile={mobile} expanded message={message} showToggle={false} />
-        </div>
-      )}
+      <div className="thread-message-header">
+        {expanded ? (
+          <button
+            aria-controls={detailsId}
+            aria-expanded={detailsExpanded}
+            aria-label={`Message details for ${senderName}`}
+            className="thread-message-sender-toggle"
+            onClick={() => setDetailsExpanded(current => !current)}
+            onKeyDown={event => {
+              if (event.key === 'Escape' && detailsExpanded) {
+                event.stopPropagation();
+                setDetailsExpanded(false);
+              }
+            }}
+            type="button"
+          >
+            {mobile ? <span className="thread-message-avatar" aria-hidden="true">{senderName.slice(0, 1).toUpperCase()}</span> : null}
+            <span className="thread-message-sender">{senderName}</span>
+            <span className="thread-message-recipients">{recipientLabel(message)}</span>
+            <ChevronDown className="thread-message-details-chevron" aria-hidden="true" />
+          </button>
+        ) : null}
+        {collapsible ? (
+          <button
+            aria-controls={contentId}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} message from ${senderName}`}
+            className="thread-message-toggle"
+            onClick={event => {
+              event.stopPropagation();
+              toggle();
+            }}
+            type="button"
+          >
+            {!expanded ? <>
+              <span className="thread-message-sender">{senderName}</span>
+              <span className="thread-message-snippet">{messageSnippet(message)}</span>
+            </> : null}
+            <MessageDate mobile={mobile} message={message} outgoing={outgoing} />
+            <span className="thread-message-chevron" aria-hidden="true"><ChevronDown /></span>
+          </button>
+        ) : <div className="thread-message-toggle is-static"><MessageDate mobile={mobile} message={message} outgoing={outgoing} /></div>}
+      </div>
       {expanded ? (
         <div className="thread-message-content" id={contentId}>
+          {detailsExpanded ? <dl className="thread-message-details" id={detailsId}>
+            <dt>From</dt><dd><ParticipantDetails participant={message.from} /></dd>
+            <dt>To</dt><dd>{message.to.length > 0 ? message.to.map((recipient, index) => (
+              <ParticipantDetails key={`${recipient.address}-${index}`} participant={recipient} />
+            )) : 'Undisclosed recipients'}</dd>
+            {outgoing?.cc ? <><dt>Cc</dt><dd>{outgoing.cc}</dd></> : null}
+            {outgoing?.bcc ? <><dt>Bcc</dt><dd>{outgoing.bcc}</dd></> : null}
+            <dt>Date</dt><dd><time dateTime={message.sentAt}>{messageDetailsDateFormatter.format(new Date(message.sentAt))}</time></dd>
+          </dl> : null}
           {htmlEnabled && message.bodyHtml ? (
             <CachedRichMessageBody
               mobile={mobile}
@@ -340,6 +376,14 @@ function ThreadMessageCard({
             onLoadAttachment={loadAttachment ? loadMessageAttachment : null}
             onSaveAttachment={saveMessageAttachment}
           />
+          {outgoing?.attachments.length ? <ul className="outgoing-message-attachments" aria-label="Outgoing attachments">
+            {outgoing.attachments.map(attachment => <li key={attachment.stageId}>{attachment.fileName}</li>)}
+          </ul> : null}
+          {outgoing && ['delayed', 'failed', 'uncertain'].includes(outgoing.status) ? (
+            <p className="thread-message-delivery-note">{outgoing.status === 'failed'
+              ? 'This reply was not sent. Review it in Outbox.'
+              : 'Delivery has not been confirmed. Review its status in Outbox.'}</p>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -363,12 +407,15 @@ export function ThreadMessageList({
   scriptsEnabled = true,
   loadAttachment,
   loadRemoteImages,
-  messages,
+  messages: providerMessages,
+  outgoingMessages = [],
   onKeyDown,
   saveAttachment,
   threadId,
   trackingPixelsEnabled,
+  unread = false,
 }: ThreadMessageListProps) {
+  const messages = [...providerMessages, ...outgoingMessages.map(item => item.message)];
   const [expansionOverrides, setExpansionOverrides] = useState<Readonly<Record<string, boolean>>>({});
   const latestMessageId = messages.at(-1)?.messageId ?? null;
   const [activeMessageId, setActiveMessageId] = useState<string | null>(latestMessageId);
@@ -437,12 +484,15 @@ export function ThreadMessageList({
       loadAttachment={loadAttachment}
       loadRemoteImages={loadRemoteImages}
       message={message}
+      outgoing={outgoingMessages.find(item => item.message.messageId === message.messageId)}
       onKeyDown={onKeyDown}
       onToggle={toggleMessage}
       saveAttachment={saveAttachment}
       sectionRef={message.messageId === latestMessageId ? latestMessageRef : undefined}
       threadId={threadId}
       trackingPixelsEnabled={trackingPixelsEnabled}
+      // The provider exposes unread state for the conversation, not each message.
+      unread={unread && message.messageId === providerMessages.at(-1)?.messageId}
     />
   ));
 }

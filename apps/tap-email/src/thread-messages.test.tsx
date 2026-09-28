@@ -98,6 +98,84 @@ function toggleButtons(container: ParentNode): HTMLButtonElement[] {
 }
 
 describe('TAP Email thread message disclosure', () => {
+  it('appends and expands an outgoing reply with delivery status, sender details and attachments', async () => {
+    const outgoing = {
+      message: message('outgoing:draft_1', 'Zack', '2026-09-12T16:00:00.000Z', 'My pending reply'),
+      status: 'sending' as const, cc: 'team@example.com', bcc: 'private@example.com',
+      attachments: [{ stageId: 'stage_1', fileName: 'notes.pdf', mimeType: 'application/pdf', sizeBytes: 123, sha256Base64Url: 'a'.repeat(43) }],
+    };
+    const { container, root } = await mountMessages(threeMessages, 'thread-1', { outgoingMessages: [outgoing], unread: true });
+    try {
+      const cards = [...container.querySelectorAll('.thread-message')];
+      const last = cards.at(-1)!;
+      expect(cards).toHaveLength(4);
+      expect(last.classList.contains('is-expanded')).toBe(true);
+      expect(last.classList.contains('is-unread')).toBe(false);
+      expect(last.textContent).toContain('Sending…');
+      expect(last.textContent).toContain('My pending reply');
+      expect(last.textContent).toContain('notes.pdf');
+      await act(async () => last.querySelector<HTMLButtonElement>('.thread-message-sender-toggle')!.click());
+      expect(last.textContent).toContain('team@example.com');
+      expect(last.textContent).toContain('private@example.com');
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} messages={threeMessages} outgoingMessages={[{ ...outgoing, status: 'failed' }]} />));
+      expect(container.querySelector('.is-outgoing')?.textContent).toContain('Not sent');
+      expect(container.querySelector('.is-outgoing')?.textContent).toContain('My pending reply');
+    } finally { await unmount(root, container); }
+  });
+
+  it('shows full sender, recipients and timestamp without collapsing the message', async () => {
+    const detailedMessage = {
+      ...threeMessages[2],
+      to: [participant('Zack'), participant('Blair'), participant('Avery'), participant('', 'team@example.com')],
+    };
+    const { container, root } = await mountMessages([...threeMessages.slice(0, 2), detailedMessage]);
+    const sender = container.querySelector<HTMLButtonElement>('.thread-message-sender-toggle')!;
+    expect(sender.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('.thread-message-details')).toBeNull();
+
+    await act(async () => sender.click());
+    const details = container.querySelector('.thread-message-details')!;
+    expect(sender.getAttribute('aria-expanded')).toBe('true');
+    expect(sender.getAttribute('aria-controls')).toBe(details.id);
+    expect(details.textContent).toContain('Casey <casey@example.com>');
+    expect(details.textContent).toContain('Zack <zack@example.com>');
+    expect(details.textContent).toContain('team@example.com');
+    expect(details.querySelector('time')?.getAttribute('datetime')).toBe(detailedMessage.sentAt);
+    expect(details.querySelector('time')?.textContent).toContain('2026');
+    expect(container.querySelector('.thread-message-content')?.textContent).toContain('Latest message');
+    expect(toggleButtons(container).map(button => button.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'true']);
+    expect(container.querySelector('button button')).toBeNull();
+
+    await act(async () => sender.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(sender.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('.thread-message-details')).toBeNull();
+    await unmount(root, container);
+  });
+
+  it('offers sender details in a single-message conversation with no named recipients', async () => {
+    const { container, root } = await mountMessages([{ ...threeMessages[0], to: [] }]);
+    const sender = container.querySelector<HTMLButtonElement>('.thread-message-sender-toggle')!;
+    await act(async () => sender.click());
+    expect(container.querySelector('.thread-message-details')?.textContent).toContain('Undisclosed recipients');
+    expect(toggleButtons(container)).toHaveLength(0);
+    await act(async () => sender.click());
+    expect(container.querySelector('.thread-message-details')).toBeNull();
+    await unmount(root, container);
+  });
+
+  it('accents only the latest message of an unread conversation and clears it when read', async () => {
+    const { container, root } = await mountMessages(threeMessages, 'thread-1', { unread: true });
+    expect(container.querySelectorAll('.thread-message.is-unread')).toHaveLength(1);
+    expect(container.querySelector('.thread-message.is-unread')?.getAttribute('aria-label')).toBe('Message from Casey');
+    await act(async () => toggleButtons(container)[0]?.click());
+    expect(container.querySelectorAll('.thread-message.is-expanded')).toHaveLength(2);
+    expect(container.querySelectorAll('.thread-message.is-unread')).toHaveLength(1);
+    await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" messages={threeMessages} unread={false} />));
+    expect(container.querySelector('.thread-message.is-unread')).toBeNull();
+    expect(container.querySelectorAll('.thread-message.is-expanded')).toHaveLength(2);
+    await unmount(root, container);
+  });
+
   it('removes the HTML frame and skips remote content when HTML is disabled', async () => {
     const loadRemoteImages = rs.fn(async () => ({}));
     const messages = [message('html-only', 'Avery', '2026-09-12T13:00:00.000Z', '',
@@ -137,7 +215,9 @@ describe('TAP Email thread message disclosure', () => {
     };
     document.addEventListener('keydown', countReplyCommands);
 
+    buttons[0]?.focus();
     await act(async () => buttons[0]?.click());
+    expect(document.activeElement).toBe(buttons[0]);
     expect(buttons[0]?.getAttribute('aria-expanded')).toBe('true');
     expect(buttons[1]?.getAttribute('aria-expanded')).toBe('false');
     expect(buttons[2]?.getAttribute('aria-expanded')).toBe('true');

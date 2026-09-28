@@ -10,17 +10,18 @@ import { ReplyComposer, type ReplyPlacement } from './reply-composer';
 
 interface ReplyHarnessProps {
   readonly onClose: () => void;
-  readonly onPromptReply: () => void;
+  readonly initialPlacement?: ReplyPlacement;
+  readonly attachmentBusy?: boolean;
   readonly onSend: () => void;
 }
 
-function ReplyHarness({ onClose, onPromptReply, onSend }: ReplyHarnessProps) {
+function ReplyHarness({ onClose, onSend, initialPlacement = 'inline', attachmentBusy = false }: ReplyHarnessProps) {
   const [bodyText, setBodyText] = useState('');
-  const [placement, setPlacement] = useState<ReplyPlacement>('inline');
+  const [placement, setPlacement] = useState<ReplyPlacement>(initialPlacement);
   const [to, setTo] = useState('maya@example.com');
   return (
     <ReplyComposer
-      attachmentBusy={false}
+      attachmentBusy={attachmentBusy}
       attachmentError=""
       attachments={[]}
       bcc=""
@@ -31,7 +32,6 @@ function ReplyHarness({ onClose, onPromptReply, onSend }: ReplyHarnessProps) {
       onAttach={() => undefined}
       onBodyTextChange={setBodyText}
       onClose={onClose}
-      onPromptReply={onPromptReply}
       onRemoveAttachment={() => undefined}
       onSchedule={() => undefined}
       onSend={onSend}
@@ -58,7 +58,7 @@ async function typeInto(textarea: HTMLTextAreaElement, value: string): Promise<v
 async function pressKey(
   target: HTMLElement,
   key: string,
-  options: Pick<KeyboardEventInit, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'> = {},
+  options: KeyboardEventInit = {},
 ): Promise<void> {
   await act(async () => {
     target.dispatchEvent(new KeyboardEvent('keydown', {
@@ -72,8 +72,9 @@ async function pressKey(
 
 async function mountReply(
   onClose = () => undefined,
-  onPromptReply = () => undefined,
   onSend = () => undefined,
+  initialPlacement: ReplyPlacement = 'inline',
+  attachmentBusy = false,
 ): Promise<{
   readonly container: HTMLDivElement;
   readonly root: Root;
@@ -83,12 +84,72 @@ async function mountReply(
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => root.render(
-    <ReplyHarness onClose={onClose} onPromptReply={onPromptReply} onSend={onSend} />,
+    <ReplyHarness onClose={onClose} onSend={onSend} initialPlacement={initialPlacement} attachmentBusy={attachmentBusy} />,
   ));
   return { container, root };
 }
 
 describe('ReplyComposer', () => {
+  it('keeps send validation and missing-attachment confirmation on the shortcut', async () => {
+    let sends = 0;
+    const mounted = await mountReply(undefined, () => { sends += 1; });
+    try {
+      const textarea = mounted.container.querySelector<HTMLTextAreaElement>('textarea')!;
+      await pressKey(textarea, 'Enter', { metaKey: true });
+      expect(sends).toBe(0);
+
+      await typeInto(textarea, 'Ready to send');
+      const to = mounted.container.querySelector<HTMLInputElement>('[aria-label="Reply recipients"]')!;
+      const setTo = async (value: string) => act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(to, value);
+        to.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await setTo('invalid-address');
+      await pressKey(textarea, 'Enter', { metaKey: true });
+      expect(sends).toBe(0);
+      expect(mounted.container.querySelector('[role="alert"]')).not.toBeNull();
+
+      await setTo('maya@example.com');
+      await typeInto(textarea, 'Please see the attached document.');
+      await pressKey(textarea, 'Enter', { metaKey: true });
+      expect(sends).toBe(0);
+      expect(mounted.container.querySelector('.draft-attachment-warning')).not.toBeNull();
+      await pressKey(textarea, 'Enter', { metaKey: true });
+      expect(sends).toBe(1);
+    } finally {
+      await act(async () => mounted.root.unmount());
+      mounted.container.remove();
+    }
+  });
+
+  it('does not send during uploads, composition, repeated keys, or from a scheduling dialog', async () => {
+    let sends = 0;
+    const mounted = await mountReply(undefined, () => { sends += 1; }, 'sidecar', true);
+    try {
+      const textarea = mounted.container.querySelector<HTMLTextAreaElement>('textarea')!;
+      await typeInto(textarea, 'Ready to send');
+      await pressKey(textarea, 'Enter', { metaKey: true });
+      expect(sends).toBe(0);
+      await act(async () => mounted.root.render(<ReplyHarness onClose={() => undefined} onSend={() => { sends += 1; }} />));
+      for (const options of [
+        { metaKey: true, isComposing: true },
+        { metaKey: true, keyCode: 229 },
+        { metaKey: true, repeat: true },
+        { metaKey: true, shiftKey: true },
+        { metaKey: true, altKey: true },
+      ]) await pressKey(textarea, 'Enter', options);
+      expect(sends).toBe(0);
+      await act(async () => [...mounted.container.querySelectorAll('button')].find(button => button.textContent === 'Send later')!.click());
+      const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog).not.toBeNull();
+      await pressKey(dialog, 'Enter', { metaKey: true });
+      expect(sends).toBe(0);
+    } finally {
+      await act(async () => mounted.root.unmount());
+      mounted.container.remove();
+    }
+  });
+
   it('starts inline without a modal and keeps the draft while popping out and in', async () => {
     const mounted = await mountReply();
     try {
@@ -114,14 +175,13 @@ describe('ReplyComposer', () => {
     }
   });
 
-  it('opens an editable Chloe prompt on command enter and sends only from the button', async () => {
+  it.each(['inline', 'sidecar'] as const)('sends with command/control enter or the button in an %s reply', async placement => {
     let closes = 0;
-    let prompts = 0;
     let sends = 0;
     const mounted = await mountReply(
       () => { closes += 1; },
-      () => { prompts += 1; },
       () => { sends += 1; },
+      placement,
     );
     try {
       const textarea = mounted.container.querySelector<HTMLTextAreaElement>('textarea')!;
@@ -129,12 +189,13 @@ describe('ReplyComposer', () => {
       await pressKey(textarea, 'Enter');
       expect(sends).toBe(0);
       await pressKey(textarea, 'Enter', { metaKey: true });
-      expect(prompts).toBe(1);
-      expect(sends).toBe(0);
+      expect(sends).toBe(1);
+      await pressKey(textarea, 'Enter', { ctrlKey: true });
+      expect(sends).toBe(2);
 
       await act(async () => [...mounted.container.querySelectorAll('button')].find(button => button.textContent === 'Send')!
         .click());
-      expect(sends).toBe(1);
+      expect(sends).toBe(3);
 
       await act(async () => mounted.container
         .querySelector<HTMLButtonElement>('[aria-label="Close reply draft"]')!

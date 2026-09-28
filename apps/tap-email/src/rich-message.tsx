@@ -230,7 +230,7 @@ export const richMessageContentSecurityPolicy = [
 const isolatedDocumentStyles = `
 :root {
   color-scheme: light;
-  --tap-message-canvas: #fff;
+  --tap-message-canvas: transparent;
   --tap-message-copy: #171817;
   --tap-message-muted: #62645f;
   --tap-message-link: #1769aa;
@@ -238,7 +238,7 @@ const isolatedDocumentStyles = `
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --tap-message-canvas: #1a1c1a;
+  --tap-message-canvas: transparent;
   --tap-message-copy: #e7e5df;
   --tap-message-muted: #a6aaa2;
   --tap-message-link: #78b8e6;
@@ -253,7 +253,8 @@ const isolatedDocumentStyles = `
 :root[data-tap-mobile="true"][data-tap-presentation="adaptive"] { --tap-message-canvas: #FFFFFF; --tap-message-copy: #171717; }
 :root[data-tap-mobile="true"][data-tap-presentation="adaptive"][data-theme="dark"] { --tap-message-canvas: #171717; --tap-message-copy: #F5F5F5; }
 :root[data-tap-mobile="true"] body[data-tap-presentation="adaptive"] { font-size: 16px; line-height: 1.5; }
-:root[data-tap-mobile="true"] body[data-tap-presentation="adaptive"] > :first-child { margin-top: 0; }
+body[data-tap-presentation="adaptive"] > :first-child { margin-top: 0; }
+body[data-tap-presentation="adaptive"] > :last-child { margin-bottom: 0; }
 html, body { box-sizing: border-box; margin: 0; min-width: 0; max-width: 100%; }
 html { background: var(--tap-message-canvas); }
 body {
@@ -725,22 +726,31 @@ export function buildRichMessageDocument(
   return `<!doctype html>${parsed.documentElement.outerHTML}`;
 }
 
-const minimumFrameHeight = 140;
+const minimumFrameHeight = 24;
 const maximumFrameHeight = 12_000;
-export const richMessageGutter = 'clamp(16px, 2.4vw, 26px)';
+const opaqueFrameHeight = 480;
 
 function measuredFrameHeight(frame: HTMLIFrameElement): number {
   const document = readableFrameDocument(frame);
   // Opaque documents retain native scrolling without relaxing their sandbox.
-  if (!document) return Math.min(maximumFrameHeight, Math.max(
+  if (!document) return Math.min(opaqueFrameHeight, Math.max(
     minimumFrameHeight,
-    frame.closest<HTMLElement>('.message-body')?.clientHeight || 480,
+    frame.closest<HTMLElement>('.message-body')?.clientHeight || opaqueFrameHeight,
   ));
-  const height = Math.max(
-    document.body?.scrollHeight ?? 0,
-    document.documentElement?.scrollHeight ?? 0,
-  );
-  return Math.min(maximumFrameHeight, Math.max(minimumFrameHeight, height));
+  // Root scrollHeight is at least the current viewport height. Clear that floor
+  // while measuring so hiding quotes or widening the reader can shrink a frame.
+  // Restore synchronously; React commits the measured height before paint.
+  const previousHeight = frame.style.height;
+  frame.style.height = '0px';
+  try {
+    const height = Math.max(
+      document.body?.scrollHeight ?? 0,
+      document.documentElement?.scrollHeight ?? 0,
+    );
+    return Math.min(maximumFrameHeight, Math.max(minimumFrameHeight, height));
+  } finally {
+    frame.style.height = previousHeight;
+  }
 }
 
 interface RichMessageBodyProps {
@@ -911,7 +921,6 @@ export function RichMessageBody({
       className="rich-message-shell"
       data-presentation={presentation}
       data-theme={theme}
-      style={{ padding: mobile ? 0 : richMessageGutter }}
     >
       {runScripts && rendererUrl ? <IsolatedMessageFrame
         key={source}
