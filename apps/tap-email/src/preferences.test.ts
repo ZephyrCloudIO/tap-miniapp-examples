@@ -1,5 +1,5 @@
 import { describe, expect, it, rstest as rs } from '@rstest/core';
-import { defaultPreferences } from './domain';
+import { defaultPreferences, normalizeMailPreferences } from './domain';
 import { loadPreferences, savePreferences } from './storage';
 
 const storage = rs.hoisted(() => ({ get: rs.fn(), set: rs.fn() }));
@@ -16,5 +16,15 @@ describe('reading preference persistence', () => {
     });
     storage.get.mockResolvedValue({ revision: 8, value: preferences });
     expect(await loadPreferences(false)).toMatchObject({ htmlEnabled: false, scriptsEnabled: false });
+  });
+
+  it('remembers column sizes and discards malformed layout data', async () => {
+    const preferences = { ...defaultPreferences, columnWidths: { sidebar: 260, threads: 570 }, sidebarCollapsed: true };
+    storage.get.mockResolvedValue({ revision: 8, value: preferences });
+    expect((await loadPreferences(false)).columnWidths).toEqual({ sidebar: 260, threads: 570 });
+    expect((await loadPreferences(false)).sidebarCollapsed).toBe(true);
+    await savePreferences(preferences);
+    expect(storage.set).toHaveBeenLastCalledWith({ namespace: 'tap-email', key: 'preferences/v1', expectedRevision: 8, value: preferences });
+    expect(normalizeMailPreferences({ ...preferences, columnWidths: { sidebar: NaN, threads: -1 } }).columnWidths).toBeUndefined();
   });
 });

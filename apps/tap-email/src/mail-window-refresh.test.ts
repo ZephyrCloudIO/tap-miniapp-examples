@@ -4,6 +4,22 @@ import { emailThreadKey, mergeMailboxPage, previewMailState } from './domain';
 import { MailWindowCache, MailWindowRefresh, mergeMailWindow, retainMailWindow } from './mail-window-refresh';
 
 describe('mail window refresh', () => {
+  it('seeds an uncached account from resident rows without leaking other accounts or pending archives', () => {
+    const seed = previewMailState();
+    const cache = new MailWindowCache();
+    const target = seed.threads[0]!;
+    cache.set('all/inbox', seed.threads);
+    const state = { ...seed, threads: [], selectedAccountId: target.accountId, selectedSplit: 'inbox' as const };
+    const rows = cache.matching(state);
+    expect(rows.some(item => item.threadId === target.threadId)).toBe(true);
+    expect(rows.every(item => item.accountId === target.accountId)).toBe(true);
+    expect(cache.matching({ ...state, pendingThreadIntents: [{ commandId: 'archive', accountId: target.accountId,
+      threadId: target.threadId, patch: { status: 'done', providerResources: [] } }] })
+      .some(item => item.threadId === target.threadId)).toBe(false);
+    cache.clear();
+    expect(cache.matching(state)).toEqual([]);
+  });
+
   it('finishes an in-flight read despite continuous sync commits and coalesces the next read', async () => {
     const gates: (() => void)[] = [];
     const signals: AbortSignal[] = [];
