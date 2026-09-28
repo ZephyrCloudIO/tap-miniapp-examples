@@ -1172,7 +1172,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     sharedEmailRef.current = shared;
     const refresh = () => {
       const version = sharedEditVersion.current;
-      return shared.open(async () => store.migrateSharedState ? store.migrateSharedState() : emailMigration(stateRef.current))
+      return shared.open(async () => ({ ...emailMigration(stateRef.current), ...await store.migrateSharedState?.() }))
         .then(async document => {
           if (!active || version !== sharedEditVersion.current) return;
           emailDocumentRef.current = document;
