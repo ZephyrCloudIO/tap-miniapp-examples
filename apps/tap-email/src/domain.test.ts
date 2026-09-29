@@ -215,6 +215,10 @@ describe('TAP Email domain', () => {
       accountId: current?.accountId,
       threadId: current?.threadId,
       kind: 'archive',
+      payload: {
+        expectedLatestMessageAt: current?.receivedAt,
+        expectedLatestMessageId: current?.messages.at(-1)?.messageId,
+      },
     });
     expect(selectedThread(next)?.threadId).not.toBe(current?.threadId);
     expect(next.threads.find(thread => thread.threadId === current?.threadId)?.status)
@@ -243,6 +247,17 @@ describe('TAP Email domain', () => {
       expect(settled.commands).toHaveLength(0);
       expect(settled.undo).toBeNull();
     }
+  });
+
+  it('uses the newest metadata for Done while cached message bodies are still catching up', () => {
+    const initial = previewMailState();
+    const current = selectedThread(initial)!;
+    const receivedAt = '2026-08-18T15:29:00.000Z';
+    const state = { ...initial, threads: initial.threads.map(thread => thread === current ? { ...thread, receivedAt } : thread) };
+    expect(markDone(state, 'cmd_new_metadata', now).commands.at(-1)?.payload).toEqual({
+      expectedLatestMessageAt: receivedAt,
+      expectedLatestMessageId: null,
+    });
   });
 
   it('keeps Done only after the provider applies the archive', () => {

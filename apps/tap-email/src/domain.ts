@@ -1269,7 +1269,12 @@ export function markDone(
         ? { providerResources: thread.providerResources.filter(resource => resource !== 'inbox') }
         : {}),
     }),
-    thread => commandFor(thread, commandId, 'archive', now, {}),
+    thread => commandFor(thread, commandId, 'archive', now, {
+      // Gmail history also advances for read/star changes. Remember the latest
+      // reviewed message so those changes cannot invalidate a queued Done.
+      expectedLatestMessageAt: thread.receivedAt,
+      expectedLatestMessageId: thread.messages.findLast(message => message.sentAt === thread.receivedAt)?.messageId ?? null,
+    }),
     'Marked done',
   );
 }

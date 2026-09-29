@@ -331,7 +331,8 @@ describe('Google provider writes', () => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (init?.method !== 'POST') {
         expect(url.pathname).toBe('/gmail/v1/users/me/threads/thread_1');
-        expect(url.searchParams.get('format')).toBe('minimal');
+        expect(url.searchParams.get('format')).toBe('metadata');
+        expect(url.searchParams.get('fields')).toBe('id,historyId,messages(id,internalDate)');
         return Response.json({ id: 'thread_1', historyId: 'history_9' });
       }
       expect(url.pathname).toBe('/gmail/v1/users/me/threads/thread_1/modify');
@@ -361,6 +362,57 @@ describe('Google provider writes', () => {
       errorCode: 'provider_revision_conflict',
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a queued Done after marking the same message read changes its revision', async () => {
+    let revision = 'history_9';
+    const reviewedAt = '2026-08-18T15:00:00.000Z';
+    const mutations: unknown[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') {
+        mutations.push(JSON.parse(String(init.body)));
+        revision = mutations.length === 1 ? 'history_read' : 'history_done';
+      }
+      return Response.json({ id: 'thread_1', historyId: revision, messages: [
+        { id: 'message_1', internalDate: String(Date.parse(reviewedAt)) },
+      ] });
+    });
+    const provider = createGoogleProvider(env, () => now);
+    const done = command({ payload: { expectedLatestMessageAt: reviewedAt, expectedLatestMessageId: 'message_1' } });
+    await expect(provider.execute(scope, command({ kind: 'mark_read' }))).resolves.toMatchObject({ outcome: 'acknowledged' });
+    await expect(provider.execute(scope, done)).resolves.toEqual({ outcome: 'acknowledged', providerRevision: 'history_done' });
+    expect(mutations).toEqual([
+      { addLabelIds: [], removeLabelIds: ['UNREAD'] },
+      { addLabelIds: [], removeLabelIds: ['INBOX'] },
+    ]);
+  });
+
+  it.each([
+    { name: 'new reply', kind: 'archive' as const, messages: [{ id: 'message_1', internalDate: '1787065200000' }, { id: 'message_2', internalDate: '1787065260000' }] },
+    { name: 'missing message dates', kind: 'archive' as const, messages: [{ id: 'message_1' }] },
+    { name: 'replaced reviewed message', kind: 'archive' as const, messages: [{ id: 'message_2', internalDate: '1787065200000' }] },
+    { name: 'new reply with the same timestamp', kind: 'archive' as const, messages: [{ id: 'message_1', internalDate: '1787065200000' }, { id: 'message_2', internalDate: '1787065200000' }] },
+    { name: 'trash revision change', kind: 'trash' as const, messages: [{ id: 'message_1', internalDate: '1787065200000' }] },
+  ])('still rejects $name before modifying Gmail', async ({ kind, messages }) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      id: 'thread_1', historyId: 'changed', messages,
+    }));
+    const provider = createGoogleProvider(env, () => now);
+    await expect(provider.execute(scope, command({ kind, payload: {
+      expectedLatestMessageAt: new Date(1787065200000).toISOString(), expectedLatestMessageId: 'message_1',
+    } }))).resolves.toEqual({ outcome: 'failed', errorCode: 'provider_revision_conflict' });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('archives from mailbox metadata when bodies have not loaded and only labels changed', async () => {
+    const reviewedAt = now.toISOString();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+      id: 'thread_1', historyId: 'changed', messages: [{ id: 'message_1', internalDate: String(now.getTime()) }],
+    }));
+    await expect(createGoogleProvider(env, () => now).execute(scope, command({ payload: {
+      expectedLatestMessageAt: reviewedAt, expectedLatestMessageId: null,
+    } }))).resolves.toMatchObject({ outcome: 'acknowledged' });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it.each([

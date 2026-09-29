@@ -15,6 +15,7 @@ import {
 import { watchRichMessageLayout } from './iframe-layout';
 import { readableFrameDocument } from './iframe-document';
 import { isolatedMessageRenderer, IsolatedMessageFrame } from './isolated-message-frame';
+import { minimumMessageHeight, maximumMessageHeight } from './message-layout-bridge';
 
 const allowedTags = [
   'a',
@@ -256,6 +257,7 @@ const isolatedDocumentStyles = `
 body[data-tap-presentation="adaptive"] > :first-child { margin-top: 0; }
 body[data-tap-presentation="adaptive"] > :last-child { margin-bottom: 0; }
 html, body { box-sizing: border-box; margin: 0; min-width: 0; max-width: 100%; }
+html, body { height: auto !important; min-height: 0 !important; }
 html { background: var(--tap-message-canvas); }
 body {
   width: auto;
@@ -726,8 +728,8 @@ export function buildRichMessageDocument(
   return `<!doctype html>${parsed.documentElement.outerHTML}`;
 }
 
-const minimumFrameHeight = 24;
-const maximumFrameHeight = 12_000;
+const minimumFrameHeight = minimumMessageHeight;
+const maximumFrameHeight = maximumMessageHeight;
 const opaqueFrameHeight = 480;
 
 function measuredFrameHeight(frame: HTMLIFrameElement): number {
@@ -792,7 +794,6 @@ export function RichMessageBody({
   const containsScripts = useMemo(() => hasEmbeddedMessageScripts(html), [html]);
   const [rendererUrl, setRendererUrl] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!scriptsEnabled || !containsScripts) return;
     let active = true;
     void isolatedMessageRenderer().then(url => { if (active) setRendererUrl(url); });
     return () => { active = false; };
@@ -922,7 +923,7 @@ export function RichMessageBody({
       data-presentation={presentation}
       data-theme={theme}
     >
-      {runScripts && rendererUrl ? <IsolatedMessageFrame
+      {rendererUrl ? <IsolatedMessageFrame
         key={source}
         onFailure={disableUnavailableRenderer}
         source={source}

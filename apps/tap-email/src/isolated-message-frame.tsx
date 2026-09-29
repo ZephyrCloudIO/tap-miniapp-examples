@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { messageLayoutHeight, minimumMessageHeight, withMessageLayoutBridge } from './message-layout-bridge';
 
 const rendererQuery = 'tap-isolated-document=v1';
 let rendererProbe: Promise<string | null> | undefined;
@@ -26,6 +27,8 @@ export function IsolatedMessageFrame({ source, url, title, id, presentation, the
   readonly theme: string;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(minimumMessageHeight);
+  const measuredSource = useMemo(() => withMessageLayoutBridge(source, crypto.randomUUID()), [source]);
   useEffect(() => {
     let sent = false;
     const deadline = window.setTimeout(() => onFailure(), 10_000);
@@ -40,9 +43,27 @@ export function IsolatedMessageFrame({ source, url, title, id, presentation, the
       if (!child || event.source !== child) return;
       if (event.data.type === 'tap.isolated-document.ready' && !sent) {
         sent = true;
-        child.postMessage({ type: 'tap.isolated-document.render', version: 1, html: source }, '*');
+        child.postMessage({ type: 'tap.isolated-document.render', version: 1, html: measuredSource }, '*');
       } else if (event.data.type === 'tap.isolated-document.mounted' && sent) {
         window.clearTimeout(deadline);
+      } else if (event.data.type === 'tap.email.layout' && sent) {
+        const nextHeight = messageLayoutHeight(event.data.height);
+        if (nextHeight !== null) setHeight(nextHeight);
+      } else if (sent) {
+        const reader = frame.current?.closest<HTMLElement>('.message-body');
+        if (!reader) return;
+        if (event.data.type === 'tap.email.scroll' && typeof event.data.deltaY === 'number' && Number.isFinite(event.data.deltaY)) {
+          const scale = event.data.deltaMode === 1 ? 16 : event.data.deltaMode === 2 ? reader.clientHeight : 1;
+          reader.scrollTop += Math.max(-reader.scrollHeight, Math.min(reader.scrollHeight, event.data.deltaY * scale));
+        } else if (event.data.type === 'tap.email.scroll-key') {
+          const key = event.data.key;
+          if (key === 'Home') reader.scrollTop = 0;
+          else if (key === 'End') reader.scrollTop = reader.scrollHeight;
+          else if (key === 'ArrowDown') reader.scrollTop += 40;
+          else if (key === 'ArrowUp') reader.scrollTop -= 40;
+          else if (key === 'PageDown' || (key === ' ' && !event.data.shiftKey)) reader.scrollTop += reader.clientHeight;
+          else if (key === 'PageUp' || (key === ' ' && event.data.shiftKey)) reader.scrollTop -= reader.clientHeight;
+        }
       }
     };
     window.addEventListener('message', receive);
@@ -50,7 +71,7 @@ export function IsolatedMessageFrame({ source, url, title, id, presentation, the
       window.clearTimeout(deadline);
       window.removeEventListener('message', receive);
     };
-  }, [source, onFailure]);
+  }, [measuredSource, onFailure]);
   return <>
     <iframe
       className="rich-message-frame"
@@ -61,7 +82,7 @@ export function IsolatedMessageFrame({ source, url, title, id, presentation, the
       referrerPolicy="no-referrer"
       sandbox="allow-scripts"
       src={url}
-      style={{ height: 480 }}
+      style={{ height }}
       title={title}
     />
   </>;

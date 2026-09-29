@@ -41,9 +41,9 @@ describe('isolated message delivery', () => {
     ready(view.child);
     ready(view.child);
     expect(view.post).toHaveBeenCalledTimes(1);
-    expect(view.post).toHaveBeenCalledWith({
-      type: 'tap.isolated-document.render', version: 1, html: '<p>Only this message</p>',
-    }, '*');
+    expect(view.post).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tap.isolated-document.render', version: 1, html: expect.stringContaining('<p>Only this message</p>'),
+    }), '*');
     await view.cleanup();
     ready(view.child);
     expect(view.post).toHaveBeenCalledTimes(1);
@@ -67,6 +67,30 @@ describe('isolated message delivery', () => {
     const view = await fixture();
     await act(async () => rs.advanceTimersByTime(10_000));
     expect(view.onFailure).toHaveBeenCalledTimes(1);
+    await view.cleanup();
+  });
+
+  it('follows growing and shrinking content reports only from its mounted opaque child', async () => {
+    const view = await fixture();
+    const resize = async (height: unknown, source: Window = view.child, origin = 'null') => {
+      await act(async () => window.dispatchEvent(new MessageEvent('message', {
+        source, origin, data: { type: 'tap.email.layout', version: 1, height },
+      })));
+    };
+    await resize(900);
+    expect(view.frame.style.height).toBe('24px');
+    ready(view.child);
+    await resize(900, window);
+    await resize(900, view.child, 'https://sender.test');
+    expect(view.frame.style.height).toBe('24px');
+    await resize(950.3);
+    expect(view.frame.style.height).toBe('951px');
+    await resize(18000);
+    expect(view.frame.style.height).toBe('18000px');
+    for (const height of [NaN, Infinity, -1, '600', 1000001]) await resize(height);
+    expect(view.frame.style.height).toBe('18000px');
+    await resize(120);
+    expect(view.frame.style.height).toBe('120px');
     await view.cleanup();
   });
 });
