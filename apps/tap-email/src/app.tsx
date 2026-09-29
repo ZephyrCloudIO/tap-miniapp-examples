@@ -2311,7 +2311,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               });
               if (activitySettlement === 'deferred') return;
               if (receipt.state !== 'applied') {
-                flash(`Email action needs attention: ${receipt.errorCode ?? receipt.state}`);
+                flash(receipt.errorCode === 'provider_revision_conflict'
+                  ? 'This conversation changed before the action completed. Review it and try again.'
+                  : `Email action needs attention: ${receipt.errorCode ?? receipt.state}`);
                 if (
                   (command.kind === 'send_draft' || command.kind === 'schedule_send') &&
                   notificationsEnabledForAccount(stateRef.current.preferences, command.accountId)

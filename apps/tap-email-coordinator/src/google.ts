@@ -1015,19 +1015,39 @@ function providerError(error: unknown): ProviderExecutionResult {
   return { outcome: 'failed', errorCode: error.code };
 }
 
-async function providerThreadRevision(
+async function providerThreadMatchesReview(
   accessToken: string,
-  threadId: string,
-): Promise<string | null> {
+  command: MailCommand,
+): Promise<boolean> {
   const parameters = new URLSearchParams({
-    format: 'minimal',
-    fields: 'id,historyId',
+    format: 'metadata',
+    fields: 'id,historyId,messages(id,internalDate)',
   });
   const thread = await googleJson(
     accessToken,
-    `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?${parameters.toString()}`,
+    `/gmail/v1/users/me/threads/${encodeURIComponent(command.threadId!)}?${parameters.toString()}`,
   );
-  return typeof thread.historyId === 'string' ? thread.historyId : null;
+  if (typeof thread.historyId === 'string' && thread.historyId === command.expectedProviderRevision) return true;
+  // Done removes an INBOX label. An intervening mark-read/star must not reject
+  // it, but a newer message still needs review. Trash keeps its strict guard.
+  if (command.kind !== 'archive') return false;
+  const reviewedAt = typeof command.payload.expectedLatestMessageAt === 'string'
+    ? Date.parse(command.payload.expectedLatestMessageAt) : Number.NaN;
+  const reviewedId = command.payload.expectedLatestMessageId;
+  if (!Number.isFinite(reviewedAt) || !Array.isArray(thread.messages) || thread.messages.length === 0) return false;
+  let latestAt = Number.NEGATIVE_INFINITY;
+  let latestId: unknown;
+  for (const value of thread.messages) {
+    const message = optionalRecord(value);
+    const sentAt = typeof message?.internalDate === 'string' && /^\d+$/u.test(message.internalDate)
+      ? Number(message.internalDate) : Number.NaN;
+    if (!Number.isFinite(sentAt) || sentAt > reviewedAt) return false;
+    if (sentAt >= latestAt) {
+      latestAt = sentAt;
+      latestId = message?.id;
+    }
+  }
+  return latestAt === reviewedAt && (reviewedId === null || latestId === reviewedId);
 }
 
 export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderPort {
@@ -1061,8 +1081,7 @@ export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderP
           (command.kind === 'archive' || command.kind === 'trash') &&
           command.expectedProviderRevision !== null
         ) {
-          const observedRevision = await providerThreadRevision(accessToken, command.threadId);
-          if (observedRevision !== command.expectedProviderRevision) {
+          if (!await providerThreadMatchesReview(accessToken, command)) {
             return { outcome: 'failed', errorCode: 'provider_revision_conflict' };
           }
         }

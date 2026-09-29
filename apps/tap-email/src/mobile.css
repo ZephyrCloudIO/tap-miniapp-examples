@@ -82,7 +82,7 @@
 :root[data-tap-mobile] .mobile-message-star.is-starred svg { fill: currentColor; }
 :root[data-tap-mobile] .message-body { padding: 0 16px 16px; }
 :root[data-tap-mobile] .thread-message,
-:root[data-tap-mobile] .thread-message.is-expanded { width: 100%; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+:root[data-tap-mobile] .thread-message.is-expanded { --message-inset: 0px; width: 100%; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 :root[data-tap-mobile] .thread-message + .thread-message { border-top: 1px solid var(--mail-border-soft); }
 :root[data-tap-mobile] .thread-message.is-expanded + .thread-message { margin-top: 16px; }
 :root[data-tap-mobile] .thread-message-header { padding: 4px 0 12px; align-items: flex-start; }
@@ -92,13 +92,13 @@
 :root[data-tap-mobile] .thread-message.is-expanded .thread-message-sender { grid-column: 2; grid-row: 1; font-size: .875rem; font-weight: 600; }
 :root[data-tap-mobile] .thread-message.is-expanded .thread-message-recipients { display: block; grid-column: 2; grid-row: 2; font-size: .75rem; }
 :root[data-tap-mobile] .thread-message-details-chevron { grid-column: 3; grid-row: 1 / 3; }
-:root[data-tap-mobile] .thread-message.is-unread { box-shadow: inset 3px 0 var(--mail-accent); padding-inline-start: 10px; }
+:root[data-tap-mobile] .thread-message.is-unread { border-inline-start: 3px solid var(--mail-accent); }
 :root[data-tap-mobile] .thread-message-date { font: 400 .6875rem/1.4 var(--tap-font-family); text-transform: none; }
 :root[data-tap-mobile] .thread-message.is-collapsed .thread-message-toggle { padding: 12px 0; min-height: 56px; }
 :root[data-tap-mobile] .thread-message-content { padding: 0; }
-:root[data-tap-mobile] .rich-message-shell { margin: 4px 0 0; border: 0; border-radius: 0; background: transparent; }
+:root[data-tap-mobile] .rich-message-shell { margin: 0; border: 0; border-radius: 0; background: transparent; }
 :root[data-tap-mobile] .rich-message-shell[data-presentation='authored'] { background: #fff; }
-:root[data-tap-mobile] .plain-message-body { margin: 4px 0 0; font: 400 1rem/1.5 var(--tap-font-family); }
+:root[data-tap-mobile] .plain-message-body { margin: 0; font: 400 1rem/1.5 var(--tap-font-family); }
 :root[data-tap-mobile] .thread-page-controls { margin: 0; }
 :root[data-tap-mobile] .thread-page-complete { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 :root[data-tap-mobile] .mobile-message-footer { display: flex; flex: 0 0 auto; gap: 10px; padding: 8px 16px 12px; background: var(--background); }
