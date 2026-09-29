@@ -682,6 +682,8 @@ describe('Google provider writes', () => {
         const mime = decodeBase64Url(body.message.raw, 100_000);
         expect(mime).toContain('Message-ID: <draft_send@tap-email.local>');
         expect(mime).toContain('To: maya@example.com');
+        expect(mime).toContain('Cc: copied@example.com');
+        expect(mime).toContain('In-Reply-To: <original@example.com>');
         expect((await PostalMime.parse(mime)).html).toContain('Ship it.');
         return Response.json({ id: 'draft_1' });
       }
@@ -702,6 +704,8 @@ describe('Google provider writes', () => {
         draftKey: 'draft_send',
         draftRevision: 1,
         to: 'maya@example.com',
+        cc: 'copied@example.com',
+        replyToMessageId: '<original@example.com>',
         subject: 'Launch decision',
         bodyText: 'Ship it.',
       },

@@ -100,6 +100,8 @@ export interface EmailMessage {
   readonly internetMessageId?: string | null;
   readonly from: EmailParticipant;
   readonly to: readonly EmailParticipant[];
+  readonly cc?: readonly EmailParticipant[];
+  readonly replyTo?: readonly EmailParticipant[];
   readonly sentAt: string;
   readonly bodyText: string;
   readonly bodyHtml?: string | null;
@@ -583,6 +585,8 @@ export function isEmailMessage(value: unknown): value is EmailMessage {
     Array.isArray(value.to) &&
     value.to.length <= 100 &&
     value.to.every(isParticipant) &&
+    (value.cc === undefined || (Array.isArray(value.cc) && value.cc.length <= 100 && value.cc.every(isParticipant))) &&
+    (value.replyTo === undefined || (Array.isArray(value.replyTo) && value.replyTo.length <= 100 && value.replyTo.every(isParticipant))) &&
     isDateString(value.sentAt) &&
     isBoundedString(value.bodyText, 500_000) &&
     (value.bodyHtml === undefined ||

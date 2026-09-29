@@ -106,12 +106,14 @@ async function seedMailbox(): Promise<void> {
     env.DB.prepare(
       `INSERT INTO mail_messages
         (profile_id, account_id, thread_id, message_id, internet_message_id,
-         sender_json, recipients_json, sent_at, body_text_ciphertext,
+         sender_json, recipients_json, cc_json, reply_to_json, sent_at, body_text_ciphertext,
          body_html_ciphertext, ordinal, updated_at)
        VALUES ('profile_1', 'account_work', 'thread_launch', 'message_launch',
                '<message@example.com>',
                '{"name":"Maya","address":"maya@example.com"}',
                '[{"name":"Zack","address":"zack@example.com"}]',
+               '[{"name":"Copied","address":"copied@example.com"}]',
+               '[{"name":"Replies","address":"replies@example.com"}]',
                '2026-09-11T14:00:00.000Z', ?, NULL, 0, ?)`,
     ).bind(ciphertext, observedAt),
     env.DB.prepare(
@@ -301,6 +303,8 @@ describe('TAP Email live MCP', () => {
       messages: [{
         messageId: 'message_launch',
         bodyText: 'Please approve the lau',
+        cc: [{ name: 'Copied', address: 'copied@example.com' }],
+        replyTo: [{ name: 'Replies', address: 'replies@example.com' }],
         bodyTextTruncated: true,
       }],
       coverage: { resultTruncated: true },

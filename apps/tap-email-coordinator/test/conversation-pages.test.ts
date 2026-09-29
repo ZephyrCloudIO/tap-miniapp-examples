@@ -40,6 +40,8 @@ function providerMessage(index: number, text: string, html: string) {
       mimeType: 'multipart/mixed', headers: [
         { name: 'From', value: 'Sender <sender@example.com>' },
         { name: 'To', value: 'Owner <owner@example.com>' },
+        { name: 'Cc', value: 'Copied <copied@example.com>' },
+        { name: 'Reply-To', value: 'Replies <replies@example.com>' },
         { name: 'Subject', value: 'Synthetic conversation' },
       ], parts: [
         { mimeType: 'text/plain', body: { data: encodeBase64Url(text) } },
@@ -89,6 +91,25 @@ async function seedBodies(bodies: Array<[string, string]>) {
 }
 
 describe('bounded conversation history', () => {
+  it('recovers dropped recipient headers for a migrated conversation on its next read', async () => {
+    const fetch = provider([providerMessage(0, 'Preserved body', '<b>Preserved body</b>')]);
+    await sync();
+    // Simulate an old parser's data and the migration's rehydration marker.
+    await env.DB.batch([
+      env.DB.prepare("UPDATE mail_messages SET cc_json = '[]', reply_to_json = '[]' WHERE profile_id = ?").bind(scope.profileId),
+      env.DB.prepare("UPDATE mail_threads SET content_state = 'metadata' WHERE profile_id = ?").bind(scope.profileId),
+    ]);
+    fetch.mockClear();
+    expect((await read()).messages[0]).toMatchObject({
+      cc: [{ name: 'Copied', address: 'copied@example.com' }],
+      replyTo: [{ name: 'Replies', address: 'replies@example.com' }],
+      bodyText: 'Preserved body',
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await read();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('recovers the three-large-message provider response and returns complete bounded pages', async () => {
     const text = 'x'.repeat(400_000);
     const html = 'y'.repeat(400_000);
@@ -122,6 +143,10 @@ describe('bounded conversation history', () => {
     expect(second.messages).toHaveLength(5);
     expect([...second.messages, ...first.messages].map(message => message.messageId)).toEqual(messages.map(message => message.id));
     expect(second.messages.every(message => message.attachments.length === 1)).toBe(true);
+    for (const message of [...first.messages, ...second.messages]) {
+      expect(message.cc).toEqual([{ name: 'Copied', address: 'copied@example.com' }]);
+      expect(message.replyTo).toEqual([{ name: 'Replies', address: 'replies@example.com' }]);
+    }
     expect(second.pageInfo.complete).toBe(true);
     expect(await env.DB.prepare(`SELECT COUNT(*) AS count FROM mail_messages WHERE profile_id = ?`)
       .bind(scope.profileId).first()).toEqual({ count: 25 });

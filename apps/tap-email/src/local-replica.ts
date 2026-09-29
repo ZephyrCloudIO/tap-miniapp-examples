@@ -235,15 +235,15 @@ function messageParticipants(thread: EmailThread) {
       displayName: message.from.name,
       address: message.from.address,
     },
-    ...message.to.map((participant, ordinal) => ({
+    ...(['to', 'cc', 'replyTo'] as const).flatMap(role => (message[role] ?? []).map((participant, ordinal) => ({
       accountId: thread.accountId,
       threadId: thread.threadId,
       messageId: message.messageId,
-      role: 'to' as const,
+      role: role === 'replyTo' ? 'reply-to' : role,
       ordinal,
       displayName: participant.name,
       address: participant.address,
-    })),
+    }))),
   ]);
 }
 
@@ -300,9 +300,9 @@ export function localReplicaStatistics(state: MailState): LocalReplicaStatistics
           : 0,
         attachmentCount: message.attachments?.length ?? 0,
       });
-      const messagePeople = 1 + message.to.length;
+      const messagePeople = 1 + message.to.length + (message.cc?.length ?? 0) + (message.replyTo?.length ?? 0);
       participants += messagePeople;
-      logicalBytes += utf8Bytes([message.from, ...message.to]);
+      logicalBytes += utf8Bytes([message.from, ...message.to, ...(message.cc ?? []), ...(message.replyTo ?? [])]);
       attachmentMetadata += message.attachments?.length ?? 0;
       logicalBytes += utf8Bytes(message.attachments ?? []);
     }

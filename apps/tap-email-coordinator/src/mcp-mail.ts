@@ -80,6 +80,8 @@ interface MessageRow {
   readonly internet_message_id: string | null;
   readonly sender_json: string;
   readonly recipients_json: string;
+  readonly cc_json: string;
+  readonly reply_to_json: string;
   readonly sent_at: string;
   readonly body_text_ciphertext?: string;
   readonly ordinal: number;
@@ -386,6 +388,8 @@ function messageMetadata(
       address: 'unknown@invalid.local',
     },
     to: participants(row.recipients_json),
+    cc: participants(row.cc_json),
+    replyTo: participants(row.reply_to_json),
     sentAt: row.sent_at,
     attachments,
   };
@@ -731,7 +735,7 @@ export async function getEmailThread(
     }
   }
   const messageResult = await env.DB.prepare(
-    `SELECT message_id, internet_message_id, sender_json, recipients_json, sent_at, ordinal
+    `SELECT message_id, internet_message_id, sender_json, recipients_json, cc_json, reply_to_json, sent_at, ordinal
        FROM mail_messages
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?
         AND (ordinal > ? OR (ordinal = ? AND message_id > ?))
@@ -804,7 +808,7 @@ export async function readEmailMessages(
   const accounts = await accountRows(env, profileId, [request.accountId]);
   const selectedThread = await exactThreadRow(env, profileId, request);
   const result = await env.DB.prepare(
-    `SELECT message_id, internet_message_id, sender_json, recipients_json,
+    `SELECT message_id, internet_message_id, sender_json, recipients_json, cc_json, reply_to_json,
             sent_at, body_text_ciphertext
        FROM mail_messages
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?

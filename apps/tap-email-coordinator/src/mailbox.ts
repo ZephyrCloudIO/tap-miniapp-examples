@@ -150,6 +150,8 @@ interface ParsedMessage {
   readonly internetMessageId: string | null;
   readonly from: Participant;
   readonly to: readonly Participant[];
+  readonly cc: readonly Participant[];
+  readonly replyTo: readonly Participant[];
   readonly sentAt: string;
   readonly bodyText: string;
   readonly bodyHtml: string | null;
@@ -564,6 +566,8 @@ async function parseMessage(
     internetMessageId: headerValue(payload, 'Message-ID') || null,
     from,
     to: participants(headerValue(payload, 'To')),
+    cc: participants(headerValue(payload, 'Cc')),
+    replyTo: participants(headerValue(payload, 'Reply-To')),
     sentAt,
     bodyText: body.bodyText,
     bodyHtml: body.bodyHtml,
@@ -630,7 +634,7 @@ async function parseThread(value: unknown, accountAddress: string): Promise<Pars
   const ownAddress = accountAddress.toLowerCase();
   const latestFromSelf = latest.from.address === ownAddress;
   const externalParticipants = parsedMessages
-    .flatMap(message => [message.from, ...message.to])
+    .flatMap(message => [message.from, ...message.to, ...message.cc])
     .filter(person => person.address !== ownAddress)
     .filter((person, index, items) => items.findIndex(item => item.address === person.address) === index)
     .slice(0, 50);
@@ -671,6 +675,7 @@ const fallbackMetadataHeaders = [
   'From',
   'To',
   'Cc',
+  'Reply-To',
   'Bcc',
   'Date',
   'Subject',
@@ -796,6 +801,8 @@ async function persistThread(
     internetMessageId: message.internetMessageId,
     senderJson: JSON.stringify(message.from),
     recipientsJson: JSON.stringify(message.to),
+    ccJson: JSON.stringify(message.cc),
+    replyToJson: JSON.stringify(message.replyTo),
     sentAt: message.sentAt,
     bodyTextCiphertext: sealedBodies[ordinal]!,
     bodyHtmlCiphertext: sealedHtmlBodies[ordinal]!,
@@ -879,13 +886,15 @@ async function persistThread(
          )
          INSERT INTO mail_messages
            (profile_id, account_id, thread_id, message_id, internet_message_id,
-            sender_json, recipients_json, sent_at, body_text_ciphertext,
+            sender_json, recipients_json, cc_json, reply_to_json, sent_at, body_text_ciphertext,
             body_html_ciphertext, ordinal, updated_at, body_state, body_revision)
          SELECT ?1, ?2, ?3,
                 json_extract(value, '$.messageId'),
                 json_extract(value, '$.internetMessageId'),
                 json_extract(value, '$.senderJson'),
                 json_extract(value, '$.recipientsJson'),
+                json_extract(value, '$.ccJson'),
+                json_extract(value, '$.replyToJson'),
                 json_extract(value, '$.sentAt'),
                 json_extract(value, '$.bodyTextCiphertext'),
                 json_extract(value, '$.bodyHtmlCiphertext'),
@@ -897,6 +906,7 @@ async function persistThread(
            thread_id = excluded.thread_id,
            internet_message_id = excluded.internet_message_id, sender_json = excluded.sender_json,
            recipients_json = excluded.recipients_json, sent_at = excluded.sent_at, ordinal = excluded.ordinal,
+           cc_json = excluded.cc_json, reply_to_json = excluded.reply_to_json,
            updated_at = excluded.updated_at,
            body_text_ciphertext = CASE WHEN (mail_messages.body_revision = excluded.body_revision OR (mail_messages.body_revision IS NULL AND ?5)) AND excluded.body_state = 'metadata' AND mail_messages.body_state = 'ready'
              THEN mail_messages.body_text_ciphertext ELSE excluded.body_text_ciphertext END,
@@ -1451,6 +1461,8 @@ interface StoredMessageRow {
   readonly internet_message_id: string | null;
   readonly sender_json: string;
   readonly recipients_json: string;
+  readonly cc_json: string;
+  readonly reply_to_json: string;
   readonly sent_at: string;
   readonly body_text_ciphertext: string;
   readonly body_html_ciphertext: string | null;
@@ -1491,7 +1503,7 @@ async function storedThreadMessages(
   beforeOrdinal = Number.MAX_SAFE_INTEGER,
 ): Promise<readonly StoredMessageRow[]> {
   const messages = await env.DB.prepare(
-    `SELECT message_id, internet_message_id, sender_json, recipients_json,
+    `SELECT message_id, internet_message_id, sender_json, recipients_json, cc_json, reply_to_json,
             sent_at, body_text_ciphertext, body_html_ciphertext, ordinal, body_state
        FROM mail_messages
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?
@@ -1676,7 +1688,7 @@ export async function mailboxPage(
          ${selection}
        )
        SELECT m.account_id, m.thread_id, m.message_id, m.internet_message_id,
-              m.sender_json, m.recipients_json, m.sent_at, m.ordinal
+              m.sender_json, m.recipients_json, m.cc_json, m.reply_to_json, m.sent_at, m.ordinal
          FROM mail_messages m
          JOIN selected_threads t
            ON t.profile_id = m.profile_id AND t.account_id = m.account_id
@@ -1732,7 +1744,7 @@ export async function mailboxPage(
   const threadResults = results[2]! as D1Result<MailboxThreadRow>;
   const messages = results[3]! as D1Result<{
     account_id: string; thread_id: string; message_id: string; internet_message_id: string | null;
-    sender_json: string; recipients_json: string; sent_at: string; ordinal: number;
+    sender_json: string; recipients_json: string; cc_json: string; reply_to_json: string; sent_at: string; ordinal: number;
   }>;
   const attachments = results[4]! as D1Result<StoredAttachmentRow>;
   const reminders = results[5]! as D1Result<{
@@ -1772,6 +1784,8 @@ export async function mailboxPage(
       internetMessageId: message.internet_message_id,
       from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
       to: safeJson<readonly Participant[]>(message.recipients_json, []),
+      cc: safeJson<readonly Participant[]>(message.cc_json, []),
+      replyTo: safeJson<readonly Participant[]>(message.reply_to_json, []),
       sentAt: message.sent_at,
       bodyText,
       attachments: attachmentsByMessage.get(
@@ -1865,6 +1879,8 @@ export interface ThreadMessageSnapshot {
   readonly internetMessageId: string | null;
   readonly from: Participant;
   readonly to: readonly Participant[];
+  readonly cc: readonly Participant[];
+  readonly replyTo: readonly Participant[];
   readonly sentAt: string;
   readonly bodyText: string;
   readonly bodyHtml: string | null;
@@ -2002,6 +2018,8 @@ export async function threadSnapshot(
       messageId: message.message_id, internetMessageId: message.internet_message_id,
       from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
       to: safeJson<readonly Participant[]>(message.recipients_json, []), sentAt: message.sent_at,
+      cc: safeJson<readonly Participant[]>(message.cc_json, []),
+      replyTo: safeJson<readonly Participant[]>(message.reply_to_json, []),
       bodyText: body.bodyText, bodyHtml: body.bodyHtml, attachments: attachments.map(attachmentMetadata),
     };
     const previousCursor = nextCursor;
@@ -2047,9 +2065,11 @@ async function persistHydratedMessage(
   const scope = [profileId, accountId, threadId, revision];
   const statements = [
     env.DB.prepare(
-      `UPDATE mail_messages SET body_text_ciphertext = ?, body_html_ciphertext = ?, body_state = 'ready', body_revision = ?
+      `UPDATE mail_messages SET body_text_ciphertext = ?, body_html_ciphertext = ?, body_state = 'ready', body_revision = ?,
+          cc_json = ?, reply_to_json = ?
         WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ? AND ${guard}`,
-    ).bind(text, html, revision, profileId, accountId, threadId, message.messageId, ...scope),
+    ).bind(text, html, revision, JSON.stringify(message.cc), JSON.stringify(message.replyTo),
+      profileId, accountId, threadId, message.messageId, ...scope),
     env.DB.prepare(
       `DELETE FROM mail_attachments
         WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ? AND ${guard}`,
