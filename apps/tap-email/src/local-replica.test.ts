@@ -30,6 +30,8 @@ function stateWithResources(): MailState {
           {
             ...firstMessage,
             internetMessageId: '<message@example.test>',
+            cc: [{ name: 'Copied', address: 'copied@example.test' }],
+            replyTo: [{ name: 'Replies', address: 'replies@example.test' }],
             attachments: [
               {
                 resourceId: 'attachment_1',
@@ -121,6 +123,10 @@ describe('normalized local mail replica', () => {
     const parameters = executed.flatMap(entry => entry.params);
     expect(parameters).toContain('brief.pdf');
     expect(parameters).toContain('attachment_1');
+    expect(parameters).toContain('cc');
+    expect(parameters).toContain('copied@example.test');
+    expect(parameters).toContain('reply-to');
+    expect(parameters).toContain('replies@example.test');
     expect(parameters).not.toContain(firstBody(state));
     expect(parameters).not.toContain(state.threads[0]!.messages[0]!.bodyHtml);
   });

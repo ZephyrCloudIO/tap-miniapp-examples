@@ -127,6 +127,7 @@ describe('TAP Email thread message disclosure', () => {
     const detailedMessage = {
       ...threeMessages[2],
       to: [participant('Zack'), participant('Blair'), participant('Avery'), participant('', 'team@example.com')],
+      cc: [participant('Iman')],
     };
     const { container, root } = await mountMessages([...threeMessages.slice(0, 2), detailedMessage]);
     const sender = container.querySelector<HTMLButtonElement>('.thread-message-sender-toggle')!;
@@ -140,6 +141,8 @@ describe('TAP Email thread message disclosure', () => {
     expect(details.textContent).toContain('Casey <casey@example.com>');
     expect(details.textContent).toContain('Zack <zack@example.com>');
     expect(details.textContent).toContain('team@example.com');
+    expect([...details.querySelectorAll('dt')].map(item => item.textContent)).toContain('Cc');
+    expect(details.textContent).toContain('Iman <iman@example.com>');
     expect(details.querySelector('time')?.getAttribute('datetime')).toBe(detailedMessage.sentAt);
     expect(details.querySelector('time')?.textContent).toContain('2026');
     expect(container.querySelector('.thread-message-content')?.textContent).toContain('Latest message');

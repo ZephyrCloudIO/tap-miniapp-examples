@@ -348,7 +348,9 @@ function ThreadMessageCard({
             <dt>To</dt><dd>{message.to.length > 0 ? message.to.map((recipient, index) => (
               <ParticipantDetails key={`${recipient.address}-${index}`} participant={recipient} />
             )) : 'Undisclosed recipients'}</dd>
-            {outgoing?.cc ? <><dt>Cc</dt><dd>{outgoing.cc}</dd></> : null}
+            {message.cc?.length ? <><dt>Cc</dt><dd>{message.cc.map((recipient, index) => (
+              <ParticipantDetails key={`${recipient.address}-${index}`} participant={recipient} />
+            ))}</dd></> : outgoing?.cc ? <><dt>Cc</dt><dd>{outgoing.cc}</dd></> : null}
             {outgoing?.bcc ? <><dt>Bcc</dt><dd>{outgoing.bcc}</dd></> : null}
             <dt>Date</dt><dd><time dateTime={message.sentAt}>{messageDetailsDateFormatter.format(new Date(message.sentAt))}</time></dd>
           </dl> : null}

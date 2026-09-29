@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it, rs } from '@rstest/core';
 import type { TapFederatedSurfaceMountContext } from '@theaiplatform/miniapp-sdk/surface';
 import { TapEmailApp } from './app';
-import { previewMailState, type MailState } from './domain';
+import { emailThreadKey, previewMailState, type MailState } from './domain';
 import * as localStore from './local-store';
 import * as preferences from './storage';
 import * as coordinator from './coordinator-client';
@@ -12,8 +12,22 @@ import * as coordinator from './coordinator-client';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('send to Outbox', () => {
-  it.each(['saving', 'storage-failed', 'mailbox-loading', 'transport-failed'] as const)('keeps a clicked reply visible with its full body while %s', async mode => {
+  it.each(['saving', 'storage-failed', 'mailbox-loading', 'transport-failed', 'recipients-failed', 'recipients-missing'] as const)('preserves reply recipients and send behavior while %s', async mode => {
     const seed = previewMailState();
+    const selected = seed.threads.find(thread => emailThreadKey(thread) === seed.selectedThreadKey)!;
+    const account = seed.accounts.find(item => item.accountId === selected.accountId)!;
+    const getThreadPage = rs.fn(async () => {
+      if (mode === 'recipients-failed') throw new Error('Mail service unavailable');
+      return {
+        providerRevision: selected.providerRevision, nextCursor: null, complete: true,
+        messages: [{ ...selected.messages.at(-1)!,
+          internetMessageId: '<latest@example.com>',
+          from: { name: 'Latest sender', address: 'latest@example.com' },
+          to: [{ name: 'Me', address: account.address }, { name: 'Other', address: 'other@example.com' }],
+          cc: mode === 'recipients-missing' ? undefined : [{ name: 'Copied', address: 'copied@example.com' }],
+        }],
+      };
+    });
     const store = new localStore.PreviewFixtureMailStore();
     rs.spyOn(store, 'load').mockResolvedValue(seed);
     let saved: MailState | undefined;
@@ -34,6 +48,7 @@ describe('send to Outbox', () => {
       readSettings: async () => ({ revision: 0, value: {} }),
       writeSettings: async (snapshot: { value: unknown }) => ({ ...snapshot, revision: 1 }),
       submitCommand,
+      getThreadPage,
     } as unknown as ReturnType<typeof coordinator.createCoordinatorClient>);
     const context = {
       userId: 'user_1', workspaceId: 'workspace_1',
@@ -52,7 +67,17 @@ describe('send to Outbox', () => {
     try {
       await act(async () => root.render(<TapEmailApp surfaceContext={context} />));
       await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Reply"]')!.click());
+      if (mode === 'recipients-failed' || mode === 'recipients-missing') {
+        expect(container.querySelector('.reply-composer')).toBeNull();
+        expect(container.textContent).toContain('Could not load all reply recipients');
+        expect(submitCommand).not.toHaveBeenCalled();
+        return;
+      }
       const form = container.querySelector<HTMLFormElement>('.reply-composer')!;
+      expect(getThreadPage).toHaveBeenCalledWith(selected.accountId, selected.threadId);
+      expect(form.querySelector<HTMLInputElement>('[aria-label="Reply recipients"]')?.value.split(',').map(value => value.trim()))
+        .toEqual(['latest@example.com', 'other@example.com']);
+      expect(form.querySelector<HTMLInputElement>('[aria-label="Reply Cc recipients"]')?.value).toBe('copied@example.com');
       const textarea = form.querySelector('textarea')!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Keep every word of this queued reply.');
@@ -80,6 +105,9 @@ describe('send to Outbox', () => {
       if (mode === 'mailbox-loading') {
         expect(saved?.commands.find(command => command.kind === 'send_draft')?.payload).toMatchObject({
           bodyText: 'Keep every word of this queued reply.',
+          to: 'latest@example.com, other@example.com',
+          cc: 'copied@example.com',
+          replyToMessageId: '<latest@example.com>',
           expectedContext: { userId: 'user_1', workspaceId: 'workspace_1' },
         });
       }

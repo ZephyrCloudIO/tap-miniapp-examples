@@ -315,6 +315,8 @@ export interface MailMessageMetadata extends EmailMessageRef {
   readonly internetMessageId: string | null;
   readonly from: MailParticipant;
   readonly to: readonly MailParticipant[];
+  readonly cc?: readonly MailParticipant[];
+  readonly replyTo?: readonly MailParticipant[];
   readonly sentAt: string;
   readonly attachments: readonly MailAttachmentDescriptor[];
 }

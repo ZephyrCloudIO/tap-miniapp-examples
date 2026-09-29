@@ -742,6 +742,8 @@ describe('Google mailbox synchronization', () => {
                   { name: 'From', value: 'Maya Chen <maya@example.com>' },
                   { name: 'To', value: 'Zack <zack@example.com>' },
                   { name: 'Subject', value: 'Launch review' },
+                  { name: 'cC', value: 'Iman <iman@example.com>' },
+                  { name: 'Reply-To', value: 'Launch team <launch@example.com>' },
                   { name: 'Message-ID', value: '<message-1@example.com>' },
                 ],
                 parts: [
@@ -801,7 +803,8 @@ describe('Google mailbox synchronization', () => {
           threadId: 'thread_1',
           critical: true,
           needsResponse: true,
-          messages: [{ bodyText: '' }],
+          messages: [{ bodyText: '', cc: [{ name: 'Iman', address: 'iman@example.com' }],
+            replyTo: [{ name: 'Launch team', address: 'launch@example.com' }] }],
         },
       ],
     });
@@ -811,6 +814,8 @@ describe('Google mailbox synchronization', () => {
       messages: [
         {
           bodyText: 'Please review the launch plan.',
+          cc: [{ name: 'Iman', address: 'iman@example.com' }],
+          replyTo: [{ name: 'Launch team', address: 'launch@example.com' }],
           bodyHtml: '<main><h1>Launch plan</h1><p>Please <strong>review</strong> it.</p></main>',
         },
       ],
@@ -1401,6 +1406,7 @@ describe('Google mailbox synchronization', () => {
           'From',
           'To',
           'Cc',
+          'Reply-To',
           'Bcc',
           'Date',
           'Subject',

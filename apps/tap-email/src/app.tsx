@@ -117,6 +117,7 @@ import {
   threadMatchesMailSearchConstraints,
 } from './mail-search';
 import { fuseMailSearchRanks } from './hybrid-mail-search';
+import { replyAllRecipients } from './reply-recipients';
 import {
   createMailSearchCoverageReceipt,
   mailSearchCoverageLabel,
@@ -2399,12 +2400,32 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     }
   }, [flash, preview, thread]);
 
-  const beginReply = useCallback((target: EmailThread) => {
+  const beginReply = useCallback(async (target: EmailThread) => {
     const threadKey = emailThreadKey(target);
+    let latestMessage = target.messages.at(-1);
+    if (!preview && !replyDrafts[threadKey]) {
+      // A cached preview may predate recipient-header recovery, or the reader
+      // may currently show an older page. Resolve the newest message first.
+      const client = coordinatorRef.current;
+      if (!client) {
+        flash('Connect to email to load all reply recipients.');
+        return;
+      }
+      flash('Loading reply recipients…');
+      try {
+        const page = await client.getThreadPage(target.accountId, target.threadId);
+        latestMessage = page.messages.at(-1);
+        if (!latestMessage || latestMessage.cc === undefined) {
+          throw new Error('Reply recipients are unavailable. Refresh email and try again.');
+        }
+      } catch {
+        flash('Could not load all reply recipients. Refresh email and try again.');
+        return;
+      }
+    }
     const draftKey = `draft_${idFactory()}`;
-    const recipient = target.participants[0];
-    const recipientLabel = recipient?.name || recipient?.address || 'recipient';
-    const to = recipient?.address ?? '';
+    const account = state.accounts.find(item => item.accountId === target.accountId);
+    const { to, cc, recipientLabel } = replyAllRecipients(latestMessage, account?.address ?? '');
     const subject = /^re:/iu.test(target.subject.trim())
       ? target.subject
       : `Re: ${target.subject}`;
@@ -2430,11 +2451,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
               attachments: [],
               bcc: '',
               bodyText: '',
-              cc: '',
+              cc,
               draftKey,
               draftRevision: 1,
               focusRequestId: 1,
-              inReplyToMessageId: target.messages.at(-1)?.internetMessageId ?? null,
+              inReplyToMessageId: latestMessage?.internetMessageId ?? null,
               placement: 'inline',
               recipientLabel,
               subject,
@@ -2449,7 +2470,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       setThreadListCollapsed(threadListCollapsedBeforeSidecarRef.current);
     }
     setOverlay('none');
-  }, [idFactory, poppedReplyKey]);
+  }, [flash, idFactory, poppedReplyKey, preview, replyDrafts, state.accounts]);
 
   const createTaskFromEmail = useCallback(() => {
     if (!thread) return;
@@ -2615,7 +2636,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       setComposeDraftKey(`draft_${idFactory()}`);
       setOverlay('compose');
     }
-    if (command === 'reply' && thread) beginReply(thread);
+    if (command === 'reply' && thread) void beginReply(thread);
     if (command === 'prompt-reply' && thread) askChloe('draft-reply');
     if (command === 'search') {
       searchReturnFocus.current = document.activeElement as HTMLElement | null;
