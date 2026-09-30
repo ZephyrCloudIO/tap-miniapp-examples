@@ -190,7 +190,7 @@ p { text-wrap: pretty; }
 .calendar-surface { display: grid; min-width: 0; min-height: 0; flex: 1; grid-template-columns: minmax(0, 1fr) 220px; background: var(--card); }
 .calendar-board-gesture-surface { min-width: 0; min-height: 0; overflow: hidden; overscroll-behavior-x: contain; }
 .time-grid-wrap { min-width: 0; height: 100%; overflow: auto; }
-.time-grid { --calendar-columns: 5; --calendar-day-height: 1440px; --calendar-hour-height: 60px; display: grid; grid-template-columns: 57px minmax(620px, 1fr); grid-template-rows: 52px minmax(29px, auto) var(--calendar-day-height); min-width: calc(57px + var(--calendar-columns) * 124px); min-height: 100%; }
+.time-grid { --calendar-columns: 5; --calendar-day-height: 1440px; --calendar-hour-height: 60px; display: grid; grid-template-columns: 57px minmax(0, 1fr); grid-template-rows: 52px minmax(29px, auto) var(--calendar-day-height); min-width: calc(57px + max(620px, calc(var(--calendar-columns) * 124px))); min-height: 100%; }
 .time-grid-corner { position: sticky; z-index: 9; top: 0; left: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--card); }
 .day-headings { position: sticky; z-index: 8; top: 0; display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--card) 95%, transparent); }
 .day-heading { display: flex; align-items: center; justify-content: center; gap: 6px; border-right: 1px solid var(--border); color: var(--muted-foreground); }
@@ -211,7 +211,7 @@ p { text-wrap: pretty; }
 .calendar-time-slot:focus-visible { position: relative; z-index: 3; outline: 2px solid var(--calendar-accent); outline-offset: -2px; }
 .calendar-event { position: absolute; z-index: 2; right: 4px; left: 4px; display: flex; min-height: 30px; flex-direction: column; align-items: flex-start; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 6px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 5px 6px; color: var(--foreground); text-align: left; cursor: pointer; }
 .calendar-event:hover { z-index: 4; filter: brightness(.98); box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent); }
-.calendar-event strong { max-width: 100%; overflow: hidden; font-size: 9px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event strong { max-width: 100%; flex: 0 0 auto; overflow: hidden; font-size: 9px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-event > span { color: var(--muted-foreground); font-size: 7px; }
 .calendar-event small { display: flex; max-width: 100%; align-items: center; gap: 3px; overflow: hidden; margin-top: 3px; color: var(--muted-foreground); font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-event.event-work-block { border-left-style: dashed; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--event-color) 11%, var(--card)), color-mix(in srgb, var(--event-color) 11%, var(--card)) 7px, color-mix(in srgb, var(--event-color) 5%, var(--card)) 7px, color-mix(in srgb, var(--event-color) 5%, var(--card)) 14px); }
