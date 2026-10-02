@@ -1284,7 +1284,7 @@ async function partialPage(
     }, now, historyContinuationDelaySeconds);
     return;
   }
-  await env.DB.prepare(
+  const checkpoint = env.DB.prepare(
     `UPDATE google_accounts
         SET coverage_state = CASE WHEN backfill_page_token IS NOT NULL THEN 'backfilling' ELSE 'current' END, newest_history_id = ?,
             updated_at = ?
@@ -1295,8 +1295,27 @@ async function partialPage(
       now.toISOString(),
       scope.profileId,
       scope.accountId,
-    )
-    .run();
+    );
+  const historyId = typeof history.historyId === 'string' ? history.historyId : null;
+  if (historyId && /^[1-9][0-9]*$/u.test(startHistoryId) && /^[1-9][0-9]*$/u.test(historyId)) {
+    // Only a finished history traversal proves recovery. Gmail IDs are
+    // increasing decimal strings and may exceed SQLite's signed integer range.
+    // Compare length, then text; preserve the original terminal failure.
+    await env.DB.batch([
+      checkpoint,
+      env.DB.prepare(`UPDATE provider_events SET recovered_at = ?1
+        WHERE profile_id = ?2 AND account_id = ?3
+          AND state = 'dead_letter' AND recovered_at IS NULL
+          AND json_extract(payload_json, '$.mode') = 'partial'
+          AND updated_at <= ?1
+          AND history_id GLOB '[1-9]*' AND history_id NOT GLOB '*[^0-9]*'
+          AND (length(history_id) > length(?4) OR (length(history_id) = length(?4) AND history_id >= ?4))
+          AND (length(history_id) < length(?5) OR (length(history_id) = length(?5) AND history_id <= ?5))`)
+        .bind(now.toISOString(), scope.profileId, scope.accountId, startHistoryId, historyId),
+    ]);
+  } else {
+    await checkpoint.run();
+  }
 }
 
 export async function syncGoogleMailbox(
@@ -1383,14 +1402,13 @@ export async function requestAccountSync(
   now: Date,
 ): Promise<boolean> {
   const account = await env.DB.prepare(
-    `SELECT backfill_page_token, unresolved_failures
+    `SELECT newest_history_id
        FROM google_accounts
       WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'`,
   )
     .bind(profileId, accountId)
     .first<{
-      backfill_page_token: string | null;
-      unresolved_failures: number;
+      newest_history_id: string | null;
     }>();
   if (!account) return false;
 
@@ -1414,11 +1432,12 @@ export async function requestAccountSync(
   if (Number(updated.meta.changes ?? 0) !== 1) return false;
   await enqueueSyncEvent(
     env,
-    account.backfill_page_token === null
-      ? account.unresolved_failures > 0
-        ? { profileId, accountId, mode: 'newest' }
-        : { profileId, accountId, mode: 'partial' }
-      : { profileId, accountId, mode: 'partial' },
+    {
+      profileId,
+      accountId,
+      mode: 'partial',
+      ...(account.newest_history_id ? { startHistoryId: account.newest_history_id } : {}),
+    },
     now,
   );
   await recoverOrphanedBackfills(env, now, { profileId, accountId });
@@ -2296,7 +2315,7 @@ export async function enqueueScheduledSyncs(env: Env, now: Date): Promise<void> 
   await recoverOrphanedBackfills(env, now);
   const staleBefore = new Date(now.getTime() - 4 * 60_000).toISOString();
   const accounts = await env.DB.prepare(
-    `SELECT profile_id, account_id, backfill_page_token, unresolved_failures
+    `SELECT profile_id, account_id, newest_history_id
       FROM google_accounts
       WHERE connection_state = 'active'
         AND (last_sync_requested_at IS NULL OR last_sync_requested_at < ?)
@@ -2314,8 +2333,7 @@ export async function enqueueScheduledSyncs(env: Env, now: Date): Promise<void> 
     .all<{
       profile_id: string;
       account_id: string;
-      backfill_page_token: string | null;
-      unresolved_failures: number;
+      newest_history_id: string | null;
     }>();
   if (accounts.results.length === 0) return;
 
@@ -2343,17 +2361,12 @@ export async function enqueueScheduledSyncs(env: Env, now: Date): Promise<void> 
 
   await enqueueSyncEvents(
     env,
-    claimed.map(account => account.backfill_page_token === null && account.unresolved_failures > 0
-      ? {
-          profileId: account.profile_id,
-          accountId: account.account_id,
-          mode: 'newest' as const,
-        }
-      : {
-          profileId: account.profile_id,
-          accountId: account.account_id,
-          mode: 'partial' as const,
-        }),
+    claimed.map(account => ({
+      profileId: account.profile_id,
+      accountId: account.account_id,
+      mode: 'partial' as const,
+      ...(account.newest_history_id ? { startHistoryId: account.newest_history_id } : {}),
+    })),
     now,
   );
 }

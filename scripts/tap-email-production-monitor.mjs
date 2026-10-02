@@ -61,6 +61,7 @@ const syncHealthSql = `WITH event_anomalies(signal, observed_at) AS (
     FROM provider_events event
     JOIN google_accounts account USING (profile_id, account_id)
    WHERE event.state = 'dead_letter'
+     AND event.recovered_at IS NULL
      AND account.connection_state = 'active'
      AND (account.last_full_sync_completed_at IS NULL
           OR event.updated_at > account.last_full_sync_completed_at)

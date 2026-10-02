@@ -71,6 +71,13 @@ describe('production monitor durable evidence in D1', () => {
     expect((await inspect()).ok).toBe(true);
   });
 
+  it('ignores an incrementally recovered failure while retaining its terminal audit record', async () => {
+    await event('dead_letter', 10, null, null, { mode: 'partial' });
+    await env.DB.prepare('UPDATE provider_events SET recovered_at = ?').bind(ago(5)).run();
+    expect((await inspect()).ok).toBe(true);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM provider_events WHERE state = 'dead_letter'").first('n')).toBe(1);
+  });
+
   it('reports terminal failures when no full sync has ever completed', async () => {
     await env.DB.prepare('UPDATE google_accounts SET last_full_sync_completed_at = NULL').run();
     await event('dead_letter', 61);
