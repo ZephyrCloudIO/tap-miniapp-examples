@@ -210,7 +210,13 @@ command queue age still fails because the D1 progress query covers sync jobs.
 Paused delivery, missing routes, dead letters, known stale backlog, malformed
 metrics and failed API/D1 reads remain failures. Durable checks include current
 application dead letters, which may already be acknowledged in Cloudflare;
-completed full syncs supersede older failures. A failed continuation is also
+completed full syncs supersede older failures. A completed incremental history
+traversal also recovers failed incremental events whose saved history cursor
+falls inside the covered range. Recovery is recorded in `recovered_at` without
+changing the terminal failure or its audit history. Intermediate history pages,
+other mailboxes, and failures with an unknown starting cursor do not prove
+recovery. Apply migration `0023_incremental_sync_recovery.sql` before deploying
+the coordinator or the updated monitor. A failed continuation is also
 operationally recovered when a later applied delivery matches its account,
 profile, page and generation, and that same generation's checkpoint has advanced.
 The recorded traversal must predate the failed delivery; later resets or unknown
@@ -236,6 +242,12 @@ that lose the durable claim are acknowledged, and the claim lease exceeds the
 maximum Queue consumer invocation, so they cannot overtake active work. Queue
 payloads are validated again at the Worker boundary before any account-scoped
 operation runs.
+
+Scheduled sync and manual refresh always request incremental history from the
+saved cursor, including after exhausted retries. A failure count alone never
+starts another full mailbox traversal. Initial sync without a history cursor
+and expired Gmail history still use the full-sync path. Already-running archive
+backfills retain their cursor and continue independently of incremental recovery.
 
 ## Mailbox pagination
 

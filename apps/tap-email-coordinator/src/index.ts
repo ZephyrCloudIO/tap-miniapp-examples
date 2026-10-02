@@ -159,6 +159,7 @@ interface ProviderEventRow {
   readonly profile_id: string;
   readonly account_id: string;
   readonly event_id: string;
+  readonly history_id: string;
   readonly state: 'received' | 'processing' | 'applied' | 'retryable' | 'dead_letter';
   readonly attempts: number;
 }
@@ -1930,7 +1931,7 @@ async function providerEventRow(
   message: SyncQueueMessage,
 ): Promise<ProviderEventRow | null> {
   return env.DB.prepare(
-    `SELECT profile_id, account_id, event_id, state, attempts
+    `SELECT profile_id, account_id, event_id, history_id, state, attempts
        FROM provider_events
       WHERE profile_id = ? AND account_id = ? AND event_id = ?`,
   )
@@ -1949,7 +1950,7 @@ function refreshAccountCoverageStatement(
         SET unresolved_failures = (
               SELECT COUNT(*) FROM provider_events
                WHERE profile_id = ? AND account_id = ?
-                 AND state IN ('retryable', 'dead_letter')
+                 AND state IN ('retryable', 'dead_letter') AND recovered_at IS NULL
                  AND (
                    google_accounts.last_full_sync_completed_at IS NULL OR
                    updated_at > google_accounts.last_full_sync_completed_at
@@ -1961,7 +1962,7 @@ function refreshAccountCoverageStatement(
               WHEN EXISTS (
                 SELECT 1 FROM provider_events
                  WHERE profile_id = ? AND account_id = ?
-                   AND state IN ('retryable', 'dead_letter')
+                   AND state IN ('retryable', 'dead_letter') AND recovered_at IS NULL
                    AND (
                      google_accounts.last_full_sync_completed_at IS NULL OR
                      updated_at > google_accounts.last_full_sync_completed_at
@@ -2007,7 +2008,13 @@ async function processSyncMessage(
   const claimed = await env.DB.prepare(
     `UPDATE provider_events
         SET state = 'processing', lease_token = ?, lease_expires_at = ?,
-            attempts = attempts + 1, dispatch_pending = 0, updated_at = ?
+            attempts = attempts + 1, dispatch_pending = 0, updated_at = ?,
+            history_id = CASE
+              WHEN json_extract(payload_json, '$.mode') = 'partial' AND history_id = 'bootstrap'
+              THEN COALESCE((SELECT newest_history_id FROM google_accounts
+                WHERE google_accounts.profile_id = provider_events.profile_id
+                  AND google_accounts.account_id = provider_events.account_id), history_id)
+              ELSE history_id END
       WHERE profile_id = ? AND account_id = ? AND event_id = ?
         AND (
           (state IN ('received', 'retryable')
@@ -2040,7 +2047,9 @@ async function processSyncMessage(
   }
   try {
     if (message.body.mode === 'bodies') await processBodyBackfill(env, message.body, now);
-    else await syncMailbox(env, message.body, now);
+    else await syncMailbox(env, message.body.mode === 'partial' && leased.history_id !== 'bootstrap'
+      ? { ...message.body, startHistoryId: leased.history_id }
+      : message.body, now);
     const account = await env.DB.prepare(
       `SELECT newest_history_id FROM google_accounts
         WHERE profile_id = ? AND account_id = ?`,

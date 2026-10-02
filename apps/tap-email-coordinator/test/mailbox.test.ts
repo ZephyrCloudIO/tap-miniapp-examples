@@ -822,7 +822,7 @@ describe('Google mailbox synchronization', () => {
     });
   });
 
-  it('requests an authoritative full repair when durable sync failures are unresolved', async () => {
+  it('retries incremental history when durable sync failures are unresolved', async () => {
     await env.DB.prepare(
       `INSERT INTO google_accounts
          (profile_id, account_id, google_subject, connection_state,
@@ -847,7 +847,8 @@ describe('Google mailbox synchronization', () => {
     expect(JSON.parse(event?.payload_json ?? '{}')).toMatchObject({
       profileId: 'profile_repair',
       accountId: 'google_repair',
-      mode: 'newest',
+      mode: 'partial',
+      startHistoryId: 'history_10',
     });
   });
 

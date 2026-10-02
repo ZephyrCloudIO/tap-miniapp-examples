@@ -203,7 +203,7 @@ export async function redispatchSyncEvents(env: Env, now: Date): Promise<void> {
                 unresolved_failures = (
                   SELECT COUNT(*) FROM provider_events
                    WHERE profile_id = ? AND account_id = ?
-                     AND state IN ('retryable', 'dead_letter')
+                     AND state IN ('retryable', 'dead_letter') AND recovered_at IS NULL
                      AND (
                        google_accounts.last_full_sync_completed_at IS NULL OR
                        updated_at > google_accounts.last_full_sync_completed_at
