@@ -1,0 +1,268 @@
+{
+  "$schema": "https://the-ai-platform.dev/schemas/tap.test.schema.json",
+  "schemaVersion": 2,
+  "packageId": "github-notify",
+  "configPath": "rstest.tap.config.ts",
+  "profiles": {
+    "pr-radar-desktop": {
+      "surface": "github-notify-dashboard",
+      "target": "desktop",
+      "mode": "surface",
+      "permissionScenario": "default",
+      "deniedActions": [],
+      "fixtureFiles": [],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "https://api.github.com"
+      ],
+      "requiredEffects": [
+        "effect:external-network:https://api.github.com",
+        "effect:credentials:github",
+        "effect:credentials:http",
+        "effect:storage:github-notify",
+        "effect:external-navigation:https://github.com"
+      ],
+      "nativeServices": false,
+      "credentialSlots": [],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "light",
+        "reducedMotion": true,
+        "seed": 1,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      },
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "always"
+      }
+    },
+    "pr-radar-desktop-network-denied": {
+      "surface": "github-notify-dashboard",
+      "target": "desktop",
+      "mode": "surface",
+      "nativeServices": false,
+      "credentialSlots": [],
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      },
+      "permissionScenario": "http-denied",
+      "deniedActions": [
+        "network.request"
+      ],
+      "fixtureFiles": [],
+      "httpRouteFiles": [
+        "tests/fixtures/pr-radar.github.http-routes.json"
+      ],
+      "requiredOrigins": [],
+      "requiredEffects": [
+        "effect:external-network:https://api.github.com"
+      ],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 2,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      }
+    },
+    "pr-radar-desktop-credentials-use-denied": {
+      "surface": "github-notify-dashboard",
+      "target": "desktop",
+      "mode": "surface",
+      "nativeServices": false,
+      "credentialSlots": [],
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      },
+      "permissionScenario": "deny:credentials.use",
+      "deniedActions": [
+        "credentials.use"
+      ],
+      "fixtureFiles": [],
+      "httpRouteFiles": [
+        "tests/fixtures/pr-radar.github.http-routes.json"
+      ],
+      "requiredOrigins": [
+        "https://api.github.com"
+      ],
+      "requiredEffects": [
+        "effect:credentials:github",
+        "effect:credentials:http",
+        "effect:external-network:https://api.github.com"
+      ],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 3,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      }
+    },
+    "pr-radar-desktop-storage-denied": {
+      "surface": "github-notify-dashboard",
+      "target": "desktop",
+      "mode": "surface",
+      "nativeServices": false,
+      "credentialSlots": [],
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      },
+      "permissionScenario": "deny:storage.write",
+      "deniedActions": [
+        "storage.write"
+      ],
+      "fixtureFiles": [],
+      "httpRouteFiles": [
+        "tests/fixtures/pr-radar.github.http-routes.json"
+      ],
+      "requiredOrigins": [
+        "https://api.github.com"
+      ],
+      "requiredEffects": [
+        "effect:credentials:github",
+        "effect:external-network:https://api.github.com",
+        "effect:storage:github-notify"
+      ],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 4,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      }
+    },
+    "pr-radar-desktop-navigation-denied": {
+      "surface": "github-notify-dashboard",
+      "target": "desktop",
+      "mode": "surface",
+      "nativeServices": false,
+      "credentialSlots": [],
+      "artifacts": {
+        "trace": "failure-only",
+        "screenshots": "failure-only"
+      },
+      "permissionScenario": "deny:navigation.open-external",
+      "deniedActions": [
+        "navigation.open-external"
+      ],
+      "fixtureFiles": [
+        "tests/fixtures/pr-radar.tracked.seed.json"
+      ],
+      "httpRouteFiles": [],
+      "requiredOrigins": [
+        "https://api.github.com"
+      ],
+      "requiredEffects": [
+        "effect:external-navigation:https://github.com",
+        "effect:storage:github-notify"
+      ],
+      "environment": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "theme": "dark",
+        "reducedMotion": true,
+        "seed": 5,
+        "fixedNow": "2026-01-01T00:00:00Z"
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "pr-radar-desktop-default",
+      "profile": "pr-radar-desktop",
+      "capabilities": [
+        "action:credentials.read",
+        "action:credentials.use",
+        "action:navigation.open-external",
+        "action:network.request",
+        "effect:credentials:github",
+        "effect:credentials:http",
+        "effect:external-navigation:https://github.com",
+        "effect:external-network:https://api.github.com",
+        "effect:storage:github-notify"
+      ],
+      "testMatch": [
+        "tests/e2e/pr-radar-surface.test.ts",
+        "tests/e2e/tap-surface.smoke.test.ts"
+      ]
+    },
+    {
+      "id": "pr-radar-desktop-network-denied",
+      "profile": "pr-radar-desktop-network-denied",
+      "testMatch": [
+        "tests/e2e/pr-radar-network-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:network.request",
+        "effect:external-network:https://api.github.com"
+      ]
+    },
+    {
+      "id": "pr-radar-desktop-credentials-use-denied",
+      "profile": "pr-radar-desktop-credentials-use-denied",
+      "testMatch": [
+        "tests/e2e/pr-radar-credentials-use-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:credentials.use",
+        "effect:credentials:github",
+        "effect:credentials:http"
+      ]
+    },
+    {
+      "id": "pr-radar-desktop-storage-denied",
+      "profile": "pr-radar-desktop-storage-denied",
+      "testMatch": [
+        "tests/e2e/pr-radar-storage-denied.test.ts"
+      ],
+      "capabilities": [
+        "effect:storage:github-notify"
+      ]
+    },
+    {
+      "id": "pr-radar-desktop-navigation-denied",
+      "profile": "pr-radar-desktop-navigation-denied",
+      "testMatch": [
+        "tests/e2e/pr-radar-navigation-denied.test.ts"
+      ],
+      "capabilities": [
+        "action:navigation.open-external",
+        "effect:external-navigation:https://github.com"
+      ]
+    }
+  ],
+  "waivers": [
+    {
+      "capability": "effect:external-navigation:https://github.com",
+      "reason": "The navigation.open-external denial row clicks the app's real pull request link and proves the host refuses the github.com origin. Under all-denied, storage reads fail before any pull request renders, so an all-denied row could only call the host directly and would not exercise PR Radar.",
+      "expiresAt": "2027-01-31T00:00:00Z"
+    }
+  ]
+}
