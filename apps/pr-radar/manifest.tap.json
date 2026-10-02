@@ -1,0 +1,205 @@
+{
+  "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
+  "descriptorVersion": 1,
+  "package": {
+    "packageId": "tap_pkg_theaiplatform_github_notify_0001",
+    "publisherId": "publisher_zephyrcloudio",
+    "namespace": "theaiplatform-github-notify",
+    "slug": "github-notify",
+    "organizationId": "organization_zephyrcloudio"
+  },
+  "release": {
+    "releaseId": "tap_pkg_theaiplatform_github_notify_0001@0.1.0",
+    "version": "0.1.0",
+    "contentDigest": "pending"
+  },
+  "presentation": {
+    "name": "PR Radar",
+    "description": "Track your open pull requests and see approvals, comments, and merge conflicts inside TAP.",
+    "iconAssets": ["assets/github-notify-light.svg", "assets/github-notify-dark.svg"],
+    "assets": [
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/github-notify-light.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "light"
+      },
+      {
+        "role": "app-icon",
+        "mediaType": "image/svg+xml",
+        "path": "assets/github-notify-dark.svg",
+        "integrity": "pending",
+        "sizes": ["any"],
+        "theme": "dark"
+      }
+    ]
+  },
+  "compatibility": {
+    "tapSdk": "0.19.0",
+    "tapHost": ">=2.5.5"
+  },
+  "targets": {
+    "desktop": {
+      "remoteName": "tap_github_notify_desktop",
+      "remoteEntry": "remoteEntry.mjs",
+      "remoteEntryIntegrity": "pending",
+      "manifest": "mf-manifest.json",
+      "manifestIntegrity": "pending",
+      "assetLock": "tap.package.lock.json",
+      "assetLockIntegrity": "pending",
+      "libraryType": "module",
+      "exposes": {
+        "./tap/lifecycle": {
+          "integrity": "pending",
+          "runtime": "webview"
+        },
+        "./ui/desktop": {
+          "integrity": "pending",
+          "runtime": "webview"
+        }
+      }
+    }
+  },
+  "contributions": [
+    {
+      "kind": "ui.surface",
+      "id": "github-notify-dashboard",
+      "apiVersion": 1,
+      "targets": {
+        "desktop": {
+          "expose": "./ui/desktop",
+          "runtime": "webview"
+        }
+      },
+      "publishes": ["surface.mounted", "surface.unmounted"],
+      "authorization": {
+        "allOf": ["network.request", "credentials.use", "credentials.read"],
+        "onDemand": ["navigation.open-external"],
+        "effects": [
+          {
+            "kind": "external-network",
+            "resources": ["https://api.github.com"]
+          },
+          {
+            "kind": "credentials",
+            "resources": ["github", "http"]
+          },
+          {
+            "kind": "storage",
+            "resources": ["github-notify"]
+          },
+          {
+            "kind": "external-navigation",
+            "resources": ["https://github.com"]
+          }
+        ]
+      },
+      "lifecycleScope": "mount",
+      "options": {
+        "displayName": "PR Radar",
+        "description": "Track your open pull requests and see reviews, comments, and conflicts inside TAP.",
+        "placement": "workspace-left",
+        "scope": "workspace",
+        "instancePolicy": "per-workspace",
+        "persistence": "checkpoint",
+        "iconAssets": ["assets/github-notify-light.svg", "assets/github-notify-dark.svg"]
+      }
+    },
+    {
+      "kind": "miniapp",
+      "id": "github-notify",
+      "apiVersion": 1,
+      "options": {
+        "contributionIds": ["github-notify-dashboard"]
+      }
+    },
+    {
+      "kind": "permission.catalog",
+      "id": "github-notify-permissions",
+      "apiVersion": 1,
+      "options": {
+        "actions": [
+          {
+            "id": "network.request",
+            "resource": "tap.network:request",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "credentials.use",
+            "resource": "tap.credentials:use",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "credentials.read",
+            "resource": "tap.credentials:read",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "listen",
+            "consent": "reusable",
+            "risk": "read"
+          },
+          {
+            "id": "navigation.open-external",
+            "resource": "external-navigation",
+            "scopes": ["workspace"],
+            "directActors": ["human"],
+            "delegatedActors": [],
+            "autonomyCeiling": "do",
+            "consent": "reusable",
+            "risk": "consequential"
+          }
+        ],
+        "levels": [
+          {
+            "id": "github-notify-reader",
+            "actions": ["network.request", "credentials.use", "credentials.read"],
+            "assignableTo": ["human"]
+          }
+        ],
+        "roleRecommendations": [
+          {
+            "actor": "human",
+            "workspaceRole": "member",
+            "level": "github-notify-reader"
+          }
+        ]
+      }
+    }
+  ],
+  "events": {
+    "publishes": [
+      {
+        "name": "surface.mounted",
+        "schema": "urn:tap-pkg:theaiplatform-github-notify:event:surface-mounted:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      },
+      {
+        "name": "surface.unmounted",
+        "schema": "urn:tap-pkg:theaiplatform-github-notify:event:surface-unmounted:1",
+        "schemaVersion": 1,
+        "visibility": "workspace",
+        "delivery": "ephemeral"
+      }
+    ]
+  },
+  "lifecycle": {
+    "checkpoint": "checkpoint",
+    "lifecycleExpose": "./tap/lifecycle",
+    "checkpointSchema": "urn:tap-pkg:theaiplatform-github-notify:checkpoint:1"
+  }
+}

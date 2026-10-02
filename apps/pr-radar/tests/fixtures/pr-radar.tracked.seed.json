@@ -1,0 +1,48 @@
+{
+  "storage": [
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "github-notify",
+      "namespace": "github-notify",
+      "key": "settings",
+      "revision": 1,
+      "value": {
+        "version": 1,
+        "repositories": ["zephyrcloudio/tap-miniapp-examples"],
+        "kinds": ["opened"],
+        "pollIntervalSeconds": 900,
+        "auth": { "mode": "tap" }
+      }
+    },
+    {
+      "workspaceId": "tap-fixture-workspace-v1",
+      "packageId": "github-notify",
+      "namespace": "github-notify",
+      "key": "open-pulls",
+      "revision": 1,
+      "value": {
+        "version": 1,
+        "items": [
+          {
+            "repository": "zephyrcloudio/tap-miniapp-examples",
+            "number": 42,
+            "title": "Fixture pull request",
+            "url": "https://github.com/zephyrcloudio/tap-miniapp-examples/pull/42",
+            "author": "tap-fixture-user",
+            "draft": false,
+            "createdAt": "2026-07-24T10:00:00Z",
+            "updatedAt": "2026-07-24T11:00:00Z",
+            "headSha": "fixture-sha-42",
+            "ciStatus": "success",
+            "reviewDecision": "pending",
+            "conflict": "clean",
+            "inMergeQueue": false,
+            "hasBotComment": false,
+            "relations": ["author"],
+            "labels": []
+          }
+        ]
+      }
+    }
+  ]
+}

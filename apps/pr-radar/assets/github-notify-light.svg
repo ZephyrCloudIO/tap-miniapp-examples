@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%"   stop-color="#3370ff"/>
+      <stop offset="100%" stop-color="#0c22bb"/>
+    </linearGradient>
+    <radialGradient id="bg-r" cx="0.38" cy="0.28" r="0.65">
+      <stop offset="0%"   stop-color="#6699ff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0010aa" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ic" x1="0" y1="15" x2="0" y2="53" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="45%"  stop-color="#aae6ff"/>
+      <stop offset="100%" stop-color="#77bbff"/>
+    </linearGradient>
+    <clipPath id="sq">
+      <rect width="64" height="64" rx="13"/>
+    </clipPath>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="rim" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="64" height="64" rx="13" fill="url(#bg)"/>
+  <rect width="64" height="64" rx="13" fill="url(#bg-r)"/>
+
+  <g clip-path="url(#sq)">
+    <path d="M-4 10 Q22 -2 68 16 L68 -4 L-4 -4 Z" fill="rgba(160,200,255,0.18)"/>
+    <path d="M-4 42 Q22 30 68 46 L68 68 L-4 68 Z" fill="rgba(0, 12,110,0.22)"/>
+  </g>
+
+  <rect width="64" height="64" rx="13" fill="none" stroke="#77ccff" stroke-width="1.4" opacity="0.75" filter="url(#rim)"/>
+
+  <g filter="url(#glow)">
+    <circle cx="22" cy="23" r="5.8" fill="none" stroke="url(#ic)" stroke-width="4.4"/>
+    <circle cx="22" cy="44" r="5.8" fill="none" stroke="url(#ic)" stroke-width="4.4"/>
+    <circle cx="42" cy="44" r="5.2" fill="none" stroke="url(#ic)" stroke-width="4.0"/>
+    <line x1="22" y1="28.8" x2="22" y2="38.2" stroke="url(#ic)" stroke-width="4.2" stroke-linecap="round"/>
+    <path d="M27.8 23 L37 23 Q47 23 47 33 L47 38.8"
+          fill="none" stroke="url(#ic)" stroke-width="4.2" stroke-linecap="round"/>
+    <path d="M43 39 L47 44 L51 39"
+          fill="none" stroke="url(#ic)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "incremental": true,
+    "types": ["node", "@rslib/core/types"],
+    "tsBuildInfoFile": ".turbo/typecheck.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts", "rslib.config.ts"],
+  "exclude": ["node_modules", "dist", "build"]
+}
