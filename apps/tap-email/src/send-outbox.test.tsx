@@ -39,8 +39,13 @@ describe('send to Outbox', () => {
     const factory = rs.spyOn(localStore, 'createLocalMailStore').mockReturnValue(store);
     const loadPreferences = rs.spyOn(preferences, 'loadPreferences').mockResolvedValue(seed.preferences);
     const clock = rs.spyOn(Date, 'now');
+    let releaseTransportFailure!: () => void;
+    const transportFailureGate = new Promise<void>(resolve => { releaseTransportFailure = resolve; });
     const submitCommand = rs.fn(async () => {
-      if (mode === 'transport-failed') throw new Error('Mail service unavailable');
+      if (mode === 'transport-failed') {
+        await transportFailureGate;
+        throw new Error('Mail service unavailable');
+      }
       await new Promise(() => {});
     });
     const clientFactory = rs.spyOn(coordinator, 'createCoordinatorClient').mockReturnValue({
@@ -94,6 +99,9 @@ describe('send to Outbox', () => {
       expect(outboxButton).not.toBeNull();
       await act(async () => outboxButton!.click());
       expect(container.querySelector('.outbox-item')?.textContent).toContain('Keep every word of this queued reply.');
+      // Assert the pending state before allowing a transport failure, regardless
+      // of how quickly persistence and dispatch finish on the test runner.
+      releaseTransportFailure();
       await act(async () => new Promise(resolve => setTimeout(resolve, 350)));
       expect(save).toHaveBeenCalled();
       if (mode === 'transport-failed' || mode === 'mailbox-loading') expect(submitCommand).toHaveBeenCalledTimes(1);
