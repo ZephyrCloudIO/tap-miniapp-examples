@@ -22,6 +22,7 @@ import { readMailHistory } from './infinite-mail-history';
 import { MailHistorySentinel } from './mail-history-sentinel';
 import { VirtualThreadGroups } from './virtual-thread-groups';
 import { ConversationReaderDeck } from './conversation-reader-deck';
+import { createConversationDiskReader } from './conversation-disk-reader';
 import { useConversationWarmWindow } from './use-conversation-warm-window';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
@@ -2320,8 +2321,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     };
   }, [hydrated, initialLoadSettled, preview, refreshMailbox, reconcileActivity]);
 
-  const loadCachedThread = useCallback((accountId: string, threadId: string, signal: AbortSignal) =>
-    store.loadThread?.(accountId, threadId, true, signal) ?? Promise.resolve(null), [store]);
+  const loadCachedThread = useMemo(() => createConversationDiskReader(store), [store]);
 
   const readerThreads = useMemo(() => new Map(state.threads.map(item =>
     [JSON.stringify([emailThreadKey(item), item.providerRevision]), item] as const)), [state.threads]);

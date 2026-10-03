@@ -339,6 +339,62 @@ export async function readThread(sql: Sql, accountId: string, threadId: string, 
   return { ...metadata, messages };
 }
 
+/** Restore a reader window with bounded host responses rather than three reads per email. */
+export async function readThreadsWithBodies(sql: Sql, identities: readonly { accountId: string; threadId: string }[],
+  signal?: AbortSignal, onBodyAccess?: (accountId: string, threadId: string, revision: string) => void): Promise<Map<string, EmailThread>> {
+  const threads = await readThreads(sql, identities, signal);
+  for (const [key, thread] of threads) {
+    const { downloadedPage: _marker, ...metadata } = thread;
+    threads.set(key, metadata);
+  }
+  let charge = 0;
+  for (let offset = 0; offset < identities.length; offset += 21) {
+    const batch = identities.slice(offset, offset + 21);
+    signal?.throwIfAborted();
+    const coverage = await sql.query(`SELECT account_id, thread_id, provider_revision, bytes FROM local_mail_bodies
+      WHERE (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})`,
+    batch.flatMap(item => [item.accountId, item.threadId]));
+    const available = new Map(coverage.rows.map(([accountId, threadId, revision, bytes]) =>
+      [emailThreadKey({ accountId: String(accountId), threadId: String(threadId) }), { revision, bytes: Number(bytes) }]));
+    const wanted = batch.filter(identity => {
+      const key = emailThreadKey(identity); const thread = threads.get(key); const cached = available.get(key);
+      if (!thread || !cached || cached.revision !== thread.providerRevision ||
+        !Number.isFinite(cached.bytes) || cached.bytes < 0 || charge + cached.bytes > memoryBodyBudgetBytes) return false;
+      charge += cached.bytes; return true;
+    });
+    if (!wanted.length) continue;
+    const parts = new Map<string, string[]>();
+    let after: MiniAppSqlValue[] = [];
+    while (true) {
+      signal?.throwIfAborted();
+      const result = await sql.query(`SELECT account_id, thread_id, part, payload FROM local_mail_records
+        WHERE kind = 'body' AND entity_id = ''
+        AND (account_id, thread_id) IN (VALUES ${wanted.map(() => '(?, ?)').join(', ')})
+        ${after.length ? 'AND (account_id, thread_id, part) > (?, ?, ?)' : ''}
+        ORDER BY account_id, thread_id, part LIMIT 64`,
+      [...wanted.flatMap(item => [item.accountId, item.threadId]), ...after]);
+      for (const [accountId, threadId, part, payload] of result.rows) {
+        const key = emailThreadKey({ accountId: String(accountId), threadId: String(threadId) });
+        const value = parts.get(key) ?? [];
+        if (part !== value.length || typeof payload !== 'string') throw new Error('Incomplete local mail body.');
+        value.push(payload); parts.set(key, value);
+      }
+      if (result.rows.length < 64) break;
+      after = result.rows.at(-1)!.slice(0, 3);
+    }
+    for (const identity of wanted) {
+      signal?.throwIfAborted();
+      const key = emailThreadKey(identity); const chunks = parts.get(key); const thread = threads.get(key)!;
+      if (!chunks) continue;
+      const body = JSON.parse(chunks.join('')) as EmailThread['messages'] | Pick<EmailThread, 'messages' | 'downloadedPage'>;
+      const { downloadedPage: _marker, ...metadata } = thread;
+      threads.set(key, Array.isArray(body) ? { ...metadata, messages: body } : { ...metadata, ...body });
+      onBodyAccess?.(thread.accountId, thread.threadId, thread.providerRevision);
+    }
+  }
+  return threads;
+}
+
 export interface MailWindowCursor { readonly receivedAt: string; readonly accountId: string; readonly threadId: string }
 export interface MailWindowQuery {
   readonly accountId?: string;

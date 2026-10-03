@@ -27,11 +27,14 @@ export class ConversationWarmWindow {
   private readonly attempted = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private restoring = false;
+  private readonly restored = new Set<string>();
 
   constructor(private readonly ready: (thread: EmailThread) => boolean,
     private readonly prepare: (thread: EmailThread, signal: AbortSignal) => Promise<boolean>,
     private readonly publish: (keys: readonly string[]) => void,
-    private readonly concurrency = 2) {}
+    private readonly concurrency = 2,
+    private readonly restore?: (threads: readonly EmailThread[]) => Promise<unknown>) {}
 
   update(rows: readonly EmailThread[], activeKey: string): void {
     if (this.disposed) return;
@@ -45,12 +48,28 @@ export class ConversationWarmWindow {
     const wanted = new Set([activeKey, ...this.targets.map(conversationReaderKey)]);
     for (const [key, abort] of this.running) if (!wanted.has(key)) abort.abort();
     for (const key of this.attempted) if (!wanted.has(key)) this.attempted.delete(key);
+    for (const key of this.restored) if (!wanted.has(key)) this.restored.delete(key);
     this.publishReady();
+    this.restoreWindow();
     // Movement never resets this timer: rapid keys must not starve preparation.
     if (this.timer === null) this.timer = setTimeout(() => {
       this.timer = null;
       this.pump();
     }, 48);
+  }
+
+  private restoreWindow(): void {
+    if (this.disposed || this.restoring || !this.restore) return;
+    const missing = this.targets.filter(thread => !this.ready(thread) && !this.restored.has(conversationReaderKey(thread)));
+    if (!missing.length) return;
+    for (const thread of missing) this.restored.add(conversationReaderKey(thread));
+    this.restoring = true;
+    void this.restore(missing).catch(() => undefined).finally(() => {
+      this.restoring = false;
+      this.publishReady();
+      this.restoreWindow();
+      this.pump();
+    });
   }
 
   private publishReady(): void {
@@ -83,5 +102,6 @@ export class ConversationWarmWindow {
     for (const abort of this.running.values()) abort.abort();
     this.targets = [];
     this.attempted.clear();
+    this.restored.clear();
   }
 }

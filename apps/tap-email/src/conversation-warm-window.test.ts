@@ -16,6 +16,22 @@ const advance = async (ms: number) => {
 };
 
 describe('moving conversation warm window', () => {
+  it('coalesces movement during a disk restore and restores only the latest window next', async () => {
+    const threads = rows(); let finish!: () => void;
+    const restore = rs.fn((_threads: readonly EmailThread[]) => new Promise<void>(resolve => { finish = resolve; }));
+    const warmer = new ConversationWarmWindow(() => false, async () => false, () => undefined, 2, restore);
+    try {
+      warmer.update(threads, conversationReaderKey(threads[20]!));
+      for (const index of [30, 40, 50]) warmer.update(threads, conversationReaderKey(threads[index]!));
+      expect(restore).toHaveBeenCalledTimes(1);
+      finish(); await flush(); expect(restore).toHaveBeenCalledTimes(2);
+      const batch = restore.mock.calls[1]?.[0] as readonly EmailThread[] | undefined;
+      expect(batch?.map(thread => thread.threadId)).toEqual(conversationWarmWindow(threads, conversationReaderKey(threads[50]!), 1)
+        .map(thread => thread.threadId));
+      warmer.dispose(); finish(); await flush(); expect(restore).toHaveBeenCalledTimes(2);
+    } finally { warmer.dispose(); finish(); await flush(); }
+  });
+
   it('reproduces the former one-neighbor cache falling behind the same sixty-key sequence', async () => {
     rs.useFakeTimers(); const threads = rows(); const cache = new ConversationQueryCache();
     const read = (_account: string, threadId: string) => new Promise<EmailThread>(resolve => {
