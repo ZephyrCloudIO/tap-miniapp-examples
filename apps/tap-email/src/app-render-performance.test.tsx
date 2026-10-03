@@ -11,6 +11,10 @@ import * as dates from './thread-list-dates';
 
 describe('warm keyboard navigation render work', () => {
   it('reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves', async () => {
+    // A minute-boundary summary update is real work, independent of navigation.
+    // Control time and explicitly exercise neighbor preparation during this test.
+    rs.useFakeTimers();
+    rs.setSystemTime(new Date('2026-10-03T12:00:00Z'));
     const seed = domain.previewMailState();
     const threads = seed.threads.map(thread => ({ ...thread, unread: false, downloadedPage: {
       providerRevision: thread.providerRevision, nextCursor: null, complete: true,
@@ -31,6 +35,7 @@ describe('warm keyboard navigation render work', () => {
     Element.prototype.scrollIntoView = () => {};
     try {
       await act(async () => root.render(<TapEmailApp preview />));
+      await act(async () => rs.advanceTimersByTime(48));
       const app = container.querySelector<HTMLElement>('.tap-email')!;
       app.focus();
       const initial = container.querySelector('.mail-row.is-selected .mail-subject')?.textContent;
@@ -39,6 +44,7 @@ describe('warm keyboard navigation render work', () => {
         await act(async () => app.dispatchEvent(new KeyboardEvent('keydown', {
           key: index % 2 ? 'k' : 'j', bubbles: true,
         })));
+        await act(async () => rs.advanceTimersByTime(48));
         const selected = container.querySelector('.mail-row.is-selected .mail-subject')?.textContent;
         if (index % 2) expect(selected).toBe(initial);
         else expect(selected).not.toBe(initial);
@@ -62,6 +68,7 @@ describe('warm keyboard navigation render work', () => {
       await act(async () => root.unmount()); container.remove();
       Element.prototype.scrollIntoView = scroll;
       rs.restoreAllMocks();
+      rs.useRealTimers();
     }
   });
 });

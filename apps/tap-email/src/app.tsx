@@ -75,6 +75,7 @@ import {
   defaultPreferences,
   emptyMailState,
   emailThreadKey,
+  isDownloadedThreadPage,
   composeMessage,
   cancelScheduledMessage,
   correctThreadAttention,
@@ -2348,7 +2349,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     const timer = window.setTimeout(() => {
       void Promise.all(neighbors.map(async item => {
         try {
-          const candidate = preview ? { ...item, downloadedPage: {
+          const candidate = preview && !isDownloadedThreadPage(item.downloadedPage) ? { ...item, downloadedPage: {
             providerRevision: item.providerRevision, nextCursor: null, complete: true, windowed: false, seenCursors: [],
           } } : item;
           const prepared = await prepareConversation(conversationCache, candidate, loadCachedThread,
