@@ -54,3 +54,11 @@ The installed 1.0.0 app's reported several-hundred-millisecond click delay has *
 Build `rsbuild.reader-benchmark.config.ts` from `apps/tap-email`, serve `dist-reader-after`, open `/` for the warm-reader fixture and `/scroll.html` for the 1,000-email fixture. Alternate j/k in the labeled input and read the visible measurements. Use the scroll fixture's button to scroll to the loaded bottom repeatedly.
 
 For the before measurement, use the 1.0.0 base sources and the same synthetic reader fixture, replacing the deck with a single `ThreadMessageList` keyed by the selected index and checking the single iframe for readiness. The immutable before-build directory was measured before the changes; it is a local build artifact, not part of the released miniapp. Do not interpret these ten-input samples as production latency percentiles.
+
+## Follow-up: reader panel height
+
+Host-guarded static HTML used an opaque-frame fallback capped at 480 px. This left unused reader space below long emails. The fallback now fills the available reader height below the message header and controls, with the normal bottom padding. A ResizeObserver follows the reader panel, including size changes without a window resize. Readable documents retain content-based sizing; frame sandbox and network policy are unchanged.
+
+Two follow-up review passes checked measurement and lifecycle. Scrolling is normalized out of the top inset to avoid a height feedback loop; mail below the initial viewport keeps a usable native scroller. The opaque observer ignores unchanged panel dimensions and disconnects on cleanup. Regression tests cover tall/short panels, scrolling, host guards, and panel-only resize events.
+
+Chrome's `/panel.html` fixture simulates the TAP document-access guard using public synthetic mail. In a 1,000 px panel, the reader was 956 px and the email frame was 857 px. Resizing the same panel to 560 px changed the reader to 516 px and the frame to 417 px. In both cases the remaining gap was 22.23 px, matching the normal 22 px bottom padding (plus fractional layout rounding). This validates the fallback in a browser; installation validation remains pending.

@@ -53,7 +53,10 @@ describe('rich-message late layout measurement', () => {
   it('keeps a host-guarded message usable and replaces its frame when the document changes', async () => {
     const container = document.createElement('div');
     container.className = 'message-body';
-    Object.defineProperty(container, 'clientHeight', { value: 640 });
+    let panelHeight = 640;
+    Object.defineProperty(container, 'clientHeight', { get: () => panelHeight });
+    Object.defineProperty(container, 'getBoundingClientRect', { value: () => ({ top: 100 }) });
+    container.style.paddingBottom = '20px';
     document.body.append(container);
     const root = createRoot(container);
     const errors: unknown[] = [];
@@ -66,9 +69,19 @@ describe('rich-message late layout measurement', () => {
       Object.defineProperty(frame, 'contentDocument', { get: denied });
       Object.defineProperty(frame, 'contentWindow', { get: denied });
       Object.defineProperty(frame, 'srcdoc', { set: denied });
+      Object.defineProperty(frame, 'getBoundingClientRect', { value: () => ({ top: 180 - container.scrollTop }) });
       await act(async () => { frame.dispatchEvent(new Event('load')); });
       expect(errors).toEqual([]);
-      expect(frame.style.height).toBe('480px');
+      expect(frame.style.height).toBe('540px'); // Panel minus header/controls and bottom padding.
+      panelHeight = 1000;
+      await act(async () => { window.dispatchEvent(new Event('resize')); await new Promise(resolve => setTimeout(resolve, 1)); });
+      expect(frame.style.height).toBe('900px');
+      container.scrollTop = 200;
+      await act(async () => { window.dispatchEvent(new Event('resize')); await new Promise(resolve => setTimeout(resolve, 1)); });
+      expect(frame.style.height).toBe('900px'); // Scrolling must not feed back into height.
+      panelHeight = 350;
+      await act(async () => { window.dispatchEvent(new Event('resize')); await new Promise(resolve => setTimeout(resolve, 1)); });
+      expect(frame.style.height).toBe('250px');
       expect(frame.getAttribute('sandbox')).toBe('allow-same-origin');
       expect(frame.getAttribute('srcdoc')).toContain("script-src 'none'");
       await act(async () => root.render(<RichMessageBody html="<p>Updated</p>" title="Rich email" />));

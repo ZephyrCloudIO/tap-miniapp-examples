@@ -767,10 +767,18 @@ const opaqueFrameHeight = 480;
 function measuredFrameHeight(frame: HTMLIFrameElement): number {
   const document = readableFrameDocument(frame);
   // Opaque documents retain native scrolling without relaxing their sandbox.
-  if (!document) return Math.min(opaqueFrameHeight, Math.max(
-    minimumFrameHeight,
-    frame.closest<HTMLElement>('.message-body')?.clientHeight || opaqueFrameHeight,
-  ));
+  if (!document) {
+    const reader = frame.closest<HTMLElement>('.message-body');
+    if (!reader?.clientHeight) return opaqueFrameHeight;
+    // Fit the visible reader below this frame's header/controls. Normalize out
+    // scrolling so scrolling the outer reader cannot grow the iframe repeatedly.
+    const inset = Math.max(0, frame.getBoundingClientRect().top - reader.getBoundingClientRect().top + reader.scrollTop);
+    const bottomPadding = parseFloat(reader.ownerDocument.defaultView?.getComputedStyle(reader).paddingBottom ?? '') || 0;
+    const available = reader.clientHeight - inset - bottomPadding;
+    // A message below the initial viewport still needs a usable native scroller.
+    return Math.min(maximumFrameHeight, Math.max(minimumFrameHeight,
+      available > 0 ? available : reader.clientHeight - bottomPadding));
+  }
   // Root scrollHeight is at least the current viewport height. Clear that floor
   // while measuring so hiding quotes or widening the reader can shrink a frame.
   // Restore synchronously; React commits the measured height before paint.
