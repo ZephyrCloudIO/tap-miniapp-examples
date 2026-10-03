@@ -632,6 +632,7 @@ export function mailStateWithoutAccount(
         ? null
         : state.selectedThreadKey,
     commands: state.commands.filter(command => commandForOtherAccount(command, accountId)),
+    calendarResponses: state.calendarResponses?.filter(record => record.command.accountId !== accountId),
     pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(
       intent => intent.accountId !== accountId,
     ),

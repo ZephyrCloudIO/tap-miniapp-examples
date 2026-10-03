@@ -94,6 +94,17 @@ describe('attachment content route', () => {
     ).run()).rejects.toThrow();
   });
 
+  it('negotiates binary SDK transport without dropping calendar MIME metadata', async () => {
+    await env.DB.prepare("UPDATE mail_attachments SET mime_type = 'text/calendar', file_name = 'invite.ics' WHERE resource_id = 'resource_1'").run();
+    vi.spyOn(globalThis,'fetch').mockResolvedValue(Response.json({size:3,data:encodedBytes([0,128,255])}));
+    const worker = createTapEmailCoordinator({verifyAccess:async()=>({profileId:'profile_1'}),now:()=>now});
+    const response = await worker.fetch(new Request(route,{headers:{Origin:'http://localhost:3000',Accept:'application/octet-stream'}}),env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(response.headers.get('X-TAP-Attachment-Type')).toBe('text/calendar');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0,128,255]));
+  });
+
   it('authorizes the tuple and returns bounded binary bytes with safe headers', async () => {
     const verifyAccess = vi.fn(async () => ({ profileId: 'profile_1' }));
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {

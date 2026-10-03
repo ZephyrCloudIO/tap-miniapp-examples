@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, rs } from '@rstest/core';
 import { ConversationReaderDeck } from './conversation-reader-deck';
+import { ThreadMessageList } from './thread-messages';
 import { RichMessageBody } from './rich-message';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,6 +26,31 @@ describe('bounded retained HTML readers', () => {
       expect(container.textContent).toBe('B');
     } finally { await act(async () => root.unmount()); container.remove(); }
   });
+  it('preserves a conversation frame and manual position when mark-read changes its cache revision', async () => {
+    const container = document.createElement('div'); container.className = 'message-body'; document.body.append(container);
+    const root = createRoot(container);
+    const messages = [{ messageId: 'message', from: {name:'Sender',address:'sender@example.com'}, to: [],
+      sentAt: '2026-10-03T16:00:00Z', bodyText:'Hello', bodyHtml:'<p>Hello</p>' }];
+    const identity = (key: string) => key.split(':')[0]!;
+    const render = (revision: string) => <ConversationReaderDeck activeKey={`thread:${revision}`}
+      identity={identity} canRetain={key => key.endsWith(revision)}>
+      {(_key, active) => <ThreadMessageList key="account-thread" active={active} accountId="account" threadId="thread"
+        providerRevision={revision} messages={messages} appTheme="dark" imagesEnabled={false} scriptsEnabled={false}
+        attachmentExportSupported={false} loadAttachment={null} loadRemoteImages={async () => ({})}
+        onKeyDown={() => {}} saveAttachment={async () => 'saved'} trackingPixelsEnabled={false} />}
+    </ConversationReaderDeck>;
+    try {
+      await act(async () => root.render(render('r1')));
+      const frame = container.querySelector('iframe');
+      container.dispatchEvent(new WheelEvent('wheel'));
+      container.scrollTop = 425;
+      await act(async () => root.render(render('r2')));
+      expect(container.querySelector('iframe')).toBe(frame);
+      expect(container.scrollTop).toBe(425);
+      expect(container.querySelectorAll('[data-reader-active]')).toHaveLength(1);
+    } finally { await act(async () => root.unmount()); container.remove(); }
+  });
+
   it('reuses the same iframe and performs no parsing across ten warm switches', async () => {
     const container = document.createElement('div'); document.body.append(container);
     const root = createRoot(container);

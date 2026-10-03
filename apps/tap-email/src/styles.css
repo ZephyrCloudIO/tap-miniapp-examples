@@ -993,6 +993,7 @@ kbd {
 .mail-history-status { min-height: 32px; display: flex; align-items: center; justify-content: center; padding: 6px 12px; color: var(--mail-muted); font-size: 11px; }
 .mail-history-status button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
 .conversation-deck { position: relative; }
+.message-body { overflow-anchor: none; }
 .conversation-deck > [aria-hidden="true"] { position: absolute; top: 0; left: 0; width: 100%; visibility: hidden; pointer-events: none; }
 .booking-links-picker {
   width: min(440px, calc(100vw - 48px));
@@ -1016,3 +1017,29 @@ kbd {
 .body-coverage-account { padding-block: 12px; border-top: 1px solid var(--mail-border); overflow-wrap: anywhere; }
 .body-coverage-account button { margin-inline-end: 8px; margin-block-end: 8px; }
 .body-coverage-account small { display: block; }
+
+.calendar-invitation { margin: 16px 24px 24px; border: 1px solid var(--mail-border); border-radius: 12px; overflow: hidden; background: var(--mail-panel); }
+.calendar-invitation-banner { padding: 24px; background: linear-gradient(135deg, color-mix(in srgb, var(--mail-accent) 22%, transparent), color-mix(in srgb, var(--mail-accent) 6%, transparent)); }
+.calendar-invitation-banner > svg { display: block; width: 32px; height: 32px; margin: 20px 0 12px; color: var(--mail-accent); }
+.calendar-invitation-banner h3 { margin: 0; font-size: 1.3rem; line-height: 1.4; }
+.calendar-invitation-status { display: inline-block; padding: 5px 10px; border-radius: 6px; background: var(--mail-panel); font-size: .85rem; font-weight: 600; }
+.calendar-invitation-content { padding: 24px; }
+.calendar-invitation dl { margin: 0; display: grid; gap: 18px; }
+.calendar-invitation dl > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 16px; }
+.calendar-invitation dt { font-weight: 600; color: var(--mail-muted); }
+.calendar-invitation dd { margin: 0; overflow-wrap: anywhere; }
+.calendar-description, .calendar-response-note { white-space: pre-wrap; }
+.calendar-invitation a { color: var(--mail-accent); text-decoration: underline; }
+.calendar-rsvp { margin-top: 24px; border-top: 1px solid var(--mail-border); padding-top: 16px; }
+.calendar-rsvp p, .calendar-response-unavailable { font-size: .9rem; color: var(--mail-muted); }
+.calendar-rsvp [role='group'] { display: flex; gap: 10px; flex-wrap: wrap; }
+.calendar-rsvp button, .calendar-load-status button { background: var(--mail-panel-raised); border: 1px solid var(--mail-border); color: inherit; border-radius: 8px; padding: 8px 18px; min-height: 44px; cursor: pointer; }
+.calendar-rsvp button[aria-pressed='true'] { border-color: var(--mail-accent); color: var(--mail-accent); }
+.calendar-rsvp button:disabled { opacity: .5; cursor: default; }
+.calendar-rsvp button:focus-visible, .calendar-load-status button:focus-visible { outline: 2px solid var(--mail-accent); outline-offset: 3px; }
+.calendar-load-status { margin: 16px 24px; color: var(--mail-muted); }
+@media (max-width: 640px) {
+  .calendar-invitation { margin: 12px 0 16px; }
+  .calendar-invitation-banner, .calendar-invitation-content { padding: 16px; }
+  .calendar-invitation dl > div { grid-template-columns: 80px minmax(0,1fr); gap: 10px; }
+}

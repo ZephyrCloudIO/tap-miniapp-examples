@@ -7,6 +7,7 @@ import { createTapEmailLiveMcpHandler } from './mcp';
 import {
   isCancelScheduledSendPayload,
   isMailDraftPayload,
+  isCalendarRsvpPayload,
   isMailSenderContext,
   isMailSchedulePayload,
   isSafeMailIdentifier,
@@ -30,7 +31,7 @@ import {
   type ProviderExecutionResult,
   type ProviderScope,
 } from './provider';
-import { createGoogleProvider, GoogleApiError } from './google';
+import { createGoogleProvider, calendarDraftKey, GoogleApiError } from './google';
 import {
   attachmentContent,
   AttachmentContentError,
@@ -587,13 +588,13 @@ async function submitCommand(
     );
   }
 
-  const expected = isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined;
+  const expected = isMailDraftPayload(command.payload) || isCalendarRsvpPayload(command.payload) ? command.payload.expectedContext : undefined;
   const sender = expected ? await verifySender(request, env, identity, expected) : null;
   if (sender) await bindSenderProfile(env, identity, sender, now);
   // New sends must carry their captured identity; accepted legacy commands can
   // still reconcile under their original durable intent.
   const developmentIdentity = env.ALLOW_DEV_IDENTITY === 'true' && !env.TAP_INTROSPECTION_URL;
-  if ((command.kind === 'send_draft' || command.kind === 'schedule_send') && !expected && !developmentIdentity) {
+  if ((command.kind === 'send_draft' || command.kind === 'schedule_send' || command.kind === 'calendar_rsvp') && !expected && !developmentIdentity) {
     throw new ApiError(400, 'sender_context_required', 'Update TAP Email and send from an active workspace.');
   }
 
@@ -1264,7 +1265,8 @@ async function executeCancelScheduledSend(
   return { outcome: 'uncertain', errorCode: 'schedule_already_dispatching' };
 }
 
-function providerDraftMutationKey(command: MailCommand): string | null {
+async function providerDraftMutationKey(command: MailCommand): Promise<string | null> {
+  if (command.kind === 'calendar_rsvp') return calendarDraftKey(command.commandId);
   if (
     command.kind !== 'save_draft' &&
     command.kind !== 'send_draft' &&
@@ -1373,7 +1375,7 @@ async function processQueueMessage(
   try {
     let scope: ProviderScope = { profileId: leased.profile_id, accountId: leased.account_id };
     const command = await decodeCommand(env, leased);
-    const draftKey = providerDraftMutationKey(command);
+    const draftKey = await providerDraftMutationKey(command);
     if (draftKey) {
       const acquired = await acquireProviderDraftLease(
         env,
@@ -1525,7 +1527,7 @@ async function reconcileUncertainSend(
       if (!invalid) throw new ApiError(500, 'command_store_failed', 'Command was not stored.');
       return receipt(invalid);
     }
-    const draftKey = providerDraftMutationKey(command);
+    const draftKey = await providerDraftMutationKey(command);
     if (!draftKey) {
       await applyProviderResult(
         env,
@@ -2431,7 +2433,7 @@ export function createTapEmailCoordinator(
             now(),
           );
           const headers = new Headers(cors);
-          headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
+          headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, X-TAP-Attachment-Type');
           headers.set('Cache-Control', 'private, no-store');
           headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
           headers.set('Content-Disposition', contentDisposition(
@@ -2439,7 +2441,11 @@ export function createTapEmailCoordinator(
             attachment.fileName,
           ));
           headers.set('Content-Length', String(attachment.bytes.byteLength));
-          headers.set('Content-Type', attachment.mimeType);
+          // The SDK classifies text/calendar as a text response. Negotiating
+          // octet-stream preserves every byte for local parsing and file export.
+          const binary = request.headers.get('Accept') === 'application/octet-stream';
+          headers.set('Content-Type', binary ? 'application/octet-stream' : attachment.mimeType);
+          if (binary) headers.set('X-TAP-Attachment-Type', attachment.mimeType);
           headers.set('X-Content-Type-Options', 'nosniff');
           return new Response(attachment.bytes, { status: 200, headers });
         }

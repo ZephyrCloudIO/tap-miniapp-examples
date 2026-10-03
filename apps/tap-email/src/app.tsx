@@ -1,3 +1,5 @@
+import { calendarResponseKey, calendarResponseStates, type CalendarReaderServices } from './calendar-invitation';
+import { isCalendarRsvpPayload, TAP_EMAIL_PROTOCOL_VERSION } from '@tap-examples/tap-email-protocol';
 import { useMinuteClock } from './use-minute-clock';
 import { useMailboxCounts } from './use-mailbox-counts';
 import { countLabel } from './mailbox-counts';
@@ -24,6 +26,7 @@ import { readMailHistory } from './infinite-mail-history';
 import { MailHistorySentinel } from './mail-history-sentinel';
 import { VirtualThreadGroups } from './virtual-thread-groups';
 import { ConversationReaderDeck } from './conversation-reader-deck';
+import { conversationReaderIdentity } from './conversation-warm-window';
 import { createConversationDiskReader } from './conversation-disk-reader';
 import { useConversationWarmWindow } from './use-conversation-warm-window';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
@@ -1094,6 +1097,28 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     }
     return downloaded;
   }, [coordinatorNetworkReady, store]);
+
+  const respondToCalendar = useCallback<CalendarReaderServices['respond']>((context, payload) => {
+    if (preview || !surfaceContext?.userId || !surfaceContext.workspaceId || !isScopeCurrent()) return;
+    const commandId = idFactory();
+    const createdAt = new Date().toISOString();
+    setState(current => {
+      const previous = calendarResponseStates(current).get(calendarResponseKey(context.accountId, payload.messageId, payload.resourceId, payload.eventKey));
+      if (previous === 'pending' || (typeof previous === 'object' && previous.receipt.state === 'uncertain') ||
+          !current.accounts.some(account => account.accountId === context.accountId)) return current;
+      const command = {
+        v: TAP_EMAIL_PROTOCOL_VERSION, commandId, idempotencyKey: `tap-email:calendar:${commandId}`,
+        accountId: context.accountId, threadId: context.threadId, kind: 'calendar_rsvp' as const,
+        createdAt, expectedProviderRevision: context.providerRevision,
+        payload: { ...payload, expectedContext: { userId: surfaceContext.userId, workspaceId: surfaceContext.workspaceId } },
+      };
+      return { ...current, commands: [...current.commands, command] };
+    });
+  }, [preview, surfaceContext?.userId, surfaceContext?.workspaceId, isScopeCurrent]);
+  const calendarAddresses = useMemo(() => new Map(state.accounts.map(account => [account.accountId, account.address])), [state.accounts]);
+  const calendarResponses = useMemo(() => calendarResponseStates(state), [state.commands, state.calendarResponses]);
+  const calendar = useMemo<CalendarReaderServices>(() => ({ cache: conversationCache, addresses: calendarAddresses,
+    responses: calendarResponses, respond: respondToCalendar }), [conversationCache, calendarAddresses, calendarResponses, respondToCalendar]);
 
   const saveMessageAttachment = useCallback<ContextualAttachmentSaver>(async (
     context: AttachmentMessageContext,
@@ -2346,7 +2371,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     let wakeAt: number | null = null;
     for (const command of state.commands) {
       if (submittedCommands.current.has(command.commandId)) continue;
-      const expectedContext = isMailDraftPayload(command.payload) ? command.payload.expectedContext : undefined;
+      const expectedContext = isMailDraftPayload(command.payload) || isCalendarRsvpPayload(command.payload) ? command.payload.expectedContext : undefined;
       if (expectedContext && (expectedContext.userId !== surfaceContext?.userId || expectedContext.workspaceId !== surfaceContext?.workspaceId)) {
         if (!contextBlockedCommands.current.has(command.commandId)) {
           flash('Queued email is waiting for its original TAP user and workspace.');
@@ -3571,11 +3596,12 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
               </header>
               <div className="reader-workspace">
                 <div className="message-body">
-                  <ConversationReaderDeck activeKey={activeReaderKey} warmKeys={warmReaderKeys} canRetain={canRetainReader} cost={readerCost}>
+                  <ConversationReaderDeck activeKey={activeReaderKey} warmKeys={warmReaderKeys} canRetain={canRetainReader} cost={readerCost} identity={conversationReaderIdentity}>
                     {(readerKey, active) => {
                       const readerThread = readerThreads.get(readerKey);
                       if (!readerThread) return null;
                       return <PagedThreadMessages
+                        calendar={calendar}
                         active={active}
                         mobile={nativeHeader}
                         client={!preview && initialLoadSettled && coordinatorNetworkReady ? coordinatorRef.current : null}
@@ -3591,12 +3617,13 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
                         htmlEnabled={state.preferences.htmlEnabled !== false}
                         scriptsEnabled={state.preferences.scriptsEnabled !== false}
                         imagesEnabled={state.preferences.imagesEnabled}
-                        key={readerKey}
+                        key={emailThreadKey(readerThread)}
                         loadAttachment={preview ? null : loadMessageAttachment}
                         loadRemoteImages={loadRemoteImages}
                         messages={readerThread.messages}
                         outgoingMessages={active ? outgoingMessages : undefined}
                         unread={readerThread.unread}
+                        firstUnreadMessageId={readerThread.firstUnreadMessageId}
                         onKeyDown={dispatchShortcut}
                         saveAttachment={saveMessageAttachment}
                         threadId={readerThread.threadId}

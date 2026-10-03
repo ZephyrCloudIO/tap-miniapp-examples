@@ -58,6 +58,7 @@ export interface TapEmailReminder {
 }
 
 export type MailCommandKind =
+  | 'calendar_rsvp'
   | 'archive'
   | 'mark_read'
   | 'mark_unread'
@@ -71,6 +72,22 @@ export type MailCommandKind =
   | 'cancel_scheduled_send'
   | 'create_reminder'
   | 'cancel_reminder';
+
+export interface CalendarRsvpPayload extends Readonly<Record<string, unknown>> {
+  readonly messageId: string;
+  readonly resourceId: string;
+  readonly eventKey: string;
+  readonly response: 'accepted' | 'declined' | 'tentative';
+  readonly expectedContext: MailSenderContext;
+}
+
+export function isCalendarRsvpPayload(value: unknown): value is CalendarRsvpPayload {
+  return isRecord(value) && isSafeMailIdentifier(value.messageId) &&
+    isSafeMailIdentifier(value.resourceId) && isBoundedString(value.eventKey, 4096) &&
+    value.eventKey.length > 0 && typeof value.response === 'string' &&
+    ['accepted', 'declined', 'tentative'].includes(value.response) &&
+    isMailSenderContext(value.expectedContext);
+}
 
 export type MailCommandState =
   | 'local_pending'
@@ -312,6 +329,7 @@ export interface MailAttachmentDescriptor {
 }
 
 export interface MailMessageMetadata extends EmailMessageRef {
+  readonly unread?: boolean;
   readonly internetMessageId: string | null;
   readonly from: MailParticipant;
   readonly to: readonly MailParticipant[];
@@ -792,12 +810,14 @@ export function isMailCommand(value: unknown): value is MailCommand {
     (candidate.kind !== 'schedule_send' ||
       (isMailSchedulePayload(candidate.payload) &&
         Date.parse(candidate.payload.scheduledFor) > Date.parse(candidate.createdAt as string))) &&
+    (candidate.kind !== 'calendar_rsvp' || (candidate.threadId !== null && candidate.expectedProviderRevision !== null && isCalendarRsvpPayload(candidate.payload))) &&
     (candidate.kind !== 'cancel_scheduled_send' ||
       isCancelScheduledSendPayload(candidate.payload))
   );
 }
 
 const commandKinds = new Set<MailCommandKind>([
+  'calendar_rsvp',
   'archive',
   'mark_read',
   'mark_unread',

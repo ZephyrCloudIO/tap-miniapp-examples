@@ -6,6 +6,7 @@ import { decodeBase64Url, sealSecret, sha256BytesBase64Url } from '../src/crypto
 import {
   accessTokenFor,
   createGoogleProvider,
+  calendarDraftKey,
   googleAttachmentBytes,
   googleJson,
   maximumGoogleAttachmentBytes,
@@ -912,5 +913,248 @@ describe('send-linked follow-up reminders', () => {
     expect((await provider.execute(scope, command({ kind: 'save_draft', payload: incomplete }))).outcome).toBe('acknowledged');
     expect((await provider.execute(scope, command({ kind: 'send_draft', payload: incomplete }))).outcome).toBe('failed');
     expect((await env.DB.prepare('SELECT * FROM tap_reminders').all()).results).toEqual([]);
+  });
+});
+
+describe('calendar RSVP provider execution', () => {
+  const invitation = (method = 'REQUEST', address = 'zack@example.com') =>
+    `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:${method}\r\nBEGIN:VEVENT\r\nUID:meeting@example.com\r\nSEQUENCE:2\r\nDTSTART:20261005T220000Z\r\nDTEND:20261005T230000Z\r\nSUMMARY:Account review\r\nORGANIZER:mailto:host@example.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:${address}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
+  async function setup(source = invitation()) {
+    const body = await sealSecret('', encryptionKey);
+    const locator = await sealSecret('calendar_locator', encryptionKey);
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO mail_threads
+        (profile_id, account_id, thread_id, history_id, subject, snippet, participants_json,
+         received_at, unread, starred, important, in_inbox, needs_response, waiting_on_others, label_ids_json, updated_at)
+        VALUES ('profile_1','google_1','thread_1','history_9','Invite','','[]',?,1,0,0,1,1,0,'["INBOX"]',?)`,
+      ).bind(now.toISOString(), now.toISOString()),
+      env.DB.prepare(
+        `INSERT INTO mail_messages
+        (profile_id,account_id,thread_id,message_id,internet_message_id,sender_json,recipients_json,
+         sent_at,body_text_ciphertext,body_html_ciphertext,ordinal,updated_at)
+        VALUES ('profile_1','google_1','thread_1','msg_1',NULL,'{"address":"host@example.com","name":"Host"}','[]',?,?,?,0,?)`,
+      ).bind(now.toISOString(), body, body, now.toISOString()),
+      env.DB.prepare(
+        `INSERT INTO mail_attachments
+        (profile_id,account_id,thread_id,message_id,resource_id,file_name,mime_type,size_bytes,disposition,
+         content_id,gmail_part_path,gmail_attachment_id_ciphertext,updated_at)
+        VALUES ('profile_1','google_1','thread_1','msg_1','resource_1','invite.ics','text/calendar',?,'attachment',NULL,'id:2',?,?)`,
+      ).bind(
+        new TextEncoder().encode(source).length,
+        locator,
+        now.toISOString(),
+      ),
+    ]);
+    const { calendarEventKey, parseCalendarInvitations } =
+      await import('@tap-examples/tap-email-protocol/calendar');
+    return command({
+      kind: 'calendar_rsvp',
+      payload: {
+        messageId: 'msg_1',
+        resourceId: 'resource_1',
+        eventKey: calendarEventKey(parseCalendarInvitations(source)[0]!),
+        response: 'accepted',
+        expectedContext: { userId: 'user_1', workspaceId: 'workspace_1' },
+      },
+    });
+  }
+  function providerFetch(
+    source: string,
+    options: {
+      history?: string;
+      messages?: string[];
+      sendStatus?: number;
+    } = {},
+  ) {
+    const drafts: string[] = [];
+    let sends = 0;
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(
+          input instanceof Request ? input.url : String(input),
+        );
+        if (url.pathname === '/gmail/v1/users/me/messages')
+          return Response.json({ messages: [] });
+        if (url.pathname === '/gmail/v1/users/me/threads/thread_1')
+          return Response.json({
+            id: 'thread_1',
+            historyId: options.history ?? 'history_9',
+            messages: (options.messages ?? ['msg_1']).map((id) => ({ id })),
+          });
+        if (url.pathname.endsWith('/attachments/calendar_locator'))
+          return Response.json({
+            size: new TextEncoder().encode(source).length,
+            data: encodedBytes([...new TextEncoder().encode(source)]),
+          });
+        if (
+          url.pathname === '/gmail/v1/users/me/drafts' &&
+          init?.method === 'POST'
+        ) {
+          const draft = JSON.parse(String(init.body)) as {
+            message: { raw: string };
+          };
+          drafts.push(decodeBase64Url(draft.message.raw, 1024 * 1024));
+          return Response.json({
+            id: 'draft_calendar',
+            message: { id: 'draft_msg', threadId: 'thread_1' },
+          });
+        }
+        if (url.pathname === '/gmail/v1/users/me/drafts')
+          return Response.json({ drafts: [] });
+        if (url.pathname === '/gmail/v1/users/me/drafts/send') {
+          sends++;
+          if (options.sendStatus)
+            return Response.json(
+              { error: { message: 'Unavailable' } },
+              { status: options.sendStatus },
+            );
+          return Response.json({
+            id: 'sent_calendar',
+            threadId: 'thread_1',
+            historyId: 'history_10',
+          });
+        }
+        throw new Error(`Unexpected calendar request: ${url.pathname}`);
+      });
+    return { fetch, drafts, sends: () => sends };
+  }
+  it('derives bounded, stable draft identities for arbitrary protocol command IDs', async () => {
+    const id = 'command_'.padEnd(256, 'a');
+    const key = await calendarDraftKey(id);
+    expect(key).toMatch(/^calendar_[A-Za-z0-9_-]{43}$/u);
+    expect(await calendarDraftKey(id)).toBe(key);
+    expect(await calendarDraftKey(id.slice(0,-1)+'b')).not.toBe(key);
+  });
+  it.each(['accepted', 'declined', 'tentative'] as const)(
+    'sends one valid %s iTIP reply to the server-resolved organizer and checkpoints replay',
+    async (response) => {
+      const source = invitation();
+      const original = await setup(source);
+      const request = {
+        ...original,
+        payload: { ...original.payload, response, to: 'attacker@example.com' },
+      };
+      const mock = providerFetch(source);
+      const provider = createGoogleProvider(env, () => now);
+      expect(await provider.execute(scope, request)).toMatchObject({
+        outcome: 'acknowledged',
+        providerRevision: 'history_10',
+      });
+      expect(mock.sends()).toBe(1);
+      const message = await PostalMime.parse(mock.drafts[0]!);
+      expect(message.to?.map((person) => person.address)).toEqual([
+        'host@example.com',
+      ]);
+      expect(message.subject).toContain('Account review');
+      const calendar = message.attachments.find(
+        (part) => part.mimeType === 'text/calendar',
+      );
+      expect(calendar).toBeDefined();
+      const { parseCalendarInvitations } =
+        await import('@tap-examples/tap-email-protocol/calendar');
+      const event = parseCalendarInvitations(
+        new TextDecoder().decode(calendar!.content as ArrayBuffer),
+      )[0]!;
+      expect(event.method).toBe('REPLY');
+      expect(event.attendees).toEqual([
+        {
+          address: 'zack@example.com',
+          name: '',
+          status: response.toUpperCase(),
+        },
+      ]);
+      mock.fetch.mockClear();
+      expect(await provider.execute(scope, request)).toMatchObject({
+        outcome: 'acknowledged',
+      });
+      expect(mock.sends()).toBe(1);
+      expect(mock.fetch).not.toHaveBeenCalled();
+    },
+  );
+  it('bounds an international RSVP subject without breaking MIME header lines', async () => {
+    const source = invitation().replace('Account review', '🙂'.repeat(300));
+    const request = await setup(source); const mock = providerFetch(source);
+    expect(await createGoogleProvider(env,()=>now).execute(scope,request)).toMatchObject({outcome:'acknowledged'});
+    const header = mock.drafts[0]!.split('\r\n\r\n')[0]!;
+    for (const line of header.split('\r\n')) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(998);
+    expect((await PostalMime.parse(mock.drafts[0]!)).subject).toContain('🙂');
+  });
+  it('allows the label-only history change from opening an unread invite', async () => {
+    const source = invitation();
+    const request = await setup(source);
+    const mock = providerFetch(source, { history: 'history_10' });
+    expect(
+      await createGoogleProvider(env, () => now).execute(scope, request),
+    ).toMatchObject({ outcome: 'acknowledged' });
+    expect(mock.sends()).toBe(1);
+  });
+  it('rejects newly arrived messages before creating or sending a reply', async () => {
+    const source = invitation();
+    const request = await setup(source);
+    const mock = providerFetch(source, {
+      history: 'history_11',
+      messages: ['msg_1', 'new_invite'],
+    });
+    expect(
+      await createGoogleProvider(env, () => now).execute(scope, request),
+    ).toEqual({ outcome: 'failed', errorCode: 'provider_revision_conflict' });
+    expect(mock.drafts).toHaveLength(0);
+    expect(mock.sends()).toBe(0);
+  });
+  it.each([
+    ['REPLY', 'zack@example.com'],
+    ['CANCEL', 'zack@example.com'],
+    ['REQUEST', 'other@example.com'],
+  ])('rejects %s for %s without a send', async (method, address) => {
+    const source = invitation(method, address);
+    const request = await setup(source);
+    const mock = providerFetch(source);
+    expect(
+      await createGoogleProvider(env, () => now).execute(scope, request),
+    ).toEqual({
+      outcome: 'failed',
+      errorCode: 'calendar_response_not_allowed',
+    });
+    expect(mock.drafts).toHaveLength(0);
+    expect(mock.sends()).toBe(0);
+  });
+  it('rejects a stored invitation superseded by a later calendar message', async () => {
+    const source = invitation(); const request = await setup(source); const mock = providerFetch(source);
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO mail_messages
+        (profile_id,account_id,thread_id,message_id,internet_message_id,sender_json,recipients_json,sent_at,body_text_ciphertext,body_html_ciphertext,ordinal,updated_at)
+        SELECT profile_id,account_id,thread_id,'new_invite',internet_message_id,sender_json,recipients_json,sent_at,body_text_ciphertext,body_html_ciphertext,1,updated_at FROM mail_messages WHERE message_id = 'msg_1'`),
+      env.DB.prepare(`INSERT INTO mail_attachments
+        (profile_id,account_id,thread_id,message_id,resource_id,file_name,mime_type,size_bytes,disposition,content_id,gmail_part_path,gmail_attachment_id_ciphertext,updated_at)
+        SELECT profile_id,account_id,thread_id,'new_invite','new_resource',file_name,mime_type,size_bytes,disposition,content_id,gmail_part_path,gmail_attachment_id_ciphertext,updated_at FROM mail_attachments WHERE resource_id = 'resource_1'`),
+    ]);
+    expect(await createGoogleProvider(env,()=>now).execute(scope,request)).toEqual({outcome:'failed',errorCode:'calendar_invitation_superseded'});
+    expect(mock.drafts).toHaveLength(0); expect(mock.sends()).toBe(0);
+  });
+  it('rejects an event identity supplied by a different source attachment', async () => {
+    const source = invitation();
+    const request = await setup(source);
+    const mock = providerFetch(source);
+    expect(
+      await createGoogleProvider(env, () => now).execute(scope, {
+        ...request,
+        payload: { ...request.payload, eventKey: 'forged' },
+      }),
+    ).toMatchObject({ outcome: 'failed' });
+    expect(mock.sends()).toBe(0);
+  });
+  it('returns terminal uncertainty when the send cannot be confirmed', async () => {
+    const source = invitation();
+    const request = await setup(source);
+    const mock = providerFetch(source, { sendStatus: 503 });
+    expect(
+      await createGoogleProvider(env, () => now).execute(scope, request),
+    ).toEqual({
+      outcome: 'uncertain',
+      errorCode: 'gmail_send_outcome_unknown',
+    });
+    expect(mock.sends()).toBe(1);
   });
 });

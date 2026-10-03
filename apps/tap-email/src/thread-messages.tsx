@@ -1,8 +1,10 @@
+import { CalendarMessage, isCalendarAttachment, type CalendarReaderServices } from './calendar-invitation';
 import type { MiniAppTheme } from '@theaiplatform/miniapp-sdk/web';
 import { ChevronDown } from 'lucide-react';
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   memo,
   useMemo,
@@ -27,6 +29,8 @@ import {
 } from './message-attachments';
 import { plainTextFromRichMessage, RichMessageBody } from './rich-message';
 import type { OutgoingThreadMessage } from './outgoing-messages';
+import { useReaderEntryPosition } from './reader-position';
+export { scrollMessageVerticallyIntoView } from './reader-position';
 
 export type ContextualRemoteImageLoader = (
   context: RemoteImageMessageContext,
@@ -59,6 +63,8 @@ interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
 }
 
 export interface ThreadMessageListProps {
+  readonly calendar?: CalendarReaderServices;
+  readonly providerRevision?: string;
   readonly active?: boolean;
   readonly mobile?: boolean;
   readonly accountId: string;
@@ -77,6 +83,9 @@ export interface ThreadMessageListProps {
   readonly threadId: string;
   readonly trackingPixelsEnabled: boolean;
   readonly unread?: boolean;
+  readonly firstUnreadMessageId?: string | null;
+  /** Metadata placeholders do not establish the entry point of a thread. */
+  readonly positionReady?: boolean;
 }
 
 export interface MessageExpansionRequest {
@@ -150,20 +159,6 @@ export function splitPlainMessageQuotedText(
   const current = bodyText.slice(0, marker.index).trimEnd();
   const quoted = bodyText.slice(marker.index).trim();
   return current && quoted ? { current, quoted } : null;
-}
-
-/** Bring a message into the reader without letting scrollIntoView pan the app horizontally. */
-export function scrollMessageVerticallyIntoView(message: HTMLElement): void {
-  const reader = message.closest<HTMLElement>('.message-body');
-  if (!reader) return;
-  const messageBounds = message.getBoundingClientRect();
-  const readerBounds = reader.getBoundingClientRect();
-  const delta = messageBounds.top < readerBounds.top
-    ? messageBounds.top - readerBounds.top
-    : messageBounds.bottom > readerBounds.bottom
-      ? messageBounds.bottom - readerBounds.bottom
-      : 0;
-  if (delta !== 0) reader.scrollTop += delta;
 }
 
 function PlainMessageBody({ bodyText }: PlainMessageBodyProps) {
@@ -254,6 +249,8 @@ function ParticipantDetails({ participant }: { readonly participant: EmailPartic
 
 const ThreadMessageCard = memo(function ThreadMessageCard({
   active = true,
+  calendar,
+  providerRevision,
   mobile,
   htmlEnabled = true,
   accountId,
@@ -361,6 +358,9 @@ const ThreadMessageCard = memo(function ThreadMessageCard({
             {outgoing?.bcc ? <><dt>Bcc</dt><dd>{outgoing.bcc}</dd></> : null}
             <dt>Date</dt><dd><time dateTime={message.sentAt}>{messageDetailsDateFormatter.format(new Date(message.sentAt))}</time></dd>
           </dl> : null}
+          {calendar && loadAttachment && message.attachments?.some(isCalendarAttachment) ? <CalendarMessage
+            attachments={message.attachments} context={{ accountId, threadId, messageId: message.messageId, providerRevision: providerRevision || '' }}
+            services={calendar} loadAttachment={loadMessageAttachment} /> : null}
           {htmlEnabled && message.bodyHtml ? (
             <CachedRichMessageBody
               active={active}
@@ -377,9 +377,9 @@ const ThreadMessageCard = memo(function ThreadMessageCard({
               threadId={threadId}
               trackingPixelsEnabled={trackingPixelsEnabled}
             />
-          ) : (
+          ) : message.bodyText.trim() || message.bodyHtml ? (
             <PlainMessageBody bodyText={message.bodyText.trim() ? message.bodyText : plainTextFromRichMessage(message.bodyHtml ?? '')} />
-          )}
+          ) : null}
           <MessageAttachments
             attachments={message.attachments ?? []}
             exportSupported={attachmentExportSupported}
@@ -402,14 +402,26 @@ const ThreadMessageCard = memo(function ThreadMessageCard({
 
 const emptyOutgoingMessages: readonly OutgoingThreadMessage[] = [];
 
+function readerEntry(messages: readonly EmailMessage[], unread: boolean, firstUnreadMessageId?: string | null) {
+  const unreadIds = unread ? messages.filter(message => message.unread === true).map(message => message.messageId) : [];
+  if (unread && firstUnreadMessageId && !unreadIds.includes(firstUnreadMessageId)) unreadIds.unshift(firstUnreadMessageId);
+  return {
+    messageId: unread && firstUnreadMessageId || unreadIds[0] || messages.at(-1)?.messageId || null,
+    unreadIds,
+    single: messages.length <= 1,
+  };
+}
+
 /**
  * Keeps user toggles local to the selected conversation. Callers key this component
  * by account/thread so opening a different conversation restores the familiar
- * “latest open, history collapsed” starting point. On an in-place refresh, existing
+ * “unread open, history collapsed” starting point. On an in-place refresh, existing
  * choices survive while a newly arrived last message opens automatically.
  */
 export const ThreadMessageList = memo(function ThreadMessageList({
   active = true,
+  calendar,
+  providerRevision,
   mobile,
   accountId,
   appTheme,
@@ -427,6 +439,8 @@ export const ThreadMessageList = memo(function ThreadMessageList({
   threadId,
   trackingPixelsEnabled,
   unread = false,
+  firstUnreadMessageId,
+  positionReady = true,
 }: ThreadMessageListProps) {
   const { messages, outgoingById } = useMemo(() => ({
     messages: outgoingMessages.length ? [...providerMessages, ...outgoingMessages.map(item => item.message)] : providerMessages,
@@ -434,21 +448,40 @@ export const ThreadMessageList = memo(function ThreadMessageList({
   }), [providerMessages, outgoingMessages]);
   const [expansionOverrides, setExpansionOverrides] = useState<Readonly<Record<string, boolean>>>({});
   const latestMessageId = messages.at(-1)?.messageId ?? null;
-  const [activeMessageId, setActiveMessageId] = useState<string | null>(latestMessageId);
-  const latestMessageRef = useRef<HTMLElement>(null);
+  const [entry, setEntry] = useState(() => readerEntry(providerMessages, unread, firstUnreadMessageId));
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(entry.messageId);
+  const entryMessageRef = useRef<HTMLElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const entrySession = useRef({ active: false, pending: true, unread, firstUnreadMessageId });
   const processedExpansionRequestId = useRef<string | null>(null);
   const collapsible = messages.length > 1;
   const toggleMessage = useCallback((messageId: string) => {
     setActiveMessageId(messageId);
     setExpansionOverrides(current => ({
       ...current,
-      [messageId]: !(current[messageId] ?? messageId === latestMessageId),
+      [messageId]: !(current[messageId] ?? (messageId === latestMessageId || entry.unreadIds.includes(messageId))),
     }));
-  }, [latestMessageId]);
+  }, [latestMessageId, entry.unreadIds]);
 
-  useEffect(() => {
-    setActiveMessageId(latestMessageId);
-  }, [latestMessageId]);
+  useLayoutEffect(() => {
+    const session = entrySession.current;
+    if (!active) { session.active = false; return; }
+    if (!session.active) {
+      session.active = true;
+      session.pending = true;
+      session.unread = unread;
+      session.firstUnreadMessageId = firstUnreadMessageId;
+      setExpansionOverrides(current => Object.keys(current).length ? {} : current);
+    }
+    if (!session.pending) return;
+    const target = positionReady && !providerMessages.some(message => message.messageId === session.firstUnreadMessageId)
+      ? null : session.firstUnreadMessageId;
+    const next = readerEntry(providerMessages, session.unread, target);
+    setEntry(current => current.messageId === next.messageId && current.single === next.single &&
+      current.unreadIds.length === next.unreadIds.length && current.unreadIds.every((id, index) => id === next.unreadIds[index]) ? current : next);
+    setActiveMessageId(next.messageId);
+    if (positionReady && next.messageId) session.pending = false;
+  }, [active, positionReady, providerMessages, unread, firstUnreadMessageId]);
 
   useEffect(() => {
     if (
@@ -468,33 +501,32 @@ export const ThreadMessageList = memo(function ThreadMessageList({
     if (!targetMessageId) return;
     setExpansionOverrides(current => ({
       ...current,
-      [targetMessageId]: !(current[targetMessageId] ?? targetMessageId === latestMessageId),
+      [targetMessageId]: !(current[targetMessageId] ?? (targetMessageId === latestMessageId || entry.unreadIds.includes(targetMessageId))),
     }));
   }, [
     accountId,
     activeMessageId,
     expansionRequest,
+    entry.unreadIds,
     latestMessageId,
     messages,
     threadId,
   ]);
 
-  useEffect(() => {
-    const latestMessage = latestMessageRef.current;
-    if (!active || !collapsible || !latestMessage) return;
-    scrollMessageVerticallyIntoView(latestMessage);
-  }, [active, collapsible, latestMessageId]);
+  useReaderEntryPosition(rootRef, entryMessageRef, active, entry.messageId, entry.single, positionReady);
 
-  return messages.map(message => (
+  return <div className="thread-messages" ref={rootRef}>{messages.map(message => (
     <ThreadMessageCard
       active={active}
+      calendar={calendar}
+      providerRevision={providerRevision}
       mobile={mobile}
       htmlEnabled={htmlEnabled}
       accountId={accountId}
       appTheme={appTheme}
       attachmentExportSupported={attachmentExportSupported}
       collapsible={collapsible}
-      expanded={!collapsible || (expansionOverrides[message.messageId] ?? message.messageId === latestMessageId)}
+      expanded={!collapsible || (expansionOverrides[message.messageId] ?? (message.messageId === latestMessageId || entry.unreadIds.includes(message.messageId)))}
       imagesEnabled={imagesEnabled}
       scriptsEnabled={scriptsEnabled}
       key={message.messageId}
@@ -505,11 +537,10 @@ export const ThreadMessageList = memo(function ThreadMessageList({
       onKeyDown={onKeyDown}
       onToggle={toggleMessage}
       saveAttachment={saveAttachment}
-      sectionRef={message.messageId === latestMessageId ? latestMessageRef : undefined}
+      sectionRef={message.messageId === entry.messageId ? entryMessageRef : undefined}
       threadId={threadId}
       trackingPixelsEnabled={trackingPixelsEnabled}
-      // The provider exposes unread state for the conversation, not each message.
-      unread={unread && message.messageId === providerMessages.at(-1)?.messageId}
+      unread={unread && (message.unread ?? message.messageId === providerMessages.at(-1)?.messageId)}
     />
-  ));
+  ))}</div>;
 });

@@ -801,18 +801,29 @@ describe('Google mailbox synchronization', () => {
       threads: [
         {
           threadId: 'thread_1',
+          firstUnreadMessageId: 'message_1',
           critical: true,
           needsResponse: true,
-          messages: [{ bodyText: '', cc: [{ name: 'Iman', address: 'iman@example.com' }],
+          messages: [{ unread: true, bodyText: '', cc: [{ name: 'Iman', address: 'iman@example.com' }],
             replyTo: [{ name: 'Launch team', address: 'launch@example.com' }] }],
         },
       ],
     });
+    // An older unread message, not the latest preview, is the entry boundary.
+    await env.DB.prepare(`INSERT INTO mail_messages
+      (profile_id, account_id, thread_id, message_id, sender_json, recipients_json,
+       sent_at, body_text_ciphertext, body_html_ciphertext, ordinal, updated_at, unread)
+      VALUES ('profile_1', 'google_1', 'thread_1', 'message_older', '{}', '[]', ?, ?, ?, 0, ?, 1)`)
+      .bind(now.toISOString(), await sealSecret('', encryptionKey), await sealSecret('', encryptionKey), now.toISOString()).run();
+    await env.DB.prepare("UPDATE mail_messages SET ordinal = 1 WHERE profile_id = 'profile_1' AND message_id = 'message_1'").run();
+    expect((await mailboxSnapshot(env, 'profile_1')).threads).toMatchObject([{ firstUnreadMessageId: 'message_older' }]);
+    await env.DB.prepare("DELETE FROM mail_messages WHERE profile_id = 'profile_1' AND message_id = 'message_older'").run();
     expect(JSON.stringify(snapshot)).not.toContain('bodyHtml');
 
     await expect(threadSnapshot(env, 'profile_1', 'google_1', 'thread_1', now)).resolves.toMatchObject({
       messages: [
         {
+          unread: true,
           bodyText: 'Please review the launch plan.',
           cc: [{ name: 'Iman', address: 'iman@example.com' }],
           replyTo: [{ name: 'Launch team', address: 'launch@example.com' }],
@@ -978,6 +989,12 @@ describe('Google mailbox synchronization', () => {
             ],
             body: { size: 3, data: encodeBase64Url('PNG') },
           },
+          {
+            partId: '4',
+            mimeType: 'text/calendar',
+            headers: [{ name: 'Content-Disposition', value: 'inline' }],
+            body: { size: 32, data: encodeBase64Url('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n') },
+          },
         ];
         if (includePdf) {
           parts.splice(2, 0, {
@@ -1027,6 +1044,7 @@ describe('Google mailbox synchronization', () => {
       now,
     );
     expect(snapshot!.messages[0]).toMatchObject({
+      unread: false,
       bodyText: 'This is the actual message.',
       bodyHtml: '<p>This is the <b>actual message</b>.</p>',
       attachments: [
@@ -1051,10 +1069,11 @@ describe('Google mailbox synchronization', () => {
           disposition: 'inline',
           contentId: 'logo@example',
         },
+        { fileName: 'invite.ics', mimeType: 'text/calendar', sizeBytes: 32, disposition: 'inline', contentId: null },
       ],
     });
     const attachments = snapshot!.messages[0]!.attachments;
-    expect(new Set(attachments.map(attachment => attachment.resourceId)).size).toBe(3);
+    expect(new Set(attachments.map(attachment => attachment.resourceId)).size).toBe(4);
     expect(attachments.every(attachment => /^att_[A-Za-z0-9_-]{43}$/u.test(attachment.resourceId))).toBe(true);
     expect(JSON.stringify(snapshot)).not.toContain('gmail_secret_locator');
     expect(JSON.stringify(snapshot)).not.toContain(encodeBase64Url('PNG'));
@@ -1079,6 +1098,7 @@ describe('Google mailbox synchronization', () => {
       { fileName: 'notes.txt', partPath: 'id:0', hasProviderLocator: false },
       { fileName: 'brief.pdf', partPath: 'id:2', hasProviderLocator: true },
       { fileName: 'logo.png', partPath: 'id:3', hasProviderLocator: false },
+      { fileName: 'invite.ics', partPath: 'id:4', hasProviderLocator: false },
     ]);
     expect(stored.results[1]!.gmail_attachment_id_ciphertext).not.toContain(
       'gmail_secret_locator',
@@ -1091,7 +1111,7 @@ describe('Google mailbox synchronization', () => {
     const mailbox = await mailboxSnapshot(env, 'profile_attachments') as {
       threads: Array<{ messages: Array<Record<string, unknown>> }>;
     };
-    expect(mailbox.threads[0]!.messages[0]!.attachments).toHaveLength(3);
+    expect(mailbox.threads[0]!.messages[0]!.attachments).toHaveLength(4);
 
     includePdf = false;
     await sync();
@@ -1102,6 +1122,7 @@ describe('Google mailbox synchronization', () => {
     ).all<{ file_name: string }>()).results).toEqual([
       { file_name: 'notes.txt' },
       { file_name: 'logo.png' },
+      { file_name: 'invite.ics' },
     ]);
     const refreshed = await threadSnapshot(
       env,

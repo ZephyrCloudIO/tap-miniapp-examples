@@ -2,6 +2,7 @@ import React, { useEffect, useState, type ReactNode } from 'react';
 const emptyKeys: readonly string[] = [];
 const retainAll = () => true;
 const noCost = () => 0;
+const sameIdentity = (key: string) => key;
 const readerBudgetBytes = 8 * 1024 * 1024;
 interface RetainedReader { readonly key: string; readonly bytes: number }
 
@@ -22,11 +23,13 @@ function retainedKeys(previous: readonly RetainedReader[], active: string, warm:
 }
 
 /** Keep a few inert readers laid out so switching does not recreate their frames. */
-export function ConversationReaderDeck({ activeKey, warmKeys = emptyKeys, canRetain = retainAll, cost = noCost, children }: {
+export function ConversationReaderDeck({ activeKey, warmKeys = emptyKeys, canRetain = retainAll, cost = noCost, identity = sameIdentity, children }: {
   readonly activeKey: string;
   readonly warmKeys?: readonly string[];
   readonly canRetain?: (key: string) => boolean;
   readonly cost?: (key: string) => number;
+  /** A metadata revision changes cache identity, not the mounted conversation. */
+  readonly identity?: (key: string) => string;
   readonly children: (key: string, active: boolean) => ReactNode;
 }) {
   const [retained, setRetained] = useState<readonly RetainedReader[]>([]);
@@ -41,7 +44,7 @@ export function ConversationReaderDeck({ activeKey, warmKeys = emptyKeys, canRet
   }, [activeKey, warmKeys, canRetain, cost]);
   return <div className="conversation-deck">{keys.map(({ key }) => {
     const active = key === activeKey;
-    return <div key={key} aria-hidden={!active} inert={!active} data-reader-active={active}>
+    return <div key={identity(key)} aria-hidden={!active} inert={!active} data-reader-active={active}>
       {children(key, active)}
     </div>;
   })}</div>;

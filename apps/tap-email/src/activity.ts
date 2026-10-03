@@ -10,6 +10,7 @@ export const EMAIL_ACTIVITY_RETENTION_DAYS = 90;
 export const EMAIL_ACTIVITY_PROJECTION_LIMIT = 2_048;
 
 export const emailActivityActions = [
+  'calendar_response_sent',
   'thread_viewed',
   'draft_created',
   'thread_archived',
@@ -224,6 +225,7 @@ function actionForCommand(command: MailCommand): EmailActivityAction | null {
     return 'draft_created';
   }
   const actions: Readonly<Record<Exclude<MailCommandKind, 'send_draft' | 'save_draft'>, EmailActivityAction>> = {
+    calendar_rsvp: 'calendar_response_sent',
     archive: 'thread_archived',
     mark_read: 'thread_read',
     mark_unread: 'thread_marked_unread',

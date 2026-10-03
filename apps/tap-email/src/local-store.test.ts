@@ -1177,6 +1177,25 @@ describe('TAP Email private profile cache', () => {
     })).resolves.toBeNull();
   });
 
+  it('durably restores calendar receipt history and removes it with its account', async () => {
+    const fixture = profileStorageFixture();
+    const store = createLocalMailStore(false, fixture.profile);
+    const initial = previewMailState();
+    const accountId = initial.accounts[0]!.accountId;
+    const command = { v: 1 as const, commandId: 'calendar_1', idempotencyKey: 'rsvp_1', accountId,
+      threadId: initial.threads[0]!.threadId, kind: 'calendar_rsvp' as const, createdAt: '2026-10-03T20:00:00Z',
+      expectedProviderRevision: '123', payload: { messageId: 'msg_1', resourceId: 'resource_1', eventKey: 'event_1',
+        response: 'accepted' as const, expectedContext: { userId: 'user_1', workspaceId: 'workspace_1' } } };
+    const receipt = { commandId: command.commandId, idempotencyKey: command.idempotencyKey, accountId,
+      state: 'uncertain' as const, acceptedAt: command.createdAt, providerAcknowledgedAt: null, errorCode: 'outcome_unknown' };
+    await store.save(settleMailCommand({ ...initial, commands: [command] }, command, receipt, command.createdAt));
+    const reopened = createLocalMailStore(false, fixture.profile);
+    expect((await reopened.load())?.calendarResponses).toEqual([{command,receipt}]);
+    await reopened.wipeAccount(accountId);
+    expect((await reopened.load())?.calendarResponses).toEqual([]);
+    await reopened.close();
+  });
+
   it('can retry after a transient profile-storage open failure', async () => {
     const fixture = profileStorageFixture();
     let attempts = 0;

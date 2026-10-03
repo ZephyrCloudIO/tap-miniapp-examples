@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useRef, useState } from 'react';
 import type { createCoordinatorClient } from './coordinator-client';
 import { ConversationQueryCache } from './conversation-query-cache';
-import { prepareConversation } from './conversation-prefetch';
+import { conversationEntryReady, prepareConversation } from './conversation-prefetch';
 import { ConversationWarmWindow } from './conversation-warm-window';
 import { isDownloadedThreadPage, type EmailThread } from './domain';
 
@@ -19,7 +19,7 @@ export function useConversationWarmWindow({ cache, rows, activeKey, enabled, pre
   useEffect(() => {
     if (!enabled) { setKeys(previous => previous.length ? [] : previous); return; }
     const warmer = new ConversationWarmWindow(
-      thread => cache.has(thread.accountId, thread.threadId, thread.providerRevision),
+      thread => conversationEntryReady(cache, thread),
       (thread, signal) => {
         const candidate = preview && !isDownloadedThreadPage(thread.downloadedPage) ? { ...thread, downloadedPage: {
           providerRevision: thread.providerRevision, nextCursor: null, complete: true, windowed: false, seenCursors: [],

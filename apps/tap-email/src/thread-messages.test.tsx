@@ -10,6 +10,7 @@ import {
   type EmailMessage,
 } from './domain';
 import { shouldEnterOpenReply } from './keybindings';
+import { ConversationReaderDeck } from './conversation-reader-deck';
 import {
   messageSnippet,
   scrollMessageVerticallyIntoView,
@@ -560,7 +561,7 @@ describe('TAP Email thread message disclosure', () => {
     // helper directly to assert the horizontal invariant as well.
     const latestMessage = container.querySelector<HTMLElement>('[aria-label="Message from Casey"]')!;
     scrollMessageVerticallyIntoView(latestMessage);
-    expect(container.scrollTop).toBe(300);
+    expect(container.scrollTop).toBe(500);
     expect(container.scrollLeft).toBe(41);
     const measurementsAfterAnchor = latestMeasurementCount;
     await act(async () => toggleButtons(container)[0]?.click());
@@ -568,6 +569,119 @@ describe('TAP Email thread message disclosure', () => {
 
     await unmount(root, container);
     HTMLElement.prototype.getBoundingClientRect = originalBounds;
+  });
+
+  it('resets tall single-message readers on every warm activation without remounting their frames', async () => {
+    const single = [message('single', 'Avery', '2026-09-12T13:00:00Z', '', '<p>A tall newsletter</p>')];
+    const container = document.createElement('div'); container.className = 'message-body'; document.body.append(container);
+    const root = createRoot(container);
+    const render = (activeKey: string) => <ConversationReaderDeck activeKey={activeKey} warmKeys={['A', 'B']}>
+      {(key, active) => <ThreadMessageList {...defaultProps} active={active} threadId={key} messages={single} />}
+    </ConversationReaderDeck>;
+    try {
+      await act(async () => root.render(render('A')));
+      const frames = [...container.querySelectorAll('iframe')];
+      expect(frames).toHaveLength(2);
+      for (let index = 0; index < 10; index++) {
+        container.scrollTop = 750 + index;
+        container.scrollLeft = 41;
+        await act(async () => root.render(render(index % 2 ? 'A' : 'B')));
+        expect(container.scrollTop).toBe(0);
+        expect(container.scrollLeft).toBe(41);
+        expect([...container.querySelectorAll('iframe')]).toEqual(frames);
+      }
+    } finally { await unmount(root, container); }
+  });
+
+  it('opens the first unread header and all unread messages, then keeps that entry during mark-read and refresh', async () => {
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    const messages = threeMessages.map((message, index) => ({ ...message, unread: index > 0 }));
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('message-body')) return DOMRect.fromRect({ y: 100, height: 300 });
+      const index = ['Avery', 'Blair', 'Casey'].findIndex(name => this.getAttribute('aria-label') === `Message from ${name}`);
+      return DOMRect.fromRect({ y: 100 + index * 200 - (this.closest<HTMLElement>('.message-body')?.scrollTop ?? 0), height: 1600 });
+    };
+    const { container, root } = await mountMessages(messages, 'thread-1', { unread: true });
+    try {
+      expect(toggleButtons(container).map(button => button.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'true']);
+      expect(container.scrollTop).toBe(200);
+      container.scrollTop = 275;
+      container.dispatchEvent(new Event('scroll'));
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" unread={false}
+        messages={messages.map(message => ({ ...message, unread: false }))} />));
+      expect(container.scrollTop).toBe(275);
+      expect(toggleButtons(container).map(button => button.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'true']);
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" unread={false} active={false} messages={messages} />));
+      container.scrollTop = 700;
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" unread={false} active messages={messages} />));
+      expect(container.scrollTop).toBe(400); // Read thread returns to latest header.
+    } finally { await unmount(root, container); HTMLElement.prototype.getBoundingClientRect = originalBounds; }
+  });
+
+  it('waits for hydrated messages before freezing the first-unread entry', async () => {
+    const messages = threeMessages.map((message, index) => ({ ...message, unread: index > 0 }));
+    const { container, root } = await mountMessages([messages[2]!], 'thread-1', { unread: true, positionReady: false });
+    try {
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" unread={false} positionReady messages={messages} />));
+      expect(toggleButtons(container).map(button => button.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'true']);
+      // Enter toggles the first unread, even after the thread-level flag cleared.
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" messages={messages} expansionRequest={{
+        accountId: 'account-1', threadId: 'thread-1', action: 'toggle-active', requestId: 'first-unread',
+      }} />));
+      expect(toggleButtons(container).map(button => button.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'true']);
+    } finally { await unmount(root, container); }
+  });
+
+  it('does not override user scrolling when delayed bodies establish the entry', async () => {
+    const messages = threeMessages.map((message, index) => ({ ...message, unread: index > 0 }));
+    const { container, root } = await mountMessages([messages[2]!], 'thread-1', { unread: true, positionReady: false });
+    try {
+      container.dispatchEvent(new WheelEvent('wheel'));
+      container.scrollTop = 325;
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" unread positionReady messages={messages} />));
+      expect(container.scrollTop).toBe(325);
+    } finally { await unmount(root, container); }
+  });
+
+  it('does not let an inactive hydrated reader alter the shared panel', async () => {
+    const { container, root } = await mountMessages(threeMessages, 'thread-1', { active: false });
+    try {
+      container.scrollTop = 840;
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} active={false} messages={structuredClone(threeMessages)} />));
+      expect(container.scrollTop).toBe(840);
+    } finally { await unmount(root, container); }
+  });
+
+  it('corrects late layout growth until user scrolling, and disconnects on deactivation', async () => {
+    const originalObserver = globalThis.ResizeObserver;
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    let resize = () => {};
+    let precedingHeight = 400;
+    let disconnects = 0;
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) { resize = () => callback([], this); }
+      observe() {} unobserve() {} disconnect() { disconnects++; }
+    } as typeof ResizeObserver;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('message-body')) return DOMRect.fromRect({ y: 100, height: 300 });
+      return DOMRect.fromRect({ y: 100 + precedingHeight - (this.closest<HTMLElement>('.message-body')?.scrollTop ?? 0), height: 1200 });
+    };
+    const { container, root } = await mountMessages(threeMessages);
+    try {
+      expect(container.scrollTop).toBe(400);
+      precedingHeight = 650;
+      resize();
+      expect(container.scrollTop).toBe(650);
+      container.dispatchEvent(new WheelEvent('wheel'));
+      container.scrollTop = 900;
+      precedingHeight = 1000;
+      resize();
+      expect(container.scrollTop).toBe(900);
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} active={false} messages={threeMessages} />));
+      expect(disconnects).toBeGreaterThan(0);
+      resize();
+      expect(container.scrollTop).toBe(900);
+    } finally { await unmount(root, container); globalThis.ResizeObserver = originalObserver; HTMLElement.prototype.getBoundingClientRect = originalBounds; }
   });
 
   it('normalizes line breaks and repeated whitespace in compact snippets', () => {
