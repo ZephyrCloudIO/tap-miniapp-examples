@@ -26,6 +26,7 @@ import { readMailHistory } from './infinite-mail-history';
 import { MailHistorySentinel } from './mail-history-sentinel';
 import { VirtualThreadGroups } from './virtual-thread-groups';
 import { ConversationReaderDeck } from './conversation-reader-deck';
+import { conversationReaderIdentity } from './conversation-warm-window';
 import { createConversationDiskReader } from './conversation-disk-reader';
 import { useConversationWarmWindow } from './use-conversation-warm-window';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
@@ -3595,7 +3596,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
               </header>
               <div className="reader-workspace">
                 <div className="message-body">
-                  <ConversationReaderDeck activeKey={activeReaderKey} warmKeys={warmReaderKeys} canRetain={canRetainReader} cost={readerCost}>
+                  <ConversationReaderDeck activeKey={activeReaderKey} warmKeys={warmReaderKeys} canRetain={canRetainReader} cost={readerCost} identity={conversationReaderIdentity}>
                     {(readerKey, active) => {
                       const readerThread = readerThreads.get(readerKey);
                       if (!readerThread) return null;
@@ -3616,12 +3617,13 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
                         htmlEnabled={state.preferences.htmlEnabled !== false}
                         scriptsEnabled={state.preferences.scriptsEnabled !== false}
                         imagesEnabled={state.preferences.imagesEnabled}
-                        key={readerKey}
+                        key={emailThreadKey(readerThread)}
                         loadAttachment={preview ? null : loadMessageAttachment}
                         loadRemoteImages={loadRemoteImages}
                         messages={readerThread.messages}
                         outgoingMessages={active ? outgoingMessages : undefined}
                         unread={readerThread.unread}
+                        firstUnreadMessageId={readerThread.firstUnreadMessageId}
                         onKeyDown={dispatchShortcut}
                         saveAttachment={saveMessageAttachment}
                         threadId={readerThread.threadId}

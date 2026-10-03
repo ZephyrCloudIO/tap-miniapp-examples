@@ -62,6 +62,15 @@ export class ConversationQueryCache {
       this.client.getQueryData([...key, 'page', null]) !== undefined;
   }
 
+  /** Check unread entry coverage without promoting background neighbors in LRU order. */
+  hasEntry(accountId: string, threadId: string, revision: string, messageId: string): boolean {
+    const key = prefix(accountId, threadId, revision);
+    const snapshot = this.client.getQueryData<CachedConversation>([...key, 'snapshot']);
+    const page = this.client.getQueryData<ThreadPage>([...key, 'page', null]);
+    const cached = snapshot ?? (page ? { messages: page.messages, downloadedPage: { complete: page.complete } } : undefined);
+    return Boolean(cached && (cached.downloadedPage.complete || cached.messages.some(message => message.messageId === messageId)));
+  }
+
   get(accountId: string, threadId: string, revision: string): CachedConversation | undefined {
     const key = prefix(accountId, threadId, revision);
     const snapshot = this.snapshot(accountId, threadId, revision);

@@ -329,6 +329,7 @@ export interface MailAttachmentDescriptor {
 }
 
 export interface MailMessageMetadata extends EmailMessageRef {
+  readonly unread?: boolean;
   readonly internetMessageId: string | null;
   readonly from: MailParticipant;
   readonly to: readonly MailParticipant[];

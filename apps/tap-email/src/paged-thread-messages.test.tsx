@@ -55,6 +55,28 @@ describe('paged conversation reader', () => {
     } finally { await act(async () => root.unmount()); cache.clear(); container.remove(); }
   });
 
+  it('loads older pages for the first unread, even if mark-read clears the thread flag before they arrive', async () => {
+    let finish!: (value: ThreadPage) => void;
+    const client = { getThreadPage: rs.fn((_account: string, _thread: string, cursor?: string | null) => cursor
+      ? new Promise<ThreadPage>(resolve => { finish = resolve; })
+      : Promise.resolve(page(['latest'], 'older-cursor'))) };
+    const container = document.createElement('div'); container.className = 'message-body'; document.body.append(container);
+    const root = createRoot(container);
+    const render = (unread: boolean) => <PagedThreadMessages {...defaults} client={client} onMessages={() => {}}
+      messages={[]} htmlEnabled={false} unread={unread} firstUnreadMessageId={unread ? 'oldest' : null} />;
+    try {
+      await act(async () => root.render(render(true)));
+      expect(client.getThreadPage.mock.calls).toEqual([['account', 'thread', null], ['account', 'thread', 'older-cursor']]);
+      await act(async () => root.render(render(false)));
+      await act(async () => finish(page(['oldest', 'middle'], null)));
+      const cards = [...container.querySelectorAll('.thread-message')];
+      expect(cards.map(card => card.getAttribute('aria-label'))).toEqual(['Message from oldest', 'Message from middle', 'Message from latest']);
+      expect(cards[0]?.classList.contains('is-expanded')).toBe(true);
+      expect(cards[1]?.classList.contains('is-collapsed')).toBe(true);
+      expect(client.getThreadPage).toHaveBeenCalledTimes(2);
+    } finally { await act(async () => root.unmount()); container.remove(); }
+  });
+
   it('keeps one pending read when only the publication callback changes', async () => {
     let resolve!: (value: ThreadPage) => void;
     const client = { getThreadPage: rs.fn(() => new Promise<ThreadPage>(done => { resolve = done; })) };

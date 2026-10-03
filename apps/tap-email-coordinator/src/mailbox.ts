@@ -804,6 +804,7 @@ async function persistThread(
     ccJson: JSON.stringify(message.cc),
     replyToJson: JSON.stringify(message.replyTo),
     sentAt: message.sentAt,
+    unread: Number(message.labelIds.includes('UNREAD')),
     bodyTextCiphertext: sealedBodies[ordinal]!,
     bodyHtmlCiphertext: sealedHtmlBodies[ordinal]!,
     ordinal,
@@ -887,7 +888,7 @@ async function persistThread(
          INSERT INTO mail_messages
            (profile_id, account_id, thread_id, message_id, internet_message_id,
             sender_json, recipients_json, cc_json, reply_to_json, sent_at, body_text_ciphertext,
-            body_html_ciphertext, ordinal, updated_at, body_state, body_revision)
+            body_html_ciphertext, ordinal, updated_at, body_state, body_revision, unread)
          SELECT ?1, ?2, ?3,
                 json_extract(value, '$.messageId'),
                 json_extract(value, '$.internetMessageId'),
@@ -900,14 +901,15 @@ async function persistThread(
                 json_extract(value, '$.bodyHtmlCiphertext'),
                 CAST(json_extract(value, '$.ordinal') AS INTEGER),
                 ?4,
-                json_extract(value, '$.bodyState'), json_extract(value, '$.bodyRevision')
+                json_extract(value, '$.bodyState'), json_extract(value, '$.bodyRevision'),
+                CAST(json_extract(value, '$.unread') AS INTEGER)
            FROM input WHERE true
          ON CONFLICT(profile_id, account_id, message_id) DO UPDATE SET
            thread_id = excluded.thread_id,
            internet_message_id = excluded.internet_message_id, sender_json = excluded.sender_json,
            recipients_json = excluded.recipients_json, sent_at = excluded.sent_at, ordinal = excluded.ordinal,
            cc_json = excluded.cc_json, reply_to_json = excluded.reply_to_json,
-           updated_at = excluded.updated_at,
+           updated_at = excluded.updated_at, unread = excluded.unread,
            body_text_ciphertext = CASE WHEN (mail_messages.body_revision = excluded.body_revision OR (mail_messages.body_revision IS NULL AND ?5)) AND excluded.body_state = 'metadata' AND mail_messages.body_state = 'ready'
              THEN mail_messages.body_text_ciphertext ELSE excluded.body_text_ciphertext END,
            body_html_ciphertext = CASE WHEN (mail_messages.body_revision = excluded.body_revision OR (mail_messages.body_revision IS NULL AND ?5)) AND excluded.body_state = 'metadata' AND mail_messages.body_state = 'ready'
@@ -1476,6 +1478,7 @@ function safeJson<T>(value: string, fallback: T): T {
 }
 
 interface StoredMessageRow {
+  readonly unread: number | null;
   readonly message_id: string;
   readonly internet_message_id: string | null;
   readonly sender_json: string;
@@ -1523,7 +1526,7 @@ async function storedThreadMessages(
 ): Promise<readonly StoredMessageRow[]> {
   const messages = await env.DB.prepare(
     `SELECT message_id, internet_message_id, sender_json, recipients_json, cc_json, reply_to_json,
-            sent_at, body_text_ciphertext, body_html_ciphertext, ordinal, body_state
+            sent_at, body_text_ciphertext, body_html_ciphertext, ordinal, body_state, unread
        FROM mail_messages
       WHERE profile_id = ? AND account_id = ? AND thread_id = ?
         AND ordinal < ?
@@ -1700,14 +1703,17 @@ export async function mailboxPage(
        FROM google_accounts
       WHERE profile_id = ? AND connection_state != 'revoked'
       ORDER BY created_at`).bind(profileId),
-    env.DB.prepare(`WITH selected_threads AS (${selection}) SELECT t.*
+    env.DB.prepare(`WITH selected_threads AS (${selection}) SELECT t.*,
+      (SELECT m.message_id FROM mail_messages m WHERE m.profile_id = t.profile_id
+        AND m.account_id = t.account_id AND m.thread_id = t.thread_id AND m.unread = 1
+        ORDER BY m.ordinal LIMIT 1) AS first_unread_message_id
       FROM selected_threads t`).bind(...bindings(after === undefined ? pageSize + 1 : pageSize)),
     env.DB.prepare(
       `WITH selected_threads AS (
          ${selection}
        )
        SELECT m.account_id, m.thread_id, m.message_id, m.internet_message_id,
-              m.sender_json, m.recipients_json, m.cc_json, m.reply_to_json, m.sent_at, m.ordinal
+              m.sender_json, m.recipients_json, m.cc_json, m.reply_to_json, m.sent_at, m.ordinal, m.unread
          FROM mail_messages m
          JOIN selected_threads t
            ON t.profile_id = m.profile_id AND t.account_id = m.account_id
@@ -1763,7 +1769,7 @@ export async function mailboxPage(
   const threadResults = results[2]! as D1Result<MailboxThreadRow>;
   const messages = results[3]! as D1Result<{
     account_id: string; thread_id: string; message_id: string; internet_message_id: string | null;
-    sender_json: string; recipients_json: string; cc_json: string; reply_to_json: string; sent_at: string; ordinal: number;
+    sender_json: string; recipients_json: string; cc_json: string; reply_to_json: string; sent_at: string; ordinal: number; unread: number | null;
   }>;
   const attachments = results[4]! as D1Result<StoredAttachmentRow>;
   const reminders = results[5]! as D1Result<{
@@ -1773,7 +1779,7 @@ export async function mailboxPage(
   const changes = results[6]!.results as Array<{
     revision: number; account_id: string; thread_id: string; deleted: number;
   }>;
-  const threads = threadResults.results.slice(0, pageSize);
+  const threads = (threadResults.results as Array<MailboxThreadRow & { first_unread_message_id: string | null }>).slice(0, pageSize);
   const lastThread = threads.at(-1);
   const nextCursor = after === undefined && threadResults.results.length > pageSize && lastThread
     ? encodedMailboxCursor({ v: 1, receivedAt: lastThread.received_at,
@@ -1800,6 +1806,7 @@ export async function mailboxPage(
     const group = messagesByThread.get(key) ?? [];
     group.push({
       messageId: message.message_id,
+      ...(message.unread === null ? {} : { unread: message.unread === 1 }),
       internetMessageId: message.internet_message_id,
       from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
       to: safeJson<readonly Participant[]>(message.recipients_json, []),
@@ -1858,6 +1865,7 @@ export async function mailboxPage(
           snippet: thread.snippet,
           receivedAt: thread.received_at,
           unread: thread.unread === 1,
+          firstUnreadMessageId: thread.first_unread_message_id,
           starred: thread.starred === 1,
           critical: thread.important === 1,
           needsResponse: thread.needs_response === 1,
@@ -1894,6 +1902,7 @@ export async function mailboxSnapshot(
 }
 
 export interface ThreadMessageSnapshot {
+  readonly unread?: boolean;
   readonly messageId: string;
   readonly internetMessageId: string | null;
   readonly from: Participant;
@@ -2035,6 +2044,7 @@ export async function threadSnapshot(
     const attachments = await storedMessageAttachments(env, profileId, accountId, threadId, message.message_id);
     const detail: ThreadMessageSnapshot = {
       messageId: message.message_id, internetMessageId: message.internet_message_id,
+      ...(message.unread === null ? {} : { unread: message.unread === 1 }),
       from: safeJson<Participant>(message.sender_json, { name: 'Unknown sender', address: 'unknown@invalid.local' }),
       to: safeJson<readonly Participant[]>(message.recipients_json, []), sentAt: message.sent_at,
       cc: safeJson<readonly Participant[]>(message.cc_json, []),

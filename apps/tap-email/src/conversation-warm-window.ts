@@ -4,6 +4,9 @@ export const conversationWarmRadius = 10;
 export const conversationReaderKey = (thread: EmailThread) =>
   JSON.stringify([emailThreadKey(thread), thread.providerRevision]);
 
+/** Cache keys include revisions; React identity lasts for the conversation. */
+export const conversationReaderIdentity = (key: string): string => JSON.parse(key)[0];
+
 /** Closest first on each side, with the direction of travel winning ties. */
 export function conversationWarmWindow(rows: readonly EmailThread[], activeKey: string, direction: 1 | -1) {
   const index = rows.findIndex(thread => conversationReaderKey(thread) === activeKey);

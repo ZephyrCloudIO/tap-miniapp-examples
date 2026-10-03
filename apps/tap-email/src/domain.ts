@@ -98,6 +98,8 @@ export interface EmailAttachment {
 
 export interface EmailMessage {
   readonly messageId: string;
+  /** Absent on legacy cache records; never infer individual state from the thread. */
+  readonly unread?: boolean;
   readonly internetMessageId?: string | null;
   readonly from: EmailParticipant;
   readonly to: readonly EmailParticipant[];
@@ -133,6 +135,7 @@ export interface EmailThread {
   readonly snippet: string;
   readonly receivedAt: string;
   readonly unread: boolean;
+  readonly firstUnreadMessageId?: string | null;
   readonly starred: boolean;
   readonly critical: boolean;
   readonly needsResponse: boolean;
@@ -596,6 +599,7 @@ export function isEmailMessage(value: unknown): value is EmailMessage {
     : [];
   return (
     isSafeMailIdentifier(value.messageId) &&
+    (value.unread === undefined || typeof value.unread === 'boolean') &&
     (value.internetMessageId === undefined || value.internetMessageId === null ||
       isBoundedString(value.internetMessageId, 2_000)) &&
     isParticipant(value.from) &&
@@ -668,6 +672,7 @@ export function isEmailThread(value: unknown): value is EmailThread {
     isBoundedString(value.snippet, 10_000) &&
     isDateString(value.receivedAt) &&
     typeof value.unread === 'boolean' &&
+    (value.firstUnreadMessageId === undefined || value.firstUnreadMessageId === null || isSafeMailIdentifier(value.firstUnreadMessageId)) &&
     typeof value.starred === 'boolean' &&
     typeof value.critical === 'boolean' &&
     typeof value.needsResponse === 'boolean' &&
@@ -1867,6 +1872,7 @@ function emailThreadProjectionEqual(
     left.snippet === right.snippet &&
     left.receivedAt === right.receivedAt &&
     left.unread === right.unread &&
+    left.firstUnreadMessageId === right.firstUnreadMessageId &&
     left.starred === right.starred &&
     left.critical === right.critical &&
     left.needsResponse === right.needsResponse &&

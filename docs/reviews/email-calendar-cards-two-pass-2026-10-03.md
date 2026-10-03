@@ -38,3 +38,28 @@ Native TAP validation located the exact reported Andrea acceptance through mail 
 - Local preview screenshots: `/tmp/tap-email-calendar-acceptance.png` and `/tmp/tap-email-calendar-invite-narrow.png`.
 
 No real RSVP was sent. Native end-to-end validation of the fixed card remains a post-merge deployment/install check. This change adds invitation cards and sends standard organizer replies; it does not add a Google Calendar API integration, verified alias identity, a day/week schedule sidebar, or a confirmed update to the attendee's own Google Calendar event. Rendering does not require new Calendar OAuth scopes. Deploy the coordinator before loading the new miniapp release.
+
+
+## Reader entry follow-up: two review passes
+
+The reported screenshots expose shared panel scroll leaking between retained conversations and bottom-based anchoring of a tall latest message. The single-message branch did not reset the panel. The provider parser retained message labels transiently but persisted only thread-level unread state, so the reader could not reliably choose the first unread message.
+
+### Pass 1: navigation, React identity and layout
+
+- Single-message conversations reset to scrollTop 0 on every activation. Threads align the first unread message header with the panel's 14px top inset. Read threads start at the latest message header. Prior read messages stay collapsed; known unread messages open.
+- Entry selection waits for verified bodies, captures the pre-mark-read boundary and freezes for that visit. Summary refreshes and automatic mark-read do not change the chosen entry. Keyboard disclosure targets the same first unread message.
+- Scroll positioning runs before paint, only for the active reader, and never changes horizontal scroll. A scoped ResizeObserver follows delayed frame or paging-control growth until wheel, touch, pointer, keyboard or actual manual scrolling starts; it disconnects on deactivation/unmount. User movement remains respected when delayed bodies arrive. Browser scroll anchoring is disabled on the panel.
+- Found and fixed revision-driven remounts: React keys now identify the account/conversation while Query keys still include the provider revision. Metadata-only mark-read refreshes retain the mounted reader and its frame instead of resetting its visit. Changed bodies still update through the existing revision-fenced loader.
+- Tests check actual iframe node reuse, ten alternating warm activations, inactive-reader isolation, delayed layout, manual scrolling, automatic mark-read and refresh. No additional body-fetch hook or host cache is introduced.
+
+### Pass 2: unread metadata, long threads, cache and rollout
+
+- Add nullable per-message unread metadata, persisted from the provider's exact message labels. The existing mailbox metadata response carries the earliest unread message ID; exact body pages carry individual flags. The lookup uses an account/profile/thread-scoped partial index. No extra navigation metadata endpoint is added.
+- A first unread older than the initial ten bodies is reached through the existing page queries. Background warming loads through the same entry point, so a completed warm entry needs no foreground body reads. Both paths retain existing memory limits and revision/cursor validation. Automatic traversal is capped at 32 pages per preparation/activation; manual history controls remain available for more distant or unavailable messages.
+- Background readiness checks do not promote neighbors in the cache's LRU ordering. Canceled warming does not publish, and completed foreground/background page reads remain deduplicated by the miniapp Query owner.
+- Legacy stored rows remain unknown until provider metadata synchronization supplies their flags; the migration does not invent message-level unread state from a conversation label. Legacy readers retain the latest-header fallback. A provider sync is required to establish the first-unread boundary of those old records.
+- Apply migration `0024_message_unread.sql` and deploy the coordinator before loading the miniapp package; the existing coordinator deployment workflow applies migrations first. No production migration, release or workspace installation was performed in this follow-up.
+
+Final validation: **694 reader tests**, **278 coordinator tests**, and **19 protocol tests**, reader/coordinator/protocol type checks, TAP checks, preview and package builds and package verification. Coordinator generated types, production dry-run build and local startup checks were also run. These checks do not measure production email navigation latency.
+
+Browser validation used the actual retained reader and paged-message components with synthetic emails. Ten j/k switches placed every single-email entry at scrollTop **0** and every first-unread header exactly **14px** below the panel top, with **zero backend body requests** after warming. Manual PageDown moved the thread to scrollTop **947**, k reset the single email to **0**, and j restored the unread entry at **129**. Screenshot: `/tmp/tap-email-unread-entry-preview.png`. The installed TAP release is unchanged until merge/release.

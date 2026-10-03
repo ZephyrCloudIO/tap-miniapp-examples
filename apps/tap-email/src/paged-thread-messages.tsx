@@ -44,6 +44,17 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
   const reader = useCreateStore({ ...initial,
     loading: false, error: null as string | null });
   const { page, windowed, loading, error } = useSelector(reader);
+  const [entryTarget, setEntryTarget] = useState(() => props.unread ? props.firstUnreadMessageId : null);
+  const entryWasActive = useRef(false);
+  const [entryPages, setEntryPages] = useState(0);
+  useLayoutEffect(() => {
+    const activated = props.active !== false && !entryWasActive.current;
+    entryWasActive.current = props.active !== false;
+    if (activated) {
+      setEntryTarget(props.unread ? props.firstUnreadMessageId : null);
+      setEntryPages(0);
+    }
+  }, [props.active, props.unread, props.firstUnreadMessageId]);
   const updateReader = useCallback((patch: Partial<typeof reader.state>) => {
     reader.setState(current => Object.entries(patch).every(([key, value]) =>
       current[key as keyof typeof current] === value) ? current : { ...current, ...patch });
@@ -173,6 +184,16 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
     if (snapshot) callbacks.current.onMessages(accountId, threadId, snapshot.messages, providerRevision, snapshot.downloadedPage);
   }, [props.active, accountId, threadId, providerRevision, cache]);
 
+  // A long thread's first unread may be older than its first ten bodies. Use
+  // the same deduplicated page queries as warming, with the same memory bounds.
+  const targetToLoad = props.unread && props.firstUnreadMessageId ? props.firstUnreadMessageId : entryTarget;
+  const missingEntry = Boolean(targetToLoad && page && !page.messages.some(message => message.messageId === targetToLoad));
+  useEffect(() => {
+    if (props.active === false || !missingEntry || !page?.nextCursor || loading || error || entryPages >= 32 || !client) return;
+    setEntryPages(count => count + 1);
+    void load();
+  }, [props.active, missingEntry, page?.nextCursor, loading, error, entryPages, client, load]);
+
   return <>
     <div className="thread-page-controls" aria-busy={loading}>
       {loading ? <p role="status">Loading conversation messages…</p> : null}
@@ -194,6 +215,8 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
       }}>Load newest messages</button> : null}
       {page?.complete ? <p className="thread-page-complete" role="status">{windowed ? 'End of conversation' : 'All conversation messages loaded'}</p> : null}
     </div>
-    <ThreadMessageList {...props} providerRevision={providerRevision} messages={page?.messages ?? props.messages} />
+    <ThreadMessageList {...props}
+      positionReady={Boolean(page && (!missingEntry || page.complete || entryPages >= 32 || error || !client)) || client === null && !loadCachedThread}
+      providerRevision={providerRevision} messages={page?.messages ?? props.messages} />
   </>;
 }

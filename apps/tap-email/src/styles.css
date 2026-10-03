@@ -993,6 +993,7 @@ kbd {
 .mail-history-status { min-height: 32px; display: flex; align-items: center; justify-content: center; padding: 6px 12px; color: var(--mail-muted); font-size: 11px; }
 .mail-history-status button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
 .conversation-deck { position: relative; }
+.message-body { overflow-anchor: none; }
 .conversation-deck > [aria-hidden="true"] { position: absolute; top: 0; left: 0; width: 100%; visibility: hidden; pointer-events: none; }
 .booking-links-picker {
   width: min(440px, calc(100vw - 48px));
