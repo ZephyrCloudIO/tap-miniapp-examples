@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/tap-email",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -29,6 +29,7 @@
     "@tanstack/pacer": "0.21.1",
     "@tanstack/react-query": "5.101.4",
     "@tanstack/react-store": "0.11.0",
+    "@tanstack/react-virtual": "3.14.13",
     "@tap-examples/tap-email-protocol": "workspace:*",
     "@tap-examples/tap-mobile-ui": "workspace:*",
     "@tap-examples/tap-shared-state": "workspace:*",

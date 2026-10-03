@@ -599,6 +599,9 @@ importers:
       '@tanstack/react-store':
         specifier: 0.11.0
         version: 0.11.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@tanstack/react-virtual':
+        specifier: 3.14.13
+        version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tap-examples/tap-email-protocol':
         specifier: workspace:*
         version: link:../tap-email-protocol
@@ -3023,11 +3026,20 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  '@tanstack/react-virtual@3.14.13':
+    resolution: {integrity: sha512-JbDTAwtzZ99aOeCrAfW5EsE5KSq5RWh6Af2dtFwyLIIk48Ja7vm6n4axu/43T3vfjFnEGJalxJ1wyYjSQD6bSg==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   '@tanstack/store@0.11.0':
     resolution: {integrity: sha512-WlzzCt3xi0G6pCAJu1U+2jiECwabETDpQDi3hfkFZvJii9AuZqEKbOiVarX1/bWhTNjU486yQtJCCasi/0q+Cw==}
 
   '@tanstack/store@0.11.2':
     resolution: {integrity: sha512-sJ4mjol8uQsHV0gOJzzjwXfh2Fwm+Sz0+8deqiTm4jGbMdjzNSW+xZCFm0kUa870uhd8yi+DpKnZb5Kc4apa0Q==}
+
+  '@tanstack/virtual-core@3.17.11':
+    resolution: {integrity: sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==}
 
   '@theaiplatform/miniapp-sdk@0.16.0':
     resolution: {integrity: sha512-c+ocmKKRhYZbibgi2E1ELtfilJ7eiAkZF743NNvhq7YQq4rf0EF6AhYuwxL04+bkgB7t+5DFdmw/8zjPQN/1VA==}
@@ -7369,9 +7381,17 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
       use-sync-external-store: 1.7.0(react@19.3.0)
 
+  '@tanstack/react-virtual@3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@tanstack/virtual-core': 3.17.11
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@tanstack/store@0.11.0': {}
 
   '@tanstack/store@0.11.2': {}
+
+  '@tanstack/virtual-core@3.17.11': {}
 
   '@theaiplatform/miniapp-sdk@0.16.0(@module-federation/rsbuild-plugin@2.8.1(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rspack/core@2.1.4(@module-federation/runtime-tools@2.8.1)(@swc/helpers@0.5.23))(typescript@6.0.3)(webpack@5.110.3))(@module-federation/runtime-tools@2.8.1)(@rsbuild/core@2.2.5(@module-federation/runtime-tools@2.8.1))(@rslib/core@0.23.2(@module-federation/runtime-tools@2.8.1)(typescript@6.0.3))(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(@rstest/playwright@0.11.5(@rstest/core@0.11.5(@module-federation/runtime-tools@2.8.1)(happy-dom@20.14.5)(jsdom@30.0.1))(playwright@1.63.0))(@tanstack/react-query@5.101.4(react@19.3.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(playwright@1.63.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:

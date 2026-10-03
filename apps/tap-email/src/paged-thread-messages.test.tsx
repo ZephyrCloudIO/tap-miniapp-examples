@@ -30,6 +30,31 @@ describe('paged conversation reader', () => {
     seenCursors: nextCursor ? [nextCursor] : [],
   });
 
+  it('publishes a warmed snapshot only when activated without reloading its iframe or bodies', async () => {
+    const cache = new ConversationQueryCache();
+    cache.remember('account', 'thread', { messages: [message('warm')], downloadedPage: marker() });
+    const client = { getThreadPage: rs.fn() };
+    const loadCachedThread = rs.fn();
+    const published = rs.fn();
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container);
+    const render = (active: boolean) => <PagedThreadMessages {...defaults} active={active}
+      client={client} cache={cache} loadCachedThread={loadCachedThread} messages={[]}
+      scriptsEnabled={false} onMessages={published} />;
+    try {
+      await act(async () => root.render(render(false)));
+      const frame = container.querySelector('iframe');
+      expect(frame?.getAttribute('srcdoc')).toContain('Rich warm');
+      expect(published).not.toHaveBeenCalled();
+      await act(async () => root.render(render(true)));
+      expect(container.querySelector('iframe')).toBe(frame);
+      expect(published).toHaveBeenCalledTimes(1);
+      expect(published).toHaveBeenCalledWith('account', 'thread', cache.snapshot('account', 'thread', 'h1')!.messages, 'h1', marker());
+      expect(client.getThreadPage).not.toHaveBeenCalled();
+      expect(loadCachedThread).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); cache.clear(); container.remove(); }
+  });
+
   it('keeps one pending read when only the publication callback changes', async () => {
     let resolve!: (value: ThreadPage) => void;
     const client = { getThreadPage: rs.fn(() => new Promise<ThreadPage>(done => { resolve = done; })) };

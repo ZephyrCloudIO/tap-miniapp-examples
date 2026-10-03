@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-03",
+  "browser": "Chrome",
+  "metric": "input handler to intended HTML body ready plus next animation frame",
+  "scope": "synthetic production-built reader fixture; excludes SDK, disk, network and full app state derivation",
+  "baseline": {
+    "baseCommit": "d11db3be6fd1f4d7f66a8777600d60087f018f3a",
+    "readyPaintMs": [15.2, 22.2, 22.4, 23.7, 18.3, 20.3, 14.1, 15, 20.5, 21.9],
+    "medianMs": 20.4,
+    "p95Ms": 23.7,
+    "iframeLoads": 10
+  },
+  "firstAfterSample": {
+    "readyPaintMs": [4.6, 8.5, 8.7, 9.7, 11.3, 12.4, 13.1, 14.9, 8.4, 11],
+    "medianMs": 10.35,
+    "p95Ms": 14.9,
+    "iframeLoads": 0
+  },
+  "finalAfterSample": {
+    "readyPaintMs": [12.5, 15.5, 13.6, 11.3, 12.7, 11, 10.5, 10.8, 14.4, 12.5],
+    "medianMs": 12.5,
+    "p95Ms": 15.5,
+    "iframeLoads": 0
+  },
+  "continuousScroll": [
+    {"loaded": 200, "mountedEmailRows": 24, "scrollTop": 9011, "scrollHeight": 19261},
+    {"loaded": 300, "mountedEmailRows": 24, "scrollTop": 18611, "scrollHeight": 28861},
+    {"loaded": 400, "mountedEmailRows": 24, "scrollTop": 28211, "scrollHeight": 38461},
+    {"loaded": 500, "mountedEmailRows": 24, "scrollTop": 37811, "scrollHeight": 48061},
+    {"loaded": 600, "mountedEmailRows": 24, "scrollTop": 47411, "scrollHeight": 57661},
+    {"loaded": 700, "mountedEmailRows": 24, "scrollTop": 57011, "scrollHeight": 67261},
+    {"loaded": 800, "mountedEmailRows": 24, "scrollTop": 66611, "scrollHeight": 76861},
+    {"loaded": 900, "mountedEmailRows": 24, "scrollTop": 76211, "scrollHeight": 86461},
+    {"loaded": 1000, "mountedEmailRows": 24, "scrollTop": 85811, "scrollHeight": 96061}
+  ]
+}

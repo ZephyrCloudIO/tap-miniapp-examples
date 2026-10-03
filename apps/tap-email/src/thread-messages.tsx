@@ -46,6 +46,7 @@ export type ContextualAttachmentLoader = (
 ) => Promise<Uint8Array>;
 
 interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
+  readonly active?: boolean;
   readonly mobile?: boolean;
   readonly appTheme: MiniAppTheme;
   readonly html: string;
@@ -58,6 +59,7 @@ interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
 }
 
 export interface ThreadMessageListProps {
+  readonly active?: boolean;
   readonly mobile?: boolean;
   readonly accountId: string;
   readonly appTheme: MiniAppTheme;
@@ -187,6 +189,7 @@ function PlainMessageBody({ bodyText }: PlainMessageBodyProps) {
 }
 
 function CachedRichMessageBody({
+  active,
   mobile,
   accountId,
   appTheme,
@@ -209,6 +212,7 @@ function CachedRichMessageBody({
   );
   return (
     <RichMessageBody
+      active={active}
       mobile={mobile}
       html={html}
       imagesEnabled={imagesEnabled}
@@ -249,6 +253,7 @@ function ParticipantDetails({ participant }: { readonly participant: EmailPartic
 }
 
 const ThreadMessageCard = memo(function ThreadMessageCard({
+  active = true,
   mobile,
   htmlEnabled = true,
   accountId,
@@ -358,6 +363,7 @@ const ThreadMessageCard = memo(function ThreadMessageCard({
           </dl> : null}
           {htmlEnabled && message.bodyHtml ? (
             <CachedRichMessageBody
+              active={active}
               mobile={mobile}
               accountId={accountId}
               appTheme={appTheme}
@@ -403,6 +409,7 @@ const emptyOutgoingMessages: readonly OutgoingThreadMessage[] = [];
  * choices survive while a newly arrived last message opens automatically.
  */
 export const ThreadMessageList = memo(function ThreadMessageList({
+  active = true,
   mobile,
   accountId,
   appTheme,
@@ -474,12 +481,13 @@ export const ThreadMessageList = memo(function ThreadMessageList({
 
   useEffect(() => {
     const latestMessage = latestMessageRef.current;
-    if (!collapsible || !latestMessage) return;
+    if (!active || !collapsible || !latestMessage) return;
     scrollMessageVerticallyIntoView(latestMessage);
-  }, [collapsible, latestMessageId]);
+  }, [active, collapsible, latestMessageId]);
 
   return messages.map(message => (
     <ThreadMessageCard
+      active={active}
       mobile={mobile}
       htmlEnabled={htmlEnabled}
       accountId={accountId}

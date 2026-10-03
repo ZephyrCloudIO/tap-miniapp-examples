@@ -47,16 +47,14 @@ describe('disk-backed mail history UI', () => {
     try {
       await act(async () => root.render(<TapEmailApp preview />));
       await eventually(() => expect(container.querySelectorAll('.mail-row')).toHaveLength(100));
-      const older = [...container.querySelectorAll<HTMLButtonElement>('nav[aria-label="Mail history pages"] button')]
-        .find(button => button.textContent === 'Older')!;
-      await eventually(() => expect(older.disabled).toBe(false));
+      expect(container.querySelector('nav[aria-label="Mail history pages"]')).toBeNull();
       await eventually(() => expect(container.querySelector('.zero-card')?.textContent).toContain('all selected accounts synced'));
       const account = [...container.querySelectorAll<HTMLButtonElement>('.account-switcher button')]
         .find(button => button.textContent?.includes(otherAccount.displayName))!;
       await act(async () => account.click());
       expect(container.querySelector('.thread-list')?.textContent).toContain('Loading mail');
       expect(container.querySelector('.thread-list')?.textContent).not.toContain('Inbox is clear');
-      expect(older.disabled).toBe(true);
+      expect(container.querySelector('.mail-history-status')?.textContent).toContain('Loading more mail');
       await act(async () => release());
       await eventually(() => {
         expect(container.querySelectorAll('.mail-row')).toHaveLength(1);
@@ -70,7 +68,7 @@ describe('disk-backed mail history UI', () => {
     }
   });
 
-  it('replaces the displayed window, opens older mail, and searches beyond it', async () => {
+  it('appends older batches without losing newer rows, opens older mail, and searches beyond it', async () => {
     const fixture = sqliteStoreFixture();
     const store = new localStore.ProfileSqliteMailStore(fixture.profile);
     const source = previewMailState();
@@ -80,6 +78,12 @@ describe('disk-backed mail history UI', () => {
       messages: [{ ...source.threads[0]!.messages[0]!, bodyText: `Message ${index}` }],
     }));
     await store.save({ ...source, threads, selectedThreadKey: emailThreadKey(threads[0]!) });
+    const queryThreads = store.queryThreads.bind(store);
+    let failOlder = true;
+    rs.spyOn(store, 'queryThreads').mockImplementation(async options => {
+      if (options.after && failOlder) { failOlder = false; throw new Error('Transient local history failure'); }
+      return queryThreads(options);
+    });
     const mock = rs.spyOn(localStore, 'createLocalMailStore').mockReturnValue(store);
     const container = document.createElement('div');
     document.body.append(container);
@@ -87,16 +91,26 @@ describe('disk-backed mail history UI', () => {
     try {
       await act(async () => root.render(<TapEmailApp preview />));
       await eventually(() => expect(container.querySelectorAll('.mail-row')).toHaveLength(100));
-      const older = [...container.querySelectorAll<HTMLButtonElement>('nav[aria-label="Mail history pages"] button')]
-        .find(button => button.textContent === 'Older')!;
-      await eventually(() => expect(older.disabled).toBe(false));
-      await act(async () => older.click());
+      const scroller = container.querySelector<HTMLElement>('.thread-list')!;
+      Object.defineProperty(scroller, 'clientHeight', { value: 500, configurable: true });
+      Object.defineProperty(scroller, 'scrollHeight', { get: () => container.querySelectorAll('.mail-row').length * 100 + 500, configurable: true });
+      await eventually(() => expect(container.querySelector('.mail-history-status')?.textContent).not.toContain('Loading'));
+      await act(async () => { scroller.scrollTop = 10500; scroller.dispatchEvent(new Event('scroll')); });
       await eventually(() => {
         expect(container.querySelectorAll('.mail-row')).toHaveLength(100);
-        expect(container.querySelector('.mail-row')?.textContent).toContain('Historical item 100');
+        expect(container.querySelector('.mail-history-status')?.textContent).toContain('Retry loading mail');
       });
-      await act(async () => (container.querySelector('.mail-row') as HTMLButtonElement).click());
+      await act(async () => container.querySelector<HTMLButtonElement>('.mail-history-status button')!.click());
+      await eventually(() => {
+        expect(container.querySelectorAll('.mail-row')).toHaveLength(200);
+        expect(container.querySelector('.mail-row')?.textContent).toContain('Historical item 000');
+      });
+      await act(async () => (container.querySelectorAll('.mail-row')[100] as HTMLButtonElement).click());
       await eventually(() => expect(container.querySelector('.message-header h2')?.textContent).toBe('Historical item 100'));
+      Object.defineProperty(scroller, 'scrollHeight', { value: 21000, configurable: true });
+      await act(async () => { scroller.scrollTop = 20500; scroller.dispatchEvent(new Event('scroll')); });
+      await eventually(() => expect(container.querySelectorAll('.mail-row')).toHaveLength(250));
+      expect(container.querySelector('.mail-history-status')?.textContent).toContain('End of available mail');
       const search = container.querySelector<HTMLInputElement>('input[aria-label="Search mail"]')!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'Historical item 249');

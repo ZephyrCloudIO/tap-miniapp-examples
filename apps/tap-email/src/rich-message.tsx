@@ -387,7 +387,11 @@ function callToActionEvidence(document: Document): number {
  * mail (including quoted conversations) to follow the host appearance.
  */
 export function richMessagePresentation(value: string): RichMessagePresentation {
-  const parsed = createSanitizedDocument(value);
+  return documentPresentation(createSanitizedDocument(value));
+}
+
+function documentPresentation(source: Document): RichMessagePresentation {
+  const parsed = source.cloneNode(true) as Document;
   for (const quotedRoot of knownQuotedContentRoots(parsed)) quotedRoot.remove();
   const evidence = authoredStyleEvidence(parsed)
     + visibleImageEvidence(parsed)
@@ -511,6 +515,10 @@ export function extractRemoteImageUrls(
   includeQuotedContent = true,
 ): readonly string[] {
   const parsed = new DOMParser().parseFromString(value, 'text/html');
+  return documentImageUrls(parsed, includeTrackingPixels, includeQuotedContent);
+}
+
+function documentImageUrls(parsed: Document, includeTrackingPixels: boolean, includeQuotedContent: boolean): readonly string[] {
   const hiddenSelectors = includeTrackingPixels ? [] : cssHiddenSelectors(parsed);
   const urls: string[] = [];
   const seen = new Set<string>();
@@ -684,8 +692,27 @@ export function plainTextFromRichMessage(value: string): string {
 
 export function hasEmbeddedMessageScripts(value: string): boolean {
   const parsed = new DOMParser().parseFromString(value, 'text/html');
+  return documentHasScripts(parsed);
+}
+
+function documentHasScripts(parsed: Document): boolean {
   return parsed.querySelector('script:not([src])') !== null || Array.from(parsed.querySelectorAll('*'))
     .some(element => Array.from(element.attributes).some(attribute => /^on[a-z]+$/u.test(attribute.name)));
+}
+
+interface PreparedRichMessage {
+  readonly document: Document;
+  readonly original: Document;
+  readonly containsScripts: boolean;
+  readonly presentation: RichMessagePresentation;
+  readonly hasQuotedContent: boolean;
+}
+
+function prepareRichMessage(html: string): PreparedRichMessage {
+  const original = new DOMParser().parseFromString(html, 'text/html');
+  const document = createSanitizedDocument(html);
+  return { document, original, containsScripts: documentHasScripts(original),
+    presentation: documentPresentation(document), hasQuotedContent: knownQuotedContentRoots(document).length > 0 };
 }
 
 export function buildRichMessageDocument(
@@ -697,9 +724,14 @@ export function buildRichMessageDocument(
     readonly presentation?: RichMessagePresentation;
     readonly showQuotedContent?: boolean;
     readonly theme?: MiniAppTheme;
+    readonly prepared?: PreparedRichMessage;
   } = {},
 ): string {
-  const parsed = createSanitizedDocument(hydrateRemoteImages(value, remoteImages), options.scriptsEnabled);
+  // Remote src attributes are deliberately stripped by DOMPurify. Hydration
+  // must replace them with approved inline bytes before sanitization.
+  const prepared = !options.scriptsEnabled && Object.keys(remoteImages).length === 0 ? options.prepared : undefined;
+  const parsed = prepared ? prepared.document.cloneNode(true) as Document
+    : createSanitizedDocument(hydrateRemoteImages(value, remoteImages), options.scriptsEnabled);
   const presentation = options.presentation ?? richMessagePresentation(value);
   const showQuotedContent = options.showQuotedContent ?? false;
   const theme = options.theme ?? 'light';
@@ -756,6 +788,7 @@ function measuredFrameHeight(frame: HTMLIFrameElement): number {
 }
 
 interface RichMessageBodyProps {
+  readonly active?: boolean;
   readonly mobile?: boolean;
   readonly html: string;
   readonly scriptsEnabled?: boolean;
@@ -782,6 +815,7 @@ export function listenForRichMessageKeyDown(
 const emptyRemoteImages: Readonly<Record<string, string>> = {};
 
 export function RichMessageBody({
+  active = true,
   mobile = false,
   html,
   imagesEnabled = false,
@@ -793,37 +827,37 @@ export function RichMessageBody({
   trackingPixelsEnabled = false,
 }: RichMessageBodyProps) {
   const frameId = useId();
-  const containsScripts = useMemo(() => hasEmbeddedMessageScripts(html), [html]);
+  const prepared = useMemo(() => prepareRichMessage(html), [html]);
+  const { containsScripts, presentation, hasQuotedContent } = prepared;
   const [rendererUrl, setRendererUrl] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!scriptsEnabled || !containsScripts) return;
-    let active = true;
-    void isolatedMessageRenderer().then(url => { if (active) setRendererUrl(url); });
-    return () => { active = false; };
-  }, [scriptsEnabled, containsScripts]);
+    if (!active || !scriptsEnabled || !containsScripts) return;
+    let live = true;
+    void isolatedMessageRenderer().then(url => { if (live) setRendererUrl(url); });
+    return () => { live = false; };
+  }, [active, scriptsEnabled, containsScripts]);
   const disableUnavailableRenderer = useCallback(() => setRendererUrl(null), []);
   const runScripts = scriptsEnabled && containsScripts && typeof rendererUrl === 'string';
-  const presentation = useMemo(() => richMessagePresentation(html), [html]);
-  const hasQuotedContent = useMemo(() => hasKnownQuotedContent(html), [html]);
   const [quoteDisclosure, setQuoteDisclosure] = useState({ html, shown: false });
   const showQuotedContent = quoteDisclosure.html === html && quoteDisclosure.shown;
   const imageUrls = useMemo(
     () => imagesEnabled
-      ? extractRemoteImageUrls(html, trackingPixelsEnabled, showQuotedContent)
+      ? documentImageUrls(prepared.original, trackingPixelsEnabled, showQuotedContent)
       : [],
-    [html, imagesEnabled, showQuotedContent, trackingPixelsEnabled],
+    [prepared, imagesEnabled, showQuotedContent, trackingPixelsEnabled],
   );
   const [remoteImages, setRemoteImages] = useState<Readonly<Record<string, string>>>(emptyRemoteImages);
   const [imageStatus, setImageStatus] = useState<'idle' | 'loading' | 'partial' | 'error'>('idle');
   const source = useMemo(
     () => buildRichMessageDocument(html, remoteImages, {
       presentation,
+      prepared,
       mobile,
       scriptsEnabled: runScripts,
       showQuotedContent,
       theme,
     }),
-    [html, mobile, presentation, remoteImages, runScripts, showQuotedContent, theme],
+    [html, mobile, prepared, presentation, remoteImages, runScripts, showQuotedContent, theme],
   );
   const frameRef = useRef<HTMLIFrameElement>(null);
   const heightUpdateTimerRef = useRef<number | null>(null);
@@ -835,27 +869,34 @@ export function RichMessageBody({
   const [height, setHeight] = useState(minimumFrameHeight);
   keyDownListenerRef.current = onKeyDown;
 
+  const loadedImageUrls = useRef<readonly string[] | null>(null);
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    if (loadedImageUrls.current === imageUrls) return;
+    let live = true;
+    let completed = false;
     setRemoteImages(emptyRemoteImages);
     if (!imagesEnabled || !loadRemoteImages || imageUrls.length === 0) {
+      loadedImageUrls.current = imageUrls;
       setImageStatus('idle');
-      return () => { active = false; };
+      return;
     }
     setImageStatus('loading');
     void loadRemoteImages(imageUrls).then(
       images => {
-        if (!active) return;
+        if (!live) return;
+        completed = true;
+        loadedImageUrls.current = imageUrls;
         setRemoteImages(images);
         setImageStatus(Object.keys(images).length < imageUrls.length ? 'partial' : 'idle');
       },
       () => {
-        if (!active) return;
+        if (!live) return;
         setImageStatus('error');
       },
     );
-    return () => { active = false; };
-  }, [imageUrls, imagesEnabled, loadRemoteImages]);
+    return () => { live = false; if (!completed) loadedImageUrls.current = null; };
+  }, [active, imageUrls, imagesEnabled, loadRemoteImages]);
 
   const updateHeight = useCallback(() => {
     const frame = frameRef.current;
