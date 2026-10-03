@@ -10,6 +10,9 @@ const output = path.join(packageRoot, '.tap-package');
 await verifyTapPackage({ output });
 const descriptor = JSON.parse(await readFile(path.join(output, 'tap-miniapp.build.json'), 'utf8'));
 const source = JSON.parse(await readFile(path.join(output, 'manifest.tap.json'), 'utf8'));
+const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+const sdkVersion = packageJson.dependencies['@theaiplatform/miniapp-sdk'];
+assert.equal(descriptor.compatibility.tapSdk, sdkVersion, 'Built SDK compatibility must match the pinned dependency');
 const artifactPaths = new Set(source.artifacts.map(artifact => artifact.path));
 for (const tool of descriptor.contributions.filter(c => c.kind === 'mcp.tool' && c.options.inputSchema)) {
   const schemaPath = tool.options.inputSchema;
@@ -25,4 +28,4 @@ const activityModule = await (await container.get(activity.targets.quickjs.expos
 assert.deepEqual(Object.keys(activityModule), ['activitySource']);
 assert.equal(typeof activityModule.activitySource.get, 'function');
 await assert.rejects(() => activityModule.activitySource.get({ scope: 'workspace' }), /trusted self scope/);
-console.log(`verified SDK 0.19 package, signed live-tool schemas, and activity source ABI at ${output}`);
+console.log(`verified SDK ${sdkVersion} package, signed live-tool schemas, and activity source ABI at ${output}`);

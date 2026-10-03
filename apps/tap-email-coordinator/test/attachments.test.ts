@@ -1,6 +1,7 @@
+import { ATTACHMENT_DOWNLOAD_CHUNK_BYTES, MAXIMUM_ATTACHMENT_RESPONSE_BYTES } from '@tap-examples/tap-email-protocol/attachment';
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sealSecret } from '../src/crypto';
+import { sealSecret, sha256BytesBase64Url } from '../src/crypto';
 import { maximumGoogleAttachmentBytes } from '../src/google';
 import { createTapEmailCoordinator } from '../src/index';
 
@@ -92,6 +93,64 @@ describe('attachment content route', () => {
           SET thread_id = 'gmail_thread_other'
         WHERE profile_id = 'profile_1' AND resource_id = 'resource_1'`,
     ).run()).rejects.toThrow();
+  });
+
+  it('returns credential-safe JSON with scoped identity, original MIME and verified bytes', async () => {
+    await env.DB.prepare("UPDATE mail_attachments SET mime_type = 'text/calendar', file_name = 'invite.ics' WHERE resource_id = 'resource_1'").run();
+    const bytes = new Uint8Array([0, 128, 255]);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ size: 3, data: encodedBytes([...bytes]) }));
+    const worker = createTapEmailCoordinator({ verifyAccess: async () => ({ profileId: 'profile_1' }), now: () => now });
+    const response = await worker.fetch(new Request(route, { headers: { Accept: 'application/json' } }), env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('application/json');
+    expect(response.headers.get('Content-Length')).toBeNull();
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(await response.json()).toEqual({
+      version: 1, accountId: 'google_personal', threadId: 'gmail_thread_1', messageId: 'gmail_message_1',
+      resourceId: 'resource_1', mimeType: 'text/calendar', totalSizeBytes: 3, offset: 0, sizeBytes: 3,
+      sha256Base64Url: await sha256BytesBase64Url(bytes), bodyBase64: 'AID/',
+    });
+  });
+
+  it('bounds JSON chunks below the SDK limit and preserves the 8 MiB file limit', async () => {
+    const size = 8 * 1_024 * 1_024;
+    await env.DB.prepare('UPDATE mail_attachments SET size_bytes = ? WHERE resource_id = ?').bind(size, 'resource_1').run();
+    const bytes = new Uint8Array(size).fill(255);
+    // URL-safe Gmail base64: a multiple of three bytes encodes as underscores.
+    const providerData = '_'.repeat(Math.floor(size / 3) * 4) + '__8';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ size, data: providerData }));
+    const worker = createTapEmailCoordinator({ verifyAccess: async () => ({ profileId: 'profile_1' }), now: () => now });
+    const checksum = await sha256BytesBase64Url(bytes);
+    for (const offset of [0, ATTACHMENT_DOWNLOAD_CHUNK_BYTES]) {
+      const response = await worker.fetch(new Request(`${route}?offset=${offset}`, { headers: { Accept: 'application/json' } }), env);
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(new TextEncoder().encode(text).length).toBeLessThan(MAXIMUM_ATTACHMENT_RESPONSE_BYTES);
+      const chunk = JSON.parse(text);
+      expect(chunk).toMatchObject({ offset, totalSizeBytes: size, sizeBytes: Math.min(size - offset, ATTACHMENT_DOWNLOAD_CHUNK_BYTES), sha256Base64Url: checksum });
+      expect(atob(chunk.bodyBase64).length).toBe(chunk.sizeBytes);
+    }
+  }, 15_000);
+
+  it('rejects invalid offsets before requesting provider bytes', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const worker = createTapEmailCoordinator({ verifyAccess: async () => ({ profileId: 'profile_1' }), now: () => now });
+    for (const offset of ['-1', '1', '00', 'NaN', '8388608', '9007199254740992']) {
+      const response = await worker.fetch(new Request(`${route}?offset=${offset}`, { headers: { Accept: 'application/json' } }), env);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: 'invalid_attachment_offset' });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('applies profile and message authorization to JSON downloads', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    for (const [requestedRoute, profileId] of [[route, 'profile_2'], [route.replace('gmail_thread_1', 'other'), 'profile_1']] as const) {
+      const worker = createTapEmailCoordinator({ verifyAccess: async () => ({ profileId }), now: () => now });
+      const response = await worker.fetch(new Request(requestedRoute, { headers: { Accept: 'application/json' } }), env);
+      expect(response.status).toBe(404);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('negotiates binary SDK transport without dropping calendar MIME metadata', async () => {

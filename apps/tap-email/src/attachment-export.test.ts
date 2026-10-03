@@ -1,3 +1,4 @@
+import { createCoordinatorClient } from './coordinator-client';
 import type {
   MiniAppFileHandle,
   MiniAppFileMetadata,
@@ -108,6 +109,34 @@ describe('attachment export', () => {
         idempotencyKey: 'attachment-export-1',
       },
     );
+  });
+
+  it('saves verified SDK JSON bytes and never writes content with a failed checksum', async () => {
+    for (const valid of [true, false]) {
+      const events: string[] = [];
+      const files = filesFixture(events);
+      const context = { accountId: 'account_1', threadId: 'thread_1', messageId: 'message_1' };
+      const client = createCoordinatorClient({ request(input) {
+        const bodyText = JSON.stringify({
+          version: 1, ...context, resourceId: attachment.resourceId, mimeType: attachment.mimeType,
+          totalSizeBytes: 5, offset: 0, sizeBytes: 5, bodyBase64: 'aGVsbG8=',
+          sha256Base64Url: valid ? 'LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ' : 'x'.repeat(43),
+        });
+        return { finalUrl: input.url, status: 200, statusText: 'OK', headers: [], bodyText,
+          bodyBase64: null, bodyKind: 'text', bodyTruncated: false,
+          sizeBytes: new TextEncoder().encode(bodyText).length, elapsedMs: 1, contentType: 'application/json' };
+      } });
+      const result = exportAttachment({ attachment, files, idempotencyKey: 'verified-export',
+        loadAttachment: () => client.downloadAttachment(context, attachment) });
+      if (valid) {
+        await expect(result).resolves.toBe('saved');
+        expect(files.write).toHaveBeenCalledWith(observedHandle, new TextEncoder().encode('hello'), expect.anything());
+      } else {
+        await expect(result).rejects.toMatchObject({ code: 'invalid_response' });
+        expect(files.write).not.toHaveBeenCalled();
+      }
+      expect(files.revoke).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('does not load when the picker is cancelled and reports no error', async () => {
