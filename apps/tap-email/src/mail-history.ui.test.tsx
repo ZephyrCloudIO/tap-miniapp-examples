@@ -28,7 +28,7 @@ describe('disk-backed mail history UI', () => {
     }));
     const otherThread = { ...threads[0]!, accountId: otherAccount.accountId,
       threadId: 'older_other_account', subject: 'Mail in the selected account', receivedAt: '2025-01-01T00:00:00.000Z' };
-    await store.save({ ...source, threads: [...threads, otherThread] });
+    await store.save({ ...source, accounts: source.accounts.map(account => ({ ...account, coverage: { ...account.coverage, state: 'current' as const, unresolvedFailures: 0 } })), threads: [...threads, otherThread] });
     const mock = rs.spyOn(localStore, 'createLocalMailStore').mockReturnValue(store);
     const queryThreads = store.queryThreads.bind(store);
     const summarize = store.summarize.bind(store);
@@ -49,6 +49,7 @@ describe('disk-backed mail history UI', () => {
       await eventually(() => expect(container.querySelectorAll('.mail-row')).toHaveLength(100));
       expect(container.querySelector('nav[aria-label="Mail history pages"]')).toBeNull();
       await eventually(() => expect(container.querySelector('.zero-card')?.textContent).toContain('all selected accounts synced'));
+      expect(container.querySelector('.split-sidebar button[aria-label="Inbox, 111 threads"] .nav-count')?.textContent).toBe('111');
       const account = [...container.querySelectorAll<HTMLButtonElement>('.account-switcher button')]
         .find(button => button.textContent?.includes(otherAccount.displayName))!;
       await act(async () => account.click());

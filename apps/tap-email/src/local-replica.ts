@@ -425,6 +425,7 @@ export async function replaceNormalizedLocalReplica(
       'status',
       'message_count',
       'reminder_due_at',
+      'provider_resources_known',
     ],
     state.threads.map(thread => [
       thread.accountId,
@@ -441,6 +442,7 @@ export async function replaceNormalizedLocalReplica(
       thread.status,
       thread.messages.length,
       thread.reminder?.dueAt ?? null,
+      Number(thread.providerResources !== undefined),
     ]),
   );
 

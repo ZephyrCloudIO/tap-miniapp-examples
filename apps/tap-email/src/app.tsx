@@ -1,4 +1,6 @@
 import { useMinuteClock } from './use-minute-clock';
+import { useMailboxCounts } from './use-mailbox-counts';
+import { countLabel } from './mailbox-counts';
 import { useSessionCleanup } from './use-session-cleanup';
 import { SharedState, SettingsNotSavedError, replicaStore, isDocument, type Document } from '@tap-examples/tap-shared-state';
 import { applyEmailDocument, emailMigration, correctionKey } from './shared-state';
@@ -79,7 +81,6 @@ import {
   composeMessage,
   cancelScheduledMessage,
   correctThreadAttention,
-  mailboxSummary,
   markDone,
   markThreadRead,
   mergeThreadMessages,
@@ -417,31 +418,36 @@ const MailViewButtons = React.memo(function MailViewButtons({
   views,
   selectedSplit,
   showCounts,
+  countsComplete = true,
   counts,
   onSelect,
 }: {
   readonly views: readonly MailViewDefinition[];
   readonly selectedSplit: MailSplit;
   readonly showCounts: boolean;
+  readonly countsComplete?: boolean;
   readonly counts: Readonly<Partial<Record<MailSplit, number>>>;
   readonly onSelect: (split: MailSplit) => void;
 }) {
   return views.map(view => {
     const count = showCounts || view.id === 'outbox'
-      ? counts[view.id] ?? 0
+      ? counts[view.id]
       : null;
+    const complete = countsComplete || view.id === 'outbox';
+    const label = countLabel(count ?? undefined, complete);
     const selected = selectedSplit === view.id;
     return (
       <button
         key={view.id}
         aria-current={selected ? 'page' : undefined}
-        aria-label={count === null ? view.label : `${view.label}, ${count} threads`}
+        title={view.id === 'critical' ? 'Important or starred conversations, including your corrections' : view.id === 'needs-response' ? 'Potential replies based on sender and mailbox state, including your corrections' : undefined}
+        aria-label={count === null ? view.label : count === undefined ? `${view.label}, count unavailable` : `${view.label}, ${complete ? '' : 'partial count, '}${count} threads`}
         className={selected ? 'is-active' : ''}
         type="button"
         onClick={() => onSelect(view.id)}
       >
         <span className="nav-label">{view.label}</span>
-        {count === null ? null : <span className="nav-count">{count}</span>}
+        {count === null ? null : <span className="nav-count" title={count === undefined ? 'Count unavailable' : complete ? 'Synced conversations' : 'Partial count; mail history is still syncing'}>{label}</span>}
         {view.shortcut ? (
           <kbd aria-hidden="true" className="nav-shortcut">{view.shortcut}</kbd>
         ) : null}
@@ -860,7 +866,6 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
   const activityReconciliationsPending = useRef(new Set<string>());
   const queuedDraftRevisions = useRef(new Map<string, number>());
   const [replicaVersion, setReplicaVersion] = useState(0);
-  const [replicaSummary, setReplicaSummary] = useState<{ accountId: string; value: ReturnType<typeof mailboxSummary> } | null>(null);
   const windowScope = JSON.stringify([state.selectedAccountId, state.selectedSplit, query]);
   const [history, setHistory] = useState({ scope: windowScope, batches: 1 });
   const historyBatches = history.scope === windowScope ? history.batches : 1;
@@ -1778,24 +1783,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
   const emailTaskBusy = activeEmailTask?.status === 'creating';
   const emailTaskFinished = activeEmailTask?.status === 'completed' ||
     activeEmailTask?.status === 'duplicate-suppressed';
-  const summary = useMemo(
-    () => (replicaSummary?.accountId === state.selectedAccountId ? replicaSummary.value : null) ?? { ...mailboxSummary(
-      { accounts: state.accounts, outbox: state.outbox, threads: state.threads, pendingThreadIntents: state.pendingThreadIntents },
-      new Date(presentationNow).toISOString(), projectedMailbox),
-      ...(store.summarize ? { coverageComplete: false, operationalZero: false } : {}) },
-    [state.accounts, state.outbox, state.threads, state.pendingThreadIntents, state.selectedAccountId,
-      replicaSummary, store, presentationNow, projectedMailbox],
-  );
-  useEffect(() => {
-    if (!hydrated || !store.summarize) return;
-    let active = true;
-    const timer = setTimeout(() => {
-      void store.summarize!(state.selectedAccountId, journalOf(stateRef.current)).then(summary => {
-        if (active) setReplicaSummary({ accountId: state.selectedAccountId, value: summary });
-      }).catch(() => undefined);
-    }, 250);
-    return () => { active = false; clearTimeout(timer); };
-  }, [hydrated, store, replicaVersion, state.commands, state.pendingThreadIntents, state.outbox, state.selectedAccountId, presentationNow]);
+  const summary = useMailboxCounts(state, store, hydrated, replicaVersion, presentationNow);
 
   const outboxItems = useMemo(() => outboxImmediateSends({ commands: state.commands, outbox: state.outbox })
     .filter(item => {
@@ -1816,13 +1804,9 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
         : current;
     });
   }, [state.commands]);
-  const mailboxCounts = useMemo(() => Object.fromEntries(
-    [...FIXED_MAILBOX_CATEGORIES, ...TAP_MAIL_VIEWS].map(view => [view.id,
-      view.id === 'outbox' ? outboxItems.length : accountThreads.filter(item => threadMatchesSplit(item, view.id)).length]),
-  ), [accountThreads, outboxItems]);
-  const tapViewCounts = useMemo(() => ({ ...mailboxCounts, critical: summary.critical,
-    'needs-response': summary.needsResponse, waiting: summary.waiting }),
-  [mailboxCounts, summary.critical, summary.needsResponse, summary.waiting]);
+  const mailboxCounts = useMemo(() => ({ ...summary.mailboxCounts, outbox: outboxItems.length }),
+    [summary.mailboxCounts, outboxItems.length]);
+  const tapViewCounts = mailboxCounts;
   const searchCoverage = useMemo(() => {
     if (!query.trim()) return null;
     const selectedCoverage = state.accounts
@@ -3387,10 +3371,10 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
         onLayoutChange={(columnWidths, sidebarCollapsed) => updatePreferences({ ...stateRef.current.preferences, columnWidths, sidebarCollapsed })}>
         <aside className="split-sidebar" id="tap-email-sidebar" aria-label="Email views">
           <div className="zero-card">
-            <div className="zero-orbit" title="Critical conversations"><span>{summary.critical}</span></div>
+            <div className="zero-orbit" title="Critical conversations"><span>{countLabel(summary.critical, summary.coverageComplete)}</span></div>
             <div>
-              <strong>{summary.operationalZero ? 'Inbox clear' : `${summary.critical} critical`}</strong>
-              <small>{summary.needsResponse} need a reply · {summary.coverageComplete ? 'all selected accounts synced' : 'mail history still loading'}</small>
+              <strong>{summary.operationalZero ? 'Inbox clear' : `${countLabel(summary.critical, summary.coverageComplete)} critical`}</strong>
+              <small>{countLabel(summary.needsResponse, summary.coverageComplete)} need a reply · {summary.coverageComplete ? 'all selected accounts synced' : 'partial counts · mail history still syncing'}</small>
             </div>
           </div>
           <div className="split-nav-scroll">
@@ -3399,7 +3383,8 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
                 views={FIXED_MAILBOX_CATEGORIES}
                 selectedSplit={state.selectedSplit}
                 counts={mailboxCounts}
-                showCounts={false}
+                showCounts
+                countsComplete={summary.coverageComplete}
                 onSelect={selectMailView}
               />
             </nav>
@@ -3409,12 +3394,13 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
                 views={TAP_MAIL_VIEWS}
                 selectedSplit={state.selectedSplit}
                 counts={tapViewCounts}
+                countsComplete={summary.coverageComplete}
                 showCounts
                 onSelect={selectMailView}
               />
             </nav>
           </div>
-          <div className="flow-card"><span>Needs reply</span><strong>{summary.needsResponse} conversations</strong><small>{summary.waiting} waiting on others</small></div>
+          <div className="flow-card"><span>Needs reply</span><strong>{countLabel(summary.needsResponse, summary.coverageComplete)} conversations</strong><small>{countLabel(summary.waiting, summary.coverageComplete)} waiting on others</small></div>
         </aside>
 
         <section

@@ -33,7 +33,7 @@ describe('progressive mailbox navigation', () => {
       ...seed.threads[0]!, threadId: `${prefix}_${index}`, subject: `${prefix} ${index}`, providerResources: [sent ? 'sent' : 'inbox'],
     }));
     const clickView = async (label: string) => {
-      const button = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.getAttribute('aria-label') === label);
+      const button = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.getAttribute('aria-label') === label || button.getAttribute('aria-label')?.startsWith(`${label},`));
       expect(button).toBeDefined();
       await act(async () => button!.click());
     };

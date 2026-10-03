@@ -50,7 +50,7 @@ export interface LocalMailStore extends Partial<SemanticIndexQueue> {
   saveCache?(state: MailState): Promise<void>;
   maintainCache?(): Promise<void>;
   queryThreads?(query: MailWindowQuery): Promise<MailWindow>;
-  summarize?(accountId?: string, journal?: MailJournal): Promise<MailboxSummary>;
+  summarize?(accountId?: string, journal?: MailJournal): Promise<MailboxSummary & { readonly mailboxCounts?: Readonly<Partial<Record<MailState['selectedSplit'], number>>> }>;
   loadThread?(accountId: string, threadId: string, bodies?: boolean, signal?: AbortSignal): Promise<MailState['threads'][number] | null>;
   loadThreads?(identities: readonly { accountId: string; threadId: string }[], signal?: AbortSignal): Promise<ReadonlyMap<string, MailState['threads'][number]>>;
   beginMailboxSync?(): Promise<MailboxSyncCheckpoint>;
@@ -1095,7 +1095,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     });
   }
 
-  summarize(accountId = 'all', journal?: MailJournal): Promise<MailboxSummary> {
+  summarize(accountId = 'all', journal?: MailJournal) {
     return this.enqueue(database => summarizeReplica(database, new Date(this.now()).toISOString(), accountId, journal));
   }
 

@@ -9,7 +9,7 @@ import {
 import { filterMailThreads, type MailSearchContext } from './mail-search';
 import { insertBoundedRows, recordParts, serializedBytes } from './bounded-sql';
 import { replaceNormalizedLocalReplica, type LocalReplicaStatistics } from './local-replica';
-import type { MailboxSummary } from '@tap-examples/tap-email-protocol';
+import { countThreadSplits, type ReplicaMailboxSummary } from './mailbox-counts';
 import { queueSemanticChanges } from './semantic-index-queue';
 
 export const mailWindowSize = 100;
@@ -51,6 +51,13 @@ export const boundedReplicaMigrations = [
     account_id TEXT NOT NULL, thread_id TEXT NOT NULL, token TEXT NOT NULL,
     PRIMARY KEY (account_id, thread_id)
   )` },
+  { version: 31, sql: 'ALTER TABLE local_mail_threads ADD COLUMN provider_resources_known INTEGER NOT NULL DEFAULT 0' },
+  { version: 32, sql: `UPDATE local_mail_threads SET provider_resources_known = 1 WHERE EXISTS (
+    SELECT 1 FROM local_mail_thread_resources r WHERE r.account_id = local_mail_threads.account_id AND r.thread_id = local_mail_threads.thread_id)
+    OR EXISTS (SELECT 1 FROM (SELECT GROUP_CONCAT(payload, '') AS document FROM
+      (SELECT payload FROM local_mail_records WHERE kind = 'thread' AND entity_id = ''
+        AND account_id = local_mail_threads.account_id AND thread_id = local_mail_threads.thread_id ORDER BY part))
+      WHERE CASE WHEN json_valid(document) THEN json_type(document, '$.providerResources') = 'array' ELSE 0 END)` },
 ] satisfies readonly MiniAppSqlMigration[];
 
 interface RecordWrite { readonly kind: string; readonly accountId: string; readonly threadId: string; readonly entityId: string; readonly value: unknown }
@@ -614,28 +621,42 @@ export async function replicaStatistics(sql: Sql, accountId?: string): Promise<L
   return { counts, logicalBytes: Number(bytes.rows[0]?.[0] ?? 0), accounts: coverage };
 }
 
-export async function summarizeReplica(sql: Sql, now: string, accountId = 'all', liveJournal?: MailJournal): Promise<MailboxSummary> {
+export async function summarizeReplica(sql: Sql, now: string, accountId = 'all', liveJournal?: MailJournal): Promise<ReplicaMailboxSummary> {
   const journal = liveJournal ?? await readJournal(sql);
   const base = { ...emptyMailState(), accounts: (await readReplicaAccounts(sql)).filter(account => accountId === 'all' || account.accountId === accountId) };
   const summary = mailboxSummary({ ...base, ...journal }, now);
-  const totals = await sql.query(`SELECT
-    COALESCE(SUM(status = 'inbox'), 0),
-    COALESCE(SUM(status = 'inbox' AND critical = 1), 0),
-    COALESCE(SUM(status = 'inbox' AND needs_response = 1), 0),
-    COALESCE(SUM(status = 'inbox' AND waiting_on_others = 1), 0),
+  const resource = (kind: string) => `EXISTS (SELECT 1 FROM local_mail_thread_resources r
+    WHERE r.account_id = t.account_id AND r.thread_id = t.thread_id AND r.resource_kind = '${kind}')`;
+  const conditions = {
+    inbox: `((${resource('inbox')} AND status != 'reminded') OR (provider_resources_known = 0 AND status = 'inbox'))`,
+    starred: `(${resource('starred')} OR (provider_resources_known = 0 AND starred = 1 AND status != 'trashed'))`,
+    drafts: resource('drafts'), sent: resource('sent'), spam: resource('spam'),
+    trash: `(${resource('trash')} OR (provider_resources_known = 0 AND status = 'trashed'))`,
+    done: "status = 'done'", reminders: "status = 'reminded'",
+    critical: "status = 'inbox' AND critical = 1", 'needs-response': "status = 'inbox' AND needs_response = 1",
+    waiting: "status = 'inbox' AND waiting_on_others = 1",
+  };
+  const splits = Object.keys(conditions) as (keyof typeof conditions)[];
+  const folderTotals = await sql.query(`SELECT ${splits.map(split => `COALESCE(SUM(${conditions[split]}), 0)`).join(', ')},
     COALESCE(SUM(status = 'reminded' AND reminder_due_at <= ?), 0)
-    FROM local_mail_threads WHERE (? = 'all' OR account_id = ?)`, [now, accountId, accountId]);
-  const counts = totals.rows[0]?.map(Number) ?? [0, 0, 0, 0, 0];
+    FROM local_mail_threads t WHERE (? = 'all' OR account_id = ?)`, [now, accountId, accountId]);
+  const mailboxCounts = Object.fromEntries(splits.map((split, i) => [split, Number(folderTotals.rows[0]?.[i] ?? 0)]));
+  const counts = [mailboxCounts.inbox!, mailboxCounts.critical!, mailboxCounts['needs-response']!, mailboxCounts.waiting!, Number(folderTotals.rows[0]?.[splits.length] ?? 0)];
+  const affected = (journal?.pendingThreadIntents ?? []).filter(intent => accountId === 'all' || intent.accountId === accountId);
+  const baselineThreads = await readThreads(sql, affected);
   const seen = new Set<string>();
-  for (const intent of journal?.pendingThreadIntents ?? []) {
+  for (const intent of affected) {
     if (accountId !== 'all' && intent.accountId !== accountId) continue;
     const key = emailThreadKey(intent);
     if (seen.has(key)) continue;
     seen.add(key);
-    const thread = await readThread(sql, intent.accountId, intent.threadId, false);
+    const thread = baselineThreads.get(key);
     if (!thread) continue;
     const before = mailboxSummary({ ...base, threads: [thread] }, now);
     const after = mailboxSummary({ ...base, ...journal, threads: [thread] }, now);
+    const beforeFolders = countThreadSplits([thread]);
+    const afterFolders = countThreadSplits(projectedThreads({ ...base, ...journal, threads: [thread] }));
+    for (const split of splits) mailboxCounts[split] += afterFolders[split]! - beforeFolders[split]!;
     (['inbox', 'critical', 'needsResponse', 'waiting', 'dueReminders'] as const).forEach((field, i) => {
       counts[i] = counts[i]! + after[field] - before[field];
     });
@@ -643,6 +664,6 @@ export async function summarizeReplica(sql: Sql, now: string, accountId = 'all',
   const [inbox, critical, needsResponse, waiting, dueReminders] = counts as [number, number, number, number, number];
   const sync = await readSync(sql);
   const coverageComplete = summary.coverageComplete && (!sync || sync.complete);
-  return { ...summary, inbox, critical, needsResponse, waiting, dueReminders, coverageComplete,
+  return { ...summary, mailboxCounts, inbox: mailboxCounts.inbox!, critical, needsResponse, waiting, dueReminders, coverageComplete,
     operationalZero: coverageComplete && critical === 0 && needsResponse === 0 && dueReminders === 0 && summary.failedCommands === 0 };
 }
