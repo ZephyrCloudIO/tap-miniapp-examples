@@ -39,6 +39,36 @@ class TestResizeObserver {
 }
 
 describe('watchRichMessageLayout', () => {
+  it('follows opaque reader panel resizing and stops observing after cleanup', () => {
+    const previousResizeObserver = window.ResizeObserver;
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: TestResizeObserver });
+    const reader = document.createElement('div'); reader.className = 'message-body';
+    const frame = document.createElement('iframe'); reader.append(frame); document.body.append(reader);
+    let height = 900;
+    Object.defineProperty(reader, 'clientHeight', { get: () => height });
+    Object.defineProperty(reader, 'clientWidth', { value: 800 });
+    Object.defineProperty(frame, 'contentDocument', { value: null });
+    let layouts = 0;
+    const stop = watchRichMessageLayout(frame, () => { layouts++; });
+    try {
+      expect(TestResizeObserver.instance?.target).toBe(reader);
+      TestResizeObserver.instance?.emit(800);
+      expect(layouts).toBe(0);
+      height = 620;
+      TestResizeObserver.instance?.emit(800);
+      expect(layouts).toBe(1);
+      TestResizeObserver.instance?.emit(800);
+      expect(layouts).toBe(1);
+      stop();
+      expect(TestResizeObserver.instance?.target).toBeNull();
+      window.dispatchEvent(new Event('resize'));
+      expect(layouts).toBe(1);
+    } finally {
+      stop(); reader.remove();
+      Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: previousResizeObserver });
+      TestResizeObserver.instance = null;
+    }
+  });
   it('remeasures only when the host width changes', () => {
     const previousResizeObserver = window.ResizeObserver;
     Object.defineProperty(window, 'ResizeObserver', {

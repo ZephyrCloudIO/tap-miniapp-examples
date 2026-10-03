@@ -16,8 +16,13 @@ import { localSentRecipients } from './recipient-history';
 import { activityCommandFromReceipt } from './activity';
 import { createBookingLinksClient } from './booking-links';
 import { EmailToolAccessPanel } from './email-tool-access-panel';
-import { boundMailWindow, journalOf, type MailWindowCursor } from './bounded-mail-replica';
+import { boundMailWindow, journalOf, type MailWindowCursor, type MailWindow } from './bounded-mail-replica';
 import { MailWindowCache, MailWindowRefresh, mergeMailWindow, retainMailWindow } from './mail-window-refresh';
+import { readMailHistory } from './infinite-mail-history';
+import { MailHistorySentinel } from './mail-history-sentinel';
+import { VirtualThreadGroups } from './virtual-thread-groups';
+import { ConversationReaderDeck } from './conversation-reader-deck';
+import { prepareConversation } from './conversation-prefetch';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
 import { isMailDraftPayload } from '@tap-examples/tap-email-protocol';
@@ -70,6 +75,7 @@ import {
   defaultPreferences,
   emptyMailState,
   emailThreadKey,
+  isDownloadedThreadPage,
   composeMessage,
   cancelScheduledMessage,
   correctThreadAttention,
@@ -855,19 +861,23 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
   const queuedDraftRevisions = useRef(new Map<string, number>());
   const [replicaVersion, setReplicaVersion] = useState(0);
   const [replicaSummary, setReplicaSummary] = useState<{ accountId: string; value: ReturnType<typeof mailboxSummary> } | null>(null);
-  const [windowCursor, setWindowCursor] = useState<MailWindowCursor | null>(null);
-  const [windowHistory, setWindowHistory] = useState<(MailWindowCursor | null)[]>([]);
+  const windowScope = JSON.stringify([state.selectedAccountId, state.selectedSplit, query]);
+  const [history, setHistory] = useState({ scope: windowScope, batches: 1 });
+  const historyBatches = history.scope === windowScope ? history.batches : 1;
+  const historyRequested = useRef(false);
+  const historyPages = useRef<{ scope: string; batches: number; replicaVersion: number; epoch: number;
+    intents: MailState['pendingThreadIntents']; pages: readonly MailWindow[] } | null>(null);
+  const threadListRef = useRef<HTMLDivElement>(null);
   const [nextWindowCursor, setNextWindowCursor] = useState<MailWindowCursor | null>(null);
   const [windowKeys, setWindowKeys] = useState<ReadonlySet<string> | null>(null);
   const windowSelected = useRef(false);
   const windowRefresh = useRef<MailWindowRefresh | null>(null);
   const windowCache = useRef(new MailWindowCache());
   const [windowEpoch, setWindowEpoch] = useState(0);
-  const windowScope = JSON.stringify([state.selectedAccountId, state.selectedSplit, query, windowCursor]);
-  const [windowRead, setWindowRead] = useState<{ scope: string; status: 'loading' | 'ready' | 'error'; pending: boolean } | null>(null);
+  const [windowRead, setWindowRead] = useState<{ scope: string; status: 'loading' | 'ready' | 'error'; pending: boolean; failed?: boolean } | null>(null);
   const windowReady = !store.queryThreads || semanticSearch?.query === query.trim() ||
     (windowRead?.scope === windowScope && windowRead.status === 'ready');
-  const windowFailed = windowRead?.scope === windowScope && windowRead.status === 'error';
+  const windowFailed = windowRead?.scope === windowScope && (windowRead.status === 'error' || windowRead.failed === true);
   const windowPending = !windowReady || (semanticSearch?.query !== query.trim() &&
     windowRead?.scope === windowScope && windowRead.pending);
   const semanticIndexRef = useRef<Promise<EmailSemanticIndex> | null>(null);
@@ -1127,8 +1137,8 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
   const createMailboxSync = useCallback((client: CoordinatorClient) => {
     const update = (apply: (state: MailState) => MailState) => setState(current => {
       const updated = apply(current);
-      return boundMailWindow(store.queryThreads && windowSelected.current
-        ? retainMailWindow(current, updated) : updated);
+      const retained = store.queryThreads && windowSelected.current ? retainMailWindow(current, updated) : updated;
+      return boundMailWindow(retained, Math.max(100, current.threads.length));
     });
     return store.commitMailboxUpdate && store.beginMailboxSync
       ? new DurableMailboxSync(client, store, update, () => setReplicaVersion(value => value + 1), () => setCoordinatorNetworkReady(true),
@@ -1194,7 +1204,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
           if (!active) return;
           diagnostics?.breadcrumb(cached.error ? 'cache.failed' : 'cache.loaded');
           cachedMailAvailable = cached.mail !== null;
-          if (cached.mail) windowCache.current.set(JSON.stringify([cached.mail.selectedAccountId, cached.mail.selectedSplit, '', null]), cached.mail.threads);
+          if (cached.mail) windowCache.current.set(JSON.stringify([cached.mail.selectedAccountId, cached.mail.selectedSplit, '']), cached.mail.threads);
           setJournalRecovered(!cached.error || cached.mail !== null);
           commandPersistenceBarrier.current.seedFromCache(
             cached.mail ?? { commands: [] },
@@ -1600,14 +1610,14 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     await work;
   }, [query, semanticSearchBusy, store, getSemanticIndex, preview]);
   useEffect(() => {
-    setWindowCursor(null);
-    setWindowHistory([]);
+    if (threadListRef.current) threadListRef.current.scrollTop = 0;
+    historyRequested.current = false;
   }, [query, state.selectedAccountId, state.selectedSplit]);
 
   useEffect(() => {
     if (!hydrated || !store.queryThreads || semanticSearch?.query === query.trim()) return;
     const cachedPage = windowCache.current.get(windowScope);
-    const resident = !query.trim() && !windowCursor ? windowCache.current.matching(stateRef.current) : [];
+    const resident = !query.trim() ? windowCache.current.matching(stateRef.current) : [];
     const cached = cachedPage ?? (resident.length ? resident : undefined);
     let displayed = cached ?? [];
     const showRows = (threads: readonly EmailThread[], pending: boolean) => {
@@ -1615,39 +1625,56 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
       windowSelected.current = true;
       setWindowRead({ scope: windowScope, status: 'ready', pending });
       setWindowKeys(new Set(threads.map(emailThreadKey)));
-      setState(current => boundMailWindow(mergeMailWindow(current, threads)));
+      setState(current => boundMailWindow(mergeMailWindow(current, threads), Math.max(100, threads.length)));
     };
     if (cached) showRows(cached, true);
     else setWindowRead({ scope: windowScope, status: 'loading', pending: true });
     setNextWindowCursor(null);
+    const previousHistory = historyPages.current;
+    let initialPages = previousHistory?.scope === windowScope && previousHistory.batches < historyBatches &&
+      previousHistory.replicaVersion === replicaVersion && previousHistory.epoch === windowEpoch &&
+      previousHistory.intents === stateRef.current.pendingThreadIntents ? previousHistory.pages : [];
     const refresh = new MailWindowRefresh(async signal => {
       setWindowRead(current => ({ scope: windowScope, pending: true,
         status: current?.scope === windowScope && current.status === 'ready' ? 'ready' : 'loading' }));
       // UI overlays project immediately. Reading mail must never wait for cache
       // persistence; the independent journal barrier still gates command dispatch.
-      const result = await store.queryThreads!({ accountId: state.selectedAccountId,
-        split: state.selectedSplit, query, after: windowCursor, signal,
+      const result = await readMailHistory(options => store.queryThreads!(options), { accountId: state.selectedAccountId,
+        split: state.selectedSplit, query, signal,
         journal: journalOf(stateRef.current),
-        context: { now: new Date(), timeZone: mailSearchTimeZone },
-        onProgress: threads => {
+        context: { now: new Date(), timeZone: mailSearchTimeZone } }, historyBatches, threads => {
           if (!signal.aborted) {
             const keys = new Set(threads.map(emailThreadKey));
-            showRows([...threads, ...displayed.filter(item => !keys.has(emailThreadKey(item)))].slice(0, 100), true);
+            showRows([...threads, ...displayed.filter(item => !keys.has(emailThreadKey(item)))], true);
           }
-        } });
+        }, initialPages);
+      initialPages = [];
       signal.throwIfAborted();
       windowCache.current.set(windowScope, result.threads);
       showRows(result.threads, false);
       setNextWindowCursor(result.next);
+      historyPages.current = { scope: windowScope, batches: historyBatches, replicaVersion, epoch: windowEpoch,
+        intents: stateRef.current.pendingThreadIntents, pages: result.pages };
+      historyRequested.current = false;
+      setCacheError(current => current.startsWith('Local history could not load:') ? '' : current);
     }, error => {
-      setWindowRead(current => ({ scope: windowScope, pending: false,
+      setWindowRead(current => ({ scope: windowScope, pending: false, failed: true,
         status: current?.scope === windowScope && current.status === 'ready' ? 'ready' : 'error' }));
       setCacheError(`Local history could not load: ${String(error)}`);
+      historyRequested.current = false;
     });
     windowRefresh.current = refresh;
     refresh.refresh();
     return () => { refresh.dispose(); windowRefresh.current = null; };
-  }, [hydrated, store, query, state.selectedAccountId, state.selectedSplit, windowCursor, windowScope, windowEpoch, semanticSearch]);
+  }, [hydrated, store, query, state.selectedAccountId, state.selectedSplit, historyBatches, windowScope, windowEpoch, semanticSearch]);
+
+  const loadMoreHistory = useCallback(() => {
+    if (historyRequested.current || (windowPending && !windowFailed) || (!nextWindowCursor && !windowFailed)) return;
+    historyRequested.current = true;
+    if (windowFailed) setWindowEpoch(value => value + 1);
+    else setHistory(current => ({ scope: windowScope,
+      batches: (current.scope === windowScope ? current.batches : 1) + 1 }));
+  }, [windowPending, nextWindowCursor, windowFailed, windowScope]);
 
   useEffect(() => {
     windowRefresh.current?.refresh();
@@ -1811,17 +1838,17 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     });
   }, [query, state.accounts, state.selectedAccountId]);
   const activeMailView = mailViewDefinition(state.selectedSplit);
-  const emptyPageOnly = windowHistory.length > 0 || nextWindowCursor !== null;
+  const emptyPageOnly = nextWindowCursor !== null;
   const pendingViewCommands = state.commands.some(command =>
     state.selectedAccountId === 'all' || command.accountId === state.selectedAccountId);
   const emptyMailTitle = state.accounts.length === 0 ? 'Bring Google into TAP'
-    : emptyPageOnly ? 'No messages on this page'
+    : emptyPageOnly ? 'More mail is available'
     : pendingViewCommands ? 'Email changes are pending'
     : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'Newest mail is arriving'
     : activeMailView.emptyTitle;
   const emptyMailDescription = state.accounts.length === 0
     ? 'Connect one or more accounts. TAP Email keeps them unified while preserving account context on every action.'
-    : emptyPageOnly ? 'Use the page controls to continue browsing this mail view.'
+    : emptyPageOnly ? 'Continue scrolling to load older mail.'
     : pendingViewCommands ? 'The inbox cannot be confirmed clear until queued actions have finished.'
     : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.'
     : `There are no items in ${activeMailView.label} for the selected account view.`;
@@ -2297,6 +2324,48 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
   const loadCachedThread = useCallback((accountId: string, threadId: string, signal: AbortSignal) =>
     store.loadThread?.(accountId, threadId, true, signal) ?? Promise.resolve(null), [store]);
 
+  const readerThreads = useMemo(() => new Map(state.threads.map(item =>
+    [JSON.stringify([emailThreadKey(item), item.providerRevision]), item] as const)), [state.threads]);
+  const activeReaderKey = thread ? JSON.stringify([emailThreadKey(thread), thread.providerRevision]) : '';
+  const [warmReaderKeys, setWarmReaderKeys] = useState<readonly string[]>([]);
+  const canRetainReader = useCallback((key: string) => {
+    const item = readerThreads.get(key);
+    const messages = item ? conversationCache.get(item.accountId, item.threadId, item.providerRevision)?.messages ?? item.messages : [];
+    // Embedded sender scripts only run for the email the user actually opens.
+    return Boolean(item && (state.preferences.scriptsEnabled === false ||
+      !messages.some(message => /<script\b|\son[a-z]+\s*=/iu.test(message.bodyHtml ?? ''))));
+  }, [readerThreads, state.preferences.scriptsEnabled, conversationCache]);
+  const readerCost = useCallback((key: string) => {
+    const item = readerThreads.get(key);
+    if (!item) return 0;
+    const messages = conversationCache.get(item.accountId, item.threadId, item.providerRevision)?.messages ?? item.messages;
+    return messages.reduce((bytes, message) => bytes + 2 * (message.bodyText.length + (message.bodyHtml?.length ?? 0)), 0);
+  }, [readerThreads, conversationCache]);
+  useEffect(() => {
+    if (!thread || !windowReady) return;
+    const abort = new AbortController();
+    const index = rows.findIndex(item => emailThreadKey(item) === emailThreadKey(thread));
+    const neighbors = index < 0 ? [] : [rows[index + 1], rows[index - 1]].filter((item): item is EmailThread => Boolean(item));
+    const timer = window.setTimeout(() => {
+      void Promise.all(neighbors.map(async item => {
+        try {
+          const candidate = preview && !isDownloadedThreadPage(item.downloadedPage) ? { ...item, downloadedPage: {
+            providerRevision: item.providerRevision, nextCursor: null, complete: true, windowed: false, seenCursors: [],
+          } } : item;
+          const prepared = await prepareConversation(conversationCache, candidate, loadCachedThread,
+            !preview && coordinatorNetworkReady ? coordinatorRef.current : null, abort.signal);
+          return prepared ? JSON.stringify([emailThreadKey(item), item.providerRevision]) : null;
+        } catch { return null; }
+      })).then(keys => {
+        if (!abort.signal.aborted) React.startTransition(() => setWarmReaderKeys(previous => {
+          const next = keys.filter((key): key is string => key !== null);
+          return next.length === previous.length && next.every((key, index) => previous[index] === key) ? previous : next;
+        }));
+      });
+    }, 48);
+    return () => { window.clearTimeout(timer); abort.abort(); };
+  }, [activeReaderKey, rows, windowReady, preview, coordinatorNetworkReady, conversationCache, loadCachedThread]);
+
   const receiveThreadMessages = useCallback((
     accountId: string, threadId: string, messages: readonly EmailMessage[], expectedRevision: string, downloadedPage?: EmailThread['downloadedPage'],
   ) => {
@@ -2304,7 +2373,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
       const target = current.threads.find(item => item.accountId === accountId && item.threadId === threadId);
       if (target?.messages === messages && target.downloadedPage === downloadedPage) return current;
       return target?.providerRevision === expectedRevision
-        ? boundMailWindow(mergeThreadMessages(current, accountId, threadId, messages, downloadedPage))
+        ? boundMailWindow(mergeThreadMessages(current, accountId, threadId, messages, downloadedPage), Math.max(100, current.threads.length))
         : current;
     });
   }, []);
@@ -3405,7 +3474,7 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
             </div>
             {mobileInbox ? <button type="button" className="mobile-search-close" aria-label="Close search" onClick={() => { setMobileSearchOpen(false); setQuery(''); setSemanticSearch(null); }}><X aria-hidden="true" /></button> : null}
           </div>}
-          <div className="thread-list" role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outgoing messages' : 'Email threads'}>
+          <div className="thread-list" ref={threadListRef} role={state.selectedSplit === 'scheduled' || state.selectedSplit === 'outbox' ? undefined : 'listbox'} aria-label={state.selectedSplit === 'scheduled' ? 'Scheduled messages' : state.selectedSplit === 'outbox' ? 'Outgoing messages' : 'Email threads'}>
             {state.selectedSplit === 'scheduled' ? (
               <ScheduledSendList
                 accounts={state.accounts}
@@ -3450,17 +3519,8 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
               />
             ) : !windowReady || (rows.length === 0 && windowPending) ? (
               <div className="zero-state" role="status"><h2>{windowFailed ? 'Mail could not load' : 'Loading mail'}</h2><p>{windowFailed ? 'Retry the device cache to load this view.' : 'Reading the selected account and mail view.'}</p></div>
-            ) : rowGroups.map((group, groupIndex) => (
-              <div
-                aria-label={group.label}
-                className="thread-day-group"
-                key={`${group.dateKey}:${groupIndex}`}
-                role="group"
-              >
-                <div aria-hidden="true" className="thread-day-separator">
-                  <span>{group.label}</span>
-                </div>
-                {group.items.map(item => (
+            ) : <VirtualThreadGroups groups={rowGroups} scrollRef={threadListRef}
+              selectedKey={state.selectedThreadKey} renderRow={item => (
                   <ThreadListRow
                     key={item.key}
                     thread={item.thread}
@@ -3470,26 +3530,15 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
                     selectedRef={selectedRowRef}
                     onSelect={openThread}
                   />
-                ))}
-              </div>
-            ))}
+                )} />}
             {windowReady && !windowPending && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' && rows.length === 0 ? (
               <div className="zero-state"><span className="zero-check">{state.accounts.length === 0 || emptyPageOnly || pendingViewCommands ? <MailOpen aria-hidden="true" /> : <Check aria-hidden="true" />}</span><h2>{emptyMailTitle}</h2><p>{emptyMailDescription}</p>{state.accounts.length === 0 && !preview ? <GoogleConnectButton busy={connectionBusy} className="primary-button" onLaunch={continueGoogleConnection} onPrepare={prepareGoogleConnection} prepared={googleAuthorizationUrl !== null} /> : null}</div>
             ) : null}
+            {store.queryThreads && !semanticSearch && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' ? (
+              <MailHistorySentinel scope={windowScope} pending={windowPending} hasMore={nextWindowCursor !== null}
+                failed={windowFailed} onLoad={loadMoreHistory} />
+            ) : null}
           </div>
-          {store.queryThreads && !semanticSearch && state.selectedSplit !== 'scheduled' && state.selectedSplit !== 'outbox' ? (
-            <nav className="mail-history-pagination" aria-label="Mail history pages">
-              <button type="button" disabled={!windowReady || !windowHistory.length} onClick={() => {
-                setWindowCursor(windowHistory.at(-1) ?? null);
-                setWindowHistory(history => history.slice(0, -1));
-              }}>Newer</button>
-              <span>Page {windowHistory.length + 1}</span>
-              <button type="button" disabled={!windowReady || !nextWindowCursor} onClick={() => {
-                setWindowHistory(history => [...history, windowCursor]);
-                setWindowCursor(nextWindowCursor);
-              }}>Older</button>
-            </nav>
-          ) : null}
         </section>
 
         <article
@@ -3560,32 +3609,39 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
               </header>
               <div className="reader-workspace">
                 <div className="message-body">
-                  <PagedThreadMessages
-                    mobile={nativeHeader}
-                    client={!preview && initialLoadSettled && coordinatorNetworkReady ? coordinatorRef.current : null}
-                    cache={conversationCache}
-                    downloadedPage={thread.downloadedPage}
-                    loadCachedThread={preview ? undefined : loadCachedThread}
-                    providerRevision={thread.providerRevision}
-                    onMessages={receiveThreadMessages}
-                    accountId={thread.accountId}
-                    appTheme={appTheme}
-                    attachmentExportSupported={attachmentFiles !== null}
-                    expansionRequest={messageExpansionRequest}
-                    htmlEnabled={state.preferences.htmlEnabled !== false}
-                    scriptsEnabled={state.preferences.scriptsEnabled !== false}
-                    imagesEnabled={state.preferences.imagesEnabled}
-                    key={emailThreadKey(thread)}
-                    loadAttachment={preview ? null : loadMessageAttachment}
-                    loadRemoteImages={loadRemoteImages}
-                    messages={thread.messages}
-                    outgoingMessages={outgoingMessages}
-                    unread={thread.unread}
-                    onKeyDown={dispatchShortcut}
-                    saveAttachment={saveMessageAttachment}
-                    threadId={thread.threadId}
-                    trackingPixelsEnabled={state.preferences.trackingPixelsEnabled}
-                  />
+                  <ConversationReaderDeck activeKey={activeReaderKey} warmKeys={warmReaderKeys} canRetain={canRetainReader} cost={readerCost}>
+                    {(readerKey, active) => {
+                      const readerThread = readerThreads.get(readerKey);
+                      if (!readerThread) return null;
+                      return <PagedThreadMessages
+                        active={active}
+                        mobile={nativeHeader}
+                        client={!preview && initialLoadSettled && coordinatorNetworkReady ? coordinatorRef.current : null}
+                        cache={conversationCache}
+                        downloadedPage={readerThread.downloadedPage}
+                        loadCachedThread={preview ? undefined : loadCachedThread}
+                        providerRevision={readerThread.providerRevision}
+                        onMessages={receiveThreadMessages}
+                        accountId={readerThread.accountId}
+                        appTheme={appTheme}
+                        attachmentExportSupported={attachmentFiles !== null}
+                        expansionRequest={messageExpansionRequest}
+                        htmlEnabled={state.preferences.htmlEnabled !== false}
+                        scriptsEnabled={state.preferences.scriptsEnabled !== false}
+                        imagesEnabled={state.preferences.imagesEnabled}
+                        key={readerKey}
+                        loadAttachment={preview ? null : loadMessageAttachment}
+                        loadRemoteImages={loadRemoteImages}
+                        messages={readerThread.messages}
+                        outgoingMessages={active ? outgoingMessages : undefined}
+                        unread={readerThread.unread}
+                        onKeyDown={dispatchShortcut}
+                        saveAttachment={saveMessageAttachment}
+                        threadId={readerThread.threadId}
+                        trackingPixelsEnabled={state.preferences.trackingPixelsEnabled}
+                      />;
+                    }}
+                  </ConversationReaderDeck>
                   {activeReplyDraft?.placement === 'inline' ? (
                     <ReplyComposer
                       bookingLinks={bookingLinks}

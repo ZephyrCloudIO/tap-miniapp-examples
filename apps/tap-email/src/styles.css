@@ -989,10 +989,10 @@ kbd {
 .recipient-options-menu > button:focus-visible { background: var(--mail-hover); }
 .recipient-options-menu kbd { font-size: 10px; color: var(--mail-muted); }
 .reply-composer:has(.recipient-options-menu) { overflow: visible; }
-.thread-column:has(.mail-history-pagination) .thread-list { height: calc(100% - 122px); }
-.mail-history-pagination { height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-top: 1px solid var(--mail-border); color: var(--mail-muted); font-size: 11px; }
-.mail-history-pagination button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
-.mail-history-pagination button:disabled { opacity: .4; cursor: default; }
+.mail-history-status { min-height: 32px; display: flex; align-items: center; justify-content: center; padding: 6px 12px; color: var(--mail-muted); font-size: 11px; }
+.mail-history-status button { padding: 4px 10px; border: 1px solid var(--mail-border); border-radius: 5px; background: var(--mail-panel-raised); color: var(--mail-text); cursor: pointer; }
+.conversation-deck { position: relative; }
+.conversation-deck > [aria-hidden="true"] { position: absolute; top: 0; left: 0; width: 100%; visibility: hidden; pointer-events: none; }
 .booking-links-picker {
   width: min(440px, calc(100vw - 48px));
   max-height: min(480px, calc(100dvh - 48px));

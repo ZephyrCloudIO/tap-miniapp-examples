@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useCreateStore, useSelector } from '@tanstack/react-store';
 import { ConversationQueryCache } from './conversation-query-cache';
 import {
@@ -31,7 +31,17 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
     callbacks.current = { onMessages, loadCachedThread };
   }, [props.messages, downloadedPage, onMessages, loadCachedThread]);
   const { accountId, threadId } = props;
-  const reader = useCreateStore({ page: null as ThreadPage | null, windowed: false,
+  const [initial] = useState(() => {
+    const cached = cache?.get(accountId, threadId, providerRevision) ?? resident.current;
+    const marker = cached.downloadedPage;
+    return isDownloadedThreadPage(marker) && marker.providerRevision === providerRevision ? {
+      page: { messages: cached.messages, providerRevision, nextCursor: marker.nextCursor, complete: marker.complete },
+      windowed: marker.windowed,
+    } : { page: null as ThreadPage | null, windowed: false };
+  });
+  const activeRef = useRef(props.active !== false);
+  useLayoutEffect(() => { activeRef.current = props.active !== false; }, [props.active]);
+  const reader = useCreateStore({ ...initial,
     loading: false, error: null as string | null });
   const { page, windowed, loading, error } = useSelector(reader);
   const updateReader = useCallback((patch: Partial<typeof reader.state>) => {
@@ -77,7 +87,7 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
         seenCursors: [...request.seen] };
       cache?.remember(accountId, threadId, { messages, downloadedPage: marker });
       updateReader({ page: { ...result, messages }, windowed: request.windowed });
-      callbacks.current.onMessages(accountId, threadId, messages, providerRevision, marker);
+      if (activeRef.current) callbacks.current.onMessages(accountId, threadId, messages, providerRevision, marker);
     } catch (failure) {
       if (!request.active) return;
       // Validation also depends on the accumulated reader state. A successful
@@ -114,7 +124,7 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
       request.windowed = marker.windowed;
       request.seen = new Set(marker.seenCursors);
       updateReader({ page: { messages: cached.messages, providerRevision, nextCursor: marker.nextCursor, complete: marker.complete }, windowed: marker.windowed });
-      if (publish) callbacks.current.onMessages(accountId, threadId, cached.messages, providerRevision, marker);
+      if (publish && activeRef.current) callbacks.current.onMessages(accountId, threadId, cached.messages, providerRevision, marker);
       return true;
     };
     const snapshot = cache?.snapshot(accountId, threadId, providerRevision);
@@ -140,7 +150,7 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
               // Old cache records are still useful offline, but cannot prove
               // which pages were downloaded, so an online open refreshes them.
               updateReader({ page: { messages: cached.messages, providerRevision, nextCursor: null, complete: false } });
-              callbacks.current.onMessages(accountId, threadId, cached.messages, providerRevision);
+              if (activeRef.current) callbacks.current.onMessages(accountId, threadId, cached.messages, providerRevision);
             }
           } catch { /* A cache read failure falls back to the coordinator. */ }
           if (!request.active) return;
@@ -152,6 +162,16 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
     }
     return () => { request.active = false; abort.abort(); };
   }, [accountId, cache, load, providerRevision, updateReader, threadId]);
+
+  const wasActive = useRef(props.active !== false);
+  useEffect(() => {
+    const activated = !wasActive.current && props.active !== false;
+    wasActive.current = props.active !== false;
+    // Prefetching does not write React/mailbox state. Opening a warmed reader
+    // publishes its verified snapshot once so normal SDK persistence saves it.
+    const snapshot = activated ? cache?.snapshot(accountId, threadId, providerRevision) : undefined;
+    if (snapshot) callbacks.current.onMessages(accountId, threadId, snapshot.messages, providerRevision, snapshot.downloadedPage);
+  }, [props.active, accountId, threadId, providerRevision, cache]);
 
   return <>
     <div className="thread-page-controls" aria-busy={loading}>

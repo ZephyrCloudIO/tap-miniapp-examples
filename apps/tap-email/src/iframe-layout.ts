@@ -19,10 +19,26 @@ export function watchRichMessageLayout(
 ): () => void {
   const frameDocument = readableFrameDocument(frame);
   const body = frameDocument?.body;
-  if (!frameDocument || !body) return () => undefined;
+  const hostWindow = frame.ownerDocument.defaultView;
+  if (!frameDocument || !body) {
+    // Opaque mail scrolls inside its native frame. Its height follows the host
+    // reader, including split-panel changes which do not resize the window.
+    const reader = frame.closest<HTMLElement>('.message-body');
+    const Observer = (hostWindow as WindowWithLayoutObservers | null)?.ResizeObserver;
+    let width = reader?.clientWidth ?? 0;
+    let height = reader?.clientHeight ?? 0;
+    const observer = reader && Observer ? new Observer(() => {
+      if (reader.clientWidth === width && reader.clientHeight === height) return;
+      width = reader.clientWidth;
+      height = reader.clientHeight;
+      onLayout();
+    }) : null;
+    if (reader) observer?.observe(reader);
+    hostWindow?.addEventListener('resize', onLayout);
+    return () => { observer?.disconnect(); hostWindow?.removeEventListener('resize', onLayout); };
+  }
 
   let active = true;
-  const hostWindow = frame.ownerDocument.defaultView;
   const frameWindow = frameDocument.defaultView as WindowWithLayoutObservers | null;
   const Observer = frameWindow?.MutationObserver ?? globalThis.MutationObserver;
   const mutationObserver = typeof Observer === 'undefined'
