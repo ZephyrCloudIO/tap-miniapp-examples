@@ -36,7 +36,8 @@
 }
 
 :root.dark,
-:root[data-app-theme='dark'] {
+:root[data-theme='dark'] {
+  color-scheme: dark;
   --mail-accent: #efb75d;
   --mail-accent-hot: #e56f4c;
   --mail-teal: #74a7a1;

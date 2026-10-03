@@ -1,13 +1,11 @@
 import '@theaiplatform/miniapp-sdk/ui/styles.css';
+import React from 'react';
 import type {
   TapFederatedSurfaceMount,
   TapFederatedSurfaceMountContext,
 } from '@theaiplatform/miniapp-sdk/surface';
-import {
-  applyMiniAppTheme,
-  installMiniAppAppearanceSync,
-} from '@theaiplatform/miniapp-sdk/web';
 import { sdk } from '@theaiplatform/miniapp-sdk/sdk';
+import { installEmailAppearanceSync } from './appearance';
 import { createEmailDiagnostics } from './diagnostics';
 import { createDiagnosticRoot } from './diagnostic-root';
 import { TapEmailApp } from './app';
@@ -19,22 +17,20 @@ export function mount(
   container: HTMLElement,
   context: TapFederatedSurfaceMountContext,
   nativeHeader = false,
+  presentation: { readonly embedded?: boolean } = {},
 ): TapFederatedSurfaceMount {
   const diagnostics = createEmailDiagnostics({ context, storage: sdk.storage });
   const root = createDiagnosticRoot(container, diagnostics);
   let mounted = true;
-  const renderNative = (theme: 'light' | 'dark') => {
-    if (mounted) root.render(<TapEmailApp appTheme={theme} surfaceContext={context} diagnostics={diagnostics} nativeHeader />);
-  };
-  const stopAppearanceSync = nativeHeader ? context.events.subscribe('tap.mobile.presentation', payload => {
-    if (payload && typeof payload === 'object' && 'theme' in payload && (payload.theme === 'light' || payload.theme === 'dark')) renderNative(payload.theme);
-  }) : installMiniAppAppearanceSync({
-    applyTheme(theme) {
-      applyMiniAppTheme(theme);
+  const stopAppearanceSync = installEmailAppearanceSync({
+    container,
+    context,
+    nativeHeader,
+    embedded: presentation.embedded === true,
+    render(theme) {
       if (mounted) root.render(<TapEmailApp appTheme={theme} surfaceContext={context} diagnostics={diagnostics} nativeHeader={nativeHeader} />);
     },
   });
-  if (nativeHeader) renderNative(document.documentElement.dataset.appTheme === 'dark' ? 'dark' : 'light');
   void context.events.publish('tap-email.surface.mounted', {
     instanceId: context.instanceId,
   });

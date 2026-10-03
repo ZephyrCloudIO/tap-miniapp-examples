@@ -80,6 +80,21 @@ idempotency key, log, and tool operation is partitioned by authenticated TAP
 profile and immutable Google account ID. Caller-supplied account IDs never
 establish authority on their own.
 
+## Federated appearance
+
+When mounting Email inside a host document, the host initializes and updates
+its existing appearance (`data-theme` for MCP, or TAP's `data-app-theme` and
+light/dark classes). Email observes that document and updates the reader in
+place, preserving open drafts. It does not apply iframe URL defaults or reset
+the host's theme or UI scale. Hosts embedding the desktop remote in an iframe
+should pass `{ embedded: true }` as the fourth `mount` argument so the host
+document remains the appearance owner.
+
+Isolated TAP frames retain the SDK's initial `appTheme`/`appUiScale` parameters
+and validated parent appearance messages. Native/mobile surfaces retain
+`tap.mobile.presentation` events. Email's dark colors use the same root
+selectors as the SDK's semantic tokens: `.dark` and `data-theme="dark"`.
+
 ## Interaction contract
 
 The working loop is deliberately small:
