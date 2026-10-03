@@ -47,7 +47,7 @@ The installed 1.0.0 app's reported several-hundred-millisecond click delay has *
 - Full email suite: 644 tests across 105 files passed.
 - Focused retained-reader, activation, and virtualizer regression tests passed.
 - SQLite history UI test passed, including append, transient failure/retry, older-email selection, and search beyond the loaded history.
-- App and TAP typechecks, manifest validation, preview build, and SDK package build/verification are run on the final isolated checkout before opening the PR.
+- App and TAP typechecks, manifest validation, preview build, and SDK package build/verification passed in a clean isolated checkout of implementation commit `c4cc92d`. The build emitted and verified TAP Email 1.0.1, two runtime targets, six federation exposes, one private React runtime, and six archived source maps matching the package bytes. The subsequent commit updates this report only.
 
 ## Reproducing the fixtures
 
