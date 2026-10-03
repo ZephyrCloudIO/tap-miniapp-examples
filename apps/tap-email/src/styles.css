@@ -523,7 +523,7 @@ kbd {
 .thread-message-chevron > svg { width: 14px; height: 14px; }
 .thread-message.is-collapsed .thread-message-chevron { transform: rotate(-90deg); }
 .thread-message-content { display: flow-root; min-width: 0; padding: 0; }
-/* The message owns its canvas. Only reader controls receive an app inset. */
+/* Authored email keeps its canvas; ordinary prose shares the sender's inset. */
 .thread-message-content > :is(.thread-message-details, .message-attachments, .outgoing-message-attachments, .thread-message-delivery-note) { margin-inline: var(--message-inset); }
 .thread-message-content > :is(.message-attachments, .outgoing-message-attachments, .thread-message-delivery-note):last-child { margin-bottom: 16px; }
 .message-attachments { margin: 13px 0 0; border-top: 1px solid var(--mail-border-soft); padding-top: 9px; }
@@ -566,6 +566,7 @@ kbd {
 .plain-message-body { margin: 0; overflow-wrap: anywhere; color: var(--mail-copy); white-space: pre-wrap; font: 400 15px/1.68 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .plain-message-quote { border-inline-start: 2px solid var(--mail-border); padding-inline-start: 16px; color: var(--mail-muted); }
 .rich-message-shell { width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; color-scheme: inherit; }
+.plain-message-body, .rich-message-shell[data-presentation='adaptive'] { padding: 16px var(--message-inset) 24px; }
 .rich-message-shell[data-presentation='authored'] { background: #fff; color-scheme: light; }
 .rich-message-frame { display: block; width: 100%; min-height: 0; overflow: auto; border: 0; background: transparent; color-scheme: inherit; }
 .quoted-content-toggle, .rich-message-quote-toggle { margin: 9px 0 0; border: 1px solid var(--mail-border); border-radius: 6px; background: var(--mail-panel-soft); color: var(--mail-muted); padding: 5px 8px; cursor: pointer; font: 600 10px/1.2 ui-sans-serif, sans-serif; }

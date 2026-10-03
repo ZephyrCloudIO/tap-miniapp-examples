@@ -44,3 +44,9 @@ The native host still requires measurement after installation. Cache misses, act
 ## Verification
 
 663 tests across 109 files passed. App and TAP type checks passed. The preview and SDK 1.0.3 package builds passed, including schema/ABI, private React runtime and exact diagnostics-map checks. Production coordinator guard and manifest validation passed. Changes were built from merged main in an isolated worktree; unrelated original-checkout edits were preserved.
+
+## Reader spacing follow-up
+
+The supplied comparison exposed another reader issue: the header has an inset, but ordinary HTML and plain-text bodies have zero padding. Adaptive prose and plain text now use 16 px top, the existing message inset at each side (24 px on desktop, 16 px in the narrow desktop layout), and 24 px bottom. Authored newsletters retain their canvas. Mobile keeps its existing outer 16 px gutter and adds only 16 px bottom spacing to prose bodies.
+
+Review pass 1 checked that spacing lives on the outer shell, so it applies to both HTML renderers without changing sanitized content, frame identity, hooks or cache loading. Review pass 2 checked desktop alignment, mobile cascade, full-width newsletter preservation and overflow in Chromium. At 1280 px viewport width, sender and adaptive frame both start 24 px inside the card; at 390 px mobile width, neither receives a duplicate inner gutter. Plain-text spacing matches, authored shell padding remains zero, and neither viewport has horizontal overflow. The browser fixture uses neutral sample content, not the private email in the screenshot. All 49 existing rich-message, resize and thread-message tests and the preview build passed after the CSS change.

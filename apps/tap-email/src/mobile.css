@@ -98,6 +98,7 @@
 :root[data-tap-mobile] .thread-message-content { padding: 0; }
 :root[data-tap-mobile] .rich-message-shell { margin: 0; border: 0; border-radius: 0; background: transparent; }
 :root[data-tap-mobile] .rich-message-shell[data-presentation='authored'] { background: #fff; }
+:root[data-tap-mobile] :is(.plain-message-body, .rich-message-shell[data-presentation='adaptive']) { padding: 0 0 16px; }
 :root[data-tap-mobile] .plain-message-body { margin: 0; font: 400 1rem/1.5 var(--tap-font-family); }
 :root[data-tap-mobile] .thread-page-controls { margin: 0; }
 :root[data-tap-mobile] .thread-page-complete { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
