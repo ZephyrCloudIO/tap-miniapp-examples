@@ -151,7 +151,7 @@ export async function readJournal(sql: Sql): Promise<MailJournal | null> {
 }
 
 export function withoutBodies(thread: EmailThread): EmailThread {
-  return { ...thread, messages: thread.messages.map(({ bodyHtml: _html, ...message }) => ({ ...message, bodyText: '' })) };
+  return { ...thread, downloadedPage: undefined, messages: thread.messages.map(({ bodyHtml: _html, ...message }) => ({ ...message, bodyText: '' })) };
 }
 
 export function boundMailWindow(state: MailState, limit = mailWindowSize): MailState {
@@ -180,6 +180,16 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
   const threads: EmailThread[] = [];
   const bodies: (string | number)[][] = [];
   const previousThreads = await readThreads(tx, state.threads);
+  const bodyRevisions = new Map<string, string>();
+  if (rememberBodies) for (let offset = 0; offset < state.threads.length; offset += 100) {
+    const batch = state.threads.slice(offset, offset + 100);
+    const cached = await tx.query(`SELECT account_id, thread_id, provider_revision FROM local_mail_bodies
+      WHERE (account_id, thread_id) IN (VALUES ${batch.map(() => '(?, ?)').join(', ')})`,
+    batch.flatMap(item => [item.accountId, item.threadId]));
+    for (const [accountId, threadId, revision] of cached.rows) {
+      bodyRevisions.set(emailThreadKey({ accountId: String(accountId), threadId: String(threadId) }), String(revision));
+    }
+  }
   for (const incoming of state.threads) {
     const previous = previousThreads.get(emailThreadKey(incoming));
     if (localChangesOnly && !previous) {
@@ -210,7 +220,7 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
       messages: [...messageMap.values()].sort((a, b) => a.sentAt.localeCompare(b.sentAt)) };
     const thread = sharedState ? applyEmailDocument({ ...emptyMailState(), threads: [localThread] }, sharedState).threads[0]! : localThread;
     threads.push(thread);
-    const { messages, ...metadata } = thread;
+    const { messages, downloadedPage: _downloadedPage, ...metadata } = thread;
     records.push({ kind: 'thread', accountId: thread.accountId, threadId: thread.threadId, entityId: '',
       value: { ...metadata, messageIds: messages.map(message => message.messageId) } });
     for (const message of messages) {
@@ -219,10 +229,14 @@ export async function writeReplicaThreads(tx: MiniAppPrivateSqlTransaction, stat
         // Keep the searchable provider preview independently of hydrated bodies.
         value: { ...rest, bodyText: message.bodyText.slice(0, 8000) } });
     }
-    if (rememberBodies && !stale && incoming.messages.some(message => message.bodyText || message.bodyHtml)) {
-      const bytes = serializedBytes(incoming.messages);
+    // Saving a list preview must not replace an already downloaded body page.
+    if (rememberBodies && !stale && (incoming.downloadedPage ||
+        (bodyRevisions.get(emailThreadKey(incoming)) !== incoming.providerRevision &&
+         incoming.messages.some(message => message.bodyText || message.bodyHtml)))) {
+      const body = incoming.downloadedPage ? { messages: incoming.messages, downloadedPage: incoming.downloadedPage } : incoming.messages;
+      const bytes = serializedBytes(body);
       if (bytes <= memoryBodyBudgetBytes) {
-        records.push({ kind: 'body', accountId: thread.accountId, threadId: thread.threadId, entityId: '', value: incoming.messages });
+        records.push({ kind: 'body', accountId: thread.accountId, threadId: thread.threadId, entityId: '', value: body });
         bodies.push([thread.accountId, thread.threadId, thread.providerRevision, bytes, Date.parse(updatedAt)]);
       }
     }
@@ -301,18 +315,24 @@ export async function readThreads(sql: Sql, identities: readonly { accountId: st
   return threads;
 }
 
-export async function readThread(sql: Sql, accountId: string, threadId: string, bodies: boolean, signal?: AbortSignal): Promise<EmailThread | null> {
+export async function readThread(sql: Sql, accountId: string, threadId: string, bodies: boolean, signal?: AbortSignal,
+  onBodyAccess?: (accountId: string, threadId: string, revision: string) => void): Promise<EmailThread | null> {
   const thread = (await readThreads(sql, [{ accountId, threadId }], signal)).get(emailThreadKey({ accountId, threadId }));
   if (!thread) return null;
-  const { messages, ...metadata } = thread;
+  const { messages, downloadedPage: _downloadedPage, ...metadata } = thread;
   if (bodies) {
     const cached = await sql.query('SELECT provider_revision FROM local_mail_bodies WHERE account_id = ? AND thread_id = ?', [accountId, threadId]);
     if (cached.rows[0]?.[0] === metadata.providerRevision) {
-      const hydrated = await readRecord<EmailThread['messages']>(sql, 'local_mail_records', 'body', accountId, threadId);
+      const hydrated = await readRecord<EmailThread['messages'] | Pick<EmailThread, 'messages' | 'downloadedPage'>>(sql, 'local_mail_records', 'body', accountId, threadId);
       if (hydrated) {
         signal?.throwIfAborted();
-        await sql.execute('UPDATE local_mail_bodies SET last_accessed_at = ? WHERE account_id = ? AND thread_id = ?', [Date.now(), accountId, threadId]);
-        return { ...metadata, messages: hydrated };
+        if (onBodyAccess) onBodyAccess(accountId, threadId, metadata.providerRevision);
+        else await sql.execute('UPDATE local_mail_bodies SET last_accessed_at = ? WHERE account_id = ? AND thread_id = ?', [Date.now(), accountId, threadId]);
+        // Legacy body arrays have no proof of pagination completeness.
+        // Keep them readable, but only verified page records suppress a fetch.
+        return Array.isArray(hydrated)
+          ? { ...metadata, messages: hydrated }
+          : { ...metadata, ...(hydrated as Pick<EmailThread, 'messages' | 'downloadedPage'>) };
       }
     }
   }
@@ -490,7 +510,7 @@ export async function writeReplicaUi(tx: MiniAppPrivateSqlTransaction, state: Ma
   let bytes = 0;
   for (const source of state.threads) {
     if (!visible.has(emailThreadKey(source))) continue;
-    const thread = { ...source, messages: source.messages.map(({ bodyHtml: _html, ...message }) =>
+    const thread = { ...source, downloadedPage: undefined, messages: source.messages.map(({ bodyHtml: _html, ...message }) =>
       ({ ...message, bodyText: message.bodyText.slice(0, 8000) })) };
     bytes += serializedBytes(thread);
     if (bytes > 256 * 1024) break;

@@ -114,6 +114,15 @@ export interface MailboxSnapshot {
   readonly threads: readonly EmailThread[];
 }
 
+/** Recorded only when the miniapp has downloaded a conversation page's bodies. */
+export interface DownloadedThreadPage {
+  readonly providerRevision: string;
+  readonly nextCursor: string | null;
+  readonly complete: boolean;
+  readonly windowed: boolean;
+  readonly seenCursors: readonly string[];
+}
+
 export interface EmailThread {
   readonly threadId: string;
   readonly accountId: string;
@@ -132,6 +141,7 @@ export interface EmailThread {
   readonly status: ThreadStatus;
   readonly labels: readonly string[];
   readonly messages: readonly EmailMessage[];
+  readonly downloadedPage?: DownloadedThreadPage;
   readonly reminder: TapEmailReminder | null;
   /** TAP-owned correction; provider synchronization must not overwrite it. */
   readonly attentionCorrection?: ThreadAttentionCorrectionRecord;
@@ -629,6 +639,14 @@ function isThreadAttentionCorrection(
   );
 }
 
+export function isDownloadedThreadPage(value: unknown): value is DownloadedThreadPage {
+  return isRecord(value) && isSafeMailIdentifier(value.providerRevision) &&
+    (value.nextCursor === null || isBoundedString(value.nextCursor, 10_000)) &&
+    typeof value.complete === 'boolean' && value.complete === (value.nextCursor === null) &&
+    typeof value.windowed === 'boolean' && Array.isArray(value.seenCursors) &&
+    value.seenCursors.length <= 32 && value.seenCursors.every(cursor => isBoundedString(cursor, 10_000));
+}
+
 export function isEmailThread(value: unknown): value is EmailThread {
   if (!isRecord(value)) return false;
   const resources = value.providerResources;
@@ -660,6 +678,7 @@ export function isEmailThread(value: unknown): value is EmailThread {
     value.labels.every(label => isBoundedString(label, 256)) &&
     Array.isArray(value.messages) &&
     value.messages.every(isEmailMessage) &&
+    (value.downloadedPage === undefined || isDownloadedThreadPage(value.downloadedPage)) &&
     isReminder(value.reminder) &&
     isThreadAttentionCorrection(value.attentionCorrection)
   );
@@ -779,13 +798,13 @@ export function isRecoverableImmediateSend(
 }
 
 export function recoverableImmediateSends(
-  state: MailState,
+  state: Pick<MailState, 'outbox'>,
 ): readonly RecoverableImmediateSend[] {
   return state.outbox ?? [];
 }
 
 /** Pending messages already live in the durable command journal; do not duplicate them in recovery history. */
-export function outboxImmediateSends(state: MailState): readonly OutboxSend[] {
+export function outboxImmediateSends(state: Pick<MailState, 'outbox' | 'commands'>): readonly OutboxSend[] {
   const recovered = recoverableImmediateSends(state);
   const represented = new Set(recovered.flatMap(item =>
     item.attempts.map(attempt => attempt.command.commandId)));
@@ -1104,7 +1123,7 @@ export function retryRecoverableImmediateSend(
   };
 }
 
-export function visibleThreads(state: MailState): readonly EmailThread[] {
+export function visibleThreads(state: Pick<MailState, 'threads' | 'pendingThreadIntents' | 'selectedAccountId' | 'selectedSplit'>): readonly EmailThread[] {
   return projectedThreads(state)
     .filter(thread =>
       state.selectedAccountId === 'all'
@@ -1115,7 +1134,7 @@ export function visibleThreads(state: MailState): readonly EmailThread[] {
     .toSorted((left, right) => right.receivedAt.localeCompare(left.receivedAt));
 }
 
-export function projectedThreads(state: MailState): readonly EmailThread[] {
+export function projectedThreads(state: Pick<MailState, 'threads' | 'pendingThreadIntents'>): readonly EmailThread[] {
   const intents = state.pendingThreadIntents ?? [];
   const byThread = new Map<string, PendingThreadIntent[]>();
   for (const intent of intents) {
@@ -1680,7 +1699,9 @@ export function mergeMailboxSnapshot(
     const messages = mergeMailboxPreviewMessages(previous.messages, correctedIncoming.messages);
     return emailThreadProjectionEqual(previous, correctedIncoming) && messages === previous.messages
       ? previous
-      : { ...correctedIncoming, messages };
+      : { ...correctedIncoming, messages, downloadedPage:
+        previous.providerRevision === correctedIncoming.providerRevision && messages === previous.messages
+          ? previous.downloadedPage : undefined };
   });
   const threads = arraysReferenceEqual(state.threads, nextThreads)
     ? state.threads
@@ -1905,19 +1926,23 @@ export function mergeThreadMessages(
   accountId: string,
   threadId: string,
   messages: readonly EmailMessage[],
+  downloadedPage?: DownloadedThreadPage,
 ): MailState {
   return {
     ...state,
     threads: state.threads.map(thread =>
       thread.accountId === accountId && thread.threadId === threadId
-        ? { ...thread, messages }
+        ? { ...thread, messages, downloadedPage }
         : thread,
     ),
   };
 }
 
-export function mailboxSummary(state: MailState, now: string): MailboxSummary {
-  const threads = projectedThreads(state);
+export function mailboxSummary(
+  state: Pick<MailState, 'accounts' | 'outbox' | 'threads' | 'pendingThreadIntents'>,
+  now: string,
+  threads: readonly EmailThread[] = projectedThreads(state),
+): MailboxSummary {
   const active = threads.filter(thread => thread.status === 'inbox');
   const coverageComplete = operationalZeroAllowed(
     state.accounts.map(account => account.coverage),

@@ -1,0 +1,101 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ rstest run app-render-performance.test.tsx
+---
+tool: "@rstest/core@0.11.5"
+timestamp: "2026-10-03T06:30:59.235Z"
+runtime: {"node":"v26.4.0","platform":"darwin","cwd":"/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email"}
+---
+
+# Rstest Test Execution Report
+
+## Summary
+
+```json
+{
+  "status": "fail",
+  "counts": {
+    "testFiles": 1,
+    "failedFiles": 1,
+    "tests": 1,
+    "failedTests": 1,
+    "passedTests": 0,
+    "skippedTests": 0,
+    "todoTests": 0
+  },
+  "durationMs": {
+    "total": 831,
+    "build": 112,
+    "tests": 719
+  },
+  "snapshot": {
+    "added": 0,
+    "updated": 0,
+    "unmatched": 0,
+    "removed": 0,
+    "unchecked": 0
+  }
+}
+```
+
+## Failures
+
+### [F01] src/app-render-performance.test.tsx :: warm keyboard navigation render work > reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves
+
+repro:
+
+```bash
+pnpm exec rstest 'src/app-render-performance.test.tsx' --testNamePattern 'warm keyboard navigation render work > reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/app-render-performance.test.tsx",
+  "project": "rstest-environment-1",
+  "fullName": "warm keyboard navigation render work > reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves",
+  "status": "fail",
+  "duration": 209,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected \"localeCompare\" to not be called at all, but actually been called 80 times\n\nReceived:\n\n  1st localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  2nd localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  3rd localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  4th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  5th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  6th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  7th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  8th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  9th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  10th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  11th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  12th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  13th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  14th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  15th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  16th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  17th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  18th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  19th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  20th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  21st localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  22nd localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  23rd localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  24th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  25th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  26th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  27th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  28th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  29th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  30th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  31st localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  32nd localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  33rd localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  34th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  35th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  36th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  37th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  38th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  39th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  40th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  41st localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  42nd localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  43rd localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  44th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  45th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  46th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  47th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  48th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  49th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  50th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  51st localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  52nd localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  53rd localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  54th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  55th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  56th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  57th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  58th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  59th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  60th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  61st localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  62nd localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  63rd localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  64th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  65th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  66th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  67th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  68th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  69th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  70th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  71st localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  72nd localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  73rd localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  74th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  75th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  76th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n  77th localeCompare call:\n\n    Array [\n      \"2026-08-18T14:51:00.000Z\",\n    ]\n\n  78th localeCompare call:\n\n    Array [\n      \"2026-08-18T13:36:00.000Z\",\n    ]\n\n  79th localeCompare call:\n\n    Array [\n      \"2026-08-18T12:10:00.000Z\",\n    ]\n\n  80th localeCompare call:\n\n    Array [\n      \"2026-08-17T19:42:00.000Z\",\n    ]\n\n\nNumber of calls: 80\n",
+      "topFrame": {
+        "file": "src/app-render-performance.test.tsx",
+        "line": 49,
+        "column": 31,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/app-render-performance.test.tsx",
+      "line": 49
+    }
+  ]
+}
+```
+
+codeFrame (error 1):
+
+```text
+47 |         groups: groups.mock.calls.length, timestamps: timestamps.mock.calls.length })
+48 |         .toEqual({ summary: 0, counts: 0, groups: 0, timestamps: 0 });
+49 |       expect(comparisons).not.toHaveBeenCalled();
+   |                               ^
+50 |       // A real data change must still update counts and remove the archived row.
+51 |       const before = container.querySelectorAll('.mail-row').length;
+```
+
+console:
+
+```text
+[stderr] warn: Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+```
+
+/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @tap-examples/tap-email@0.3.10 test: `rstest run app-render-performance.test.tsx`
+Exit status 1

@@ -1,0 +1,28 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ pnpm build:preview && pnpm build:miniapp
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ rsbuild build
+Rsbuild v2.2.5
+
+info    build started...
+ready   built in 0.43s
+
+File (web)                               Size        Gzip
+dist/index.html                          0.52 kB     0.31 kB
+dist/static/css/index.da4a80884f.css     87.2 kB     14.5 kB
+dist/static/css/69.7d75a27f66.css        147.6 kB    18.6 kB
+dist/static/js/lib-react.6d7b915f7e.js   218.2 kB    68.8 kB
+dist/static/js/69.900648d3bc.js          410.2 kB    127.1 kB
+dist/static/js/index.78357cbc5f.js       514.9 kB    146.7 kB
+
+                                Total:   1378.7 kB   376.1 kB
+
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ tap-miniapp build --output .tap-package && pnpm verify:package
+Built tap-email@0.3.10 at /Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email/.tap-package.
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ node scripts/verify-sdk-package.mjs && node ../../scripts/verify-built-package.mjs .tap-package && node scripts/verify-react-runtime.mjs && node scripts/verify-diagnostics.mjs
+verified SDK 0.19 package, signed live-tool schemas, and activity source ABI at /Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email/.tap-package
+verified 2 TAP target(s), 6 exposed federation asset(s), and 1 package-runtime MCP server ABI(s) in /Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email/.tap-package
+verified one private React/React DOM runtime in TAP Email
+Verified 6 archived source maps against the exact package bytes; no maps included in the runtime package.

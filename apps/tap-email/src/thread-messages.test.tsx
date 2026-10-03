@@ -98,6 +98,42 @@ function toggleButtons(container: ParentNode): HTMLButtonElement[] {
 }
 
 describe('TAP Email thread message disclosure', () => {
+  it('does no HTML parsing across ten unchanged parent renders and still responds to rendering policy changes', async () => {
+    const messages = [message('html-only', 'Avery', '2026-09-12T13:00:00Z', '', '<p>HTML-only body</p>')];
+    const parse = rs.spyOn(DOMParser.prototype, 'parseFromString');
+    const { root, container } = await mountMessages(messages, 'thread-1', { htmlEnabled: false });
+    try {
+      parse.mockClear();
+      for (let index = 0; index < 10; index++) {
+        await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" messages={messages} htmlEnabled={false} />));
+      }
+      expect(parse).not.toHaveBeenCalled();
+      expect(container.textContent).toContain('HTML-only body');
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} key="thread-1" messages={messages} htmlEnabled />));
+      expect(container.querySelector('iframe.rich-message-frame')).not.toBeNull();
+    } finally { await unmount(root, container); parse.mockRestore(); }
+  });
+
+  it('does not reparse an unchanged expanded sibling when another message opens', async () => {
+    const messages = [
+      message('first', 'Avery', '2026-09-12T13:00:00Z', 'First body'),
+      message('last', 'Casey', '2026-09-12T14:00:00Z', '', '<p>HTML-only sibling</p>'),
+    ];
+    const parse = rs.spyOn(DOMParser.prototype, 'parseFromString');
+    const { root, container } = await mountMessages(messages, 'thread-1', { htmlEnabled: false });
+    try {
+      parse.mockClear();
+      await act(async () => toggleButtons(container)[0]!.click());
+      expect(container.textContent).toContain('First body');
+      expect(container.textContent).toContain('HTML-only sibling');
+      expect(parse).not.toHaveBeenCalled();
+      const changed = [...messages.slice(0, 1), { ...messages[1]!, bodyHtml: '<p>Updated sibling</p>' }];
+      await act(async () => root.render(<ThreadMessageList {...defaultProps} messages={changed} htmlEnabled={false} />));
+      expect(container.textContent).toContain('Updated sibling');
+      expect(parse).toHaveBeenCalled();
+    } finally { await unmount(root, container); parse.mockRestore(); }
+  });
+
   it('appends and expands an outgoing reply with delivery status, sender details and attachments', async () => {
     const outgoing = {
       message: message('outgoing:draft_1', 'Zack', '2026-09-12T16:00:00.000Z', 'My pending reply'),

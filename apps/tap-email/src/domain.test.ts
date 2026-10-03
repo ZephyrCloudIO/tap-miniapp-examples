@@ -735,7 +735,11 @@ describe('TAP Email domain', () => {
   });
 
   it('retains hydrated messages when a mailbox summary only updates thread metadata', () => {
-    const state = previewMailState();
+    const initial = previewMailState();
+    const state = { ...initial, threads: initial.threads.map(thread => ({ ...thread,
+      downloadedPage: { providerRevision: thread.providerRevision, nextCursor: null,
+        complete: true, windowed: false, seenCursors: [] },
+    })) };
     const hydrated = state.threads[0]!;
     const richMessage = hydrated.messages.at(-1)!;
     expect(hydrated.messages).toHaveLength(3);
@@ -745,6 +749,7 @@ describe('TAP Email domain', () => {
       ...hydrated,
       snippet: 'Fresh summary metadata from sync.',
       unread: false,
+      downloadedPage: undefined,
       messages: [{ ...richMessage, bodyHtml: undefined }],
     };
     const merged = mergeMailboxSnapshot(state, {
@@ -763,6 +768,10 @@ describe('TAP Email domain', () => {
       unread: false,
     });
     expect(retained.messages).toBe(hydrated.messages);
+    expect(retained.downloadedPage).toBe(hydrated.downloadedPage);
+    const changed = mergeMailboxSnapshot(merged, { schemaVersion: 1, accounts: state.accounts,
+      threads: [{ ...summaryThread, providerRevision: 'new-content-revision' }] });
+    expect(changed.threads[0]?.downloadedPage).toBeUndefined();
     expect(retained.messages).toHaveLength(3);
     expect(retained.messages.at(-1)).toBe(richMessage);
     expect(retained.messages.at(-1)?.bodyHtml).toBe(richMessage.bodyHtml);

@@ -1,0 +1,111 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ rstest run paged-thread-messages.test.tsx
+---
+tool: "@rstest/core@0.11.5"
+timestamp: "2026-10-01T16:08:24.825Z"
+runtime: {"node":"v26.4.0","platform":"darwin","cwd":"/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email"}
+---
+
+# Rstest Test Execution Report
+
+## Summary
+
+```json
+{
+  "status": "fail",
+  "counts": {
+    "testFiles": 1,
+    "failedFiles": 1,
+    "tests": 19,
+    "failedTests": 1,
+    "passedTests": 18,
+    "skippedTests": 0,
+    "todoTests": 0
+  },
+  "durationMs": {
+    "total": 618,
+    "build": 45,
+    "tests": 573
+  },
+  "snapshot": {
+    "added": 0,
+    "updated": 0,
+    "unmatched": 0,
+    "removed": 0,
+    "unchecked": 0
+  }
+}
+```
+
+## Failures
+
+### [F01] src/paged-thread-messages.test.tsx :: paged conversation reader > keeps the accumulated Query snapshot instead of restoring an earlier parent page
+
+repro:
+
+```bash
+pnpm exec rstest 'src/paged-thread-messages.test.tsx' --testNamePattern 'paged conversation reader > keeps the accumulated Query snapshot instead of restoring an earlier parent page'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/paged-thread-messages.test.tsx",
+  "project": "rstest-environment-1",
+  "fullName": "paged conversation reader > keeps the accumulated Query snapshot instead of restoring an earlier parent page",
+  "status": "fail",
+  "duration": 18,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected <section …(2)>…(2)</section> to have a length of 2 but got 1",
+      "topFrame": {
+        "file": "src/paged-thread-messages.test.tsx",
+        "line": 74,
+        "column": 61,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/paged-thread-messages.test.tsx",
+      "line": 74
+    }
+  ]
+}
+```
+
+diff:
+
+```diff
+- Expected
++ Received
+
+- 2
++ 1
+```
+
+codeFrame (error 1):
+
+```text
+72 |       await act(async () => root.render(<PagedThreadMessages {...defaults} client={client} cache={cache}
+73 |         messages={[message('latest')]} downloadedPage={marker('older-cursor')} htmlEnabled={false} onMessages={published} />));
+74 |       expect(container.querySelectorAll('.thread-message')).toHaveLength(2);
+   |                                                             ^
+75 |       expect(container.textContent).toContain('All conversation messages loaded');
+76 |       expect(container.textContent).not.toContain('Load older messages');
+```
+
+console:
+
+```text
+[stderr] warn: Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+```
+
+/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @tap-examples/tap-email@0.3.10 test: `rstest run paged-thread-messages.test.tsx`
+Exit status 1

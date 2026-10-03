@@ -34,6 +34,7 @@ export interface LocalEmailActivityLedger {
     receipt: MailCommandReceipt,
   ): Promise<EmailActivityProjection>;
   recordView(viewId: string, occurredAt: string, timeSource?: 'ui_observed_at' | 'mcp_observed_at'): Promise<EmailActivityProjection>;
+  recordViews?(views: readonly { viewId: string; occurredAt: string }[]): Promise<EmailActivityProjection>;
   snapshot(): Promise<EmailActivityProjection>;
   close(): Promise<void>;
 }
@@ -188,36 +189,46 @@ export class ProfileSqliteEmailActivityLedger
     });
   }
 
+  recordViews(views: readonly { viewId: string; occurredAt: string }[]): Promise<EmailActivityProjection> {
+    if (views.some(view => !view.viewId || !Number.isFinite(Date.parse(view.occurredAt)))) {
+      return Promise.reject(new Error('Invalid email view activity.'));
+    }
+    return this.recordEvents(views.map(view => ({ idempotencyKey: `view:${view.viewId}`,
+      action: 'thread_viewed', outcome: 'applied', occurredAt: view.occurredAt, timeSource: 'ui_observed_at' })));
+  }
+
   private recordEvent(record: LocalEmailActivityRecord): Promise<EmailActivityProjection> {
+    return this.recordEvents([record]);
+  }
+
+  private recordEvents(records: readonly LocalEmailActivityRecord[]): Promise<EmailActivityProjection> {
     return this.enqueue(async () => {
       const { database } = await this.connect();
       await database.transaction(async transaction => {
-        // Coordinator redelivery and UI retries are idempotent. An explicit
-        // provider reconciliation may refine an earlier delivery-unknown
-        // receipt, but it must never downgrade an already-known outcome or
-        // reuse the key for a different action. The key itself remains only in
-        // this private local database.
-        await transaction.execute(
-          `INSERT INTO email_activity_events (
-             idempotency_key, action_kind, outcome, occurred_at, time_source
-           ) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(idempotency_key) DO UPDATE SET
-             outcome = excluded.outcome,
-             occurred_at = excluded.occurred_at,
-             time_source = excluded.time_source
-           WHERE email_activity_events.action_kind = excluded.action_kind
-             AND ((email_activity_events.outcome = 'uncertain'
-               AND excluded.outcome IN ('applied', 'failed', 'cancelled'))
-               OR (excluded.action_kind = 'draft_created'
-                 AND excluded.occurred_at < email_activity_events.occurred_at))`,
-          [
-            record.idempotencyKey,
-            record.action,
-            record.outcome,
-            record.occurredAt,
-            record.timeSource,
-          ],
-        );
+        // Keep every event and its idempotency key; prune/read/checkpoint once per batch.
+        for (const record of records) {
+          await transaction.execute(
+            `INSERT INTO email_activity_events (
+               idempotency_key, action_kind, outcome, occurred_at, time_source
+             ) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(idempotency_key) DO UPDATE SET
+               outcome = excluded.outcome,
+               occurred_at = excluded.occurred_at,
+               time_source = excluded.time_source
+             WHERE email_activity_events.action_kind = excluded.action_kind
+               AND ((email_activity_events.outcome = 'uncertain'
+                 AND excluded.outcome IN ('applied', 'failed', 'cancelled'))
+                 OR (excluded.action_kind = 'draft_created'
+                   AND excluded.occurred_at < email_activity_events.occurred_at))`,
+            [
+              record.idempotencyKey,
+              record.action,
+              record.outcome,
+              record.occurredAt,
+              record.timeSource,
+            ],
+          );
+        }
         await this.prune(transaction);
       });
       await database.checkpoint();

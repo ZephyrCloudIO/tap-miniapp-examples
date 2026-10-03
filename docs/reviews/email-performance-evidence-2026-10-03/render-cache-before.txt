@@ -1,0 +1,330 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+Scope: all 22 workspace projects
+✓ Lockfile passes supply-chain policies (verified 1d ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2 -3
+++---
+Progress: resolved 2, reused 1, downloaded 0, added 2, done
+
+Done in 690ms using pnpm v11.7.0
+$ rstest run app-render-performance.test.tsx conversation-query-cache.test.ts
+---
+tool: "@rstest/core@0.11.5"
+timestamp: "2026-10-03T06:19:37.414Z"
+runtime: {"node":"v26.4.0","platform":"darwin","cwd":"/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email"}
+---
+
+# Rstest Test Execution Report
+
+## Summary
+
+```json
+{
+  "status": "fail",
+  "counts": {
+    "testFiles": 2,
+    "failedFiles": 2,
+    "tests": 9,
+    "failedTests": 3,
+    "passedTests": 6,
+    "skippedTests": 0,
+    "todoTests": 0
+  },
+  "durationMs": {
+    "total": 809,
+    "build": 60,
+    "tests": 749
+  },
+  "snapshot": {
+    "added": 0,
+    "updated": 0,
+    "unmatched": 0,
+    "removed": 0,
+    "unchecked": 0
+  }
+}
+```
+
+## Failures
+
+### [F01] src/app-render-performance.test.tsx :: warm keyboard navigation render work > reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves
+
+repro:
+
+```bash
+pnpm exec rstest 'src/app-render-performance.test.tsx' --testNamePattern 'warm keyboard navigation render work > reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/app-render-performance.test.tsx",
+  "project": "rstest-environment-1",
+  "fullName": "warm keyboard navigation render work > reuses summaries, sidebar counts, grouping and timestamps across ten j/k moves",
+  "status": "fail",
+  "duration": 202,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected { summary: 10, counts: 10, …(2) } to deeply equal { summary: +0, counts: +0, …(2) }",
+      "topFrame": {
+        "file": "src/app-render-performance.test.tsx",
+        "line": 47,
+        "column": 10,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/app-render-performance.test.tsx",
+      "line": 47
+    }
+  ]
+}
+```
+
+diff:
+
+```diff
+- Expected
++ Received
+
+  {
+-   "counts": 0,
+-   "groups": 0,
+-   "summary": 0,
+-   "timestamps": 0,
++   "counts": 10,
++   "groups": 19,
++   "summary": 10,
++   "timestamps": 95,
+  }
+```
+
+codeFrame (error 1):
+
+```text
+45 |       expect({ summary: summary.mock.calls.length, counts: counts.mock.calls.length,
+46 |         groups: groups.mock.calls.length, timestamps: timestamps.mock.calls.length })
+47 |         .toEqual({ summary: 0, counts: 0, groups: 0, timestamps: 0 });
+   |          ^
+48 |       // A real data change must still update counts and remove the archived row.
+49 |       const before = container.querySelectorAll('.mail-row').length;
+```
+
+console:
+
+```text
+[stderr] warn: Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+```
+
+### [F02] src/conversation-query-cache.test.ts :: miniapp conversation Query cache > measures each new snapshot once instead of serializing the whole cache again
+
+repro:
+
+```bash
+pnpm exec rstest 'src/conversation-query-cache.test.ts' --testNamePattern 'miniapp conversation Query cache > measures each new snapshot once instead of serializing the whole cache again'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/conversation-query-cache.test.ts",
+  "project": "rstest",
+  "fullName": "miniapp conversation Query cache > measures each new snapshot once instead of serializing the whole cache again",
+  "status": "fail",
+  "duration": 15,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected \"serializedBytes\" to be called 10 times, but got 55 times",
+      "topFrame": {
+        "file": "src/conversation-query-cache.test.ts",
+        "line": 19,
+        "column": 20,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/conversation-query-cache.test.ts",
+      "line": 19
+    }
+  ]
+}
+```
+
+codeFrame (error 1):
+
+```text
+17 |         messages, downloadedPage: { providerRevision: 'r1', nextCursor: null, complete: true, windowed: false, seenCursors: [] },
+18 |       });
+19 |       expect(size).toHaveBeenCalledTimes(10);
+   |                    ^
+20 |     } finally { cache.clear(); size.mockRestore(); }
+21 |   });
+```
+
+### [F03] src/conversation-query-cache.test.ts :: miniapp conversation Query cache > retains a verified disk download when its reader has already left
+
+repro:
+
+```bash
+pnpm exec rstest 'src/conversation-query-cache.test.ts' --testNamePattern 'miniapp conversation Query cache > retains a verified disk download when its reader has already left'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/conversation-query-cache.test.ts",
+  "project": "rstest",
+  "fullName": "miniapp conversation Query cache > retains a verified disk download when its reader has already left",
+  "status": "fail",
+  "duration": 2,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected undefined to be [ { …(6) }, { …(6) }, { …(6) } ] // Object.is equality",
+      "topFrame": {
+        "file": "src/conversation-query-cache.test.ts",
+        "line": 31,
+        "column": 95,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/conversation-query-cache.test.ts",
+      "line": 31
+    }
+  ]
+}
+```
+
+diff:
+
+```diff
+- Expected:
+[
+  {
+    "bodyHtml": undefined,
+    "bodyText": "Hi Zackary,
+
+We can hold the Tuesday launch slot, but the production team needs a go/no-go before 4pm today. The remaining question is whether the migration warning should block launch.
+
+Can you take a look?
+
+Maya",
+    "from": {
+      "address": "maya@northstar.dev",
+      "name": "Maya Chen",
+    },
+    "messageId": "gmail_message_launch_review_1",
+    "sentAt": "2026-08-18T14:35:00.000Z",
+    "to": [
+      {
+        "address": "zack@theaiplatform.app",
+        "name": "Zackary Chapple",
+      },
+    ],
+  },
+  {
+    "bodyHtml": undefined,
+    "bodyText": "I reviewed the warning. It only affects accounts that have not finished the backfill, so it should not block Tuesday. I am comfortable proceeding if production confirms the fallback is enabled.",
+    "from": {
+      "address": "zack@theaiplatform.app",
+      "name": "Zackary Chapple",
+    },
+    "messageId": "gmail_message_launch_review_2",
+    "sentAt": "2026-08-18T15:02:00.000Z",
+    "to": [
+      {
+        "address": "maya@northstar.dev",
+        "name": "Maya Chen",
+      },
+    ],
+  },
+  {
+    "bodyHtml": "
+  <!doctype html>
+  <html>
+    <head><title>Northstar Launch Brief</title></head>
+    <body bgcolor=\"#f1ecdf\" style=\"margin:0;padding:0;font-family:Arial,sans-serif;color:#172b35\">
+      <table align=\"center\" bgcolor=\"#f1ecdf\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">
+        <tbody><tr><td align=\"center\" style=\"padding:28px 0 36px\" valign=\"top\">
+          <table align=\"center\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"600\" style=\"max-width:600px;width:100%\">
+            <tbody>
+              <tr><td align=\"center\" style=\"padding:0 24px 14px;font-size:12px;letter-spacing:.12em;text-transform:uppercase\">Northstar product brief</td></tr>
+              <tr><td align=\"center\" style=\"padding:0 24px 28px;font:500 46px/1.05 Georgia,serif\">The Tuesday Launch</td></tr>
+              <tr><td align=\"center\">
+                <table align=\"center\" bgcolor=\"#ffffff\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"550\" style=\"max-width:550px;width:100%\">
+                  <tbody><tr><td style=\"padding:30px 26px 38px\">
+                    <h1 style=\"margin:0 0 22px;font:500 30px/1.15 Georgia,serif\">Production is ready for your final call</h1>
+                    <p style=\"margin:0 0 24px;font-size:17px;line-height:1.45\">The fallback is enabled and the rollback drill passed. Here is the final launch brief for review.</p>
+                    <img alt=\"Abstract launch horizon\" height=\"220\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAAKCAYAAABBq/VWAAAAQklEQVR4AeyRsQkAIAwEwy+hgziGC1haupYz2scubRICqfJw3cPDPdqYHOHdzRqghNSISzL6WRTBslafWCxJJ0XXBwAA//9zPPD0AAAABklEQVQDAL87QbtunCuTAAAAAElFTkSuQmCC\" style=\"display:block;height:auto;max-width:550px;width:100%\" width=\"550\">
+                    <p style=\"margin:26px 0 16px;font-size:17px;line-height:1.55\">The production migration completed with no data loss. All account projections now match the source revision, and the backfill warning is limited to accounts still catching up.</p>
+                    <p style=\"margin:0 0 16px;font-size:17px;line-height:1.55\">Operations ran the rollback procedure from end to end. The drill restored service inside the agreed window and retained every queued command.</p>
+                    <p style=\"margin:0 0 16px;font-size:17px;line-height:1.55\">Support has the launch notes, escalation path, and customer language. Monitoring is configured for the first two hours after release.</p>
+                    <h2 style=\"margin:30px 0 12px;font:500 24px/1.2 Georgia,serif\">Decision requested</h2>
+                    <p style=\"margin:0 0 16px;font-size:17px;line-height:1.55\">Reply with go or no-go before 4:00 PM. A go keeps the Tuesday slot; a no-go moves the release to the next staffed window.</p>
+                    <p style=\"margin:0;font-size:17px;line-height:1.55\">Thanks for taking the final pass.<br><strong>Maya</strong></p>
+                  </td></tr></tbody>
+                </table>
+              </td></tr>
+            </tbody>
+          </table>
+        </td></tr></tbody>
+      </table>
+    </body>
+  </html>
+",
+    "bodyText": "That works. Production confirmed the fallback is enabled and the rollback drill passed. I just need your final go/no-go before 4pm and I will lock the Tuesday slot.
+
+Maya",
+    "from": {
+      "address": "maya@northstar.dev",
+      "name": "Maya Chen",
+    },
+    "messageId": "gmail_message_launch_review_3",
+    "sentAt": "2026-08-18T15:24:00.000Z",
+    "to": [
+      {
+        "address": "zack@theaiplatform.app",
+        "name": "Zackary Chapple",
+      },
+    ],
+  },
+]
+
++ Received:
+undefined
+```
+
+codeFrame (error 1):
+
+```text
+29 |           windowed: false, seenCursors: [] },
+30 |       }));
+31 |       expect(cache.get(source.accountId, source.threadId, source.providerRevision)?.messages).toBe(source.messages);
+   |                                                                                               ^
+32 |     } finally { cache.clear(); }
+33 |   });
+```
+
+/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @tap-examples/tap-email@0.3.10 test: `rstest run app-render-performance.test.tsx conversation-query-cache.test.ts`
+Exit status 1

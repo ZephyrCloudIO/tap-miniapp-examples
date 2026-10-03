@@ -1,0 +1,44 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ rstest run
+---
+tool: "@rstest/core@0.11.5"
+timestamp: "2026-10-03T06:47:27.542Z"
+runtime: {"node":"v26.4.0","platform":"darwin","cwd":"/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email"}
+---
+
+# Rstest Test Execution Report
+
+## Summary
+
+```json
+{
+  "status": "pass",
+  "counts": {
+    "testFiles": 98,
+    "failedFiles": 0,
+    "tests": 624,
+    "failedTests": 0,
+    "passedTests": 624,
+    "skippedTests": 0,
+    "todoTests": 0
+  },
+  "durationMs": {
+    "total": 3899,
+    "build": 60,
+    "tests": 3839
+  },
+  "snapshot": {
+    "added": 0,
+    "updated": 0,
+    "unmatched": 0,
+    "removed": 0,
+    "unchecked": 0
+  }
+}
+```
+
+## Failures
+
+No test failures reported.
+
+Note: all tests passed. Lists omitted for brevity.

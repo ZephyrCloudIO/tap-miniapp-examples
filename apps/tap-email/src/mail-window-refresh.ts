@@ -92,7 +92,7 @@ export function mergeMailWindow(current: MailState, incoming: readonly EmailThre
         (item as typeof item & { localReplicaRevision?: number }).localReplicaRevision) return previous;
     // A local commit can advance metadata while its list rows omit bodies.
     // The provider revision still owns the same conversation content.
-    return { ...item, messages: previous.messages };
+    return { ...item, messages: previous.messages, downloadedPage: previous.downloadedPage };
   });
   const selected = current.selectedThreadKey ? existing.get(current.selectedThreadKey) : undefined;
   if (selected && !threads.some(item => emailThreadKey(item) === current.selectedThreadKey)) threads.push(selected);

@@ -1,6 +1,10 @@
+import { PacedActivityQueue } from './paced-activity-queue';
+import { commitActivityBeforeSettlement } from './activity-commit';
+import type { EmailActivityProjection } from './activity';
 import { sqliteStoreFixture } from './sqlite-store-fixture';
 import { describe, expect, it, rs } from '@rstest/core';
 import type {
+  MiniAppStorageApi,
   MiniAppPrivateStorageAccess,
   MiniAppPrivateStorageApi,
   MiniAppPrivateSqlDatabase,
@@ -143,6 +147,78 @@ const receipt: MailCommandReceipt = {
 };
 
 describe('private email activity ledger', () => {
+  it('records eight views with one projection read, prune and checkpoint, preserving idempotency', async () => {
+    const fixture = sqliteStoreFixture();
+    const now = Date.parse('2026-10-01T12:00:00Z');
+    const ledger = new ProfileSqliteEmailActivityLedger(fixture.profile, () => now);
+    await ledger.snapshot();
+    fixture.statements.length = 0;
+    const views = Array.from({ length: 8 }, (_, index) => ({ viewId: `view-${index}`, occurredAt: new Date(now + index).toISOString() }));
+    const projection = await ledger.recordViews(views);
+    expect(projection.entries.filter(entry => entry.action === 'thread_viewed')).toHaveLength(8);
+    expect(fixture.statements.filter(sql => sql.includes('INSERT INTO email_activity_events'))).toHaveLength(8);
+    expect(fixture.statements.filter(sql => sql.includes('DELETE FROM email_activity_events'))).toHaveLength(2);
+    expect(fixture.statements.filter(sql => sql.startsWith('SELECT'))).toHaveLength(3);
+    expect((await ledger.recordViews(views)).entries).toHaveLength(8);
+    await ledger.close();
+  });
+  it('groups a view burst into one SDK publication while retaining every local event', async () => {
+    rs.useFakeTimers();
+    const fixture = sqliteStoreFixture();
+    const now = Date.parse('2026-10-01T12:00:00Z');
+    const ledger = new ProfileSqliteEmailActivityLedger(fixture.profile, () => now);
+    const get = rs.fn(async () => ({ value: null, revision: 0 }));
+    const set = rs.fn(async (_write: Parameters<MiniAppStorageApi['set']>[0]) => ({ revision: 1 }));
+    const publisher = new PacedActivityQueue<EmailActivityProjection>(async items => {
+      await publishEmailActivityProjection(items.at(-1)!, 'user', { get, set });
+    }, rs.fn(), { latestOnly: true });
+    const views = new PacedActivityQueue<{ viewId: string; occurredAt: string }>(async batch => {
+      publisher.add(await ledger.recordViews(batch));
+    }, rs.fn());
+    try {
+      await ledger.snapshot();
+      fixture.statements.length = 0;
+      for (let index = 0; index < 8; index++) views.add({ viewId: `view-${index}`, occurredAt: new Date(now).toISOString() });
+      await views.flush();
+      expect(get).not.toHaveBeenCalled();
+      expect(fixture.statements).toHaveLength(13);
+      await rs.advanceTimersByTimeAsync(100);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(set.mock.calls[0]?.[0].value).toMatchObject({ entries: expect.any(Array) });
+      expect((await ledger.snapshot()).entries).toHaveLength(8);
+    } finally {
+      await views.close(); await publisher.close(); await ledger.close(); rs.useRealTimers();
+    }
+  });
+
+  it('settles a durable action receipt while SDK activity publication remains blocked', async () => {
+    rs.useFakeTimers();
+    const fixture = profileStorageFixture();
+    const ledger = new ProfileSqliteEmailActivityLedger(fixture.profileStorage, () => Date.parse('2026-09-14T00:00:00Z'));
+    let release!: () => void;
+    const blocked = new Promise<void>(done => { release = done; });
+    const get = rs.fn(async () => { await blocked; return { value: null, revision: 0 }; });
+    const set = rs.fn(async (_write: Parameters<MiniAppStorageApi['set']>[0]) => ({ revision: 1 }));
+    const publisher = new PacedActivityQueue<EmailActivityProjection>(async items => {
+      await publishEmailActivityProjection(items.at(-1)!, 'user', { get, set });
+    }, rs.fn(), { latestOnly: true });
+    const settle = rs.fn();
+    try {
+      await expect(commitActivityBeforeSettlement({
+        commit: async () => { publisher.add(await ledger.record(command, receipt)); },
+        settle, waitForRetry: () => false,
+      })).resolves.toBe('settled');
+      expect(settle).toHaveBeenCalledTimes(1);
+      await rs.advanceTimersByTimeAsync(100);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(set).not.toHaveBeenCalled();
+      expect((await ledger.snapshot()).entries).toHaveLength(1);
+    } finally {
+      release(); await publisher.close(); await ledger.close(); rs.useRealTimers();
+    }
+  });
+
   it('retains counts across reopen and starts complete coverage only when all activity types are tracked', async () => {
     const fixture = sqliteStoreFixture();
     let time = Date.parse('2026-09-14T00:00:00Z');

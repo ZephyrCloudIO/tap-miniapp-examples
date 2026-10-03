@@ -2,13 +2,32 @@
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, it } from '@rstest/core';
+import { describe, expect, it, rs } from '@rstest/core';
 import { RichMessageBody } from './rich-message';
+import * as isolatedFrame from './isolated-message-frame';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('rich-message late layout measurement', () => {
+  it('builds a static document once and never requests a script renderer for script-free HTML', async () => {
+    const renderer = rs.spyOn(isolatedFrame, 'isolatedMessageRenderer').mockResolvedValue(null);
+    const parse = rs.spyOn(DOMParser.prototype, 'parseFromString');
+    const props = { html: '<p>Static message</p>', title: 'Rich email' };
+    renderToStaticMarkup(<RichMessageBody {...props} />);
+    const oneRenderParses = parse.mock.calls.length;
+    parse.mockClear();
+    const root = createRoot(document.createElement('div'));
+    try {
+      await act(async () => root.render(<RichMessageBody {...props} />));
+      expect(parse.mock.calls.length).toBe(oneRenderParses);
+      expect(renderer).not.toHaveBeenCalled();
+      await act(async () => root.render(<RichMessageBody {...props} html="<p>Scripted</p><script>window.example = 1;</script>" />));
+      expect(renderer).toHaveBeenCalledTimes(1);
+    } finally { await act(async () => root.unmount()); renderer.mockRestore(); parse.mockRestore(); }
+  });
+
   it('tolerates a frame whose document root is not yet available during a theme change', async () => {
     const container = document.createElement('div');
     document.body.append(container);

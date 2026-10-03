@@ -1,0 +1,225 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ rstest run bounded-persistence.test.ts
+---
+tool: "@rstest/core@0.11.5"
+timestamp: "2026-10-03T06:24:00.725Z"
+runtime: {"node":"v26.4.0","platform":"darwin","cwd":"/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email"}
+---
+
+# Rstest Test Execution Report
+
+## Summary
+
+```json
+{
+  "status": "fail",
+  "counts": {
+    "testFiles": 1,
+    "failedFiles": 1,
+    "tests": 48,
+    "failedTests": 3,
+    "passedTests": 45,
+    "skippedTests": 0,
+    "todoTests": 0
+  },
+  "durationMs": {
+    "total": 2077,
+    "build": 29,
+    "tests": 2048
+  },
+  "snapshot": {
+    "added": 0,
+    "updated": 0,
+    "unmatched": 0,
+    "removed": 0,
+    "unchecked": 0
+  }
+}
+```
+
+## Failures
+
+### [F01] src/bounded-persistence.test.ts :: bounded durable mail persistence > publishes cached bodies before an LRU bookkeeping write finishes
+
+repro:
+
+```bash
+pnpm exec rstest 'src/bounded-persistence.test.ts' --testNamePattern 'bounded durable mail persistence > publishes cached bodies before an LRU bookkeeping write finishes'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/bounded-persistence.test.ts",
+  "project": "rstest",
+  "fullName": "bounded durable mail persistence > publishes cached bodies before an LRU bookkeeping write finishes",
+  "status": "fail",
+  "duration": 23,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected false to be true // Object.is equality",
+      "topFrame": {
+        "file": "src/bounded-persistence.test.ts",
+        "line": 40,
+        "column": 24,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/bounded-persistence.test.ts",
+      "line": 40
+    }
+  ]
+}
+```
+
+diff:
+
+```diff
+- Expected
++ Received
+
+- true
++ false
+```
+
+codeFrame (error 1):
+
+```text
+38 |     try {
+39 |       await gate.entered;
+40 |       expect(finished).toBe(true);
+   |                        ^
+41 |     } finally { gate.release(); await loaded; await store.close(); }
+42 |   });
+```
+
+### [F02] src/bounded-persistence.test.ts :: bounded durable mail persistence > groups ten cache-access timestamps into one bounded SQL update
+
+repro:
+
+```bash
+pnpm exec rstest 'src/bounded-persistence.test.ts' --testNamePattern 'bounded durable mail persistence > groups ten cache-access timestamps into one bounded SQL update'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/bounded-persistence.test.ts",
+  "project": "rstest",
+  "fullName": "bounded durable mail persistence > groups ten cache-access timestamps into one bounded SQL update",
+  "status": "fail",
+  "duration": 9,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected [ …(10) ] to have a length of 1 but got 10",
+      "topFrame": {
+        "file": "src/bounded-persistence.test.ts",
+        "line": 54,
+        "column": 88,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/bounded-persistence.test.ts",
+      "line": 54
+    }
+  ]
+}
+```
+
+diff:
+
+```diff
+- Expected
++ Received
+
+- 1
++ 10
+```
+
+codeFrame (error 1):
+
+```text
+52 |     }
+53 |     await store.close();
+54 |     expect(fixture.statements.filter(sql => sql.includes('UPDATE local_mail_bodies'))).toHaveLength(1);
+   |                                                                                        ^
+55 |   });
+56 |
+```
+
+### [F03] src/bounded-persistence.test.ts :: bounded durable mail persistence > keeps a cached body readable when access bookkeeping fails
+
+repro:
+
+```bash
+pnpm exec rstest 'src/bounded-persistence.test.ts' --testNamePattern 'bounded durable mail persistence > keeps a cached body readable when access bookkeeping fails'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/bounded-persistence.test.ts",
+  "project": "rstest",
+  "fullName": "bounded durable mail persistence > keeps a cached body readable when access bookkeeping fails",
+  "status": "fail",
+  "duration": 2,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "Error",
+      "message": "injected storage failure",
+      "topFrame": {
+        "file": "src/sqlite-store-fixture.ts",
+        "line": 28,
+        "column": 43,
+        "method": "before"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/local-store.ts",
+      "line": 1066
+    },
+    {
+      "path": "src/sqlite-store-fixture.ts",
+      "line": 28
+    },
+    {
+      "path": "src/bounded-mail-replica.ts",
+      "line": 328
+    }
+  ]
+}
+```
+
+codeFrame (error 1):
+
+```text
+26 |       const paused = gate; gate = null; paused.entered(); await paused.released;
+27 |     }
+28 |     if (fail?.(sql)) { fail = null; throw new Error('injected storage failure'); }
+   |                                           ^
+29 |   }
+30 |   const transaction = {
+```
+
+/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @tap-examples/tap-email@0.3.10 test: `rstest run bounded-persistence.test.ts`
+Exit status 1

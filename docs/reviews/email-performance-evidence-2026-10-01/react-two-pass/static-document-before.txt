@@ -1,0 +1,111 @@
+[WARN] The following settings cannot be set in the global config file ("/Users/zackarychapple/Library/Preferences/pnpm/config.yaml") and were ignored: "globalShims". Move them to a project-level pnpm-workspace.yaml. To share these settings across projects, use config dependencies: https://pnpm.io/11.x/config-dependencies
+$ rstest run rich-message-resize.test.tsx
+---
+tool: "@rstest/core@0.11.5"
+timestamp: "2026-10-01T16:09:23.165Z"
+runtime: {"node":"v26.4.0","platform":"darwin","cwd":"/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email"}
+---
+
+# Rstest Test Execution Report
+
+## Summary
+
+```json
+{
+  "status": "fail",
+  "counts": {
+    "testFiles": 1,
+    "failedFiles": 1,
+    "tests": 5,
+    "failedTests": 1,
+    "passedTests": 4,
+    "skippedTests": 0,
+    "todoTests": 0
+  },
+  "durationMs": {
+    "total": 473,
+    "build": 36,
+    "tests": 437
+  },
+  "snapshot": {
+    "added": 0,
+    "updated": 0,
+    "unmatched": 0,
+    "removed": 0,
+    "unchecked": 0
+  }
+}
+```
+
+## Failures
+
+### [F01] src/rich-message-resize.test.tsx :: rich-message late layout measurement > builds a static document once and never requests a script renderer for script-free HTML
+
+repro:
+
+```bash
+pnpm exec rstest 'src/rich-message-resize.test.tsx' --testNamePattern 'rich-message late layout measurement > builds a static document once and never requests a script renderer for script-free HTML'
+```
+
+details:
+
+```json
+{
+  "testPath": "src/rich-message-resize.test.tsx",
+  "project": "rstest-environment-1",
+  "fullName": "rich-message late layout measurement > builds a static document once and never requests a script renderer for script-free HTML",
+  "status": "fail",
+  "duration": 49,
+  "retryCount": 0,
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "expected 9 to be 7 // Object.is equality",
+      "topFrame": {
+        "file": "src/rich-message-resize.test.tsx",
+        "line": 24,
+        "column": 39,
+        "method": "<unknown>"
+      },
+      "stackFrames": []
+    }
+  ],
+  "candidateFiles": [
+    {
+      "path": "src/rich-message-resize.test.tsx",
+      "line": 24
+    }
+  ]
+}
+```
+
+diff:
+
+```diff
+- Expected
++ Received
+
+- 7
++ 9
+```
+
+codeFrame (error 1):
+
+```text
+22 |     try {
+23 |       await act(async () => root.render(<RichMessageBody {...props} />));
+24 |       expect(parse.mock.calls.length).toBe(oneRenderParses);
+   |                                       ^
+25 |       expect(renderer).not.toHaveBeenCalled();
+26 |       await act(async () => root.render(<RichMessageBody {...props} html="<p>Scripted</p><script>window.example = 1;</script>" />));
+```
+
+console:
+
+```text
+[stderr] warn: Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+```
+
+/Users/zackarychapple/code/tap-miniapp-example_email/apps/tap-email:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @tap-examples/tap-email@0.3.10 test: `rstest run rich-message-resize.test.tsx`
+Exit status 1

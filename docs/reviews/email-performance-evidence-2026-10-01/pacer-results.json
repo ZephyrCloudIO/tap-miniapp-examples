@@ -1,0 +1,42 @@
+[
+  {
+    "bounded": false,
+    "inputs": 20,
+    "cadenceMs": 30,
+    "quietWaitMs": 100,
+    "maxSize": null,
+    "maxAgeMs": null,
+    "batches": [
+      {
+        "atMs": 695.93,
+        "size": 20
+      }
+    ]
+  },
+  {
+    "bounded": true,
+    "inputs": 20,
+    "cadenceMs": 30,
+    "quietWaitMs": 100,
+    "maxSize": 8,
+    "maxAgeMs": 150,
+    "batches": [
+      {
+        "atMs": 151.39,
+        "size": 5
+      },
+      {
+        "atMs": 304.7,
+        "size": 5
+      },
+      {
+        "atMs": 459.51,
+        "size": 5
+      },
+      {
+        "atMs": 611.18,
+        "size": 5
+      }
+    ]
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "selectedThreadChanges": 10,
+  "localSqlStatements": 60,
+  "sharedStorageGets": 10,
+  "sharedStorageSets": 10
+}

@@ -737,6 +737,8 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   private persistedObjects = new WeakSet<object>();
   private journalSignature: string | null = null;
   private stagedThreads = new Map<string, MailState['threads'][number]>();
+  private bodyAccesses = new Map<string, { accountId: string; threadId: string; revision: string; at: number }>();
+  private bodyAccessTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly profileStorage: MiniAppPrivateStorageApi,
@@ -814,10 +816,46 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     for (const read of this.foregroundReads.splice(0)) await read(database);
   }
 
-  private enqueue<T>(operation: (database: MiniAppPrivateSqlDatabase) => Promise<T>): Promise<T> {
+  private recordBodyAccess(accountId: string, threadId: string, revision: string): void {
+    this.bodyAccesses.set(emailThreadKey({ accountId, threadId }), { accountId, threadId, revision, at: this.now() });
+    if (this.bodyAccessTimer !== null) return;
+    this.bodyAccessTimer = setTimeout(() => {
+      this.bodyAccessTimer = null;
+      void this.enqueue(async () => undefined).catch(() => undefined);
+    }, 250);
+  }
+
+  private async flushBodyAccesses(database: MiniAppPrivateSqlDatabase): Promise<void> {
+    if (!this.bodyAccesses.size) return;
+    if (this.bodyAccessTimer !== null) clearTimeout(this.bodyAccessTimer);
+    this.bodyAccessTimer = null;
+    const accesses = [...this.bodyAccesses.values()];
+    this.bodyAccesses.clear();
+    try {
+      await database.transaction(async tx => {
+        for (let offset = 0; offset < accesses.length; offset += 50) {
+          const batch = accesses.slice(offset, offset + 50);
+          await tx.execute(`WITH accessed(account_id, thread_id, provider_revision, at) AS
+            (VALUES ${batch.map(() => '(?, ?, ?, ?)').join(', ')})
+            UPDATE local_mail_bodies SET last_accessed_at = MAX(last_accessed_at,
+              (SELECT at FROM accessed WHERE accessed.account_id = local_mail_bodies.account_id
+                AND accessed.thread_id = local_mail_bodies.thread_id
+                AND accessed.provider_revision = local_mail_bodies.provider_revision))
+            WHERE (account_id, thread_id, provider_revision) IN
+              (SELECT account_id, thread_id, provider_revision FROM accessed)`,
+          batch.flatMap(item => [item.accountId, item.threadId, item.revision, item.at]));
+        }
+      });
+    } catch { /* Access timestamps are best effort; body reads and durable actions still work. */ }
+  }
+
+  private enqueue<T>(operation: (database: MiniAppPrivateSqlDatabase) => Promise<T>, flushAccesses = true): Promise<T> {
     const task = this.pendingWrite.catch(() => undefined).then(async () => {
       const { database } = await this.connect();
       await this.drainForegroundReads(database);
+      // Reads publish first. Ordinary writes then flush recency before any
+      // eviction transaction so recently opened bodies remain protected.
+      if (flushAccesses) await this.flushBodyAccesses(database);
       try { return await operation(database); }
       finally { await this.drainForegroundReads(database); }
     });
@@ -832,7 +870,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
       };
       this.foregroundReads.push(read);
       // Also drains reads when no write is currently running.
-      void this.enqueue(async () => undefined).catch(error => {
+      void this.enqueue(async () => undefined, false).catch(error => {
         this.foregroundReads = this.foregroundReads.filter(item => item !== read);
         reject(error);
       });
@@ -1063,7 +1101,8 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   loadThread(accountId: string, threadId: string, bodies = true, signal?: AbortSignal): Promise<MailState['threads'][number] | null> {
     return this.enqueueRead(async database => {
       signal?.throwIfAborted();
-      const thread = await readThread(database, accountId, threadId, bodies, signal);
+      const thread = await readThread(database, accountId, threadId, bodies, signal,
+        (account, thread, revision) => this.recordBodyAccess(account, thread, revision));
       if (thread) this.persistedObjects.add(thread);
       return thread;
     });
@@ -2050,9 +2089,13 @@ export class ProfileSqliteMailStore implements LocalMailStore {
   }
 
   async close(): Promise<void> {
+    if (this.bodyAccessTimer !== null) clearTimeout(this.bodyAccessTimer);
+    this.bodyAccessTimer = null;
     await this.pendingWrite.catch(() => undefined);
     if (!this.connection) return;
     const { database, storage } = await this.connection;
+    // A pending foreground read may have registered recency while close waited.
+    await this.flushBodyAccesses(database);
     await database.close();
     await storage.close();
     this.connection = null;

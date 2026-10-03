@@ -779,6 +779,8 @@ export function listenForRichMessageKeyDown(
   return () => document.removeEventListener('keydown', listener);
 }
 
+const emptyRemoteImages: Readonly<Record<string, string>> = {};
+
 export function RichMessageBody({
   mobile = false,
   html,
@@ -794,6 +796,7 @@ export function RichMessageBody({
   const containsScripts = useMemo(() => hasEmbeddedMessageScripts(html), [html]);
   const [rendererUrl, setRendererUrl] = useState<string | null | undefined>(undefined);
   useEffect(() => {
+    if (!scriptsEnabled || !containsScripts) return;
     let active = true;
     void isolatedMessageRenderer().then(url => { if (active) setRendererUrl(url); });
     return () => { active = false; };
@@ -810,7 +813,7 @@ export function RichMessageBody({
       : [],
     [html, imagesEnabled, showQuotedContent, trackingPixelsEnabled],
   );
-  const [remoteImages, setRemoteImages] = useState<Readonly<Record<string, string>>>({});
+  const [remoteImages, setRemoteImages] = useState<Readonly<Record<string, string>>>(emptyRemoteImages);
   const [imageStatus, setImageStatus] = useState<'idle' | 'loading' | 'partial' | 'error'>('idle');
   const source = useMemo(
     () => buildRichMessageDocument(html, remoteImages, {
@@ -834,7 +837,7 @@ export function RichMessageBody({
 
   useEffect(() => {
     let active = true;
-    setRemoteImages({});
+    setRemoteImages(emptyRemoteImages);
     if (!imagesEnabled || !loadRemoteImages || imageUrls.length === 0) {
       setImageStatus('idle');
       return () => { active = false; };
