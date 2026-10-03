@@ -616,7 +616,7 @@ describe('TAP Email private profile cache', () => {
 
     const diagnostics = fixture.diagnostics();
     expect(diagnostics.migratedVersions).toEqual(
-      Array.from({ length: 30 }, (_, index) => index + 1),
+      Array.from({ length: 32 }, (_, index) => index + 1),
     );
     expect(diagnostics.normalizedSourceUpdatedAt).toBe('2026-09-14T12:00:01.000Z');
     expect(diagnostics.normalizedIndexedAt).toBe('2026-09-14T12:00:01.000Z');

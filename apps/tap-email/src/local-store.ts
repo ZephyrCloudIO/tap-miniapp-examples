@@ -7,7 +7,7 @@ import type { MailboxChangesCheckpoint } from './mailbox-changes-checkpoint';
 import {
   boundedReplicaMigrations, journalOf, readJournal, writeJournal, readReplicaState,
   readRecord, writeRecord, writeReplicaThreads, writeReplicaUi, queryMailWindow,
-  readThread, readThreads, readSync, writeSync, replicaStatistics, summarizeReplica,
+  readThread, readThreads, readThreadsWithBodies, readSync, writeSync, replicaStatistics, summarizeReplica,
   type MailJournal, type MailWindow, type MailWindowQuery, type MailboxSyncCheckpoint,
 } from './bounded-mail-replica';
 import {
@@ -50,8 +50,9 @@ export interface LocalMailStore extends Partial<SemanticIndexQueue> {
   saveCache?(state: MailState): Promise<void>;
   maintainCache?(): Promise<void>;
   queryThreads?(query: MailWindowQuery): Promise<MailWindow>;
-  summarize?(accountId?: string, journal?: MailJournal): Promise<MailboxSummary>;
+  summarize?(accountId?: string, journal?: MailJournal): Promise<MailboxSummary & { readonly mailboxCounts?: Readonly<Partial<Record<MailState['selectedSplit'], number>>> }>;
   loadThread?(accountId: string, threadId: string, bodies?: boolean, signal?: AbortSignal): Promise<MailState['threads'][number] | null>;
+  loadThreads?(identities: readonly { accountId: string; threadId: string }[], signal?: AbortSignal): Promise<ReadonlyMap<string, MailState['threads'][number]>>;
   beginMailboxSync?(): Promise<MailboxSyncCheckpoint>;
   beginMailboxChanges?(): Promise<MailboxChangesCheckpoint>;
   commitMailboxPage?(expected: MailboxSyncCheckpoint, mailbox: MailboxSnapshot, nextCursor: string | null): Promise<MailboxSyncCheckpoint>;
@@ -1094,7 +1095,7 @@ export class ProfileSqliteMailStore implements LocalMailStore {
     });
   }
 
-  summarize(accountId = 'all', journal?: MailJournal): Promise<MailboxSummary> {
+  summarize(accountId = 'all', journal?: MailJournal) {
     return this.enqueue(database => summarizeReplica(database, new Date(this.now()).toISOString(), accountId, journal));
   }
 
@@ -1105,6 +1106,16 @@ export class ProfileSqliteMailStore implements LocalMailStore {
         (account, thread, revision) => this.recordBodyAccess(account, thread, revision));
       if (thread) this.persistedObjects.add(thread);
       return thread;
+    });
+  }
+
+  loadThreads(identities: readonly { accountId: string; threadId: string }[], signal?: AbortSignal) {
+    return this.enqueueRead(async database => {
+      signal?.throwIfAborted();
+      const threads = await readThreadsWithBodies(database, identities, signal,
+        (account, thread, revision) => this.recordBodyAccess(account, thread, revision));
+      for (const thread of threads.values()) this.persistedObjects.add(thread);
+      return threads;
     });
   }
 

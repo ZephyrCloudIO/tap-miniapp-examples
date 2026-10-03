@@ -11,6 +11,32 @@ import { useConversationWarmWindow } from './use-conversation-warm-window';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('rolling warm window React lifecycle', () => {
+  it('registers twenty pending disk queries together and deduplicates Strict Mode replay', async () => {
+    const source = previewMailState().threads[0]!;
+    const rows = Array.from({ length: 41 }, (_, i) => ({ ...source, threadId: `pending_${i}`, providerRevision: `revision_${i}`,
+      downloadedPage: undefined }));
+    const cache = new ConversationQueryCache();
+    const pending: (() => void)[] = [];
+    const read = rs.fn((_account: string, threadId: string) => new Promise<EmailThread>(resolve => pending.push(() => {
+      const thread = rows.find(thread => thread.threadId === threadId)!;
+      resolve({ ...thread, downloadedPage: { providerRevision: thread.providerRevision,
+        nextCursor: null, complete: true, windowed: false, seenCursors: [] } });
+    })));
+    const container = document.createElement('div'); const root = createRoot(container);
+    function Reader() {
+      useConversationWarmWindow({ cache, rows, activeKey: conversationReaderKey(rows[20]!), enabled: true,
+        preview: false, read, client: null });
+      return null;
+    }
+    try {
+      await act(async () => root.render(<StrictMode><Reader /></StrictMode>));
+      expect(read).toHaveBeenCalledTimes(20);
+      await act(async () => { for (const done of pending) done(); });
+      expect(rows.filter(thread => cache.has(thread.accountId, thread.threadId, thread.providerRevision))).toHaveLength(20);
+      expect(read).toHaveBeenCalledTimes(20);
+    } finally { await act(async () => root.unmount()); cache.clear(); container.remove(); }
+  });
+
   it('warms twenty bodies, mounts at most five readers, moves both ways, and stops after unmount', async () => {
     rs.useFakeTimers(); const source = previewMailState().threads[0]!;
     const rows: EmailThread[] = Array.from({ length: 61 }, (_, i) => ({ ...source, threadId: `react_${i}`,

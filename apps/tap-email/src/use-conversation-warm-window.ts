@@ -28,6 +28,13 @@ export function useConversationWarmWindow({ cache, rows, activeKey, enabled, pre
       },
       next => startTransition(() => setKeys(previous => next.length === previous.length &&
         next.every((key, index) => key === previous[index]) ? previous : next)),
+      2,
+      // Queue all local restores together. A real SDK store serializes bridge
+      // calls, so twenty separate multi-call reads cannot keep up with navigation.
+      preview ? undefined : threads => Promise.allSettled(threads.filter(thread =>
+        !isDownloadedThreadPage(thread.downloadedPage) || thread.downloadedPage.providerRevision !== thread.providerRevision)
+        .map(thread => cache.localThread(thread.accountId, thread.threadId, thread.providerRevision,
+          signal => read(thread.accountId, thread.threadId, signal)))),
     );
     scheduler.current = warmer;
     return () => { warmer.dispose(); scheduler.current = null; };
