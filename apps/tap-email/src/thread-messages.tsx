@@ -1,3 +1,4 @@
+import { CalendarMessage, isCalendarAttachment, type CalendarReaderServices } from './calendar-invitation';
 import type { MiniAppTheme } from '@theaiplatform/miniapp-sdk/web';
 import { ChevronDown } from 'lucide-react';
 import React, {
@@ -59,6 +60,8 @@ interface CachedRichMessageBodyProps extends RemoteImageMessageContext {
 }
 
 export interface ThreadMessageListProps {
+  readonly calendar?: CalendarReaderServices;
+  readonly providerRevision?: string;
   readonly active?: boolean;
   readonly mobile?: boolean;
   readonly accountId: string;
@@ -254,6 +257,8 @@ function ParticipantDetails({ participant }: { readonly participant: EmailPartic
 
 const ThreadMessageCard = memo(function ThreadMessageCard({
   active = true,
+  calendar,
+  providerRevision,
   mobile,
   htmlEnabled = true,
   accountId,
@@ -361,6 +366,9 @@ const ThreadMessageCard = memo(function ThreadMessageCard({
             {outgoing?.bcc ? <><dt>Bcc</dt><dd>{outgoing.bcc}</dd></> : null}
             <dt>Date</dt><dd><time dateTime={message.sentAt}>{messageDetailsDateFormatter.format(new Date(message.sentAt))}</time></dd>
           </dl> : null}
+          {calendar && loadAttachment && message.attachments?.some(isCalendarAttachment) ? <CalendarMessage
+            attachments={message.attachments} context={{ accountId, threadId, messageId: message.messageId, providerRevision: providerRevision || '' }}
+            services={calendar} loadAttachment={loadMessageAttachment} /> : null}
           {htmlEnabled && message.bodyHtml ? (
             <CachedRichMessageBody
               active={active}
@@ -377,9 +385,9 @@ const ThreadMessageCard = memo(function ThreadMessageCard({
               threadId={threadId}
               trackingPixelsEnabled={trackingPixelsEnabled}
             />
-          ) : (
+          ) : message.bodyText.trim() || message.bodyHtml ? (
             <PlainMessageBody bodyText={message.bodyText.trim() ? message.bodyText : plainTextFromRichMessage(message.bodyHtml ?? '')} />
-          )}
+          ) : null}
           <MessageAttachments
             attachments={message.attachments ?? []}
             exportSupported={attachmentExportSupported}
@@ -410,6 +418,8 @@ const emptyOutgoingMessages: readonly OutgoingThreadMessage[] = [];
  */
 export const ThreadMessageList = memo(function ThreadMessageList({
   active = true,
+  calendar,
+  providerRevision,
   mobile,
   accountId,
   appTheme,
@@ -488,6 +498,8 @@ export const ThreadMessageList = memo(function ThreadMessageList({
   return messages.map(message => (
     <ThreadMessageCard
       active={active}
+      calendar={calendar}
+      providerRevision={providerRevision}
       mobile={mobile}
       htmlEnabled={htmlEnabled}
       accountId={accountId}

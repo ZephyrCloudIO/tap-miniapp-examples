@@ -367,6 +367,9 @@ const safeBase64 = /^(?:[a-z0-9+/]{4})*(?:[a-z0-9+/]{2}==|[a-z0-9+/]{3}=)?$/iu;
 function decodeAttachmentBody(response: MiniAppHttpResponse, attachment: EmailAttachment): Uint8Array {
   const expectedMimeType = attachment.mimeType.split(';', 1)[0]!.trim().toLowerCase();
   const responseMimeType = response.contentType?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  const originalMimeType = response.headers.find(header => header.name.toLowerCase() === 'x-tap-attachment-type')?.value.split(';', 1)[0]?.trim().toLowerCase();
+  const mimeMatches = responseMimeType === expectedMimeType ||
+    (responseMimeType === 'application/octet-stream' && originalMimeType === expectedMimeType);
   if (
     response.bodyTruncated ||
     response.bodyKind !== 'binary' ||
@@ -375,7 +378,7 @@ function decodeAttachmentBody(response: MiniAppHttpResponse, attachment: EmailAt
     !safeBase64.test(response.bodyBase64) ||
     !Number.isSafeInteger(response.sizeBytes) ||
     response.sizeBytes !== attachment.sizeBytes ||
-    responseMimeType !== expectedMimeType
+    !mimeMatches
   ) {
     throw new CoordinatorError(
       502,
@@ -858,9 +861,8 @@ export function createCoordinatorClient(
         {
           method: 'GET',
           url,
-          ...(localDevelopment
-            ? { headers: [{ name: 'X-TAP-Dev-Profile', value: localDevelopmentProfile }] }
-            : {}),
+          headers: [{ name: 'Accept', value: 'application/octet-stream' },
+            ...(localDevelopment ? [{ name: 'X-TAP-Dev-Profile', value: localDevelopmentProfile }] : [])],
           responseBodyLimitBytes: maximumAttachmentDownloadBytes,
           timeoutMs: 30_000,
         },

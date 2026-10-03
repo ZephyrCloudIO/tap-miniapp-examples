@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/protocol.ts"
+    ".": "./src/protocol.ts",
+    "./calendar": "./src/calendar.ts"
   },
   "scripts": {
     "test": "rstest run",

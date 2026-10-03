@@ -102,9 +102,9 @@ export async function readRecord<T>(sql: Sql, table: Table, kind: string,
   return part ? JSON.parse(value) as T : null;
 }
 
-export type MailJournal = Pick<MailState, 'commands' | 'pendingThreadIntents' | 'outbox' | 'undo'>;
+export type MailJournal = Pick<MailState, 'commands' | 'pendingThreadIntents' | 'outbox' | 'undo' | 'calendarResponses'>;
 export const journalOf = (state: MailJournal): MailJournal => ({
-  commands: state.commands, pendingThreadIntents: state.pendingThreadIntents, outbox: state.outbox,
+  calendarResponses: state.calendarResponses, commands: state.commands, pendingThreadIntents: state.pendingThreadIntents, outbox: state.outbox,
   undo: state.undo && state.undo.kind !== 'send'
     ? { ...state.undo, thread: withoutBodies(state.undo.thread) } : state.undo,
 });
@@ -116,6 +116,9 @@ export async function writeJournal(tx: MiniAppPrivateSqlTransaction, state: Mail
   for (const command of state.commands) {
     await writeRecord(tx, 'local_mail_journal', 'command', command.accountId, '', command.commandId, command);
   }
+  for (const item of state.calendarResponses ?? []) {
+    await writeRecord(tx, 'local_mail_journal', 'calendar-response', item.command.accountId, '', item.command.commandId, item);
+  }
   for (const item of state.outbox ?? []) {
     const origin = item.attempts[0]!.command;
     await writeRecord(tx, 'local_mail_journal', 'outbox', origin.accountId, '', origin.commandId, item);
@@ -125,6 +128,8 @@ export async function writeJournal(tx: MiniAppPrivateSqlTransaction, state: Mail
   }
   await writeRecord(tx, 'local_mail_journal', 'control', '', '', '', {
     undo: state.undo,
+    hasCalendarResponses: state.calendarResponses !== undefined,
+    calendarResponses: (state.calendarResponses ?? []).map(item => [item.command.accountId, item.command.commandId]),
     hasOutbox: state.outbox !== undefined,
     hasIntents: state.pendingThreadIntents !== undefined,
     // Ordering is part of replay semantics and must survive SQLite key ordering.
@@ -137,7 +142,7 @@ export async function writeJournal(tx: MiniAppPrivateSqlTransaction, state: Mail
 export async function readJournal(sql: Sql): Promise<MailJournal | null> {
   const control = await readRecord<{
     undo: MailState['undo']; hasOutbox: boolean; hasIntents: boolean;
-    commands: string[][]; outbox: string[][]; intents: string[][];
+    commands: string[][]; outbox: string[][]; intents: string[][]; hasCalendarResponses?: boolean; calendarResponses?: string[][];
   }>(sql, 'local_mail_journal', 'control');
   if (!control) return null;
   async function records<T>(kind: string, ids: string[][]): Promise<T[]> {
@@ -151,6 +156,7 @@ export async function readJournal(sql: Sql): Promise<MailJournal | null> {
   }
   return {
     commands: await records('command', control.commands),
+    ...(control.hasCalendarResponses ? { calendarResponses: await records<NonNullable<MailState['calendarResponses']>[number]>('calendar-response', control.calendarResponses || []) } : {}),
     ...(control.hasOutbox ? { outbox: await records<NonNullable<MailState['outbox']>[number]>('outbox', control.outbox) } : {}),
     ...(control.hasIntents ? { pendingThreadIntents: await records<NonNullable<MailState['pendingThreadIntents']>[number]>('intent', control.intents) } : {}),
     undo: control.undo,
@@ -565,7 +571,7 @@ export async function readReplicaState(sql: Sql, initialWindow = false): Promise
 
 export async function writeReplicaUi(tx: MiniAppPrivateSqlTransaction, state: MailState): Promise<void> {
   const { accounts: _accounts, threads: _threads, commands: _commands, pendingThreadIntents: _intents,
-    outbox: _outbox, undo: _undo, ...ui } = state;
+    outbox: _outbox, undo: _undo, calendarResponses: _calendarResponses, ...ui } = state;
   // The first screen is a bounded private read-through cache, not another
   // replica. Recovery still loads the current journal and checks row revisions.
   const visible = new Set(visibleThreads(state).slice(0, 20).map(emailThreadKey));

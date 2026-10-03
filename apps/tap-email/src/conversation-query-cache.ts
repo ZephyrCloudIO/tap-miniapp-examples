@@ -140,10 +140,10 @@ export class ConversationQueryCache {
 
   clear(): void { this.client.clear(); }
 
-  private prune(): void {
+  prune(): void {
     for (const { query } of this.completed.values()) {
       if (this.completedBytes <= this.budgetBytes) break;
-      if (query.state.fetchStatus !== 'idle') continue;
+      if (query.state.fetchStatus !== 'idle' || query.getObserversCount() > 0) continue;
       // The removal subscription updates the byte ledger, including GC, account
       // removal, and scope disposal. No body serialization on warm navigation.
       this.client.removeQueries({ queryKey: query.queryKey, exact: true });

@@ -377,7 +377,7 @@ function isAttachmentMimePart(payload: Readonly<Record<string, unknown>>): boole
   if (mimeType.startsWith('multipart/')) return false;
   const isMessageBodyAlternative = mimeType === 'text/plain' || mimeType === 'text/html';
   const hasFileName = typeof payload.filename === 'string' && payload.filename.trim().length > 0;
-  if (hasFileName || disposition === 'attachment') return true;
+  if (hasFileName || disposition === 'attachment' || mimeType === 'text/calendar' || mimeType === 'application/ics' || mimeType === 'application/icalendar') return true;
   // A related HTML root may itself have a Content-ID or inline disposition.
   // Preserve unnamed text/plain and text/html parts as message bodies; other
   // addressable MIME entities are resources even when Gmail omits a filename.
@@ -425,7 +425,7 @@ function attachmentParts(
         : null;
     collected.push({
       fileName: safeAttachmentFileName(
-        declaredFileName || decodedDispositionFileName(disposition) || contentId || 'attachment',
+        declaredFileName || decodedDispositionFileName(disposition) || contentId || (safeAttachmentMimeType(payload.mimeType) === 'text/calendar' ? 'invite.ics' : 'attachment'),
       ),
       mimeType: safeAttachmentMimeType(payload.mimeType),
       sizeBytes: attachmentSize(body),

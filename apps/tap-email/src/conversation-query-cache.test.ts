@@ -1,7 +1,7 @@
 import { describe, expect, it, rs } from '@rstest/core';
 import { ConversationQueryCache } from './conversation-query-cache';
 import * as boundedSql from './bounded-sql';
-import { onlineManager } from '@tanstack/react-query';
+import { QueryObserver, onlineManager } from '@tanstack/react-query';
 import type { ThreadPage } from './coordinator-client';
 import { previewMailState } from './domain';
 
@@ -23,6 +23,20 @@ describe('miniapp conversation Query cache', () => {
       expect(cache.has('account', 'distant', 'r1')).toBe(false);
       expect(cache.has('account', 'active', 'r1')).toBe(true);
     } finally { cache.clear(); }
+  });
+  it('keeps an observed calendar query while pruning and releases it when the reader leaves', async () => {
+    const cache = new ConversationQueryCache(1);
+    const key = ['email-reader','account','thread','r1','calendar','message'];
+    const observer = new QueryObserver(cache.client,{queryKey:key,queryFn:async()=>({title:'Calendar event'})});
+    const unsubscribe = observer.subscribe(()=>{});
+    try {
+      await observer.refetch();
+      cache.prune();
+      expect(cache.client.getQueryData(key)).toEqual({title:'Calendar event'});
+      unsubscribe();
+      cache.prune();
+      expect(cache.client.getQueryData(key)).toBeUndefined();
+    } finally {unsubscribe();cache.clear();}
   });
   it('measures each new snapshot once instead of serializing the whole cache again', () => {
     const cache = new ConversationQueryCache();

@@ -948,6 +948,20 @@ describe('TAP Email coordinator client', () => {
     }
   });
 
+  it('negotiates byte-preserving calendar downloads and verifies their original MIME type', async () => {
+    const body = 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n';
+    const attachment = {resourceId:'attachment_1',fileName:'invite.ics',mimeType:'text/calendar',sizeBytes:new TextEncoder().encode(body).length,disposition:'attachment' as const,contentId:null};
+    const context = {accountId:'account_1',threadId:'thread_1',messageId:'message_1'};
+    const response = {finalUrl:`${coordinatorOrigin}/v1/accounts/account_1/threads/thread_1/messages/message_1/attachments/attachment_1`,
+      status:200,statusText:'OK',headers:[{name:'X-TAP-Attachment-Type',value:'text/calendar'}],bodyText:null,bodyBase64:btoa(body),
+      bodyKind:'binary' as const,bodyTruncated:false,sizeBytes:attachment.sizeBytes,elapsedMs:1,contentType:'application/octet-stream'};
+    const transport:CoordinatorTransport = {request(input) { expect(input.headers).toContainEqual({name:'Accept',value:'application/octet-stream'});return response; }};
+    expect(await createCoordinatorClient(transport).downloadAttachment(context,attachment)).toEqual(new TextEncoder().encode(body));
+    for (const headers of [[],[{name:'X-TAP-Attachment-Type',value:'application/pdf'}]]) {
+      await expect(createCoordinatorClient({request:()=>({...response,headers})}).downloadAttachment(context,attachment)).rejects.toMatchObject({code:'invalid_response'});
+    }
+  });
+
   it('rejects known oversized attachments before making a network request', async () => {
     let requested = false;
     const transport: CoordinatorTransport = {

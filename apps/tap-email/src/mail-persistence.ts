@@ -97,8 +97,11 @@ export function recoverMailJournal(current: MailState, recovered: MailState | nu
   for (const intent of current.pendingThreadIntents ?? []) intents.set(intent.commandId, intent);
   const outbox = new Map((recovered.outbox ?? []).map(item => [item.attempts[0]!.command.commandId, item]));
   for (const item of current.outbox ?? []) outbox.set(item.attempts[0]!.command.commandId, item);
+  const calendarResponses = new Map((recovered.calendarResponses ?? []).map(record => [record.command.commandId, record]));
+  for (const record of current.calendarResponses ?? []) calendarResponses.set(record.command.commandId, record);
   const accounts = new Map(recovered.accounts.map(account => [account.accountId, account]));
   for (const account of current.accounts) accounts.set(account.accountId, account);
   return { ...current, accounts: [...accounts.values()], commands: [...commands.values()],
+    calendarResponses: [...calendarResponses.values()].slice(-500),
     pendingThreadIntents: [...intents.values()], outbox: [...outbox.values()], undo: current.undo ?? recovered.undo };
 }

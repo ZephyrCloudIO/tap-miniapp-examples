@@ -1,11 +1,14 @@
+import { calendarEventKey, calendarReply, maximumCalendarBytes, parseCalendarInvitations } from '@tap-examples/tap-email-protocol/calendar';
+import { attachmentContent, AttachmentContentError } from './mailbox';
 import { sentFollowUpStatements, type SentMessageIdentity } from './follow-up';
 import {
   isMailDraftPayload,
+  isCalendarRsvpPayload,
   type MailCommand,
   type MailDraftAttachment,
   type MailDraftPayload,
 } from '@tap-examples/tap-email-protocol';
-import { encodeBase64, encodeBase64Url, openSecret, sealSecret } from './crypto';
+import { encodeBase64, encodeBase64Url, openSecret, sealSecret, sha256Base64Url } from './crypto';
 import {
   consumeOutboundAttachments,
   OutboundAttachmentError,
@@ -609,6 +612,7 @@ async function mimeFor(
   command: MailCommand,
   payload: MailDraftPayload,
   now: Date,
+  calendar?: string,
 ): Promise<{ readonly raw: string; readonly threadId?: string } | null> {
   const to = payload.to === '' ? '' : safeHeader(payload.to, 2_000);
   const cc = payload.cc === undefined ? null : safeHeader(payload.cc, 2_000);
@@ -639,7 +643,12 @@ async function mimeFor(
   ];
   const replyTo = safeHeader(payload.replyToMessageId, 998);
   if (replyTo) headers.splice(3, 0, `In-Reply-To: ${replyTo}`, `References: ${replyTo}`);
-  const messageBody = alternativeBody(bodyText, alternativeBoundary);
+  const messageBody = calendar
+    ? [alternativeBody(bodyText, alternativeBoundary).replace(`--${alternativeBoundary}--`, ''),
+        `--${alternativeBoundary}`, 'Content-Type: text/calendar; charset=UTF-8; method=REPLY',
+        'Content-Transfer-Encoding: base64', '', base64MimeBody(new TextEncoder().encode(calendar)),
+        `--${alternativeBoundary}--`, ''].join('\r\n')
+    : alternativeBody(bodyText, alternativeBoundary);
   const body = attachments.length === 0
     ? messageBody
     : [
@@ -861,6 +870,7 @@ async function executeSend(
   accessToken: string,
   command: MailCommand,
   now: string,
+  calendar?: string,
 ): Promise<ProviderExecutionResult> {
   if (!isMailDraftPayload(command.payload) || !command.payload.to.trim()) {
     return { outcome: 'failed', errorCode: 'invalid_message' };
@@ -920,7 +930,7 @@ async function executeSend(
   );
   let finalMime: { readonly raw: string; readonly threadId?: string } | null = null;
   if (!canReuseCheckpoint) {
-    const mime = await mimeFor(env, scope, command, payload, current);
+    const mime = await mimeFor(env, scope, command, payload, current, calendar);
     if (!mime) return { outcome: 'failed', errorCode: 'invalid_message' };
     finalMime = mime;
     let saved: Readonly<Record<string, unknown>>;
@@ -999,8 +1009,145 @@ async function executeSend(
   };
 }
 
+export async function calendarDraftKey(commandId: string): Promise<string> {
+  return `calendar_${await sha256Base64Url(commandId)}`;
+}
+
+/** Only server-resolved attachment bytes and the connected account can address an RSVP. */
+async function executeCalendarRsvp(
+  env: Env,
+  scope: ProviderScope,
+  token: string,
+  command: MailCommand,
+  now: Date,
+): Promise<ProviderExecutionResult> {
+  if (
+    !isCalendarRsvpPayload(command.payload) ||
+    !command.threadId ||
+    !command.expectedProviderRevision
+  ) {
+    return { outcome: 'failed', errorCode: 'invalid_calendar_response' };
+  }
+  const payload = command.payload;
+  const draftKey = await calendarDraftKey(command.commandId);
+  const checkpoint = await providerDraftRow(env, scope, draftKey);
+  // A completed send always wins over later changes to the source conversation.
+  if (checkpoint?.state === 'sent')
+    return { outcome: 'acknowledged', providerRevision: null };
+  const sent = await acknowledgedSentMessage(
+    token,
+    `${draftKey}@tap-email.local`,
+  );
+  if (sent !== undefined)
+    return { outcome: 'acknowledged', providerRevision: sent.revision };
+  const thread = await googleJson(
+    token,
+    `/gmail/v1/users/me/threads/${encodeURIComponent(command.threadId)}?format=metadata&fields=id,historyId,messages(id)`,
+  );
+  if (thread.historyId !== command.expectedProviderRevision) {
+    // Gmail message bodies are immutable. Label-only changes (including the
+    // automatic mark-read) can advance history without changing the invitation.
+    const stored = await env.DB.prepare(
+      'SELECT message_id FROM mail_messages WHERE profile_id = ? AND account_id = ? AND thread_id = ? ORDER BY message_id',
+    )
+      .bind(scope.profileId, scope.accountId, command.threadId)
+      .all<{ message_id: string }>();
+    const live = Array.isArray(thread.messages)
+      ? thread.messages.map((message) => record(message).id).sort()
+      : [];
+    if (
+      !stored.results.length ||
+      JSON.stringify(live) !==
+        JSON.stringify(stored.results.map((message) => message.message_id))
+    ) {
+      return { outcome: 'failed', errorCode: 'provider_revision_conflict' };
+    }
+  }
+  const newerCalendar = await env.DB.prepare(
+    `SELECT 1 AS found FROM mail_messages newer
+    JOIN mail_messages source ON source.profile_id = newer.profile_id AND source.account_id = newer.account_id AND source.thread_id = newer.thread_id
+    JOIN mail_attachments attachment ON attachment.profile_id = newer.profile_id AND attachment.account_id = newer.account_id AND attachment.message_id = newer.message_id
+    WHERE source.profile_id = ? AND source.account_id = ? AND source.thread_id = ? AND source.message_id = ?
+      AND newer.ordinal > source.ordinal AND (lower(attachment.mime_type) LIKE 'text/calendar%' OR lower(attachment.mime_type) IN ('application/ics', 'application/icalendar') OR lower(attachment.file_name) LIKE '%.ics') LIMIT 1`,
+  )
+    .bind(scope.profileId, scope.accountId, command.threadId, payload.messageId)
+    .first();
+  if (newerCalendar)
+    return { outcome: 'failed', errorCode: 'calendar_invitation_superseded' };
+  const account = await env.DB.prepare(
+    "SELECT email_address FROM google_accounts WHERE profile_id = ? AND account_id = ? AND connection_state = 'active'",
+  )
+    .bind(scope.profileId, scope.accountId)
+    .first<{ email_address: string | null }>();
+  const resource = await env.DB.prepare(
+    'SELECT size_bytes FROM mail_attachments WHERE profile_id = ? AND account_id = ? AND thread_id = ? AND message_id = ? AND resource_id = ?',
+  )
+    .bind(
+      scope.profileId,
+      scope.accountId,
+      command.threadId,
+      payload.messageId,
+      payload.resourceId,
+    )
+    .first<{ size_bytes: number }>();
+  if (!account?.email_address || !resource || resource.size_bytes > maximumCalendarBytes)
+    return { outcome: 'failed', errorCode: 'calendar_invitation_unavailable' };
+  const attachment = await attachmentContent(
+    env,
+    scope.profileId,
+    scope.accountId,
+    command.threadId,
+    payload.messageId,
+    payload.resourceId,
+    now,
+  );
+  let event;
+  let source: string;
+  try {
+    source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      attachment.bytes,
+    );
+    event = parseCalendarInvitations(source).find(
+      (event) => calendarEventKey(event) === payload.eventKey,
+    );
+  } catch {
+    return { outcome: 'failed', errorCode: 'invalid_calendar_invitation' };
+  }
+  const accountAddress = account.email_address.toLowerCase();
+  const attendee = event?.attendees.find(person => person.address === accountAddress);
+  if (
+    !event ||
+    event.cancelled ||
+    event.method !== 'REQUEST' ||
+    !attendee ||
+    !event.organizer ||
+    event.organizer.address === attendee.address
+  )
+    return { outcome: 'failed', errorCode: 'calendar_response_not_allowed' };
+  const reply = calendarReply(source, event, attendee, payload.response, now);
+  return executeSend(
+    env,
+    scope,
+    token,
+    {
+      ...command,
+      kind: 'send_draft',
+      payload: {
+        draftKey,
+        draftRevision: 1,
+        to: event.organizer.address,
+        subject: `${payload.response === 'accepted' ? 'Accepted' : payload.response === 'declined' ? 'Declined' : 'Tentative'}: ${Array.from(event.title.replace(/[\r\n]/gu, ' ')).slice(0, 160).join('')}`,
+        bodyText: `${account.email_address} has ${payload.response === 'tentative' ? 'tentatively accepted' : payload.response} ${event.title}.`,
+        expectedContext: payload.expectedContext,
+      },
+    },
+    now.toISOString(),
+    reply,
+  );
+}
+
 function providerError(error: unknown): ProviderExecutionResult {
-  if (error instanceof OutboundAttachmentError || error instanceof OutboundMimeError) {
+  if (error instanceof OutboundAttachmentError || error instanceof OutboundMimeError || error instanceof AttachmentContentError) {
     return { outcome: 'failed', errorCode: error.code };
   }
   if (!(error instanceof GoogleApiError)) {
@@ -1056,6 +1203,7 @@ export function createGoogleProvider(env: Env, now: () => Date): GoogleProviderP
       try {
         const current = now();
         const accessToken = await accessTokenFor(env, scope, current);
+        if (command.kind === 'calendar_rsvp') return await executeCalendarRsvp(env, scope, accessToken, command, current);
         if (command.kind === 'save_draft' || command.kind === 'schedule_send') {
           return await executeSaveDraft(
             env,

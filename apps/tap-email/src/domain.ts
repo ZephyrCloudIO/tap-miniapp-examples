@@ -3,6 +3,7 @@ import {
   isMailCommand,
   isMailCommandReceipt,
   isMailDraftPayload,
+  isCalendarRsvpPayload,
   isSafeMailIdentifier,
   operationalZeroAllowed,
   TAP_EMAIL_PROTOCOL_VERSION,
@@ -222,6 +223,11 @@ export interface PendingThreadIntent {
   }>;
 }
 
+export interface CalendarResponseRecord {
+  readonly command: MailCommand;
+  readonly receipt: MailCommandReceipt;
+}
+
 export interface MailState {
   readonly schemaVersion: 2;
   readonly accounts: readonly EmailAccount[];
@@ -230,6 +236,7 @@ export interface MailState {
   readonly selectedSplit: MailSplit;
   readonly selectedThreadKey: string | null;
   readonly commands: readonly MailCommand[];
+  readonly calendarResponses?: readonly CalendarResponseRecord[];
   readonly pendingThreadIntents?: readonly PendingThreadIntent[];
   /** Recoverable immediate-send outcomes; optional for schema-v2 cache compatibility. */
   readonly outbox?: readonly RecoverableImmediateSend[];
@@ -884,6 +891,10 @@ export function isMailState(value: unknown): value is MailState {
         );
       })
     )) &&
+    (value.calendarResponses === undefined || (Array.isArray(value.calendarResponses) &&
+      value.calendarResponses.length <= 500 && value.calendarResponses.every(item => isRecord(item) &&
+        isMailCommand(item.command) && item.command.kind === 'calendar_rsvp' &&
+        isMailCommandReceipt(item.receipt) && receiptMatchesCommand(item.receipt, item.command)))) &&
     isMailPreferences(value.preferences) &&
     validUndo
   );
@@ -1018,8 +1029,12 @@ export function settleMailCommand(
           ? { ...thread, ...acknowledgedPatch }
           : thread)
     : state.threads;
+  const calendarResponses = command.kind === 'calendar_rsvp' && isCalendarRsvpPayload(command.payload)
+    ? [...(state.calendarResponses ?? []).filter(item => item.command.commandId !== command.commandId), { command, receipt }].slice(-500)
+    : state.calendarResponses;
   const settled = {
     ...state,
+    ...(calendarResponses ? { calendarResponses } : {}),
     threads,
     commands: state.commands.filter(item => item.commandId !== command.commandId),
     pendingThreadIntents: (state.pendingThreadIntents ?? []).filter(

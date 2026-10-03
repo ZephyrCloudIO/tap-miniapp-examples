@@ -194,6 +194,6 @@ export function PagedThreadMessages({ client, providerRevision, downloadedPage, 
       }}>Load newest messages</button> : null}
       {page?.complete ? <p className="thread-page-complete" role="status">{windowed ? 'End of conversation' : 'All conversation messages loaded'}</p> : null}
     </div>
-    <ThreadMessageList {...props} messages={page?.messages ?? props.messages} />
+    <ThreadMessageList {...props} providerRevision={providerRevision} messages={page?.messages ?? props.messages} />
   </>;
 }
