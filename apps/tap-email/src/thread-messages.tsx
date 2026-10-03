@@ -4,6 +4,8 @@ import React, {
   useCallback,
   useEffect,
   useId,
+  memo,
+  useMemo,
   useRef,
   useState,
   type Ref,
@@ -246,7 +248,7 @@ function ParticipantDetails({ participant }: { readonly participant: EmailPartic
   </span>;
 }
 
-function ThreadMessageCard({
+const ThreadMessageCard = memo(function ThreadMessageCard({
   mobile,
   htmlEnabled = true,
   accountId,
@@ -390,7 +392,9 @@ function ThreadMessageCard({
       ) : null}
     </section>
   );
-}
+});
+
+const emptyOutgoingMessages: readonly OutgoingThreadMessage[] = [];
 
 /**
  * Keeps user toggles local to the selected conversation. Callers key this component
@@ -398,7 +402,7 @@ function ThreadMessageCard({
  * “latest open, history collapsed” starting point. On an in-place refresh, existing
  * choices survive while a newly arrived last message opens automatically.
  */
-export function ThreadMessageList({
+export const ThreadMessageList = memo(function ThreadMessageList({
   mobile,
   accountId,
   appTheme,
@@ -410,14 +414,17 @@ export function ThreadMessageList({
   loadAttachment,
   loadRemoteImages,
   messages: providerMessages,
-  outgoingMessages = [],
+  outgoingMessages = emptyOutgoingMessages,
   onKeyDown,
   saveAttachment,
   threadId,
   trackingPixelsEnabled,
   unread = false,
 }: ThreadMessageListProps) {
-  const messages = [...providerMessages, ...outgoingMessages.map(item => item.message)];
+  const { messages, outgoingById } = useMemo(() => ({
+    messages: outgoingMessages.length ? [...providerMessages, ...outgoingMessages.map(item => item.message)] : providerMessages,
+    outgoingById: new Map(outgoingMessages.map(item => [item.message.messageId, item])),
+  }), [providerMessages, outgoingMessages]);
   const [expansionOverrides, setExpansionOverrides] = useState<Readonly<Record<string, boolean>>>({});
   const latestMessageId = messages.at(-1)?.messageId ?? null;
   const [activeMessageId, setActiveMessageId] = useState<string | null>(latestMessageId);
@@ -486,7 +493,7 @@ export function ThreadMessageList({
       loadAttachment={loadAttachment}
       loadRemoteImages={loadRemoteImages}
       message={message}
-      outgoing={outgoingMessages.find(item => item.message.messageId === message.messageId)}
+      outgoing={outgoingById.get(message.messageId)}
       onKeyDown={onKeyDown}
       onToggle={toggleMessage}
       saveAttachment={saveAttachment}
@@ -497,4 +504,4 @@ export function ThreadMessageList({
       unread={unread && message.messageId === providerMessages.at(-1)?.messageId}
     />
   ));
-}
+});

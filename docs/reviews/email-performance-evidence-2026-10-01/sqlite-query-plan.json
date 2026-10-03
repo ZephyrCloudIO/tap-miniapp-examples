@@ -1,0 +1,34 @@
+[
+  [
+    {
+      "id": 5,
+      "parent": 0,
+      "notused": 224,
+      "detail": "SCAN thread USING INDEX local_mail_window_idx"
+    },
+    {
+      "id": 28,
+      "parent": 0,
+      "notused": 0,
+      "detail": "CORRELATED SCALAR SUBQUERY 1"
+    },
+    {
+      "id": 32,
+      "parent": 28,
+      "notused": 39,
+      "detail": "SEARCH resource USING COVERING INDEX sqlite_autoindex_local_mail_thread_resources_1 (account_id=? AND thread_id=? AND resource_kind=?)"
+    },
+    {
+      "id": 56,
+      "parent": 0,
+      "notused": 0,
+      "detail": "CORRELATED SCALAR SUBQUERY 1"
+    },
+    {
+      "id": 60,
+      "parent": 56,
+      "notused": 39,
+      "detail": "SEARCH resource USING COVERING INDEX sqlite_autoindex_local_mail_thread_resources_1 (account_id=? AND thread_id=? AND resource_kind=?)"
+    }
+  ]
+]

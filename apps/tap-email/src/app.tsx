@@ -1,5 +1,9 @@
+import { useMinuteClock } from './use-minute-clock';
+import { useSessionCleanup } from './use-session-cleanup';
 import { SharedState, SettingsNotSavedError, replicaStore, isDocument, type Document } from '@tap-examples/tap-shared-state';
 import { applyEmailDocument, emailMigration, correctionKey } from './shared-state';
+import { ConversationQueryCache } from './conversation-query-cache';
+import { PacedActivityQueue } from './paced-activity-queue';
 import { BodyCoveragePanel } from './body-coverage-panel';
 import { MailRefreshScheduler } from './mail-refresh-scheduler';
 import { useDelayedStatus } from './use-delayed-status';
@@ -42,6 +46,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -69,11 +74,9 @@ import {
   cancelScheduledMessage,
   correctThreadAttention,
   mailboxSummary,
-  mailSplitThreadCount,
   markDone,
   markThreadRead,
   mergeThreadMessages,
-  moveSelection,
   normalizeMailPreferences,
   notificationsEnabledForAccount,
   previewMailState,
@@ -404,24 +407,24 @@ function accountFor(
   return accounts.find(account => account.accountId === accountId) ?? null;
 }
 
-function MailViewButtons({
+const MailViewButtons = React.memo(function MailViewButtons({
   views,
-  state,
+  selectedSplit,
   showCounts,
   counts,
   onSelect,
 }: {
   readonly views: readonly MailViewDefinition[];
-  readonly state: MailState;
+  readonly selectedSplit: MailSplit;
   readonly showCounts: boolean;
-  readonly counts?: Partial<Record<MailSplit, number>>;
+  readonly counts: Readonly<Partial<Record<MailSplit, number>>>;
   readonly onSelect: (split: MailSplit) => void;
 }) {
   return views.map(view => {
     const count = showCounts || view.id === 'outbox'
-      ? counts?.[view.id] ?? mailSplitThreadCount(state, view.id)
+      ? counts[view.id] ?? 0
       : null;
-    const selected = state.selectedSplit === view.id;
+    const selected = selectedSplit === view.id;
     return (
       <button
         key={view.id}
@@ -439,7 +442,7 @@ function MailViewButtons({
       </button>
     );
   });
-}
+});
 
 function CompactMailViewSelect({
   selected,
@@ -489,7 +492,7 @@ function applyMailViewLocation(state: MailState, location: MailViewLocation): Ma
   return next;
 }
 
-function accountScopedThreads(state: MailState): readonly EmailThread[] {
+function accountScopedThreads(state: Pick<MailState, 'threads' | 'pendingThreadIntents' | 'selectedAccountId'>): readonly EmailThread[] {
   return projectedThreads(state).filter(thread =>
     state.selectedAccountId === 'all' || thread.accountId === state.selectedAccountId);
 }
@@ -523,7 +526,7 @@ function moveWithinThreads(
   return selected ? { ...state, selectedThreadKey: emailThreadKey(selected) } : state;
 }
 
-function ThreadListRow({
+const ThreadListRow = React.memo(function ThreadListRow({
   thread,
   account,
   displayTimestamp,
@@ -536,13 +539,13 @@ function ThreadListRow({
   readonly displayTimestamp: string;
   readonly selected: boolean;
   readonly selectedRef?: Ref<HTMLButtonElement>;
-  readonly onSelect: () => void;
+  readonly onSelect: (thread: EmailThread) => void;
 }) {
   return (
     <button
       className={`mail-row${selected ? ' is-selected' : ''}${thread.unread ? ' is-unread' : ''}`}
       ref={selected ? selectedRef : undefined}
-      onClick={onSelect}
+      onClick={() => onSelect(thread)}
       type="button"
       role="option"
       aria-selected={selected}
@@ -572,7 +575,7 @@ function ThreadListRow({
       </span>
     </button>
   );
-}
+});
 
 function CommandPalette({ onClose, onRun }: { readonly onClose: () => void; readonly onRun: (command: EmailKeyCommand) => void }) {
   const [query, setQuery] = useState('');
@@ -731,12 +734,22 @@ function SettingsDialog({ accounts, preferences, store, onChange, onClose, onWip
   );
 }
 
-export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContext, diagnostics, nativeHeader = false }: TapEmailAppProps) {
-  const store = useMemo(() => createLocalMailStore(preview), [preview]);
-  const activityLedger = useMemo(
-    () => createLocalEmailActivityLedger(preview),
-    [preview],
-  );
+export function TapEmailApp(props: TapEmailAppProps) {
+  const scope = JSON.stringify([Boolean(props.preview), props.surfaceContext?.userId,
+    props.surfaceContext?.workspaceId, props.surfaceContext?.installationId]);
+  const currentScope = useRef(scope);
+  useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
+  const isScopeCurrent = useCallback(() => currentScope.current === scope, [scope]);
+  return <TapEmailSession {...props} key={scope} isScopeCurrent={isScopeCurrent} />;
+}
+
+function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, diagnostics,
+  nativeHeader = false, isScopeCurrent }: TapEmailAppProps & { readonly isScopeCurrent: () => boolean }) {
+  // TapEmailApp keys this session by authenticated scope. Resource ownership is
+  // state, while useMemo below is reserved for disposable derived values.
+  const [conversationCache] = useState(() => new ConversationQueryCache());
+  const [store] = useState(() => createLocalMailStore(preview));
+  const [activityLedger] = useState(() => createLocalEmailActivityLedger(preview));
   const attachmentFiles = useMemo<MiniAppFilesApi | null>(() => {
     if (preview) return null;
     try {
@@ -867,6 +880,18 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     [surfaceContext],
   );
 
+  const [activityPublisher] = useState(() => new PacedActivityQueue<EmailActivityProjection>(
+    async projections => {
+      if (!isScopeCurrent()) return;
+      if (!surfaceContext?.userId) throw new Error('Email activity requires a signed-in user.');
+      // Every projection is cumulative; publishing the latest retains all events.
+      await publishEmailActivityProjection(projections[projections.length - 1]!, surfaceContext.userId);
+      setActivityError(current => current === 'Email activity publication will retry.' ? '' : current);
+    }, () => {
+      activitySyncPending.current = true;
+      setActivityError('Email activity publication will retry.');
+    }, { latestOnly: true }));
+
   const enqueueActivityProjection = useCallback((
     operation: () => Promise<EmailActivityProjection>,
     propagateOperationFailure = false,
@@ -874,6 +899,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     const task = activityCommitQueue.current
       .catch(() => undefined)
       .then(async () => {
+        if (!isScopeCurrent()) return;
         let projection: EmailActivityProjection;
         let operationFailure: unknown;
         try {
@@ -892,15 +918,27 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         if (activitySyncPending.current || activityReconciliationsPending.current.size > 0) {
           projection = incompleteEmailActivityProjection(projection, projection.generatedAt, 'Email activity reconciliation is incomplete.');
         }
-        if (!surfaceContext?.userId) throw new Error('Email activity requires a signed-in user.');
-        await publishEmailActivityProjection(projection, surfaceContext.userId);
+        if (!isScopeCurrent()) return;
+        activityPublisher.add(projection);
         if (operationFailure && propagateOperationFailure) {
           throw operationFailure;
         }
       });
     activityCommitQueue.current = task.then(() => undefined, () => undefined);
     return task;
-  }, [surfaceContext?.userId]);
+  }, [activityPublisher, isScopeCurrent]);
+
+  const [activityViews] = useState(() => new PacedActivityQueue<{ viewId: string; occurredAt: string }>(
+    async views => {
+      await enqueueActivityProjection(async () => {
+        if (activityLedger.recordViews) return activityLedger.recordViews(views);
+        for (const view of views) await activityLedger.recordView(view.viewId, view.occurredAt);
+        return activityLedger.snapshot();
+      }, true);
+    }, () => {
+      activitySyncPending.current = true;
+      setActivityError('Email view activity could not be saved.');
+    }));
 
   const recordCommittedEmailActivity = useCallback((
     command: MailCommand,
@@ -1300,7 +1338,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     if (!preview && sharedEmailRef.current?.ready) setState(current => applyEmailDocument(current, emailDocumentRef.current));
   }, [preview, state.threads]);
 
-  const persistenceQueue = useMemo(() => new MailPersistenceQueue(async snapshot => {
+  const [persistenceQueue] = useState(() => new MailPersistenceQueue(async snapshot => {
     try {
       const released = await persistCommandSnapshot(store, commandPersistenceBarrier.current, snapshot);
       if (released) setDispatchTick(value => value + 1);
@@ -1318,7 +1356,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     } catch (error) {
       setCacheError(`The device mail cache could not save. Queued actions are saved in the command journal: ${String(error)}`);
     }
-  }), [store]);
+  }));
 
   useEffect(() => {
     if (hydrated && journalRecovered && store.capability !== 'unavailable') {
@@ -1353,25 +1391,29 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     void store.maintainCache?.().catch(() => undefined);
   }, [backgroundReady, preview, store]);
 
-  useEffect(
-    () => () => {
-      semanticAbort.current?.abort();
-      semanticMaintenanceAbort.current?.abort();
-      const semanticWork = Promise.allSettled([semanticMaintenanceWork.current, semanticQueryWork.current]);
-      void semanticWork.then(() => persistenceQueue.flush()).then(() => store.close()).catch(() => undefined);
-      const pendingActivity = activityCommitQueue.current;
-      void pendingActivity
-        .catch(() => undefined)
-        .then(() => activityLedger.close())
-        .catch(() => undefined);
-      const semanticIndex = semanticIndexRef.current;
-      semanticIndexRef.current = null;
-      if (semanticIndex) {
-        void Promise.all([semanticIndex, semanticWork]).then(([index]) => index.close()).catch(() => undefined);
-      }
-    },
-    [activityLedger, store, persistenceQueue],
-  );
+  useSessionCleanup(useCallback(() => {
+    conversationCache.clear();
+    semanticAbort.current?.abort();
+    semanticMaintenanceAbort.current?.abort();
+    const semanticWork = Promise.allSettled([semanticMaintenanceWork.current, semanticQueryWork.current]);
+    void semanticWork.then(() => persistenceQueue.flush()).then(() => store.close()).catch(() => undefined);
+    if (!isScopeCurrent()) {
+      activityViews.dispose();
+      activityPublisher.dispose();
+    }
+    const pendingActivity = isScopeCurrent()
+      ? activityViews.close().then(() => activityCommitQueue.current).then(() => activityPublisher.close())
+      : activityCommitQueue.current;
+    void pendingActivity
+      .catch(() => undefined)
+      .then(() => activityLedger.close())
+      .catch(() => undefined);
+    const semanticIndex = semanticIndexRef.current;
+    semanticIndexRef.current = null;
+    if (semanticIndex) {
+      void Promise.all([semanticIndex, semanticWork]).then(([index]) => index.close()).catch(() => undefined);
+    }
+  }, [activityLedger, activityViews, activityPublisher, conversationCache, isScopeCurrent, store, persistenceQueue]));
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1615,15 +1657,26 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const previousCacheAccounts = useRef(cacheAccountScope);
   useEffect(() => {
     if (previousCacheAccounts.current && previousCacheAccounts.current !== cacheAccountScope) windowCache.current.clear();
+    conversationCache.retainAccounts(new Set(state.accounts.map(account => account.accountId)));
     previousCacheAccounts.current = cacheAccountScope;
-  }, [cacheAccountScope]);
+  }, [cacheAccountScope, conversationCache]);
 
+  const presentationNow = useMinuteClock();
+  const projectedMailbox = useMemo(() => projectedThreads({ threads: state.threads,
+    pendingThreadIntents: state.pendingThreadIntents }), [state.threads, state.pendingThreadIntents]);
+  const accountThreads = useMemo(() => state.selectedAccountId === 'all' ? projectedMailbox
+    : projectedMailbox.filter(item => item.accountId === state.selectedAccountId),
+  [projectedMailbox, state.selectedAccountId]);
+  const hasSearchQuery = Boolean(query.trim());
+  const mailboxThreads = useMemo(() => hasSearchQuery ? accountThreads
+    : accountThreads.filter(item => threadMatchesSplit(item, state.selectedSplit))
+      .toSorted((left, right) => right.receivedAt.localeCompare(left.receivedAt)),
+  [hasSearchQuery, accountThreads, state.selectedSplit]);
+  const searchNow = hasSearchQuery ? presentationNow : 0;
   const rows = useMemo(() => {
     if (!windowReady) return [];
-    const candidates = (query.trim()
-      ? accountScopedThreads(state)
-      : visibleThreads(state)).filter(item => !windowKeys || windowKeys.has(emailThreadKey(item)));
-    const searchContext = { now: new Date(), timeZone: mailSearchTimeZone };
+    const candidates = mailboxThreads.filter(item => !windowKeys || windowKeys.has(emailThreadKey(item)));
+    const searchContext = { now: new Date(searchNow), timeZone: mailSearchTimeZone };
     const parsedSearch = parseMailSearchQuery(query, searchContext);
     if (semanticSearch && semanticSearch.query === query.trim()) {
       const candidatesByKey = new Map(
@@ -1639,7 +1692,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       });
     }
     return filterMailThreads(candidates, query, searchContext);
-  }, [query, semanticSearch, state, windowKeys, windowReady]);
+  }, [query, semanticSearch, mailboxThreads, windowKeys, windowReady, searchNow]);
 
   useEffect(() => {
     if (!query.trim() || rows.length === 0) return;
@@ -1653,9 +1706,19 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           },
     );
   }, [query, rows]);
-  const thread = query.trim()
+  const thread = hasSearchQuery
     ? rows.find(item => emailThreadKey(item) === state.selectedThreadKey) ?? rows[0] ?? null
-    : selectedThread(state);
+    : mailboxThreads.find(item => emailThreadKey(item) === state.selectedThreadKey) ?? mailboxThreads[0] ?? null;
+  const selectedThreadAccountId = thread?.accountId ?? null;
+  const selectedThreadId = thread?.threadId ?? null;
+  const selectedThreadMessages = thread?.messages;
+  const outgoingMessages = useMemo(() => selectedThreadAccountId && selectedThreadId && selectedThreadMessages
+    ? outgoingThreadMessages(
+      { accounts: state.accounts, outbox: state.outbox, commands: state.commands },
+      { accountId: selectedThreadAccountId, threadId: selectedThreadId, messages: selectedThreadMessages },
+      confirmedSends, sendErrors,
+    ) : [], [state.accounts, state.outbox, state.commands, selectedThreadAccountId,
+    selectedThreadId, selectedThreadMessages, confirmedSends, sendErrors]);
   const currentThreadKey = thread ? emailThreadKey(thread) : null;
   const viewedThread = useRef<string | null>(null);
   useEffect(() => {
@@ -1668,31 +1731,11 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     viewedThread.current = key;
     const viewId = idFactory();
     const at = new Date().toISOString();
-    void enqueueActivityProjection(() => activityLedger.recordView(viewId, at), true)
-      .catch(() => setActivityError('Email view activity could not be saved.'));
-  }, [activityLedger, enqueueActivityProjection, hydrated, idFactory, preview, currentThreadKey]);
+    activityViews.add({ viewId, occurredAt: at });
+  }, [activityViews, hydrated, idFactory, preview, currentThreadKey]);
 
   const activeReplyDraft = currentThreadKey ? replyDrafts[currentThreadKey] ?? null : null;
   const poppedReplyDraft = poppedReplyKey ? replyDrafts[poppedReplyKey] ?? null : null;
-  const selectedThreadAccountId = thread?.accountId ?? null;
-  const selectedThreadId = thread?.threadId ?? null;
-  const selectedThreadRevision = thread?.providerRevision ?? null;
-  useEffect(() => {
-    if (!selectedThreadAccountId || !selectedThreadId || !store.loadThread) return;
-    const abort = new AbortController();
-    const requestedMessages = selectedThread(stateRef.current)?.messages;
-    void store.loadThread(selectedThreadAccountId, selectedThreadId, true, abort.signal).then(cached => {
-      if (abort.signal.aborted || !cached) return;
-      setState(current => selectedThread(current)?.threadId === cached.threadId &&
-        selectedThread(current)?.accountId === cached.accountId &&
-        // A slow disk read must not replace a conversation page that arrived
-        // from the provider while this cache request was queued.
-        selectedThread(current)?.messages === requestedMessages &&
-        current.threads.find(item => emailThreadKey(item) === emailThreadKey(cached))?.providerRevision === cached.providerRevision
-        ? boundMailWindow(mergeThreadMessages(current, cached.accountId, cached.threadId, cached.messages)) : current);
-    }).catch(() => undefined);
-    return () => abort.abort();
-  }, [selectedThreadAccountId, selectedThreadId, selectedThreadRevision, store]);
   const activeConversationHandoff = thread &&
     conversationHandoff?.threadKey === emailThreadKey(thread)
     ? conversationHandoff
@@ -1709,9 +1752,12 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   const emailTaskFinished = activeEmailTask?.status === 'completed' ||
     activeEmailTask?.status === 'duplicate-suppressed';
   const summary = useMemo(
-    () => (replicaSummary?.accountId === state.selectedAccountId ? replicaSummary.value : null) ?? { ...mailboxSummary(state, new Date().toISOString()),
+    () => (replicaSummary?.accountId === state.selectedAccountId ? replicaSummary.value : null) ?? { ...mailboxSummary(
+      { accounts: state.accounts, outbox: state.outbox, threads: state.threads, pendingThreadIntents: state.pendingThreadIntents },
+      new Date(presentationNow).toISOString(), projectedMailbox),
       ...(store.summarize ? { coverageComplete: false, operationalZero: false } : {}) },
-    [state, replicaSummary, store],
+    [state.accounts, state.outbox, state.threads, state.pendingThreadIntents, state.selectedAccountId,
+      replicaSummary, store, presentationNow, projectedMailbox],
   );
   useEffect(() => {
     if (!hydrated || !store.summarize) return;
@@ -1722,9 +1768,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       }).catch(() => undefined);
     }, 250);
     return () => { active = false; clearTimeout(timer); };
-  }, [hydrated, store, replicaVersion, state.commands, state.pendingThreadIntents, state.outbox, state.selectedAccountId]);
+  }, [hydrated, store, replicaVersion, state.commands, state.pendingThreadIntents, state.outbox, state.selectedAccountId, presentationNow]);
 
-  const outboxItems = useMemo(() => outboxImmediateSends(state)
+  const outboxItems = useMemo(() => outboxImmediateSends({ commands: state.commands, outbox: state.outbox })
     .filter(item => {
       const accountId = item.attempts[0]?.command.accountId;
       return accountId && (
@@ -1733,7 +1779,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     })
     .slice()
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)), [
-      state,
+      state.commands, state.outbox, state.selectedAccountId,
     ]);
   useEffect(() => {
     setSendErrors(current => {
@@ -1743,6 +1789,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
         : current;
     });
   }, [state.commands]);
+  const mailboxCounts = useMemo(() => Object.fromEntries(
+    [...FIXED_MAILBOX_CATEGORIES, ...TAP_MAIL_VIEWS].map(view => [view.id,
+      view.id === 'outbox' ? outboxItems.length : accountThreads.filter(item => threadMatchesSplit(item, view.id)).length]),
+  ), [accountThreads, outboxItems]);
+  const tapViewCounts = useMemo(() => ({ ...mailboxCounts, critical: summary.critical,
+    'needs-response': summary.needsResponse, waiting: summary.waiting }),
+  [mailboxCounts, summary.critical, summary.needsResponse, summary.waiting]);
   const searchCoverage = useMemo(() => {
     if (!query.trim()) return null;
     const selectedCoverage = state.accounts
@@ -1772,8 +1825,17 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     : pendingViewCommands ? 'The inbox cannot be confirmed clear until queued actions have finished.'
     : state.selectedSplit === 'inbox' && !summary.coverageComplete ? 'TAP Email will not claim zero until every selected account is current.'
     : `There are no items in ${activeMailView.label} for the selected account view.`;
-  const listReferenceNow = new Date();
-  const rowGroups = groupThreadsByDay(rows, listReferenceNow);
+  const listReferenceNow = useMemo(() => new Date(presentationNow), [presentationNow]);
+  const localDay = new Date(presentationNow).setHours(0, 0, 0, 0);
+  const rowGroups = useMemo(() => {
+    const referenceNow = new Date(localDay);
+    const accountsById = new Map(state.accounts.map(account => [account.accountId, account]));
+    return groupThreadsByDay(rows, referenceNow).map(group => ({ ...group,
+      items: group.items.map(thread => ({ thread, key: emailThreadKey(thread),
+        account: accountsById.get(thread.accountId) ?? null,
+        displayTimestamp: threadListTimestamp(thread.receivedAt, referenceNow) })),
+    }));
+  }, [rows, state.accounts, localDay]);
 
   useEffect(() => {
     const row = selectedRowRef.current;
@@ -1806,9 +1868,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
   useEffect(() => {
     if (!backgroundReady || preview) return;
     const activeContext = {
-      accountId: thread?.accountId ?? null,
-      threadId: thread?.threadId ?? null,
-      route: thread ? `/${thread.accountId}/${state.selectedSplit}/${thread.threadId}` : `/${state.selectedSplit}`,
+      accountId: selectedThreadAccountId,
+      threadId: selectedThreadId,
+      route: selectedThreadAccountId && selectedThreadId
+        ? `/${selectedThreadAccountId}/${state.selectedSplit}/${selectedThreadId}` : `/${state.selectedSplit}`,
       view: state.selectedAccountId === 'all' ? 'unified' as const : 'account' as const,
     };
     void publishOperationalProjection({
@@ -1819,25 +1882,22 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     void Promise.resolve(
       surfaceContext?.events.publish('tap-email.context.changed', activeContext),
     ).catch(() => undefined);
-    if (sdk.home) {
-      const critical = projectedThreads(state).filter(
-        item => item.status === 'inbox' && item.critical,
-      );
-      void Promise.resolve(
-        sdk.home.publishAttention({
-          sourceId: 'tap-email-operational',
-          sourceRevision: summary.generatedAt,
-          items: critical.slice(0, 10).map(item => ({
-            id: `critical:${item.accountId}:${item.threadId}`,
-            kind: 'reassessment' as const,
-            title: 'Critical email needs attention',
-            summary: 'Open TAP Email to review it in account context.',
-            deepLink: mailViewDeepLink(item.accountId, 'critical', item.threadId),
-          })),
-        }),
-      ).catch(() => undefined);
-    }
-  }, [backgroundReady, preview, state, summary, surfaceContext, thread]);
+  }, [backgroundReady, preview, summary, selectedThreadAccountId, selectedThreadId,
+    state.selectedSplit, state.selectedAccountId, surfaceContext?.events]);
+
+  useEffect(() => {
+    if (!backgroundReady || preview || !sdk.home) return;
+    const critical = projectedMailbox.filter(item => item.status === 'inbox' && item.critical);
+    void Promise.resolve(sdk.home.publishAttention({
+      sourceId: 'tap-email-operational', sourceRevision: summary.generatedAt,
+      items: critical.slice(0, 10).map(item => ({
+        id: `critical:${item.accountId}:${item.threadId}`, kind: 'reassessment' as const,
+        title: 'Critical email needs attention',
+        summary: 'Open TAP Email to review it in account context.',
+        deepLink: mailViewDeepLink(item.accountId, 'critical', item.threadId),
+      })),
+    })).catch(() => undefined);
+  }, [backgroundReady, preview, projectedMailbox, summary.generatedAt]);
 
   const flash = useCallback((message: string) => {
     setToast(message);
@@ -2234,13 +2294,17 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     };
   }, [hydrated, initialLoadSettled, preview, refreshMailbox, reconcileActivity]);
 
+  const loadCachedThread = useCallback((accountId: string, threadId: string, signal: AbortSignal) =>
+    store.loadThread?.(accountId, threadId, true, signal) ?? Promise.resolve(null), [store]);
+
   const receiveThreadMessages = useCallback((
-    accountId: string, threadId: string, messages: readonly EmailMessage[], expectedRevision: string,
+    accountId: string, threadId: string, messages: readonly EmailMessage[], expectedRevision: string, downloadedPage?: EmailThread['downloadedPage'],
   ) => {
     setState(current => {
       const target = current.threads.find(item => item.accountId === accountId && item.threadId === threadId);
+      if (target?.messages === messages && target.downloadedPage === downloadedPage) return current;
       return target?.providerRevision === expectedRevision
-        ? boundMailWindow(mergeThreadMessages(current, accountId, threadId, messages))
+        ? boundMailWindow(mergeThreadMessages(current, accountId, threadId, messages, downloadedPage))
         : current;
     });
   }, []);
@@ -2544,50 +2608,20 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
 
   const runCommand = useCallback((command: EmailKeyCommand) => {
     const now = new Date().toISOString();
-    if (command === 'next') {
+    if (command === 'next' || command === 'previous') {
       const commandId = `cmd_${idFactory()}`;
       setState(current => {
-        const moved = query.trim()
-          ? moveWithinThreads(current, rows, 1)
-          : moveSelection(current, 1);
-        const opened = query.trim()
-          ? rows.find(item => emailThreadKey(item) === moved.selectedThreadKey) ?? null
-          : selectedThread(moved);
+        const unchangedMailbox = current.threads === state.threads &&
+          current.pendingThreadIntents === state.pendingThreadIntents &&
+          current.selectedAccountId === state.selectedAccountId && current.selectedSplit === state.selectedSplit;
+        // Reuse the committed ordering for selection-only changes. If an action
+        // or refresh was queued in the same batch, derive the current ordering.
+        const candidates = query.trim() ? rows : unchangedMailbox ? mailboxThreads : visibleThreads(current);
+        const moved = moveWithinThreads(current, candidates, command === 'next' ? 1 : -1);
+        const opened = candidates.find(item => emailThreadKey(item) === moved.selectedThreadKey);
         const selected = opened && query.trim()
-          ? { ...moved, selectedSplit: preferredMailboxSplit(opened) }
-          : moved;
-        return opened
-          ? markThreadRead(
-              selected,
-              opened.accountId,
-              opened.threadId,
-              commandId,
-              now,
-            )
-          : moved;
-      });
-    }
-    if (command === 'previous') {
-      const commandId = `cmd_${idFactory()}`;
-      setState(current => {
-        const moved = query.trim()
-          ? moveWithinThreads(current, rows, -1)
-          : moveSelection(current, -1);
-        const opened = query.trim()
-          ? rows.find(item => emailThreadKey(item) === moved.selectedThreadKey) ?? null
-          : selectedThread(moved);
-        const selected = opened && query.trim()
-          ? { ...moved, selectedSplit: preferredMailboxSplit(opened) }
-          : moved;
-        return opened
-          ? markThreadRead(
-              selected,
-              opened.accountId,
-              opened.threadId,
-              commandId,
-              now,
-            )
-          : moved;
+          ? { ...moved, selectedSplit: preferredMailboxSplit(opened) } : moved;
+        return opened?.unread ? markThreadRead(selected, opened.accountId, opened.threadId, commandId, now) : selected;
       });
     }
     if (command === 'done') {
@@ -2685,7 +2719,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
       return;
     }
     setOverlay(current => command === 'palette' || command === 'show-shortcuts' || command === 'remind' || command === 'compose' ? current : 'none');
-  }, [askChloe, beginReply, cacheError, flash, idFactory, preview, query, rows, store.capability, surfaceContext, thread]);
+  }, [askChloe, beginReply, cacheError, flash, idFactory, preview, query, rows, mailboxThreads,
+    state.threads, state.pendingThreadIntents, state.selectedAccountId, state.selectedSplit,
+    store.capability, surfaceContext, thread]);
 
   const handleKeyDown = (event: globalThis.KeyboardEvent) => {
     if (
@@ -2714,7 +2750,10 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     }
     if (result.command) runCommand(result.command);
   };
-  shortcutHandlerRef.current = handleKeyDown;
+  useLayoutEffect(() => { shortcutHandlerRef.current = handleKeyDown; });
+  const dispatchShortcut = useCallback((event: globalThis.KeyboardEvent) => {
+    shortcutHandlerRef.current(event);
+  }, []);
 
   useEffect(() => {
     if (overlay === 'none') return;
@@ -2732,13 +2771,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     const stopListening = listenForScopedDocumentKeyDown(
       document,
       root,
-      event => shortcutHandlerRef.current(event),
+      dispatchShortcut,
     );
     return () => {
       stopListening();
       if (chordTimer.current) clearTimeout(chordTimer.current);
     };
-  }, [hydrated]);
+  }, [hydrated, dispatchShortcut]);
 
   const confirmReminder = (input: string) => {
     const now = new Date();
@@ -3171,6 +3210,8 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
     setThreadListCollapsed(collapsed => !collapsed);
   }, []);
 
+  const selectMailView = useCallback((split: MailSplit) => setState(current => selectSplit(current, split)), []);
+
   if (!hydrated) {
     return <div className="tap-email-loading">Opening TAP Email…</div>;
   }
@@ -3311,19 +3352,20 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
             <nav aria-label="Mailbox categories">
               <MailViewButtons
                 views={FIXED_MAILBOX_CATEGORIES}
-                state={state}
+                selectedSplit={state.selectedSplit}
+                counts={mailboxCounts}
                 showCounts={false}
-                onSelect={split => setState(current => selectSplit(current, split))}
+                onSelect={selectMailView}
               />
             </nav>
             <div className="nav-section-label" aria-hidden="true">TAP Views</div>
             <nav aria-label="TAP email views">
               <MailViewButtons
                 views={TAP_MAIL_VIEWS}
-                state={state}
-                counts={{ critical: summary.critical, 'needs-response': summary.needsResponse, waiting: summary.waiting }}
+                selectedSplit={state.selectedSplit}
+                counts={tapViewCounts}
                 showCounts
-                onSelect={split => setState(current => selectSplit(current, split))}
+                onSelect={selectMailView}
               />
             </nav>
           </div>
@@ -3420,13 +3462,13 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                 </div>
                 {group.items.map(item => (
                   <ThreadListRow
-                    key={emailThreadKey(item)}
-                    thread={item}
-                    account={accountFor(state.accounts, item.accountId)}
-                    displayTimestamp={threadListTimestamp(item.receivedAt, listReferenceNow)}
-                    selected={emailThreadKey(item) === state.selectedThreadKey}
+                    key={item.key}
+                    thread={item.thread}
+                    account={item.account}
+                    displayTimestamp={item.displayTimestamp}
+                    selected={item.key === state.selectedThreadKey}
                     selectedRef={selectedRowRef}
-                    onSelect={() => openThread(item)}
+                    onSelect={openThread}
                   />
                 ))}
               </div>
@@ -3521,6 +3563,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                   <PagedThreadMessages
                     mobile={nativeHeader}
                     client={!preview && initialLoadSettled && coordinatorNetworkReady ? coordinatorRef.current : null}
+                    cache={conversationCache}
+                    downloadedPage={thread.downloadedPage}
+                    loadCachedThread={preview ? undefined : loadCachedThread}
                     providerRevision={thread.providerRevision}
                     onMessages={receiveThreadMessages}
                     accountId={thread.accountId}
@@ -3534,9 +3579,9 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
                     loadAttachment={preview ? null : loadMessageAttachment}
                     loadRemoteImages={loadRemoteImages}
                     messages={thread.messages}
-                    outgoingMessages={outgoingThreadMessages(state, thread, confirmedSends, sendErrors)}
+                    outgoingMessages={outgoingMessages}
                     unread={thread.unread}
-                    onKeyDown={handleKeyDown}
+                    onKeyDown={dispatchShortcut}
                     saveAttachment={saveMessageAttachment}
                     threadId={thread.threadId}
                     trackingPixelsEnabled={state.preferences.trackingPixelsEnabled}
@@ -3736,6 +3781,7 @@ export function TapEmailApp({ appTheme = 'light', preview = false, surfaceContex
           onChange={updatePreferences}
           onClose={() => setOverlay('none')}
           onWipe={receipt => {
+            conversationCache.clear();
             windowCache.current.clear();
             windowRefresh.current?.dispose();
             setWindowEpoch(value => value + 1);

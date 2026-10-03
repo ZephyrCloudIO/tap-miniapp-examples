@@ -109,13 +109,15 @@ describe('mail window refresh', () => {
     const seed = previewMailState();
     const original = seed.threads[0]!;
     const loaded = { ...original, localReplicaRevision: 1,
+      downloadedPage: { providerRevision: original.providerRevision, nextCursor: null, complete: true, windowed: false, seenCursors: [] },
       messages: [{ ...original.messages[0]!, bodyText: 'Complete message', bodyHtml: '<p>Complete message</p>' }] };
-    const row = { ...loaded, localReplicaRevision: 2, starred: !loaded.starred,
+    const row = { ...loaded, downloadedPage: undefined, localReplicaRevision: 2, starred: !loaded.starred,
       messages: loaded.messages.map(({ bodyHtml: _html, ...message }) => ({ ...message, bodyText: '' })) };
     const current = { ...seed, threads: [loaded], selectedThreadKey: emailThreadKey(loaded) };
     const result = mergeMailWindow(current, [row]).threads[0]!;
     expect(result.starred).toBe(row.starred);
     expect(result.messages).toBe(loaded.messages);
+    expect(result.downloadedPage).toBe(loaded.downloadedPage);
     expect(mergeMailWindow(current, [{ ...row, providerRevision: 'new-body' }]).threads[0]!.messages).toBe(row.messages);
   });
 

@@ -11,8 +11,8 @@ export interface OutgoingThreadMessage {
 
 /** Keep local replies separate from provider rows, so paging and cache refreshes cannot erase them. */
 export function outgoingThreadMessages(
-  state: MailState,
-  thread: EmailThread,
+  state: Pick<MailState, 'accounts' | 'outbox' | 'commands'>,
+  thread: Pick<EmailThread, 'accountId' | 'threadId' | 'messages'>,
   confirmed: readonly OutboxSend[] = [],
   errors: Readonly<Record<string, string>> = {},
 ): readonly OutgoingThreadMessage[] {

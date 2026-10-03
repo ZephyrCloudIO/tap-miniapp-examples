@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { ProfileSqliteMailStore } from './local-store';
 import { CommandPersistenceBarrier } from './command-persistence-barrier';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
-import { boundMailWindow, diskBodyBudgetBytes, mailWindowSize, memoryBodyBudgetBytes, queryMailWindow, readRecord, writeRecord } from './bounded-mail-replica';
+import { boundMailWindow, diskBodyBudgetBytes, mailWindowSize, memoryBodyBudgetBytes, queryMailWindow, readRecord, withoutBodies, writeRecord } from './bounded-mail-replica';
 import { maximumRecordPartBytes, maximumSqlRequestBytes, recordParts, serializedBytes } from './bounded-sql';
 import { composeMessage, emptyMailState, outboxImmediateSends, previewMailState, settleMailCommand, type EmailThread, type MailState } from './domain';
 import { sqliteStoreFixture } from './sqlite-store-fixture';
@@ -27,6 +27,99 @@ async function commitProviderThreads(store: ProfileSqliteMailStore, threads: Ema
 }
 
 describe('bounded durable mail persistence', () => {
+  it('publishes cached bodies before an LRU bookkeeping write finishes', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const original = thread(0, 100);
+    await store.save({ ...template, threads: [original] });
+    const gate = fixture.pauseOnce(sql => sql.includes('UPDATE local_mail_bodies'));
+    let finished = false;
+    const loaded = store.loadThread(original.accountId, original.threadId).then(value => { finished = true; return value; });
+    try {
+      await gate.entered;
+      expect(finished).toBe(true);
+    } finally { gate.release(); await loaded; await store.close(); }
+  });
+
+  it('flushes recency for a read that completes while the store is closing', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const original = thread(0, 100);
+    await store.save({ ...template, threads: [original] });
+    fixture.statements.length = 0;
+    const gate = fixture.pauseOnce(sql => sql.startsWith('SELECT provider_revision FROM local_mail_bodies'));
+    const loaded = store.loadThread(original.accountId, original.threadId);
+    await gate.entered;
+    const closed = store.close();
+    gate.release();
+    await Promise.all([loaded, closed]);
+    expect(fixture.statements.filter(sql => sql.includes('UPDATE local_mail_bodies'))).toHaveLength(1);
+  });
+
+  it('groups ten cache-access timestamps into one bounded SQL update', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const originals = Array.from({ length: 10 }, (_, index) => thread(index, 100));
+    await store.save({ ...template, threads: originals });
+    fixture.statements.length = 0;
+    for (const original of originals) {
+      expect((await store.loadThread(original.accountId, original.threadId))?.messages).toEqual(original.messages);
+    }
+    await store.close();
+    expect(fixture.statements.filter(sql => sql.includes('UPDATE local_mail_bodies'))).toHaveLength(1);
+  });
+
+  it('keeps a cached body readable when access bookkeeping fails', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const original = thread(0, 100);
+    await store.save({ ...template, threads: [original] });
+    fixture.failOnce(sql => sql.includes('UPDATE local_mail_bodies'));
+    try {
+      expect((await store.loadThread(original.accountId, original.threadId))?.messages).toEqual(original.messages);
+    } finally { await store.close(); }
+  });
+
+  it('persists downloaded-page readiness with full bodies, preserves it through preview saves, and invalidates it on revision changes', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const original = thread(0, 10_000);
+    const downloadedPage = { providerRevision: original.providerRevision, nextCursor: 'older',
+      complete: false, windowed: false, seenCursors: ['older'] };
+    const hydrated = { ...original, downloadedPage };
+    await store.save({ ...template, threads: [hydrated], selectedThreadKey: null });
+    const restarted = new ProfileSqliteMailStore(fixture.profile);
+    const loaded = await restarted.loadThread(original.accountId, original.threadId);
+    expect(loaded?.downloadedPage).toEqual(downloadedPage);
+    expect(loaded?.messages).toEqual(original.messages);
+    expect((await restarted.load({ initialWindow: true }))?.threads[0]?.downloadedPage).toBeUndefined();
+    expect((await restarted.loadThread(original.accountId, original.threadId, false))?.downloadedPage).toBeUndefined();
+    expect(withoutBodies(hydrated).downloadedPage).toBeUndefined();
+
+    // A list preview with searchable text must not downgrade a downloaded page.
+    const preview = { ...original, messages: original.messages.map(message => ({ ...message, bodyHtml: undefined, bodyText: 'preview' })) };
+    await restarted.saveCache({ ...template, threads: [preview], selectedThreadKey: null });
+    const retained = await restarted.loadThread(original.accountId, original.threadId);
+    expect(retained?.downloadedPage).toEqual(downloadedPage);
+    expect(retained?.messages).toEqual(original.messages);
+    expect(await restarted.loadThread('other-account', original.threadId)).toBeNull();
+    await commitProviderThreads(restarted, [{ ...preview, providerRevision: 'new-revision' }], 'refresh');
+    expect((await restarted.loadThread(original.accountId, original.threadId))?.downloadedPage).toBeUndefined();
+  });
+
+  it('does not restore a download marker after its body records have been evicted', async () => {
+    const fixture = sqliteStoreFixture();
+    const store = new ProfileSqliteMailStore(fixture.profile);
+    const original = thread(0, 100);
+    await store.save({ ...template, threads: [{ ...original, downloadedPage: {
+      providerRevision: original.providerRevision, nextCursor: null, complete: true, windowed: false, seenCursors: [],
+    } }] });
+    fixture.sqlite.exec("DELETE FROM local_mail_records WHERE kind = 'body'");
+    fixture.sqlite.exec('DELETE FROM local_mail_bodies');
+    const loaded = await new ProfileSqliteMailStore(fixture.profile).loadThread(original.accountId, original.threadId);
+    expect(loaded?.downloadedPage).toBeUndefined();
+  });
+
   it('opens a bounded first screen without reading message records or attachment housekeeping', async () => {
     const fixture = sqliteStoreFixture();
     const store = new ProfileSqliteMailStore(fixture.profile);

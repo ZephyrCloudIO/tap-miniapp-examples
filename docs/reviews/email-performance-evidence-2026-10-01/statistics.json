@@ -1,0 +1,72 @@
+{
+  "superhumanLiveKeyboardNextPaint": {
+    "samplesMs": [
+      128,
+      80,
+      80,
+      56,
+      88,
+      64,
+      96,
+      128,
+      88,
+      80
+    ],
+    "stats": {
+      "n": 10,
+      "min": 56,
+      "median": 84.0,
+      "mean": 88.8,
+      "p95NearestRank": 128,
+      "max": 128
+    }
+  },
+  "sourcePreviewKeyboardNextPaint": {
+    "n": 10,
+    "min": 16,
+    "median": 24.0,
+    "mean": 24.8,
+    "p95NearestRank": 40,
+    "max": 40
+  },
+  "sourcePreviewBodyReadyTwoRaf": {
+    "n": 10,
+    "min": 3.5,
+    "median": 14.55,
+    "mean": 14.28,
+    "p95NearestRank": 31.1,
+    "max": 31.1
+  },
+  "sourcePreviewDoneNextPaint": {
+    "n": 3,
+    "min": 24,
+    "median": 24,
+    "mean": 29.333,
+    "p95NearestRank": 40,
+    "max": 40
+  },
+  "sourcePreviewDoneBodyReadyTwoRaf": {
+    "n": 3,
+    "min": 6.5,
+    "median": 8.4,
+    "mean": 9.367,
+    "p95NearestRank": 13.2,
+    "max": 13.2
+  },
+  "nodeSqlite32KiBBody": {
+    "n": 100,
+    "min": 0.061,
+    "median": 0.074,
+    "mean": 0.096,
+    "p95NearestRank": 0.154,
+    "max": 1.03
+  },
+  "localD1Full20Messages": {
+    "n": 30,
+    "min": 8,
+    "median": 10.0,
+    "mean": 10.567,
+    "p95NearestRank": 16,
+    "max": 20
+  }
+}
