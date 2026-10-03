@@ -1,3 +1,9 @@
+import {
+  ATTACHMENT_DOWNLOAD_VERSION,
+  ATTACHMENT_DOWNLOAD_CHUNK_BYTES,
+  MAXIMUM_ATTACHMENT_DOWNLOAD_BYTES,
+  type AttachmentDownloadChunk,
+} from '@tap-examples/tap-email-protocol/attachment';
 import { sharedStateResponse } from '@tap-examples/tap-shared-state/server';
 import { validEmailDocument } from '../../tap-email/src/shared-state';
 import { listBodyCoverage, setBodyBackfill, enqueueBodyBackfills, processBodyBackfill } from './body-backfill';
@@ -90,6 +96,8 @@ import {
   openBoundSecret,
   openSecret,
   sealBoundSecret,
+  bytesToBase64,
+  sha256BytesBase64Url,
 } from './crypto';
 
 // The protocol permits 500,000 JavaScript code units plus bounded addressing
@@ -2423,6 +2431,17 @@ export function createTapEmailCoordinator(
               'The attachment identity is invalid.',
             );
           }
+          const jsonDownload = request.headers.get('Accept') === 'application/json';
+          const requestedOffset = url.searchParams.get('offset') ?? '0';
+          const offset = Number(requestedOffset);
+          if (jsonDownload && (
+            !/^(?:0|[1-9][0-9]*)$/u.test(requestedOffset) ||
+            !Number.isSafeInteger(offset) || offset < 0 ||
+            offset >= MAXIMUM_ATTACHMENT_DOWNLOAD_BYTES ||
+            offset % ATTACHMENT_DOWNLOAD_CHUNK_BYTES !== 0
+          )) {
+            throw new ApiError(400, 'invalid_attachment_offset', 'The attachment offset is invalid.');
+          }
           const attachment = await attachmentContent(
             env,
             identity.profileId,
@@ -2440,9 +2459,28 @@ export function createTapEmailCoordinator(
             attachment.disposition,
             attachment.fileName,
           ));
+          headers.set('X-Content-Type-Options', 'nosniff');
+          if (jsonDownload) {
+            if (offset > 0 && offset >= attachment.bytes.byteLength) {
+              throw new ApiError(400, 'invalid_attachment_offset', 'The attachment offset is outside the file.');
+            }
+            const bytes = attachment.bytes.subarray(offset, offset + ATTACHMENT_DOWNLOAD_CHUNK_BYTES);
+            const chunk: AttachmentDownloadChunk = {
+              version: ATTACHMENT_DOWNLOAD_VERSION,
+              accountId, threadId, messageId, resourceId,
+              mimeType: attachment.mimeType,
+              totalSizeBytes: attachment.bytes.byteLength,
+              offset,
+              sizeBytes: bytes.byteLength,
+              sha256Base64Url: await sha256BytesBase64Url(attachment.bytes),
+              bodyBase64: bytesToBase64(bytes),
+            };
+            // Do not send the raw-file Content-Length for a JSON/base64 response.
+            headers.set('Content-Type', 'application/json; charset=utf-8');
+            return Response.json(chunk, { status: 200, headers });
+          }
           headers.set('Content-Length', String(attachment.bytes.byteLength));
-          // The SDK classifies text/calendar as a text response. Negotiating
-          // octet-stream preserves every byte for local parsing and file export.
+          // Retain the binary representation for older clients and direct downloads.
           const binary = request.headers.get('Accept') === 'application/octet-stream';
           headers.set('Content-Type', binary ? 'application/octet-stream' : attachment.mimeType);
           if (binary) headers.set('X-TAP-Attachment-Type', attachment.mimeType);

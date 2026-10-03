@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { ATTACHMENT_DOWNLOAD_CHUNK_BYTES, MAXIMUM_ATTACHMENT_RESPONSE_BYTES } from '@tap-examples/tap-email-protocol/attachment';
 import { describe, expect, it } from '@rstest/core';
 import type { MiniAppHttpRequestInput } from '@theaiplatform/miniapp-sdk/sdk';
 import { TAP_EMAIL_PROTOCOL_VERSION } from '@tap-examples/tap-email-protocol';
@@ -859,106 +862,123 @@ describe('TAP Email coordinator client', () => {
     ).rejects.toMatchObject({ status: 502, code: 'invalid_response' });
   });
 
-  it('downloads an attachment as bounded binary data for the exact message tuple', async () => {
-    const calls: unknown[] = [];
-    const transport: CoordinatorTransport = {
-      request(input, options) {
-        calls.push({ input, options });
-        return {
-          finalUrl: input.url,
-          status: 200,
-          statusText: 'OK',
-          headers: [
-            { name: 'Content-Type', value: 'text/plain' },
-            { name: 'Content-Length', value: '5' },
-          ],
-          bodyText: null,
-          bodyBase64: 'aGVsbG8=',
-          bodyKind: 'binary',
-          bodyTruncated: false,
-          sizeBytes: 5,
-          elapsedMs: 8,
-          contentType: 'text/plain',
-        };
-      },
+  const attachmentContext = { accountId: 'account_1', threadId: 'thread_1', messageId: 'message_1' };
+  const attachmentMetadata = {
+    resourceId: 'attachment_1', fileName: 'hello.txt', mimeType: 'text/plain',
+    sizeBytes: 5, disposition: 'attachment' as const, contentId: null,
+  };
+  const attachmentUrl = `${coordinatorOrigin}/v1/accounts/account_1/threads/thread_1/messages/message_1/attachments/attachment_1`;
+  function attachmentEnvelope(bytes: Uint8Array, mimeType = 'text/plain', offset = 0) {
+    const chunk = bytes.subarray(offset, offset + ATTACHMENT_DOWNLOAD_CHUNK_BYTES);
+    return {
+      version: 1, ...attachmentContext, resourceId: 'attachment_1', mimeType,
+      totalSizeBytes: bytes.length, offset, sizeBytes: chunk.length,
+      sha256Base64Url: createHash('sha256').update(bytes).digest('base64url'),
+      bodyBase64: Buffer.from(chunk).toString('base64'),
     };
-    const attachment = {
-      resourceId: 'attachment_1',
-      fileName: 'hello.txt',
-      mimeType: 'text/plain',
-      sizeBytes: 5,
-      disposition: 'attachment' as const,
-      contentId: null,
+  }
+  function attachmentResponse(envelope: unknown, finalUrl = attachmentUrl) {
+    const bodyText = JSON.stringify(envelope);
+    return {
+      finalUrl, status: 200, statusText: 'OK', headers: [],
+      bodyText, bodyBase64: null, bodyKind: 'text' as const, bodyTruncated: false,
+      sizeBytes: Buffer.byteLength(bodyText), elapsedMs: 8, contentType: 'application/json',
     };
+  }
 
-    await expect(createCoordinatorClient(transport).downloadAttachment({
-      accountId: 'account_1',
-      threadId: 'thread_1',
-      messageId: 'message_1',
-    }, attachment)).resolves.toEqual(new TextEncoder().encode('hello'));
+  it('downloads verified JSON bytes through the credential-protected SDK transport', async () => {
+    const calls: unknown[] = [];
+    // Model the actual host boundary: binary bodies are suppressed for platform-session requests.
+    const client = createCoordinatorClient({ request(input, options) {
+      calls.push({ input, options });
+      const json = input.headers?.some(header => header.name === 'Accept' && header.value === 'application/json');
+      return json ? attachmentResponse(attachmentEnvelope(new TextEncoder().encode('hello'))) : {
+        ...attachmentResponse({}), bodyKind: 'binary', bodyText: null, bodyBase64: null, bodyTruncated: true,
+      };
+    } });
+    await expect(client.downloadAttachment(attachmentContext, attachmentMetadata)).resolves.toEqual(new TextEncoder().encode('hello'));
     expect(calls).toEqual([{
-      input: expect.objectContaining({
-        method: 'GET',
-        url: `${coordinatorOrigin}/v1/accounts/account_1/threads/thread_1/messages/message_1/attachments/attachment_1`,
-        responseBodyLimitBytes: 8 * 1_024 * 1_024,
-      }),
+      input: expect.objectContaining({ method: 'GET', url: attachmentUrl,
+        headers: [{ name: 'Accept', value: 'application/json' }],
+        responseBodyLimitBytes: MAXIMUM_ATTACHMENT_RESPONSE_BYTES }),
       options: { credentialRef: 'platform-session' },
     }]);
   });
 
-  it('rejects attachment responses with the wrong body kind, MIME type, or size', async () => {
-    const attachment = {
-      resourceId: 'attachment_1',
-      fileName: 'hello.txt',
-      mimeType: 'text/plain',
-      sizeBytes: 5,
-      disposition: 'attachment' as const,
-      contentId: null,
-    };
-    const response = {
-      finalUrl: `${coordinatorOrigin}/v1/accounts/account_1/threads/thread_1/messages/message_1/attachments/attachment_1`,
-      status: 200,
-      statusText: 'OK',
-      headers: [],
-      bodyText: null,
-      bodyBase64: 'aGVsbG8=',
-      bodyKind: 'binary' as const,
-      bodyTruncated: false,
-      sizeBytes: 5,
-      elapsedMs: 8,
-      contentType: 'text/plain',
-    };
-    const context = {
-      accountId: 'account_1',
-      threadId: 'thread_1',
-      messageId: 'message_1',
-    };
-
+  it('rejects malformed, truncated, redirected and binary-suppressed SDK responses', async () => {
+    const response = attachmentResponse(attachmentEnvelope(new TextEncoder().encode('hello')));
     for (const malformed of [
-      { ...response, bodyKind: 'text' as const, bodyText: 'hello', bodyBase64: null },
-      { ...response, contentType: 'application/pdf' },
-      { ...response, sizeBytes: 4 },
-      { ...response, bodyBase64: 'aGVsbA==' },
+      { ...response, bodyKind: 'binary' as const, bodyText: null, bodyBase64: null, bodyTruncated: true },
+      { ...response, contentType: 'text/plain' },
+      { ...response, sizeBytes: response.sizeBytes - 1 },
+      { ...response, bodyBase64: 'aGVsbG8=' },
       { ...response, bodyTruncated: true },
+      { ...response, finalUrl: `${attachmentUrl}?redirected=1` },
+      { ...response, bodyText: '{bad json', sizeBytes: 9 },
     ]) {
-      const transport: CoordinatorTransport = { request: () => malformed };
-      await expect(
-        createCoordinatorClient(transport).downloadAttachment(context, attachment),
-      ).rejects.toMatchObject({ status: 502, code: 'invalid_response' });
+      await expect(createCoordinatorClient({ request: () => malformed })
+        .downloadAttachment(attachmentContext, attachmentMetadata)).rejects.toMatchObject({ code: 'invalid_response' });
     }
   });
 
-  it('negotiates byte-preserving calendar downloads and verifies their original MIME type', async () => {
-    const body = 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n';
-    const attachment = {resourceId:'attachment_1',fileName:'invite.ics',mimeType:'text/calendar',sizeBytes:new TextEncoder().encode(body).length,disposition:'attachment' as const,contentId:null};
-    const context = {accountId:'account_1',threadId:'thread_1',messageId:'message_1'};
-    const response = {finalUrl:`${coordinatorOrigin}/v1/accounts/account_1/threads/thread_1/messages/message_1/attachments/attachment_1`,
-      status:200,statusText:'OK',headers:[{name:'X-TAP-Attachment-Type',value:'text/calendar'}],bodyText:null,bodyBase64:btoa(body),
-      bodyKind:'binary' as const,bodyTruncated:false,sizeBytes:attachment.sizeBytes,elapsedMs:1,contentType:'application/octet-stream'};
-    const transport:CoordinatorTransport = {request(input) { expect(input.headers).toContainEqual({name:'Accept',value:'application/octet-stream'});return response; }};
-    expect(await createCoordinatorClient(transport).downloadAttachment(context,attachment)).toEqual(new TextEncoder().encode(body));
-    for (const headers of [[],[{name:'X-TAP-Attachment-Type',value:'application/pdf'}]]) {
-      await expect(createCoordinatorClient({request:()=>({...response,headers})}).downloadAttachment(context,attachment)).rejects.toMatchObject({code:'invalid_response'});
+  it('rejects wrong scope, metadata, chunk boundaries, encoding and checksum before exporting bytes', async () => {
+    const envelope = attachmentEnvelope(new TextEncoder().encode('hello'));
+    for (const overrides of [
+      { version: 2 }, { accountId: 'other' }, { threadId: 'other' }, { messageId: 'other' },
+      { resourceId: 'other' }, { mimeType: 'application/pdf' }, { totalSizeBytes: 4 },
+      { offset: 1 }, { sizeBytes: 4 }, { bodyBase64: 'aGVsbA==' },
+      { bodyBase64: 'aGVsbG9=' }, { bodyBase64: 'invalid!' },
+      { sha256Base64Url: 'x'.repeat(43) }, { sha256Base64Url: 'invalid' },
+    ]) {
+      await expect(createCoordinatorClient({ request: () => attachmentResponse({ ...envelope, ...overrides }) })
+        .downloadAttachment(attachmentContext, attachmentMetadata)).rejects.toMatchObject({ code: 'invalid_response' });
+    }
+  });
+
+  it('preserves calendar UTF-8 and arbitrary binary bytes exactly', async () => {
+    for (const [bytes, mimeType] of [
+      [new TextEncoder().encode('BEGIN:VCALENDAR\r\nSUMMARY:Réunion 🎉\r\nEND:VCALENDAR\r\n'), 'text/calendar'],
+      [new Uint8Array([0, 128, 255]), 'application/pdf'],
+      [new Uint8Array(), 'application/octet-stream'],
+    ] as const) {
+      let calls = 0;
+      const client = createCoordinatorClient({ request: () => {
+        calls += 1;
+        return attachmentResponse(attachmentEnvelope(bytes, mimeType));
+      } });
+      expect(await client.downloadAttachment(attachmentContext, { ...attachmentMetadata, mimeType, sizeBytes: bytes.length })).toEqual(bytes);
+      expect(calls).toBe(1);
+    }
+  });
+
+  it('reassembles an 8 MiB attachment in two bounded requests', async () => {
+    const bytes = new Uint8Array(8 * 1_024 * 1_024).fill(255);
+    bytes[ATTACHMENT_DOWNLOAD_CHUNK_BYTES] = 128;
+    const urls: string[] = [];
+    const client = createCoordinatorClient({ request(input, options) {
+      urls.push(input.url);
+      expect(options).toEqual({ credentialRef: 'platform-session' });
+      const offset = Number(new URL(input.url).searchParams.get('offset') ?? 0);
+      const response = attachmentResponse(attachmentEnvelope(bytes, 'text/plain', offset), input.url);
+      expect(response.sizeBytes).toBeLessThan(MAXIMUM_ATTACHMENT_RESPONSE_BYTES);
+      return response;
+    } });
+    expect(await client.downloadAttachment(attachmentContext, { ...attachmentMetadata, sizeBytes: bytes.length })).toEqual(bytes);
+    expect(urls).toEqual([attachmentUrl, `${attachmentUrl}?offset=${ATTACHMENT_DOWNLOAD_CHUNK_BYTES}`]);
+  });
+
+  it('rejects changed content or non-progressing chunks during a multi-chunk download', async () => {
+    const bytes = new Uint8Array(ATTACHMENT_DOWNLOAD_CHUNK_BYTES + 1);
+    for (const overrides of [{ offset: 0 }, { sha256Base64Url: 'x'.repeat(43) }, { bodyBase64: '/w==' }]) {
+      let calls = 0;
+      const client = createCoordinatorClient({ request(input) {
+        const offset = calls++ === 0 ? 0 : ATTACHMENT_DOWNLOAD_CHUNK_BYTES;
+        const envelope = attachmentEnvelope(bytes, 'text/plain', offset);
+        return attachmentResponse(offset === 0 ? envelope : { ...envelope, ...overrides }, input.url);
+      } });
+      await expect(client.downloadAttachment(attachmentContext, { ...attachmentMetadata, sizeBytes: bytes.length }))
+        .rejects.toMatchObject({ code: 'invalid_response' });
+      expect(calls).toBe(2);
     }
   });
 

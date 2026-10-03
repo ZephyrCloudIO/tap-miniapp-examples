@@ -1,4 +1,7 @@
 /** @rstest-environment jsdom */
+import { createHash, webcrypto } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { createCoordinatorClient } from './coordinator-client';
 import React, { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, it, expect, rstest as rs } from '@rstest/core';
@@ -66,6 +69,54 @@ function services(cache: ConversationQueryCache): CalendarReaderServices {
   };
 }
 describe('cached calendar message cards', () => {
+  it.each([
+    ['REQUEST', 'NEEDS-ACTION', 'Will you attend?', 3],
+    ['REPLY', 'ACCEPTED', 'Jane has accepted', 0],
+  ])('renders %s from the credential-safe download and reopens without another request', async (method, status, label, actions) => {
+    const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+    const bytes = new TextEncoder().encode(source(method, status));
+    const metadata = { ...attachment, sizeBytes: bytes.length };
+    let requests = 0;
+    const client = createCoordinatorClient({ request(input, options) {
+      requests += 1;
+      expect(input.headers).toContainEqual({ name: 'Accept', value: 'application/json' });
+      expect(options).toEqual({ credentialRef: 'platform-session' });
+      const bodyText = JSON.stringify({
+        version: 1, accountId: context.accountId, threadId: context.threadId, messageId: context.messageId,
+        resourceId: metadata.resourceId, mimeType: metadata.mimeType, totalSizeBytes: bytes.length,
+        offset: 0, sizeBytes: bytes.length,
+        sha256Base64Url: createHash('sha256').update(bytes).digest('base64url'),
+        bodyBase64: Buffer.from(bytes).toString('base64'),
+      });
+      return { finalUrl: input.url, status: 200, statusText: 'OK', headers: [],
+        bodyKind: 'text', bodyText, bodyBase64: null, bodyTruncated: false,
+        sizeBytes: Buffer.byteLength(bodyText), contentType: 'application/json', elapsedMs: 1 };
+    } });
+    const cache = new ConversationQueryCache();
+    const reader = services(cache);
+    const node = document.createElement('div');
+    const root = createRoot(node);
+    const render = () => root.render(<StrictMode><CalendarMessage attachments={[metadata]} context={context}
+      services={reader} loadAttachment={(file) => client.downloadAttachment(context, file)} /></StrictMode>);
+    try {
+      await act(async () => render());
+      await ready();
+      expect(node.textContent).toContain('Account review');
+      expect(node.textContent).toContain(label);
+      expect(node.querySelectorAll('.calendar-rsvp button')).toHaveLength(actions);
+      expect(node.querySelector('[role="alert"]')).toBeNull();
+      await act(async () => root.render(null));
+      await act(async () => render());
+      await ready();
+      expect(requests).toBe(1);
+      expect(reader.respond).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      cache.clear();
+      if (originalCrypto) Object.defineProperty(globalThis, 'crypto', originalCrypto);
+    }
+  });
   it('renders the event and actions, deduplicates Strict Mode and cached reopens, contains keyboard events', async () => {
     const cache = new ConversationQueryCache();
     const reader = services(cache);

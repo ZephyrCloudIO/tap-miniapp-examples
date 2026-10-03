@@ -1,3 +1,9 @@
+import {
+  ATTACHMENT_DOWNLOAD_VERSION,
+  ATTACHMENT_DOWNLOAD_CHUNK_BYTES,
+  MAXIMUM_ATTACHMENT_DOWNLOAD_BYTES,
+  MAXIMUM_ATTACHMENT_RESPONSE_BYTES,
+} from '@tap-examples/tap-email-protocol/attachment';
 import { parseSnapshot, type Snapshot } from '@tap-examples/tap-shared-state';
 import type { RecipientSuggestion } from './recipient-history';
 import {
@@ -44,7 +50,7 @@ const localDevelopmentProfile = 'tap-email-local-dev';
 const maximumRemoteImageBatchSize = 32;
 const maximumRemoteImageBytes = 2 * 1_024 * 1_024;
 const maximumRemoteImageResponseBytes = 9_000_000;
-export const maximumAttachmentDownloadBytes = 8 * 1_024 * 1_024;
+export const maximumAttachmentDownloadBytes = MAXIMUM_ATTACHMENT_DOWNLOAD_BYTES;
 const maximumMailboxPageThreads = 100;
 const maximumMailboxCursorLength = 4_096;
 const maximumOutboundAttachmentChunkBytes = 256 * 1_024;
@@ -362,48 +368,42 @@ function remoteImages(value: unknown, requestedUrls: ReadonlySet<string>): Reado
   return loaded;
 }
 
-const safeBase64 = /^(?:[a-z0-9+/]{4})*(?:[a-z0-9+/]{2}==|[a-z0-9+/]{3}=)?$/iu;
-
-function decodeAttachmentBody(response: MiniAppHttpResponse, attachment: EmailAttachment): Uint8Array {
-  const expectedMimeType = attachment.mimeType.split(';', 1)[0]!.trim().toLowerCase();
-  const responseMimeType = response.contentType?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-  const originalMimeType = response.headers.find(header => header.name.toLowerCase() === 'x-tap-attachment-type')?.value.split(';', 1)[0]?.trim().toLowerCase();
-  const mimeMatches = responseMimeType === expectedMimeType ||
-    (responseMimeType === 'application/octet-stream' && originalMimeType === expectedMimeType);
+function decodeAttachmentChunk(
+  response: MiniAppHttpResponse,
+  context: AttachmentMessageContext,
+  attachment: EmailAttachment,
+  offset: number,
+  expectedDigest: string | null,
+): { bytes: Uint8Array; digest: string } {
+  const invalid = () => new CoordinatorError(502, 'invalid_response', 'The attachment response did not match its metadata.');
   if (
-    response.bodyTruncated ||
-    response.bodyKind !== 'binary' ||
-    response.bodyText !== null ||
-    response.bodyBase64 === null ||
-    !safeBase64.test(response.bodyBase64) ||
-    !Number.isSafeInteger(response.sizeBytes) ||
-    response.sizeBytes !== attachment.sizeBytes ||
-    !mimeMatches
-  ) {
-    throw new CoordinatorError(
-      502,
-      'invalid_response',
-      'The attachment response did not match its metadata.',
-    );
-  }
-
+    response.bodyTruncated || response.bodyKind !== 'text' ||
+    response.bodyBase64 !== null || response.bodyText === null ||
+    response.contentType?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json' ||
+    response.sizeBytes !== new TextEncoder().encode(response.bodyText).byteLength ||
+    response.sizeBytes > MAXIMUM_ATTACHMENT_RESPONSE_BYTES
+  ) throw invalid();
+  const chunk = asRecord(parseResponse(response));
+  const expectedSize = Math.min(ATTACHMENT_DOWNLOAD_CHUNK_BYTES, attachment.sizeBytes - offset);
+  if (
+    chunk.version !== ATTACHMENT_DOWNLOAD_VERSION ||
+    chunk.accountId !== context.accountId || chunk.threadId !== context.threadId ||
+    chunk.messageId !== context.messageId || chunk.resourceId !== attachment.resourceId ||
+    chunk.mimeType !== attachment.mimeType || chunk.totalSizeBytes !== attachment.sizeBytes ||
+    chunk.offset !== offset || chunk.sizeBytes !== expectedSize ||
+    typeof chunk.sha256Base64Url !== 'string' || !/^[a-z0-9_-]{43}$/iu.test(chunk.sha256Base64Url) ||
+    (expectedDigest !== null && chunk.sha256Base64Url !== expectedDigest) ||
+    typeof chunk.bodyBase64 !== 'string' ||
+    chunk.bodyBase64.length !== 4 * Math.ceil(expectedSize / 3) ||
+    /[^a-z0-9+/=]/iu.test(chunk.bodyBase64)
+  ) throw invalid();
   let decoded: string;
-  try {
-    decoded = atob(response.bodyBase64);
-  } catch {
-    throw new CoordinatorError(502, 'invalid_response', 'The attachment response was malformed.');
-  }
-  if (
-    decoded.length !== attachment.sizeBytes ||
-    decoded.length > maximumAttachmentDownloadBytes
-  ) {
-    throw new CoordinatorError(
-      502,
-      'invalid_response',
-      'The attachment response did not match its declared size.',
-    );
-  }
-  return Uint8Array.from(decoded, character => character.charCodeAt(0));
+  try { decoded = atob(chunk.bodyBase64); } catch { throw invalid(); }
+  if (decoded.length !== expectedSize || btoa(decoded) !== chunk.bodyBase64) throw invalid();
+  return {
+    bytes: Uint8Array.from(decoded, character => character.charCodeAt(0)),
+    digest: chunk.sha256Base64Url,
+  };
 }
 
 interface ActivityCursor { readonly after: string; readonly afterId: string }
@@ -855,31 +855,42 @@ export function createCoordinatorClient(
         );
       }
 
-      const url = `${origin}/v1/accounts/${encodeURIComponent(context.accountId)}/threads/${encodeURIComponent(context.threadId)}/messages/${encodeURIComponent(context.messageId)}/attachments/${encodeURIComponent(attachment.resourceId)}`;
+      const baseUrl = `${origin}/v1/accounts/${encodeURIComponent(context.accountId)}/threads/${encodeURIComponent(context.threadId)}/messages/${encodeURIComponent(context.messageId)}/attachments/${encodeURIComponent(attachment.resourceId)}`;
       const localDevelopment = isLoopbackCoordinator(origin);
-      const response = await resolved.request(
-        {
-          method: 'GET',
-          url,
-          headers: [{ name: 'Accept', value: 'application/octet-stream' },
-            ...(localDevelopment ? [{ name: 'X-TAP-Dev-Profile', value: localDevelopmentProfile }] : [])],
-          responseBodyLimitBytes: maximumAttachmentDownloadBytes,
-          timeoutMs: 30_000,
-        },
-        localDevelopment ? undefined : { credentialRef: 'platform-session' },
-      );
-      if (response.status < 200 || response.status >= 300) {
-        const body = asRecord(parseResponse(response));
-        throw new CoordinatorError(
-          response.status,
-          typeof body.error === 'string' ? body.error : 'coordinator_error',
-          typeof body.message === 'string' ? body.message : 'Attachment download failed.',
+      const bytes = new Uint8Array(attachment.sizeBytes);
+      let digest: string | null = null;
+      // At most two chunks, including one request for an empty file.
+      for (let offset = 0; offset === 0 || offset < bytes.byteLength; offset += ATTACHMENT_DOWNLOAD_CHUNK_BYTES) {
+        const url = offset === 0 ? baseUrl : `${baseUrl}?offset=${offset}`;
+        const response = await resolved.request(
+          {
+            method: 'GET', url,
+            headers: [{ name: 'Accept', value: 'application/json' },
+              ...(localDevelopment ? [{ name: 'X-TAP-Dev-Profile', value: localDevelopmentProfile }] : [])],
+            responseBodyLimitBytes: MAXIMUM_ATTACHMENT_RESPONSE_BYTES,
+            timeoutMs: 30_000,
+          },
+          localDevelopment ? undefined : { credentialRef: 'platform-session' },
         );
+        if (response.status < 200 || response.status >= 300) {
+          const body = asRecord(parseResponse(response));
+          throw new CoordinatorError(
+            response.status,
+            typeof body.error === 'string' ? body.error : 'coordinator_error',
+            typeof body.message === 'string' ? body.message : 'Attachment download failed.',
+          );
+        }
+        if (response.finalUrl !== url) {
+          throw new CoordinatorError(502, 'invalid_response', 'The attachment response was redirected.');
+        }
+        const chunk = decodeAttachmentChunk(response, context, attachment, offset, digest);
+        bytes.set(chunk.bytes, offset);
+        digest = chunk.digest;
       }
-      if (response.finalUrl !== url) {
-        throw new CoordinatorError(502, 'invalid_response', 'The attachment response was redirected.');
+      if (await sha256Base64Url(bytes) !== digest) {
+        throw new CoordinatorError(502, 'invalid_response', 'The attachment checksum did not match.');
       }
-      return decodeAttachmentBody(response, attachment);
+      return bytes;
     },
     async loadRemoteImages(
       context: RemoteImageMessageContext,

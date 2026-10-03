@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@theaiplatform/miniapp-sdk/config-schema.json",
   "buildSchemaVersion": 2,
-  "versionLabel": "1.0.4",
+  "versionLabel": "1.0.5",
   "presentation": {
     "name": "TAP Email",
     "slug": "tap-email",
@@ -27,7 +27,7 @@
     ]
   },
   "compatibility": {
-    "tapSdk": "0.19.0",
+    "tapSdk": "0.20.0",
     "tapHost": ">=2.24.1"
   },
   "targets": {
@@ -729,7 +729,7 @@
       },
       "lifecycleScope": "installation",
       "options": {
-        "manifest": "specialists/tap-email-specialist/1.0.4.json"
+        "manifest": "specialists/tap-email-specialist/1.0.5.json"
       }
     },
     {
