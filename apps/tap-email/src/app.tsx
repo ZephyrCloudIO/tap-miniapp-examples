@@ -22,7 +22,7 @@ import { readMailHistory } from './infinite-mail-history';
 import { MailHistorySentinel } from './mail-history-sentinel';
 import { VirtualThreadGroups } from './virtual-thread-groups';
 import { ConversationReaderDeck } from './conversation-reader-deck';
-import { prepareConversation } from './conversation-prefetch';
+import { useConversationWarmWindow } from './use-conversation-warm-window';
 import { MailPersistenceQueue, persistCommandSnapshot, recoverMailJournal } from './mail-persistence';
 import { sdk, type MiniAppFilesApi } from '@theaiplatform/miniapp-sdk/sdk';
 import { isMailDraftPayload } from '@tap-examples/tap-email-protocol';
@@ -75,7 +75,6 @@ import {
   defaultPreferences,
   emptyMailState,
   emailThreadKey,
-  isDownloadedThreadPage,
   composeMessage,
   cancelScheduledMessage,
   correctThreadAttention,
@@ -2327,7 +2326,9 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
   const readerThreads = useMemo(() => new Map(state.threads.map(item =>
     [JSON.stringify([emailThreadKey(item), item.providerRevision]), item] as const)), [state.threads]);
   const activeReaderKey = thread ? JSON.stringify([emailThreadKey(thread), thread.providerRevision]) : '';
-  const [warmReaderKeys, setWarmReaderKeys] = useState<readonly string[]>([]);
+  const warmReaderKeys = useConversationWarmWindow({ cache: conversationCache, rows, activeKey: activeReaderKey,
+    enabled: Boolean(thread && windowReady), preview, read: loadCachedThread,
+    client: !preview && coordinatorNetworkReady ? coordinatorRef.current : null });
   const canRetainReader = useCallback((key: string) => {
     const item = readerThreads.get(key);
     const messages = item ? conversationCache.get(item.accountId, item.threadId, item.providerRevision)?.messages ?? item.messages : [];
@@ -2341,31 +2342,6 @@ function TapEmailSession({ appTheme = 'light', preview = false, surfaceContext, 
     const messages = conversationCache.get(item.accountId, item.threadId, item.providerRevision)?.messages ?? item.messages;
     return messages.reduce((bytes, message) => bytes + 2 * (message.bodyText.length + (message.bodyHtml?.length ?? 0)), 0);
   }, [readerThreads, conversationCache]);
-  useEffect(() => {
-    if (!thread || !windowReady) return;
-    const abort = new AbortController();
-    const index = rows.findIndex(item => emailThreadKey(item) === emailThreadKey(thread));
-    const neighbors = index < 0 ? [] : [rows[index + 1], rows[index - 1]].filter((item): item is EmailThread => Boolean(item));
-    const timer = window.setTimeout(() => {
-      void Promise.all(neighbors.map(async item => {
-        try {
-          const candidate = preview && !isDownloadedThreadPage(item.downloadedPage) ? { ...item, downloadedPage: {
-            providerRevision: item.providerRevision, nextCursor: null, complete: true, windowed: false, seenCursors: [],
-          } } : item;
-          const prepared = await prepareConversation(conversationCache, candidate, loadCachedThread,
-            !preview && coordinatorNetworkReady ? coordinatorRef.current : null, abort.signal);
-          return prepared ? JSON.stringify([emailThreadKey(item), item.providerRevision]) : null;
-        } catch { return null; }
-      })).then(keys => {
-        if (!abort.signal.aborted) React.startTransition(() => setWarmReaderKeys(previous => {
-          const next = keys.filter((key): key is string => key !== null);
-          return next.length === previous.length && next.every((key, index) => previous[index] === key) ? previous : next;
-        }));
-      });
-    }, 48);
-    return () => { window.clearTimeout(timer); abort.abort(); };
-  }, [activeReaderKey, rows, windowReady, preview, coordinatorNetworkReady, conversationCache, loadCachedThread]);
-
   const receiveThreadMessages = useCallback((
     accountId: string, threadId: string, messages: readonly EmailMessage[], expectedRevision: string, downloadedPage?: EmailThread['downloadedPage'],
   ) => {

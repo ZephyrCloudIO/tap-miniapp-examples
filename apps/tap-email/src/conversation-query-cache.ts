@@ -55,6 +55,13 @@ export class ConversationQueryCache {
     return this.client.getQueryData<CachedConversation>(key);
   }
 
+  /** Planning background work must not make distant neighbors newer than the reader. */
+  has(accountId: string, threadId: string, revision: string): boolean {
+    const key = prefix(accountId, threadId, revision);
+    return this.client.getQueryData([...key, 'snapshot']) !== undefined ||
+      this.client.getQueryData([...key, 'page', null]) !== undefined;
+  }
+
   get(accountId: string, threadId: string, revision: string): CachedConversation | undefined {
     const key = prefix(accountId, threadId, revision);
     const snapshot = this.snapshot(accountId, threadId, revision);

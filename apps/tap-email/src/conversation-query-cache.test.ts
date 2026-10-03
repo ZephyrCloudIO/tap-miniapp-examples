@@ -9,6 +9,21 @@ const messages = previewMailState().threads[0]!.messages;
 const page = (revision = 'r1'): ThreadPage => ({ messages, providerRevision: revision, nextCursor: null, complete: true });
 
 describe('miniapp conversation Query cache', () => {
+  it('checks background readiness without promoting every warmed neighbor in the LRU', () => {
+    const value = { messages, downloadedPage: { providerRevision: 'r1', nextCursor: null,
+      complete: true, windowed: false, seenCursors: [] } };
+    const cache = new ConversationQueryCache(boundedSql.serializedBytes(value) * 2);
+    try {
+      cache.remember('account', 'distant', value);
+      cache.remember('account', 'active', value);
+      expect(cache.has('account', 'distant', 'r1')).toBe(true);
+      expect(cache.has('other', 'distant', 'r1')).toBe(false);
+      expect(cache.has('account', 'distant', 'r2')).toBe(false);
+      cache.remember('account', 'next', value);
+      expect(cache.has('account', 'distant', 'r1')).toBe(false);
+      expect(cache.has('account', 'active', 'r1')).toBe(true);
+    } finally { cache.clear(); }
+  });
   it('measures each new snapshot once instead of serializing the whole cache again', () => {
     const cache = new ConversationQueryCache();
     const size = rs.spyOn(boundedSql, 'serializedBytes');
