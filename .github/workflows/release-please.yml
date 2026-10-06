@@ -1,0 +1,84 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-please-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Mint release App token
+        id: release-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # This repository receives the App ID, not the client ID, from the organization.
+          app-id: ${{ secrets.ZE_WORKFLOW_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.ZE_WORKFLOW_AUTOMATION_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-actions: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Create releases and update release PR
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.release-app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Publish the exact released source
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          test -n "$RELEASE_SHA"
+          gh workflow run ci.yml --ref main --field release_sha="$RELEASE_SHA"
+
+      - name: Check out release PR
+        if: steps.release.outputs.prs_created == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          token: ${{ steps.release-app-token.outputs.token }}
+
+      - uses: actions/setup-node@v6
+        if: steps.release.outputs.prs_created == 'true'
+        with:
+          node-version: 24
+
+      # Release Please bumps every miniapp's package.json; this carries the new
+      # version into the TAP manifests, specialists, and skills that repeat it.
+      - name: Synchronize TAP release metadata
+        if: steps.release.outputs.prs_created == 'true'
+        run: node scripts/sync-release-versions.mjs
+
+      - name: Update release PR metadata
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          RELEASE_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "chore: sync release metadata"
+          git push origin "HEAD:$RELEASE_BRANCH"

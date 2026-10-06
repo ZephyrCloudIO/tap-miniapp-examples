@@ -84,7 +84,7 @@ for (const root of roots) {
 const bundleRoots = [];
 if (process.argv.includes("--bundle")) {
   bundleRoots.push(
-    join(appsDirectory, "agent-browser-prototype", ".tap-build", "desktop"),
+    join(appsDirectory, "agent-browser-prototype", "dist"),
   );
 }
 if (process.argv.includes("--gateway-bundle")) {

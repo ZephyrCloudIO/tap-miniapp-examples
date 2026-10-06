@@ -41,7 +41,7 @@ const runtimeState = () =>
 
 describe('health specialist contract', () => {
   it('packages the Grok preference while allowlisting runtime tools', () => {
-    expect(specialistManifest.name).toBe('personal-health-researcher@0.2.0');
+    expect(specialistManifest.name).toBe(`personal-health-researcher@${specialistManifest.version}`);
     expect(specialistManifest.slug).toBe('personal-health-researcher');
     expect(specialistManifest.models.prefer).toEqual([GROK_MODEL_PREFERENCE]);
     expect(HEALTH_SPECIALIST_TOOLS).not.toContain('x_search');

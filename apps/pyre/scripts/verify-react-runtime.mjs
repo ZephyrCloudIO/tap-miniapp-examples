@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const desktopRoot = path.join(
   packageRoot,
-  ".tap-package",
+  "dist",
   "targets",
   "desktop",
 );
@@ -33,7 +33,7 @@ if (!Array.isArray(javaScriptAssets) || javaScriptAssets.length === 0) {
 
 const sources = await Promise.all(
   javaScriptAssets.map((asset) =>
-    fs.readFile(path.join(packageRoot, ".tap-package", asset), "utf8"),
+    fs.readFile(path.join(packageRoot, "dist", asset), "utf8"),
   ),
 );
 const source = sources.join("\n");

@@ -15,7 +15,7 @@
     "test": "pnpm verify:real-only && rstest run",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
-    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop",
+    "verify:package": "node ../../scripts/verify-built-package.mjs dist",
     "verify:react-closure": "node scripts/verify-react-closure.mjs",
     "verify:real-only": "node scripts/verify-real-only.mjs",
     "verify:real-only:bundle": "node scripts/verify-real-only.mjs --bundle"

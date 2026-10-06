@@ -8,6 +8,7 @@
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
     "publish": "tap-miniapp publish",
+    "upload": "tap-miniapp publish --from dist",
     "build:watch": "rslib build --watch",
     "build:preview": "rsbuild build",
     "build:miniapp": "tap-miniapp build",
@@ -16,8 +17,8 @@
     "test": "rstest run && node --test scripts/react-closure.node.mjs",
     "test:tap": "rstest run --config ./rstest.tap.config.ts",
     "test:tap:list": "rstest list --config ./rstest.tap.config.ts",
-    "validate:manifest": "node scripts/validate-manifest.mjs",
-    "verify:package": "node ../../scripts/verify-built-package.mjs .tap-build/desktop",
+    "validate:manifest": "tap-miniapp check",
+    "verify:package": "node ../../scripts/verify-built-package.mjs dist",
     "verify:react-closure": "node scripts/verify-react-closure.mjs"
   },
   "dependencies": {

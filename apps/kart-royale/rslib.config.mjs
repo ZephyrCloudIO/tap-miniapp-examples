@@ -9,7 +9,7 @@ if (process.env.ZEPHYR_PUBLISH === "true") {
 }
 
 const lifecycleBuild = Boolean(process.env.TAP_MINIAPP_TARGET);
-const target = process.env.TAP_MINIAPP_TARGET ?? process.env.TAP_PACKAGE_TARGET ?? "desktop";
+const target = process.env.TAP_MINIAPP_TARGET ?? "desktop";
 if (target !== "desktop" && target !== "quickjs") {
   throw new Error(`Unsupported Kart Royale target: ${target}`);
 }

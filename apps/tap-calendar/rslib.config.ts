@@ -54,10 +54,7 @@ const targetConfigurations = {
 
 type PackageTarget = keyof typeof targetConfigurations;
 const lifecycleBuild = Boolean(process.env.TAP_MINIAPP_TARGET);
-const requestedTarget =
-  process.env.TAP_MINIAPP_TARGET ??
-  process.env.TAP_PACKAGE_TARGET ??
-  "desktop";
+const requestedTarget = process.env.TAP_MINIAPP_TARGET ?? "desktop";
 if (!Object.hasOwn(targetConfigurations, requestedTarget)) {
   throw new Error(`Unsupported TAP Calendar target: ${requestedTarget}`);
 }

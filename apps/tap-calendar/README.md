@@ -210,7 +210,7 @@ In TAP, open **Settings → Miniapps → Custom → Local directory** and select
 Finder-visible `apps/tap-calendar/dist` directory. Then choose
 **Discover packages** and install TAP Calendar for the workspace.
 
-After `publish:production` uploads the release to Zephyr, register it in TAP's
+After `upload` uploads the release to Zephyr, register it in TAP's
 Marketplace: open **Miniapps → Publish**, paste the immutable deployment root,
 select the existing **TAP Calendar** package, and choose **Verify and publish to
 Marketplace**. Then open **Browse**, find Calendar, and choose **Update manually**
@@ -348,10 +348,10 @@ pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
 CLOUDFLARE_ACCOUNT_ID=b848db7e2edd56dee8ffcc39c18612a5 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
 pnpm --filter @tap-examples/tap-calendar-public deploy:production
 pnpm --filter @tap-examples/tap-calendar build:miniapp:production
-pnpm --filter @tap-examples/tap-calendar publish:production
+pnpm --filter @tap-examples/tap-calendar upload
 ```
 
-`publish:production` refuses to publish until the live gateway readiness endpoint
+`upload` refuses to publish until the live gateway readiness endpoint
 confirms v2 and its migration, the served public app contains tracking, and the
 built organizer package contains v2 and the production gateway. It makes no
 analytics writes. `test:release` tests the guard. Upgrade the existing marketplace

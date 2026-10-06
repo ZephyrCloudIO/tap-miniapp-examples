@@ -9,7 +9,7 @@
     "preview": "rsbuild preview",
     "build": "pnpm build:preview && pnpm build:miniapp",
     "publish": "tap-miniapp publish",
-    "publish:production": "node scripts/verify-production-analytics.mjs dist && tap-miniapp publish --from dist",
+    "upload": "node scripts/verify-production-analytics.mjs dist && tap-miniapp publish --from dist",
     "verify:production": "node scripts/verify-production-analytics.mjs dist",
     "test:release": "rstest run scripts/verify-production-analytics.test.mjs",
     "build:watch": "rslib build --watch",
