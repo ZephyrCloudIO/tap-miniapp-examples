@@ -24,7 +24,7 @@
     "cross-env": "^10.1.0",
     "turbo": "2.10.5",
     "typescript": "^6.0.3",
-    "zephyr-agent": "1.4.0",
-    "zephyr-rsbuild-plugin": "1.4.0"
+    "zephyr-agent": "1.5.0",
+    "zephyr-rsbuild-plugin": "1.5.0"
   }
 }
