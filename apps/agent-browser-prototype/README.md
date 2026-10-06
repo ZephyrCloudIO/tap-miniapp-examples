@@ -50,7 +50,7 @@ The UI does not call generic `sdk.authorization.check` as a coarse preflight. Wo
 
 Preview is deliberately different only in transport: it may call a configured gateway directly with a token kept only in the current tab. It does not generate screenshots, evidence, browser time, sessions, control state, or successful results. The packaged miniapp frame has no direct gateway access, HTTP credentials, or generic network authority; the declared MCP endpoint is connected and authenticated by the host.
 
-Test recordings under `tests/fixtures` are available only to the governed TAP test runner and are not copied into `dist` or `.tap-build`. `verify:real-only` scans both authored runtime source trees and rejects simulation branches, locally manufactured sessions, generated screenshot data, and manufactured successful evidence. The build then scans the completed `.tap-build/desktop` package so unreachable or dependency-carried simulation code cannot ship unnoticed.
+Test recordings under `tests/fixtures` are available only to the governed TAP test runner and are not copied into `dist` or `.tap-build`. `verify:real-only` scans both authored runtime source trees and rejects simulation branches, locally manufactured sessions, generated screenshot data, and manufactured successful evidence. The build then scans the completed package in `dist` so unreachable or dependency-carried simulation code cannot ship unnoticed.
 
 ## Host and workflow prerequisites
 

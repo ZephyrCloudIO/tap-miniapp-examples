@@ -39,6 +39,6 @@ pnpm verify:package
 pnpm dev
 ```
 
-`pnpm build` produces the browser preview in `dist/` and a portable federated TAP package in `tap-package/` with desktop and workflow-host targets.
+`pnpm build` produces a portable federated TAP package in `dist/` with desktop and workflow-host targets.
 
 `pnpm test:tap` runs the SDK 0.9.0 host-driven suite for the one browser surface cell (`unofficial-suno-player × desktop`) when Test Lab supplies an authorized session. The workflow-host target is intentionally not a UI matrix cell; its deterministic catalog, schemas, assembly, and package integrity remain covered by unit and package verification.

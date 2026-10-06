@@ -19,7 +19,6 @@ dist/
 /tmp/
 .tap-build/
 .tap-package/
-tap-package/
 .tap-receipts/
 .tap-diagnostics/
 .scratch/

@@ -4,14 +4,20 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Tagged Release Please commit to publish (dispatched by release-please.yml)
+        required: true
+        type: string
 
 permissions:
   contents: read
   packages: read
 
 concurrency:
-  group: examples-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: examples-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   validate:
@@ -20,6 +26,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
@@ -55,6 +63,9 @@ jobs:
           fi
           wasm-pack --version
 
+      - name: Check release metadata
+        run: pnpm release:check
+
       - name: Verify SDK pins and Test Lab capability coverage
         run: pnpm verify:tap
 
@@ -72,3 +83,129 @@ jobs:
 
       - name: Build every example without publication credentials
         run: pnpm build
+
+  plan:
+    name: Plan release publication
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_sha }}
+
+      # Only a tagged Release Please commit on main is published.
+      - name: Admit the released source
+        id: plan
+        env:
+          CURRENT_REF: ${{ github.ref }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$CURRENT_REF" != "refs/heads/main" ]; then
+            echo "Releases are published only from main." >&2
+            exit 1
+          fi
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be one full lowercase Git commit SHA." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main; then
+            echo "release_sha is not in main history." >&2
+            exit 1
+          fi
+          version="$(jq -r '.["."]' .release-please-manifest.json)"
+          if [ "$(git rev-parse "refs/tags/v$version^{commit}" 2>/dev/null)" != "$RELEASE_SHA" ]; then
+            echo "release_sha is not tagged v$version." >&2
+            exit 1
+          fi
+          # Every miniapp shares the release version; the ones with an upload script publish.
+          stale="$(jq -r --arg version "$version" \
+            'select(.scripts.upload and .version != $version) | input_filename' apps/*/package.json)"
+          if [ -n "$stale" ]; then
+            echo "These packages are not at v$version: $stale" >&2
+            exit 1
+          fi
+          apps="$(jq -r 'select(.scripts.upload) | input_filename | split("/")[1]' apps/*/package.json \
+            | jq -R . | jq -cs '{include: map({app: .})}')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "matrix=$apps" >> "$GITHUB_OUTPUT"
+          echo "Publishing v$version: $(echo "$apps" | jq -r '[.include[].app] | join(", ")')" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish ${{ matrix.app }}@${{ needs.plan.outputs.version }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build without credentials so no build step can read the publisher token.
+      - name: Build
+        run: pnpm exec turbo run build --filter="./apps/$TAP_APP"
+        env:
+          TAP_APP: ${{ matrix.app }}
+
+      - name: Archive source maps for this exact build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-diagnostics-${{ needs.plan.outputs.version }}-${{ github.run_id }}
+          path: apps/${{ matrix.app }}/.tap-diagnostics/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Publish to Zephyr Cloud production
+        env:
+          TAP_APP: ${{ matrix.app }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          ZE_CI_TOKEN: ${{ secrets.ZE_CI_TOKEN }}
+          # zephyr-agent's own defaults, pinned so nothing can redirect a release to dev.
+          ZE_API: https://api.zephyr-cloud.io
+          ZE_API_GATE: https://zeapi.zephyrcloud.app
+          ZE_IS_PREVIEW: "false"
+        run: |
+          set -euo pipefail
+          pnpm --silent --filter "./apps/$TAP_APP" run upload --json | tee "$RUNNER_TEMP/publish.log"
+          url="$(grep '^{"command":"publish"' "$RUNNER_TEMP/publish.log" | tail -n 1 | jq -r '.result.deploymentUrl // empty')"
+          if [ -z "$url" ]; then
+            echo "Publication finished without a deployment URL." >&2
+            exit 1
+          fi
+          echo "::notice title=$TAP_APP@$VERSION published::$url"
+          echo "$TAP_APP@$VERSION: $url"
+          {
+            echo "### $TAP_APP@$VERSION"
+            echo
+            echo '```text'
+            echo "$url"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

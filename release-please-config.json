@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.6.0/schemas/config.json",
+  "bootstrap-sha": "8cd7eb1f5ae74cb758c2069cfba55e84dd7666ae",
+  "include-v-in-tag": true,
+  "include-component-in-tag": false,
+  "changelog-type": "default",
+  "always-update": true,
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "revert", "section": "Reverts" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "build", "section": "Build system" },
+    { "type": "ci", "section": "CI" },
+    { "type": "refactor", "section": "Refactors" },
+    { "type": "test", "section": "Tests" },
+    { "type": "chore", "section": "Maintenance" }
+  ],
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "component": "tap-miniapp-examples",
+      "package-name": "tap-miniapp-examples",
+      "extra-files": [
+        { "type": "json", "path": "apps/agent-browser-prototype/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/brainrot-tower-defense/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/engineering-change/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/family-task-board/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/kart-royale/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/personal-health-ledger/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/pyre/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/tap-calendar/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/tap-email/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/unofficial-suno-player/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/vanta-companion/package.json", "jsonpath": "$.version" }
+      ]
+    }
+  }
+}

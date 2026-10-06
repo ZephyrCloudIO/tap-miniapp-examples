@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { assertSingleReactHookRuntime } from "./react-closure.mjs";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const packageRoot = resolve(appRoot, ".tap-build/desktop");
+const packageRoot = resolve(appRoot, "dist");
 const targetRoot = join(packageRoot, "targets/desktop");
 const federationManifest = JSON.parse(
   await readFile(join(targetRoot, "mf-manifest.json"), "utf8"),

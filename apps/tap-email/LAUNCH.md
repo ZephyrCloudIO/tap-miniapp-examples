@@ -136,7 +136,7 @@ Use an approved test mailbox before expanding access:
 After the production smoke test is green, publish the already verified package:
 
 ```bash
-pnpm --filter @tap-examples/tap-email run publish --from .tap-package
+pnpm --filter @tap-examples/tap-email run upload
 ```
 
 Start with an internal cohort. Watch Worker errors, queue failures/dead letters,

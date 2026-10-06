@@ -4,7 +4,7 @@ Public-facing example applications that demonstrate what developers can build wi
 
 ## Workspace
 
-This repository is a [Turborepo](https://turbo.build/repo) monorepo managed with pnpm. Miniapps live under `apps/` and can provide the standard `dev`, `build`, `typecheck`, `test`, and `clean` scripts consumed by the root task pipeline.
+This repository is a [Turborepo](https://turbo.build/repo) monorepo managed with pnpm. Miniapps live under `apps/` and can provide the standard `dev`, `build`, `typecheck`, and `test` scripts consumed by the root task pipeline. `build` runs `tap-miniapp build`, which builds every target, assembles the package into `dist`, and verifies it.
 
 Publishing uses the private `@zephyrcloudio/miniapp-zephyr-publisher` package from GitHub Packages. Configure a user-level GitHub Packages token with `read:packages` before installing dependencies.
 
@@ -17,6 +17,16 @@ pnpm test
 ```
 
 Target a single example with pnpm's workspace filter, such as `pnpm --filter @tap-examples/family-task-board dev`.
+
+## Releases
+
+Every miniapp shares one version, managed by [Release Please](https://github.com/googleapis/release-please) as in `tap-miniapps`. Release Please reads [Conventional Commits](https://www.conventionalcommits.org/), so title pull requests `feat: …`, `fix: …`, `perf: …`, and so on; the squash-merge title becomes the commit it reads. Only `feat`, `fix`, and breaking changes start a release.
+
+1. Each push to `main` updates the `chore(main): release` pull request. It bumps every miniapp's `package.json`, and `pnpm release:sync` carries that version into each TAP manifest, specialist, and skill.
+2. Merging that pull request tags `vX.Y.Z` and dispatches CI for the tagged commit.
+3. CI builds and publishes every miniapp that defines an `upload` script to Zephyr Cloud. Each publish job prints its deployment URL in the log, as an annotation, and in the run summary.
+
+`pnpm release:check` fails when release metadata disagrees with a package version. After a manual version change, run `pnpm release:sync`.
 
 ## SDK versions
 

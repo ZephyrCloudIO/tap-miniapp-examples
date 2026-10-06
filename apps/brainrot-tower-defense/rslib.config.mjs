@@ -3,7 +3,7 @@ import { tapLib, tapLifecycleTarget } from "@theaiplatform/miniapp-sdk/rspack";
 import { rspack } from "@rspack/core";
 
 const lifecycleBuild = Boolean(process.env.TAP_MINIAPP_TARGET);
-const target = process.env.TAP_MINIAPP_TARGET ?? process.env.TAP_PACKAGE_TARGET ?? "desktop";
+const target = process.env.TAP_MINIAPP_TARGET ?? "desktop";
 if (target !== "desktop" && target !== "quickjs") {
   throw new Error(`Unsupported Brainrot Tower Defense target: ${target}`);
 }

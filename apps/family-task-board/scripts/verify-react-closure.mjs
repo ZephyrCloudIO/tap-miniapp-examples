@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const packageRoot = resolve(appRoot, ".tap-build/desktop");
+const packageRoot = resolve(appRoot, "dist");
 const targetRoot = join(packageRoot, "targets/desktop");
 const federationManifest = JSON.parse(
   await readFile(join(targetRoot, "mf-manifest.json"), "utf8"),
