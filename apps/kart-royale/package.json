@@ -1,6 +1,16 @@
 {
   "name": "@tap-examples/kart-royale",
   "version": "0.2.0",
+  "miniappIndex": {
+    "summary": "Procedurally generated kart racer, solo today and channel multiplayer next.",
+    "category": "game",
+    "capabilities": [
+      "games",
+      "racing",
+      "procedural-generation",
+      "channel-multiplayer"
+    ]
+  },
   "private": true,
   "type": "module",
   "exports": {

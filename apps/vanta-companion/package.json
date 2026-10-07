@@ -1,6 +1,15 @@
 {
   "name": "@tap-examples/vanta-companion",
   "version": "0.2.0",
+  "miniappIndex": {
+    "summary": "Governed SOC 2 coordination workspace over authorized Vanta data.",
+    "category": "business",
+    "capabilities": [
+      "soc2",
+      "vanta",
+      "compliance"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {

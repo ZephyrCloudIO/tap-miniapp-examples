@@ -1,6 +1,15 @@
 {
   "name": "@tap-examples/brainrot-tower-defense",
   "version": "0.2.0",
+  "miniappIndex": {
+    "summary": "Cooperative channel tower defense built with Rust and WebAssembly.",
+    "category": "game",
+    "capabilities": [
+      "games",
+      "channel-multiplayer",
+      "rust-wasm"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,6 +1,14 @@
 {
   "name": "@tap-examples/family-task-board",
   "version": "0.2.0",
+  "miniappIndex": {
+    "summary": "Household chores, activities, stars, and family rewards.",
+    "category": "productivity",
+    "capabilities": [
+      "household-tasks",
+      "rewards"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {
