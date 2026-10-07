@@ -1,6 +1,15 @@
 {
   "name": "@tap-examples/personal-health-ledger",
   "version": "0.2.0",
+  "miniappIndex": {
+    "summary": "Private regimen, inventory, administration, and outcomes ledger.",
+    "category": "productivity",
+    "capabilities": [
+      "health-tracking",
+      "private-ledger",
+      "specialist"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {

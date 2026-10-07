@@ -1,6 +1,15 @@
 {
   "name": "@tap-examples/pyre",
   "version": "0.2.0",
+  "miniappIndex": {
+    "summary": "Evidence-driven, blameless incident investigations and reports.",
+    "category": "dev-tool",
+    "capabilities": [
+      "incident-investigation",
+      "postmortem-reports",
+      "specialist"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {

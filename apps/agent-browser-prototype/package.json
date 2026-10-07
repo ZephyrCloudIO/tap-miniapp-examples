@@ -1,6 +1,15 @@
 {
   "name": "@tap-examples/agent-browser-prototype",
   "version": "0.4.0",
+  "miniappIndex": {
+    "summary": "Governed remote browser for live inspection and durable evidence.",
+    "category": "dev-tool",
+    "capabilities": [
+      "remote-browser",
+      "cloudflare-kitesurf",
+      "evidence"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {
