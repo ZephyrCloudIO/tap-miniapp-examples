@@ -30,14 +30,29 @@ export interface TimeGridEventLayout {
   readonly topPercentage: number;
 }
 
-/** Clamp a timed event to the 24-hour wall-clock grid for its starting day. */
-export function timeGridEventLayout(
+export interface TimeGridEventPlacement extends TimeGridEventLayout {
+  /** Zero-based column the event starts in within its overlap cluster. */
+  readonly column: number;
+  /** Columns the event spans, widened into neighbours it does not overlap. */
+  readonly columnSpan: number;
+  /** Columns in the event's overlap cluster. */
+  readonly columnCount: number;
+  /** Too short for stacked title and time lines. */
+  readonly compact: boolean;
+}
+
+interface TimeGridEventMinutes {
+  readonly start: number;
+  readonly end: number;
+}
+
+const visibleEventMinutes = (
   event: Pick<CalendarEvent, "start" | "end">,
-): TimeGridEventLayout {
+): TimeGridEventMinutes => {
   const startDate = new Date(event.start);
   const endDate = new Date(event.end);
   if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) {
-    return { topPercentage: 0, heightPercentage: 0 };
+    return { start: 0, end: 0 };
   }
 
   const startMinute = Math.min(
@@ -66,10 +81,67 @@ export function timeGridEventLayout(
     startMinute,
     CALENDAR_DAY_MINUTES - visualDuration,
   );
-  return {
-    topPercentage: (visualStart / CALENDAR_DAY_MINUTES) * 100,
-    heightPercentage: (visualDuration / CALENDAR_DAY_MINUTES) * 100,
+  return { start: visualStart, end: visualStart + visualDuration };
+};
+
+const layoutFromMinutes = ({ start, end }: TimeGridEventMinutes): TimeGridEventLayout => ({
+  topPercentage: (start / CALENDAR_DAY_MINUTES) * 100,
+  heightPercentage: ((end - start) / CALENDAR_DAY_MINUTES) * 100,
+});
+
+/** Clamp a timed event to the 24-hour wall-clock grid for its starting day. */
+export function timeGridEventLayout(
+  event: Pick<CalendarEvent, "start" | "end">,
+): TimeGridEventLayout {
+  return layoutFromMinutes(visibleEventMinutes(event));
+}
+
+/**
+ * Place one day's timed events side by side. Events whose rendered boxes
+ * overlap, directly or through a chain, form a cluster that shares its width:
+ * each event takes the first free column, then widens to the right across
+ * columns it does not collide with.
+ */
+export function timeGridDayPlacements(
+  events: readonly Pick<CalendarEvent, "id" | "start" | "end">[],
+): ReadonlyMap<string, TimeGridEventPlacement> {
+  const items = events
+    .map(event => ({ id: event.id, ...visibleEventMinutes(event), column: 0 }))
+    .sort((left, right) => left.start - right.start || right.end - left.end || left.id.localeCompare(right.id));
+  const placements = new Map<string, TimeGridEventPlacement>();
+  const overlaps = (left: TimeGridEventMinutes, right: TimeGridEventMinutes) =>
+    left.start < right.end && right.start < left.end;
+  let cluster: typeof items = [];
+  let columnEnds: number[] = [];
+  let clusterEnd = -Infinity;
+  const placeCluster = () => {
+    for (const item of cluster) {
+      let columnSpan = 1;
+      while (
+        item.column + columnSpan < columnEnds.length &&
+        !cluster.some(other => other.column === item.column + columnSpan && overlaps(item, other))
+      ) columnSpan += 1;
+      placements.set(item.id, {
+        ...layoutFromMinutes(item),
+        column: item.column,
+        columnSpan,
+        columnCount: columnEnds.length,
+        compact: item.end - item.start <= MINIMUM_CALENDAR_EVENT_HEIGHT_MINUTES,
+      });
+    }
+    cluster = [];
+    columnEnds = [];
   };
+  for (const item of items) {
+    if (item.start >= clusterEnd) placeCluster();
+    const freeColumn = columnEnds.findIndex(end => end <= item.start);
+    item.column = freeColumn === -1 ? columnEnds.length : freeColumn;
+    columnEnds[item.column] = item.end;
+    cluster.push(item);
+    clusterEnd = Math.max(clusterEnd, item.end);
+  }
+  placeCluster();
+  return placements;
 }
 
 export const timeGridNowPercentage = (now: Date): number =>
