@@ -75,6 +75,7 @@ interface SyncStateRow {
   readonly consecutive_failures: number;
   readonly lease_until: string | null;
   readonly cache_time_max: string | null;
+  readonly rebuild_queued_at: string | null;
 }
 
 const backgroundContext = () => {
@@ -163,12 +164,22 @@ async function connectGoogle(calendars: readonly string[] = ["primary@example.co
       { status: 500 },
     );
   };
+  const rebuildQueue = {
+    messages: [] as unknown[],
+    failSends: false,
+  };
   const oauthEnv = {
     ...env,
     TOKEN_ENCRYPTION_KEY: testEncryptionKey(),
     GOOGLE_CLIENT_ID: "google-client-id",
     GOOGLE_CLIENT_SECRET: "google-client-secret",
     PUBLIC_BASE_URL: "",
+    CALENDAR_REBUILD_QUEUE: {
+      async send(body: unknown) {
+        if (rebuildQueue.failSends) throw new Error("Queue unavailable");
+        rebuildQueue.messages.push(body);
+      },
+    } as unknown as Queue,
   };
   const worker = createCalendarGatewayWorker(providerFetch);
   const started = await worker.fetch(
@@ -212,10 +223,35 @@ async function connectGoogle(calendars: readonly string[] = ["primary@example.co
   const syncCalls = () => eventCalls().filter(url => url.searchParams.has("syncToken"));
   const calendarListCalls = () =>
     calls.filter(url => url.pathname === "/calendar/v3/users/me/calendarList");
+  /** Delivers every queued rebuild to the Worker's queue consumer and drains the queue. */
+  const deliverRebuilds = async () => {
+    const outcomes: string[] = [];
+    const messages = rebuildQueue.messages.splice(0);
+    await worker.queue({
+      queue: "tap-calendar-cache-rebuilds",
+      messages: messages.map((body, index) => ({
+        id: `rebuild-${index}`,
+        timestamp: new Date(),
+        attempts: 1,
+        body,
+        ack() {
+          outcomes.push("ack");
+        },
+        retry() {
+          outcomes.push("retry");
+        },
+      })),
+      ackAll() {},
+      retryAll() {},
+    } as unknown as MessageBatch<unknown>, oauthEnv);
+    return outcomes;
+  };
   return {
     calendarId: calendarIds[0]!,
     calendarIds,
     provider,
+    rebuildQueue,
+    deliverRebuilds,
     query,
     worker,
     oauthEnv,
@@ -719,6 +755,102 @@ describe("calendar cache reads and sync", () => {
     expect((await cacheRows(google.calendarId)).every(row =>
       row.sync_generation === original.active_generation
     )).toBe(true);
+  });
+
+  it("queues background full rebuilds once and runs them in the queue consumer", async () => {
+    const google = await connectGoogle();
+    const snapshotCalls = () => google.eventCalls().filter(url =>
+      !url.searchParams.has("syncToken") && url.searchParams.get("orderBy") !== "startTime"
+    ).length;
+    google.provider.live = () => Response.json({ items: [snapshotEvents[0]] });
+
+    // A cold calendar read in the background is served live while its bootstrap is queued.
+    const first = backgroundContext();
+    expect(await google.query({}, first.ctx)).toMatchObject({
+      source: "live",
+      servedCalendarIds: [google.calendarId],
+      events: [{ title: "Planning" }],
+    });
+    await Promise.all(first.work);
+    expect(google.rebuildQueue.messages).toEqual([{
+      kind: "calendar-cache-rebuild",
+      workspaceId: workspace,
+      principalId: principal,
+      calendarId: google.calendarId,
+    }]);
+    expect(snapshotCalls()).toBe(0);
+    expect(await syncState(google.calendarId)).toMatchObject({
+      cache_revision: 0,
+      lease_until: null,
+      rebuild_queued_at: new Date(testNow).toISOString(),
+    });
+
+    // While it is queued, reads neither queue it again nor rebuild it themselves.
+    const second = backgroundContext();
+    await google.query({}, second.ctx);
+    await Promise.all(second.work);
+    expect(google.rebuildQueue.messages).toHaveLength(1);
+    expect(snapshotCalls()).toBe(0);
+
+    const queued = [...google.rebuildQueue.messages];
+    expect(await google.deliverRebuilds()).toEqual(["ack"]);
+    expect(snapshotCalls()).toBeGreaterThan(0);
+    expect(await syncState(google.calendarId)).toMatchObject({
+      cache_revision: 1,
+      rebuild_queued_at: null,
+      sync_token: "token-1",
+    });
+    const cached = backgroundContext();
+    expect(await google.query({}, cached.ctx)).toMatchObject({
+      source: "cache",
+      events: [{ title: "Planning" }, { title: "Review" }],
+    });
+    await Promise.all(cached.work);
+
+    // A redelivered message for a calendar that was already rebuilt does no work.
+    const callsBeforeRedelivery = google.eventCalls().length;
+    google.rebuildQueue.messages.push(...queued);
+    expect(await google.deliverRebuilds()).toEqual(["ack"]);
+    expect(google.eventCalls()).toHaveLength(callsBeforeRedelivery);
+
+    // An expired token found by a background refresh is cleared and its rebuild queued;
+    // the old cache keeps serving until the consumer replaces it.
+    google.provider.incremental = () =>
+      Response.json({ error: { message: "Sync token is no longer valid" } }, { status: 410 });
+    google.provider.snapshot = () =>
+      Response.json({ items: [snapshotEvents[1]!], nextSyncToken: "token-after-410" });
+    await makeDue(google.calendarId);
+    const expired = backgroundContext();
+    expect(await google.query({}, expired.ctx)).toMatchObject({
+      source: "cache",
+      events: [{ title: "Planning" }, { title: "Review" }],
+    });
+    await Promise.all(expired.work);
+    expect(google.rebuildQueue.messages).toHaveLength(1);
+    expect(await syncState(google.calendarId)).toMatchObject({ sync_token: null });
+    expect(await google.deliverRebuilds()).toEqual(["ack"]);
+    expect(await syncState(google.calendarId)).toMatchObject({
+      sync_token: "token-after-410",
+      rebuild_queued_at: null,
+      cache_revision: 2,
+    });
+  });
+
+  it("rebuilds inline when the rebuild queue refuses a message", async () => {
+    const google = await connectGoogle();
+    google.rebuildQueue.failSends = true;
+    const { work, ctx } = backgroundContext();
+    const result = await google.query({ revalidate: "wait" }, ctx);
+    await Promise.all(work);
+    expect(result).toMatchObject({
+      source: "cache",
+      syncedCalendarIds: [google.calendarId],
+      events: [{ title: "Planning" }, { title: "Review" }],
+    });
+    expect(await syncState(google.calendarId)).toMatchObject({
+      cache_revision: 1,
+      rebuild_queued_at: null,
+    });
   });
 
   it("stamps the owner as active once per interval for cache-repair priority", async () => {

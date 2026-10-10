@@ -1314,18 +1314,52 @@ describe("TAP Calendar local gateway", () => {
     const refreshCallsBeforeRepair = providerCalls.filter(call =>
       call.url.origin === "https://oauth2.googleapis.com" && call.url.pathname === "/token"
     ).length;
+    // Cron hands these never-synced calendars' full rebuilds to the rebuild queue.
+    const rebuildMessages: unknown[] = [];
+    const repairEnv = {
+      ...oauthEnv,
+      CALENDAR_REBUILD_QUEUE: {
+        async send(body: unknown) {
+          rebuildMessages.push(body);
+        },
+      } as unknown as Queue,
+    };
     const scheduledWork: Promise<unknown>[] = [];
     oauthWorker.scheduled({
       cron: "*/5 * * * *",
       scheduledTime: Date.now(),
       noRetry() {},
-    } as unknown as ScheduledController, oauthEnv, {
+    } as unknown as ScheduledController, repairEnv, {
       waitUntil(promise: Promise<unknown>) {
         scheduledWork.push(promise);
       },
     } as unknown as ExecutionContext);
     await Promise.all(scheduledWork);
-    // One cron run now repairs more than the old 20-calendar batch, in parallel.
+    // One cron run now covers more than the old 20-calendar batch.
+    expect(rebuildMessages).toHaveLength(21);
+    expect(
+      await env.CALENDAR_DB.prepare(
+        `SELECT COUNT(*) AS count FROM calendar_sync_state
+          WHERE rebuild_queued_at IS NOT NULL AND lease_until IS NULL AND cache_revision = 0`,
+      ).first<number>("count"),
+    ).toBe(21);
+    const acknowledged: string[] = [];
+    await oauthWorker.queue({
+      queue: "tap-calendar-cache-rebuilds",
+      messages: rebuildMessages.map((body, index) => ({
+        id: `rebuild-${index}`,
+        timestamp: new Date(),
+        attempts: 1,
+        body,
+        ack() {
+          acknowledged.push(`rebuild-${index}`);
+        },
+        retry() {},
+      })),
+      ackAll() {},
+      retryAll() {},
+    } as unknown as MessageBatch<unknown>, repairEnv);
+    expect(acknowledged).toHaveLength(21);
     expect(
       await env.CALENDAR_DB.prepare(
         "SELECT COUNT(*) AS count FROM calendar_sync_state WHERE cache_revision > 0",
@@ -1333,7 +1367,8 @@ describe("TAP Calendar local gateway", () => {
     ).toBe(21);
     expect(
       await env.CALENDAR_DB.prepare(
-        "SELECT COUNT(*) AS count FROM calendar_sync_state WHERE cache_revision = 0 OR lease_until IS NOT NULL",
+        `SELECT COUNT(*) AS count FROM calendar_sync_state
+          WHERE cache_revision = 0 OR lease_until IS NOT NULL OR rebuild_queued_at IS NOT NULL`,
       ).first<number>("count"),
     ).toBe(0);
     expect(providerCalls.filter(call =>

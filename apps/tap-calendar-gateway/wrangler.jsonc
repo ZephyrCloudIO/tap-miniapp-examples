@@ -39,6 +39,19 @@
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
+  // Full cache rebuilds (bootstrap, expired or overflowing sync tokens, coverage refresh)
+  // run here instead of inside a read's waitUntil or the cron's batch.
+  "queues": {
+    "producers": [{ "binding": "CALENDAR_REBUILD_QUEUE", "queue": "tap-calendar-cache-rebuilds" }],
+    "consumers": [
+      {
+        "queue": "tap-calendar-cache-rebuilds",
+        "max_batch_size": 4,
+        "max_batch_timeout": 1,
+        "max_retries": 5
+      }
+    ]
+  },
   "d1_databases": [
     {
       "binding": "CALENDAR_DB",
@@ -101,6 +114,19 @@
       ],
       "triggers": {
         "crons": ["*/5 * * * *"]
+      },
+      "queues": {
+        "producers": [
+          { "binding": "CALENDAR_REBUILD_QUEUE", "queue": "tap-calendar-cache-rebuilds-production" }
+        ],
+        "consumers": [
+          {
+            "queue": "tap-calendar-cache-rebuilds-production",
+            "max_batch_size": 4,
+            "max_batch_timeout": 1,
+            "max_retries": 5
+          }
+        ]
       },
       "d1_databases": [
         {

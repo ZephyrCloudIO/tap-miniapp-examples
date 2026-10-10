@@ -200,6 +200,12 @@ pnpm --filter @tap-examples/tap-calendar-gateway exec wrangler secret put ZOOM_C
 pnpm --filter @tap-examples/tap-calendar-gateway exec wrangler secret put ZOOM_CLIENT_SECRET --env production
 ```
 
+The Worker also consumes and produces the `tap-calendar-cache-rebuilds-production` queue for full cache rebuilds. Create it once before the first deploy that declares it (`wrangler deploy` fails if the queue is missing):
+
+```bash
+pnpm --filter @tap-examples/tap-calendar-gateway exec wrangler queues create tap-calendar-cache-rebuilds-production
+```
+
 Apply the additive Zoom schema before deploying code that reads it, then deploy the Worker:
 
 ```bash
@@ -367,7 +373,7 @@ A sync token is dropped and the calendar rebuilt from a fresh rolling snapshot w
 
 Writes:
 
-- **Full rebuilds** write an inactive generation; D1 switches `active_generation` and increments the monotonic `cache_revision` only after all pages are committed.
+- **Full rebuilds** write an inactive generation; D1 switches `active_generation` and increments the monotonic `cache_revision` only after all pages are committed. Background work (reads served under `waitUntil`, cron, and webhooks) does not rebuild itself: it sends the calendar to the `CALENDAR_REBUILD_QUEUE` queue and marks it `rebuild_queued_at`, so it is queued once per 10 minutes at most. Meanwhile the old cache keeps serving, or the range is read live. The queue consumer rebuilds each calendar with its own time budget and retries. Strict MCP reads, availability confirmation, and callers without a `waitUntil` context still rebuild inline, as does any caller when the queue refuses the message.
 - **Incremental syncs with no changes** update only the sync token and timestamps. No event rows are written, and `cache_revision` does not change.
 - **Incremental syncs with changes** upsert the changed rows into the active generation in place, in one D1 batch with the revision bump. Every statement carries the same lease/revision guard, so the batch applies completely or not at all. A change set larger than one batch is staged under a scratch generation and merged in one batch.
 - **Bookings** stage their event the same way, in place.
@@ -393,7 +399,7 @@ A warm read makes four foreground D1 queries: the legacy-owner check in `princip
 
 The original `events`, `errors`, `truncated`, and `syncedCalendarIds` fields remain. `servedCalendarIds` identifies every complete slice actually returned, while `syncedCalendarIds` identifies only calendars freshly synchronized from a provider during that request. `cache.calendars[]` supplies `calendarId`, `cacheRevision`, effective `freshness`, `coverageTimeMin`, `coverageTimeMax`, `coversRequestedRange`, `lastSuccessAt`, `nextSyncAt`, and the last refresh error. A stale/error cache that still has safe range coverage remains servable and is identified honestly in proof/errors instead of blanking the calendar; a live fallback leaves `coversRequestedRange: false` on the cache proof.
 
-The five-minute cron syncs up to 100 due calendars, six at a time, respecting per-calendar leases and retry backoff. Owners who read their calendars in the last 7 days come first, and failing calendars come first within each group. Calendars with a healthy push watch come due every 6–12 hours (jittered); others every 5 minutes. Foreground reads stamp `calendar_connections.last_read_at` at most every 10 minutes. Apply migration `0026_calendar_sync_recovery.sql` before deploying this gateway: it adds that column and `discovery_attempted_at`, and event reads select them. Within each request or cron invocation, provider authorization is coalesced by workspace/connection so calendars on one account share a single token refresh. Google notifications move only the notified calendar to the front of the repair queue and trigger the same leased incremental-sync path.
+The five-minute cron syncs up to 100 due calendars, six at a time, respecting per-calendar leases and retry backoff. Owners who read their calendars in the last 7 days come first, and failing calendars come first within each group. Calendars with a healthy push watch come due every 6–12 hours (jittered); others every 5 minutes. Foreground reads stamp `calendar_connections.last_read_at` at most every 10 minutes. Apply migration `0026_calendar_sync_recovery.sql` before deploying this gateway: it adds that column, `discovery_attempted_at`, and `calendar_sync_state.rebuild_queued_at`, and event reads select them. Within each request or cron invocation, provider authorization is coalesced by workspace/connection so calendars on one account share a single token refresh. Google notifications move only the notified calendar to the front of the repair queue and trigger the same leased incremental-sync path.
 
 ## Live availability routes
 
