@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@rstest/core";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BookingInsights, BookingVisitSummary, bookingVisitSteps } from "./booking-insights";
+import { BookingInsights, bookingVisitSteps } from "./booking-insights";
 import { emptyPublicBookingMetrics, PUBLIC_BOOKING_ANALYTICS_SCHEMA, type PublicBookingAnalytics } from "./public-booking-analytics";
 
 // Historical bookings predate all four tracked visits (the reported production case).
@@ -22,19 +22,12 @@ describe("booking insights reporting periods", () => {
     expect(html).toContain("All-time bookings");
     expect(html).toContain("12 total requests");
     expect(html).toContain("all-time conversion rate is unavailable");
-    const card = renderToStaticMarkup(<BookingVisitSummary metrics={metrics} snapshot={snapshot} />);
-    expect(card).toContain("<dt>Booked visits</dt><dd>0</dd>");
-    expect(card).not.toContain("11");
-    expect(card).not.toContain("12");
   });
 
   it("keeps different traffic and conversion periods separate", () => {
     const laterCoverage = { ...snapshot, conversionSince: "2026-09-26T00:00:00.000Z" };
     const differentCohorts = { ...metrics, views: 100, slotViews: 40, starts: 20, convertedVisits: 1 };
     expect(bookingVisitSteps(differentCohorts, laterCoverage).map(step => step.count)).toEqual([100, 40, 20]);
-    const card = renderToStaticMarkup(<BookingVisitSummary metrics={differentCohorts} snapshot={laterCoverage} />);
-    expect(card).toContain("<dt>Page visits</dt><dd>4</dd>");
-    expect(card).toContain("25.0%");
   });
 
   it("distinguishes unavailable data, no visits, and measured zero conversion", () => {

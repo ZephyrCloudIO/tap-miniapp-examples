@@ -25,6 +25,8 @@ export type {
 export const DEFAULT_LOCAL_CALENDAR_GATEWAY_URL = "http://127.0.0.1:8787";
 export const PRODUCTION_CALENDAR_GATEWAY_ORIGIN =
   "https://calendar-api.theaiplatform.app";
+// Month and agenda ranges routinely exceed 1 MiB; this matches the host default.
+const CALENDAR_GATEWAY_RESPONSE_LIMIT_BYTES = 5 * 1_048_576;
 
 const PLATFORM_SESSION_CREDENTIAL_REF = "platform-session";
 
@@ -706,6 +708,18 @@ export function isCalendarGatewayEventQueryResult(
   );
 }
 
+/**
+ * Accepts a valid envelope and drops only the events that fail validation, so
+ * one malformed provider event cannot blank an entire calendar range.
+ */
+export function parseCalendarGatewayEventQueryResult(
+  value: unknown,
+): CalendarGatewayEventQueryResult | null {
+  if (!isRecord(value) || !Array.isArray(value.events)) return null;
+  const candidate = { ...value, events: value.events.filter(isGatewayCalendarEvent) };
+  return isCalendarGatewayEventQueryResult(candidate) ? candidate : null;
+}
+
 export function isCalendarGatewayAvailabilityConfirmation(
   value: unknown,
 ): value is CalendarGatewayAvailabilityConfirmation {
@@ -886,7 +900,7 @@ export function createTapCalendarGatewayTransport(
       headers: input.headers.map(header => ({ ...header })),
       body: input.body,
       timeoutMs: 30_000,
-      responseBodyLimitBytes: 1_048_576,
+      responseBodyLimitBytes: CALENDAR_GATEWAY_RESPONSE_LIMIT_BYTES,
       followRedirects: false,
     } as const;
     const response = new URL(url).origin === PRODUCTION_CALENDAR_GATEWAY_ORIGIN
@@ -1072,8 +1086,10 @@ export function calendarGatewayEventWindow(
   let start = anchor;
   let end: Date;
   if (view === "month") {
-    start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
-    end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 1));
+    // Match the six-week month grid, which starts on the Sunday on or before the 1st.
+    const firstOfMonth = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
+    start = addUtcDays(firstOfMonth, -firstOfMonth.getUTCDay());
+    end = addUtcDays(start, 42);
   } else if (view === "week" || view === "work-week") {
     start = startOfUtcWeek(anchor);
     end = addUtcDays(start, 7);
@@ -1401,14 +1417,15 @@ export function createCalendarGatewayClient(input: {
         calendarIds: [...value.calendarIds],
         ...(value.revalidate ? { revalidate: value.revalidate } : {}),
       });
-      if (!isCalendarGatewayEventQueryResult(result)) {
+      const parsed = parseCalendarGatewayEventQueryResult(result);
+      if (!parsed) {
         throw new CalendarGatewayError(
           502,
           "gateway_response_invalid",
           "The Calendar gateway returned an invalid event query response.",
         );
       }
-      return result;
+      return parsed;
     },
     async confirmAvailability(value) {
       const result = await request<unknown>("POST", "/v1/availability/confirm", {

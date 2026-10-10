@@ -14,7 +14,7 @@ import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-b
 
 import { CalendarMcpPanel, useCalendarMcpSync } from "./calendar-mcp-panel";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
-import { analyticsDate, BookingInsights, BookingVisitSummary } from "./booking-insights";
+import { analyticsDate, BookingInsights } from "./booking-insights";
 import { applyPublicBookingAnalytics, publicBookingPageMetrics, publicBookingConversion, type PublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
 import type { TapFederatedSurfaceMountContext } from "@theaiplatform/miniapp-sdk/surface";
@@ -37,9 +37,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  BarChart3,
   Bell,
-  Bot,
   CalendarCheck2,
   CalendarClock,
   CalendarDays,
@@ -48,14 +46,12 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  CircleUserRound,
   Clock3,
   Cloud,
   Copy,
   ExternalLink,
   Eye,
   EyeOff,
-  GitBranch,
   Globe2,
   Link2,
   ListFilter,
@@ -64,9 +60,7 @@ import {
   MessageSquareText,
   Minus,
   MoreHorizontal,
-  MousePointerClick,
   Plus,
-  Pencil,
   Radio,
   RefreshCw,
   Settings2,
@@ -79,7 +73,6 @@ import {
   Video,
   Workflow,
   X,
-  Zap,
 } from "lucide-react";
 import {
   createContext,
@@ -93,6 +86,9 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { AutomationsScreen } from "./automations-screen";
+import { ProfileMenu } from "./profile-menu";
+import "./booking-pages.css";
 import { CalendarBoard } from "./calendar-board";
 import { CalendarContextMenu } from "./calendar-context-menu";
 import { copyTextToClipboard } from "./clipboard";
@@ -973,6 +969,9 @@ const navigation = [
   { id: "settings", label: "Settings", icon: Settings2 },
 ] as const;
 
+const CALENDAR_SETTINGS_REFRESH_INTERVAL_MS = 3 * 60_000;
+const CALENDAR_SETTINGS_FOCUS_REFRESH_MS = 20_000;
+
 const sectionCopy: Readonly<Record<Section, { title: string; description: string }>> = {
   calendar: {
     title: "Calendar",
@@ -984,11 +983,11 @@ const sectionCopy: Readonly<Record<Section, { title: string; description: string
   },
   "booking-pages": {
     title: "Booking pages",
-    description: "Publish accountless scheduling at cal.with-tap.ai and understand conversion.",
+    description: "Links people use to book time with you, and how they perform.",
   },
   automations: {
-    title: "Automations & tools",
-    description: "Use TAP workflow nodes and specialist-safe calendar tools.",
+    title: "Automations",
+    description: "Connect assistants and workflows to your calendar.",
   },
   settings: {
     title: "Calendar settings",
@@ -1305,6 +1304,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
     [context],
   );
   const [state, setState] = useState<CalendarState | null>(null);
+  const [settingsReady, setSettingsReady] = useState(false);
   const stateRef = useRef<CalendarState | null>(null);
   const revisionRef = useRef<number | null>(null);
   const workspaceContentRef = useRef<HTMLDivElement>(null);
@@ -1427,8 +1427,9 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
     calendarWork.current = pending;
     return pending;
   }, []);
-  const calendarActivitySync = useCalendarActivitySync(calendarGateway, context?.workspaceId, state, !preview);
-  const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview);
+  // Background syncs wait for shared settings so they never act on a pre-reconcile state.
+  const calendarActivitySync = useCalendarActivitySync(calendarGateway, context?.workspaceId, state, !preview && settingsReady);
+  const calendarMcpSync = useCalendarMcpSync(calendarGateway, state, revisionRef.current, !preview && settingsReady);
   const bookingAnalytics = usePublicBookingAnalytics(
     calendarGateway, !preview && state !== null && section === "booking-pages",
   );
@@ -1746,16 +1747,37 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
 
   useEffect(() => {
     let cancelled = false;
+    let painted = false;
+    setSettingsReady(false);
+    let refreshQueued = false;
+    let lastRefreshAt = 0;
     const shared = preview ? null : new SharedState({
       read: () => calendarGateway.readSettings(), write: value => calendarGateway.writeSettings(value),
     }, replicaStore(sdk.storage, { namespace: 'tap-calendar', key: `users/${calendarPrincipalId}/shared-state/v1` }));
     sharedCalendarRef.current = shared;
-    const refresh = () => { void queueCalendarWork(async () => {
+    const publish = (next: CalendarState, revision: number | null) => {
+      revisionRef.current = revision;
+      // Most refreshes find nothing new; keep the same object so the tree does not re-render.
+      if (stateRef.current && equal(stateRef.current, next)) return;
+      stateRef.current = next; setState(next);
+    };
+    const refresh = () => {
+      // Coalesce triggers: at most one refresh waits in the queue ahead of user edits.
+      if (refreshQueued) return;
+      refreshQueued = true;
+      void queueCalendarWork(async () => {
+      refreshQueued = false;
+      lastRefreshAt = Date.now();
       await requireCalendarMountAuthority(context, preview);
       const loaded = await loadCalendarState(preview, calendarPrincipalId);
       if (cancelled) return;
       let next = loaded.state;
       let revision = loaded.revision;
+      // Paint saved calendars before the network round trips. Edits stay queued
+      // behind this refresh, so none can run before shared settings load. A device
+      // with no saved accounts still waits, so it never offers to reconnect
+      // accounts the cloud already has.
+      if (!painted && next.accounts.length > 0) { painted = true; publish(next, revision); }
       try {
         if (shared) {
           const [document, connections] = await Promise.all([
@@ -1766,23 +1788,31 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
           if (!equal(next, loaded.state)) revision = await saveCalendarState(next, false, revision, calendarPrincipalId);
         }
         if (cancelled) return;
-        stateRef.current = next; revisionRef.current = revision; setState(next); setError(null);
+        painted = true; publish(next, revision); setSettingsReady(true); setError(null);
       } catch (cause) {
         // Keep existing offline data visible, but never infer a new account from
         // a failed cloud read. The focus/online/timer paths retry the journal.
         if (!cancelled) {
-          if (next.accounts.length) { stateRef.current = next; revisionRef.current = revision; setState(next); }
+          if (next.accounts.length) { painted = true; publish(next, revision); }
           setError(`Calendar sync is pending: ${cause instanceof Error ? cause.message : String(cause)}`);
         }
       }
-    }).catch(cause => { if (!cancelled) setError(String(cause)); }); };
+      }).catch(cause => { if (!cancelled) setError(String(cause)); });
+    };
     refresh();
-    const timer = window.setInterval(refresh, 30_000);
-    window.addEventListener('focus', refresh); window.addEventListener('online', refresh);
+    // Same-device changes arrive through CALENDAR_CHANGED_SUBSCRIPTION; this
+    // poll only picks up other devices, so it runs rarely and only while visible.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh();
+    }, CALENDAR_SETTINGS_REFRESH_INTERVAL_MS);
+    const refreshOnFocus = () => {
+      if (Date.now() - lastRefreshAt >= CALENDAR_SETTINGS_FOCUS_REFRESH_MS) refresh();
+    };
+    window.addEventListener('focus', refreshOnFocus); window.addEventListener('online', refresh);
     return () => {
       cancelled = true; shared?.dispose();
       if (sharedCalendarRef.current === shared) sharedCalendarRef.current = null;
-      window.clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh);
+      window.clearInterval(timer); window.removeEventListener('focus', refreshOnFocus); window.removeEventListener('online', refresh);
     };
   }, [calendarGateway, calendarPrincipalId, context, preview, queueCalendarWork]);
 
@@ -2487,6 +2517,9 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
     calendarIds: publicConflictCalendarIds,
     view: "month",
     anchorDate: publicAvailabilityAnchorDate,
+    // Only a public booking preview reads this cache, and its conflict checks need fresh provider data.
+    enabled: publicConflictCalendarIds.length > 0,
+    revalidate: "wait",
   });
   const eventSyncState = providerEventCache.syncState;
 
@@ -2935,7 +2968,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
             }}
           />
         ) : (
-          <RailContext section={section} state={bookingAnalyticsState!} snapshot={bookingAnalytics.data} analyticsAvailable={bookingAnalyticsAvailable} />
+          <RailContext section={section} state={state} />
         )}
         <button
           className={`rail-status status-${eventSyncState.status}`}
@@ -2981,7 +3014,13 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
           <div className="header-actions">
             <button className="secondary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setWorkBlockOpen(true)}><SquareCheckBig /> Block task</button>
             <button className="primary-button" type="button" disabled={!writableDestination} title={writableDestination ? undefined : "Authorize a writable Google Destination Calendar first."} onClick={() => setScheduleStart("")}><Plus /> Schedule</button>
-            <button className="avatar-button" type="button" aria-label="Open profile menu" disabled title="Profile actions are provided by the TAP host."><CircleUserRound /></button>
+            <ProfileMenu
+              accounts={state.accounts}
+              refreshing={eventSyncState.status === "syncing"}
+              onOpenSettings={() => navigate("settings")}
+              onConnectCalendar={() => setConnectionTarget({ kind: "account" })}
+              onRefresh={providerEventCache.refresh}
+            />
           </div>
         </header>}
 
@@ -2989,14 +3028,6 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
           <div className="error-banner" role="alert"><AlertTriangle /><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X /></button></div>
         ) : null}
 
-        {section === "booking-pages" && !preview ? (
-          <div className="analytics-status" role={bookingAnalytics.error ? "alert" : "status"}>
-            <span>{bookingAnalytics.error
-              ? `${bookingAnalytics.error}${bookingAnalytics.data ? ` Showing totals from ${new Date(bookingAnalytics.data.generatedAt).toLocaleString()}.` : ""}`
-              : bookingAnalytics.loading ? "Refreshing booking analytics…" : bookingAnalytics.data ? `Updated ${new Date(bookingAnalytics.data.generatedAt).toLocaleString()}. Refreshes every minute.` : "Waiting for public booking analytics…"}</span>
-            <button type="button" className="text-button" disabled={bookingAnalytics.loading} onClick={bookingAnalytics.refresh}>Refresh analytics</button>
-          </div>
-        ) : null}
         <div className="workspace-content" ref={workspaceContentRef}>
           {section === "calendar" ? (
             <CalendarScreen
@@ -3018,7 +3049,6 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
           {section === "availability" ? (
             <AvailabilityScreen state={state} commit={commit} />
           ) : null}
-          {section === "booking-pages" && !preview ? <WorkspaceBookingPanel loadMembers={loadWorkspaceMembers} gateway={calendarGateway} state={state} authorize={action => requireCalendarAuthority(context, false, action)} /> : null}
           {section === "booking-pages" ? (
             <BookingPagesScreen
               state={state}
@@ -3026,6 +3056,8 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
               snapshot={bookingAnalytics.data}
               analyticsAvailable={bookingAnalyticsAvailable}
               liveAnalytics={!preview}
+              analyticsStatus={preview ? undefined : { loading: bookingAnalytics.loading, error: bookingAnalytics.error, refresh: bookingAnalytics.refresh }}
+              workspacePanel={preview ? null : <WorkspaceBookingPanel loadMembers={loadWorkspaceMembers} gateway={calendarGateway} state={state} authorize={action => requireCalendarAuthority(context, false, action)} />}
               commit={commit}
               onNavigate={navigate}
               zoomConnected={zoomConnected}
@@ -3062,7 +3094,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
               announce={announce}
             />
           ) : null}
-          {section === "automations" ? <AutomationsScreen state={state} specialistPanel={<CalendarMcpPanel activityError={calendarActivitySync.error} gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
+          {section === "automations" ? <AutomationsScreen state={state} assistantPanel={<CalendarMcpPanel activityError={calendarActivitySync.error} gateway={calendarGateway} configuration={calendarMcpSync} preview={preview} authorize={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)} />} /> : null}
           {section === "settings" ? (
             <SettingsScreen
               state={state}
@@ -3393,25 +3425,14 @@ function CalendarList({
   );
 }
 
-function RailContext({ section, state, snapshot, analyticsAvailable }: { readonly section: Section; readonly state: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean }) {
+function RailContext({ section, state }: { readonly section: Section; readonly state: CalendarState }) {
   const activeSchedule = state.availability.find(
     item => item.id === state.activeAvailabilityId,
   );
-  const confirmedBookings = snapshot?.totals.confirmed ?? state.bookingProfiles
-    .flatMap(profile => profile.eventTypes)
-    .reduce((total, eventType) => total + eventType.analytics.confirmed, 0);
-  const content: Readonly<Record<Exclude<Section, "calendar">, { label: string; value: string; icon: ReactNode }[]>> = {
+  const content: Readonly<Partial<Record<Section, { label: string; value: string; icon: ReactNode }[]>>> = {
     availability: [
       { label: "Active schedule", value: activeSchedule?.name ?? "Not configured", icon: <Clock3 /> },
       { label: "Time zone", value: activeSchedule?.timezone ?? "Not configured", icon: <Globe2 /> },
-    ],
-    "booking-pages": [
-      { label: "Published profiles", value: String(state.bookingProfiles.filter(profile => profile.published).length), icon: <Globe2 /> },
-      { label: "Confirmed bookings", value: analyticsAvailable ? String(confirmedBookings) : "—", icon: <CheckCircle2 /> },
-    ],
-    automations: [
-      { label: "Workflow nodes", value: String(state.workflowNodes.length), icon: <Workflow /> },
-      { label: "Live specialist tools", value: "8", icon: <Bot /> },
     ],
     settings: [
       { label: "Pending approvals", value: String(state.bookingRequests.filter(isActivePendingRequest).length), icon: <Bell /> },
@@ -3419,11 +3440,12 @@ function RailContext({ section, state, snapshot, analyticsAvailable }: { readonl
       { label: "Visible calendars", value: String(allCalendars(state).filter(calendar => calendar.visible).length), icon: <Eye /> },
     ],
   };
-  if (section === "calendar") return null;
+  const items = content[section];
+  if (!items) return <div className="rail-context" aria-hidden="true" />;
   return (
     <div className="rail-context">
       <span className="eyebrow">At a glance</span>
-      {content[section].map(item => (
+      {items.map(item => (
         <div key={item.label}><span>{item.icon}</span><p><small>{item.label}</small><strong>{item.value}</strong></p></div>
       ))}
     </div>
@@ -3431,10 +3453,10 @@ function RailContext({ section, state, snapshot, analyticsAvailable }: { readonl
 }
 
 function CalendarEventSyncStatus({
-  hasCalendars,
+  calendars,
   syncState,
 }: {
-  readonly hasCalendars: boolean;
+  readonly calendars: readonly ConnectedCalendar[];
   readonly syncState: ProviderEventSyncState;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -3442,7 +3464,9 @@ function CalendarEventSyncStatus({
     const interval = globalThis.setInterval(() => setNow(Date.now()), 60_000);
     return () => globalThis.clearInterval(interval);
   }, []);
-  if (!hasCalendars) return null;
+  if (!calendars.some(calendar => calendar.visible)) return null;
+  const failedNames = syncState.failedCalendarIds.map(calendarId =>
+    calendars.find(calendar => calendar.id === calendarId)?.name ?? "A calendar");
 
   const age = syncState.syncedAt
     ? calendarEventAgeLabel(syncState.syncedAt, now)
@@ -3457,10 +3481,12 @@ function CalendarEventSyncStatus({
       }
     : syncState.status === "partial"
       ? {
-          label: age
-            ? `Some calendars cached · oldest ${age}`
-            : "Some calendars need attention",
+          // Name the failing calendar; the rest of the view is current.
+          label: failedNames.length === 1
+            ? `“${failedNames[0]}” isn’t updating`
+            : `${failedNames.length} calendars aren’t updating`,
           tone: "pending",
+          title: `Not updating: ${failedNames.join(", ")}. Your other calendars are current. Reconnect or hide these calendars in Settings.`,
         }
       : syncState.status === "syncing"
         ? {
@@ -3475,12 +3501,12 @@ function CalendarEventSyncStatus({
 
   return (
     <span
-      className={`status-chip status-${indicator.tone}`}
+      className={`status-chip calendar-sync-chip status-${indicator.tone}`}
       role="status"
-      title="Calendar events render from the local cache while updates continue in the background."
+      title={"title" in indicator ? indicator.title : "Calendar events render from the local cache while updates continue in the background."}
     >
       <Clock3 aria-hidden="true" />
-      {indicator.label}
+      <span>{indicator.label}</span>
     </span>
   );
 }
@@ -3599,7 +3625,7 @@ function CalendarScreen({
           <h2 aria-atomic="true" aria-live="polite">{calendarRangeLabel(state.activeView, anchorDate)}</h2>
         </div>
         <CalendarEventSyncStatus
-          hasCalendars={allCalendars(state).some(calendar => calendar.visible)}
+          calendars={allCalendars(state)}
           syncState={eventSyncState}
         />
         <div className="view-switcher" aria-label="Calendar view">
@@ -4525,7 +4551,65 @@ function AvailabilityOverrideDialog({
   );
 }
 
-export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailable, liveAnalytics, commit, onNavigate, onSyncPublication, onRenameProfile, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly analyticsState: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onRenameProfile?: (profile: BookingProfile, slug: string) => Promise<BookingProfile>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
+interface BookingAnalyticsStatus {
+  readonly loading: boolean;
+  readonly error: string | null;
+  readonly refresh: () => void;
+}
+
+const profileInitials = (displayName: string): string =>
+  displayName.trim().split(/\s+/).slice(0, 2).map(word => word[0]?.toUpperCase() ?? "").join("") || "?";
+
+function BookingOverview({ snapshot, confirmed, analyticsAvailable, liveAnalytics, status, onReviewApprovals }: {
+  readonly snapshot: PublicBookingAnalytics | null;
+  readonly confirmed: number;
+  readonly analyticsAvailable: boolean;
+  readonly liveAnalytics: boolean;
+  readonly status?: BookingAnalyticsStatus | undefined;
+  readonly onReviewApprovals: () => void;
+}) {
+  const count = (value: number | undefined) => snapshot && value !== undefined ? value.toLocaleString() : "—";
+  const pending = snapshot?.totals.pending ?? 0;
+  const updated = snapshot ? new Date(snapshot.generatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
+  const meta = !liveAnalytics
+    ? "Preview activity. Open Calendar in TAP for live analytics."
+    : status?.error
+      ? `${status.error}${updated ? ` Showing totals from ${updated}.` : ""}`
+      : status?.loading && !snapshot
+        ? "Loading analytics…"
+        : snapshot
+          ? `Visits since ${analyticsDate(snapshot.conversionSince)} · Updated ${updated}`
+          : "Waiting for analytics…";
+  return (
+    <section className="booking-overview" aria-label="Booking activity">
+      <dl className="booking-overview-stats">
+        <div><dt>Page visits</dt><dd>{count(snapshot?.totals.conversionViews)}</dd></div>
+        <div>
+          <dt>Booked visits</dt>
+          <dd>{count(snapshot?.totals.convertedVisits)}{snapshot ? <small>{publicBookingConversion(snapshot.totals)} conversion</small> : null}</dd>
+        </div>
+        <div><dt>Confirmed bookings</dt><dd>{analyticsAvailable ? confirmed.toLocaleString() : "—"}</dd></div>
+        {liveAnalytics ? <div><dt>Cancelled</dt><dd>{count(snapshot?.totals.cancelled)}</dd></div> : null}
+        {liveAnalytics ? (
+          <div className={pending > 0 ? "needs-attention" : undefined}>
+            <dt>Awaiting approval</dt>
+            <dd>{count(snapshot?.totals.pending)}{pending > 0 ? <button type="button" className="text-button" onClick={onReviewApprovals}>Review <ArrowRight aria-hidden="true" /></button> : null}</dd>
+          </div>
+        ) : null}
+      </dl>
+      <div className="booking-overview-meta" role={status?.error ? "alert" : "status"}>
+        <span>{meta}</span>
+        {liveAnalytics && status ? (
+          <button type="button" className="icon-button" aria-label="Refresh analytics" title="Refresh analytics" disabled={status.loading} onClick={status.refresh}>
+            <RefreshCw aria-hidden="true" className={status.loading ? "is-spinning" : undefined} />
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsAvailable, liveAnalytics, analyticsStatus, workspacePanel, commit, onNavigate, onSyncPublication, onRenameProfile, onPreview, announce, zoomConnected }: { readonly state: CalendarState; readonly analyticsState: CalendarState; readonly snapshot: PublicBookingAnalytics | null; readonly analyticsAvailable: boolean; readonly liveAnalytics: boolean; readonly analyticsStatus?: BookingAnalyticsStatus | undefined; readonly workspacePanel?: ReactNode; readonly commit: CommitCalendarState; readonly onNavigate: (section: Section) => void; readonly onSyncPublication: (profileId: string) => Promise<boolean>; readonly onRenameProfile?: (profile: BookingProfile, slug: string) => Promise<BookingProfile>; readonly onPreview: (profileId: string, eventTypeId: string) => void; readonly announce: (message: string) => void; readonly zoomConnected: boolean }) {
   const [profileEditor, setProfileEditor] = useState<BookingProfile | "new" | null>(null);
   const [eventTypeEditor, setEventTypeEditor] = useState<{ profileId: string; eventTypeId?: string } | null>(null);
   const [pageOperationId, setPageOperationId] = useState<string | null>(null);
@@ -4744,27 +4828,30 @@ export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsA
       setPublishingProfileId(current => current === profile.id ? null : current);
     }
   }, [commit, onSyncPublication, publishingProfileId]);
+  const copyProfileUrl = async (profileSlug: string): Promise<void> => {
+    try {
+      await copyTextToClipboard(`https://cal.with-tap.ai/${profileSlug}`);
+      announce("Profile link copied.");
+    } catch {
+      announce("TAP couldn’t copy the profile link. Select the URL and copy it manually.");
+    }
+  };
   return (
-    <div className="content-stack">
-      <section className="summary-grid">
-        <MetricCard icon={<Eye />} label="Page visits" value={snapshot ? snapshot.totals.conversionViews.toLocaleString() : "—"} detail={snapshot ? `Since ${analyticsDate(snapshot.conversionSince)}` : "Waiting for public tracking data"} tone="blue" />
-        <MetricCard icon={<MousePointerClick />} label="Booked visits" value={snapshot ? snapshot.totals.convertedVisits.toLocaleString() : "—"} detail={snapshot ? `Visits that led to a booking since ${analyticsDate(snapshot.conversionSince)}` : "Waiting for matched visit and booking data"} tone="violet" />
-        <MetricCard icon={<BarChart3 />} label="Visit conversion" value={snapshot ? publicBookingConversion(snapshot.totals) : "—"} detail={snapshot ? snapshot.totals.conversionViews === 0 ? "No visits recorded yet" : `${snapshot.totals.convertedVisits.toLocaleString()} of ${snapshot.totals.conversionViews.toLocaleString()} visits since ${analyticsDate(snapshot.conversionSince)}` : "Waiting for public tracking data"} tone="blue" />
-        <MetricCard icon={<CalendarCheck2 />} label="Confirmed bookings" value={analyticsAvailable ? totals.confirmed.toLocaleString() : "—"} detail={liveAnalytics ? "All time · currently confirmed" : "Local preview activity"} tone="green" />
-      </section>
-      {liveAnalytics ? <div className="booking-metric-breakdown" aria-label="Booking status totals">
-        <span>Lifetime confirmations <strong>{snapshot?.totals.lifetimeConfirmed.toLocaleString() ?? "—"}</strong></span>
-        <span>Cancelled <strong>{snapshot?.totals.cancelled.toLocaleString() ?? "—"}</strong></span>
-        <span>Awaiting approval <strong>{snapshot?.totals.pending.toLocaleString() ?? "—"}</strong></span>
-        <span>Live booking pages <strong>{liveEventPageCount.toLocaleString()}</strong></span>
-      </div> : null}
-      <div className="section-heading"><div><span className="eyebrow">Public scheduling</span><h2>Booking Profiles & Event Types</h2><p>Public booking v1 supports individual profiles with globally reserved slugs.</p></div><button type="button" className="primary-button" onClick={() => setProfileEditor("new")}><Plus /> New Booking Profile</button></div>
+    <div className="booking-pages">
+      <BookingOverview
+        snapshot={snapshot}
+        confirmed={totals.confirmed}
+        analyticsAvailable={analyticsAvailable}
+        liveAnalytics={liveAnalytics}
+        status={analyticsStatus}
+        onReviewApprovals={() => onNavigate("settings")}
+      />
       {state.bookingProfiles.length === 0 ? (
         <ProductEmptyState
           icon={<Globe2 />}
-          title="Create your first booking page"
-          description="Start with a profile slug, then add Event Types after a writable Destination Calendar is connected."
-          action={<button type="button" className="primary-button" onClick={() => setProfileEditor("new")}><Plus /> New Booking Profile</button>}
+          title="Create your booking page"
+          description="Claim a link like cal.with-tap.ai/your-name, then add the meetings people can book."
+          action={<button type="button" className="primary-button" onClick={() => setProfileEditor("new")}><Plus /> New booking profile</button>}
         />
       ) : null}
       {state.bookingProfiles.map(profile => {
@@ -4801,19 +4888,35 @@ export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsA
             : publicationState.liveStatus === "unpublished"
               ? "Unpublished"
               : "Draft";
+        const profileUrl = `cal.with-tap.ai/${profile.slug}`;
         return (
-        <section className="profile-panel panel" key={profile.id}>
-          <header className="profile-header">
-            <div className="profile-identity"><span>{profile.displayName.split(" ").map(word => word[0]).join("")}</span><div><span className="eyebrow">{profile.ownerType} booking profile</span><h2>{profile.displayName}</h2><p>cal.with-tap.ai/<strong>{profile.slug}</strong></p></div></div>
-            <div className="profile-actions">
-              <span className={serverPublished && !publicationState.pending ? "published-badge" : "status-chip status-pending"}><span /> {statusLabel}</span>
+        <section className="booking-profile" key={profile.id} aria-labelledby={`booking-profile-${profile.id}`}>
+          <header className="booking-profile-header">
+            <div className="booking-profile-identity">
+              <span className="booking-avatar" aria-hidden="true">{profileInitials(profile.displayName)}</span>
+              <div>
+                <div className="booking-profile-title">
+                  <h2 id={`booking-profile-${profile.id}`}>{profile.displayName}</h2>
+                  <span className={`status-chip ${serverPublished && !publicationState.pending ? "status-confirmed" : "status-pending"}`}>{statusLabel}</span>
+                </div>
+                <p className="booking-profile-link">
+                  {serverPublished
+                    ? <a href={`https://${profileUrl}`} target="_blank" rel="noreferrer">{profileUrl}</a>
+                    : <span>{profileUrl}</span>}
+                  {serverPublished ? (
+                    <button type="button" className="booking-inline-icon" aria-label={`Copy link to ${profile.displayName}`} title="Copy link" onClick={() => void copyProfileUrl(profile.slug)}><Copy aria-hidden="true" /></button>
+                  ) : null}
+                </p>
+              </div>
+            </div>
+            <div className="booking-profile-actions">
               {isUnpublishing ? (
-                <button type="button" className="secondary-button" onClick={() => void onSyncPublication(profile.id)}>
-                  <RefreshCw /> Retry unpublish
+                <button type="button" className="secondary-button is-compact" onClick={() => void onSyncPublication(profile.id)}>
+                  <RefreshCw aria-hidden="true" /> Retry unpublish
                 </button>
               ) : null}
-              <button type="button" className="secondary-button" onClick={() => setProfileEditor(profile)}><Settings2 /> Profile settings</button>
-              <button type="button" className="primary-button" title={eventTypeCreationHint} aria-describedby={!canCreateEventType && profile.eventTypes.length === 0 ? `event-type-guidance-${profile.id}` : undefined} onClick={() => setEventTypeEditor({ profileId: profile.id })}><Plus /> New Event Type</button>
+              <button type="button" className="secondary-button is-compact" onClick={() => setProfileEditor(profile)}><Settings2 aria-hidden="true" /> Profile settings</button>
+              <button type="button" className="primary-button is-compact" title={eventTypeCreationHint} aria-describedby={!canCreateEventType && profile.eventTypes.length === 0 ? `event-type-guidance-${profile.id}` : undefined} onClick={() => setEventTypeEditor({ profileId: profile.id })}><Plus aria-hidden="true" /> New event type</button>
             </div>
           </header>
           {publicationNeedsAction ? (
@@ -4831,17 +4934,17 @@ export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsA
                       : serverPublished
                         ? "Your latest booking page changes are not live yet."
                         : activeEventTypes.length === 0
-                          ? `Claim cal.with-tap.ai/${profile.slug} now. You can add Event Types later.`
-                          : "Your active Event Types are ready, but their booking pages are not live yet."}
+                          ? `Claim ${profileUrl} now. You can add event types later.`
+                          : "Your event types are ready, but their booking pages are not live yet."}
                   </AlertTitle>
                   <AlertDescription>
                     {publicationError
                       ? publicationError
                       : serverPublished
-                        ? "Publish changes to update every active Event Type in this profile."
+                        ? "Publish changes to update every active event type in this profile."
                         : activeEventTypes.length === 0
                           ? "This reserves your public profile URL before you are ready to accept bookings."
-                          : "Publishing makes every active Event Type in this profile public."}
+                          : "Publishing makes every active event type in this profile public."}
                   </AlertDescription>
                 </div>
                 <Button
@@ -4860,44 +4963,88 @@ export function BookingPagesScreen({ state, analyticsState, snapshot, analyticsA
               </div>
             </Alert>
           ) : null}
-          <div className="event-type-grid">
-            {profile.eventTypes.map(eventType => {
-              const publicMetrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
-              const pageIsLive = isEventTypePublicationLive(profile, eventType);
-              const eventTypeStatus = pageIsLive
-                ? !eventType.active ? "Offline pending" : pageErrors[eventType.id]?.retrySync || pageOperationId === eventType.id ? "Update pending" : "Live"
-                : !eventType.active ? "Offline" : "Not live";
-              const pageBusy = pageOperationId === eventType.id || isPublishing;
-              const pageActionsDisabled = pageOperationId !== null || publishingProfileId !== null;
-              const pageError = pageErrors[eventType.id];
-              return (
-              <article className="event-type-card" key={eventType.id} style={{ "--event-type-color": eventType.color } as React.CSSProperties}>
-                <div className="event-type-stripe" />
-                <header><div><span className="event-type-icon"><CalendarClock /></span><span className={`status-chip ${eventTypeStatus === "Live" ? "status-confirmed" : "status-pending"}`}>{eventTypeStatus}</span></div>
-                  <div className="booking-page-actions">
-                    <Button type="button" variant="outline" size="sm" disabled={pageActionsDisabled} aria-label={`Edit ${eventType.title}`} onClick={() => setEventTypeEditor({ profileId: profile.id, eventTypeId: eventType.id })}><Pencil aria-hidden="true" /> Edit</Button>
-                    <Button type="button" variant="outline" size="sm" disabled={pageActionsDisabled} aria-busy={pageBusy} onClick={() => {
+          {profile.eventTypes.length > 0 ? (
+            <div className="booking-table" role="table" aria-label={`${profile.displayName} event types`}>
+              <div className="booking-table-head" role="row">
+                <span role="columnheader">Event type</span>
+                <span role="columnheader">Link</span>
+                <span role="columnheader" className="booking-stat-heading">Visits</span>
+                <span role="columnheader" className="booking-stat-heading">Booked</span>
+                <span role="columnheader" className="booking-stat-heading">Conversion</span>
+                <span role="columnheader">Status</span>
+                <span role="columnheader"><span className="visually-hidden">Actions</span></span>
+              </div>
+              {profile.eventTypes.map(eventType => {
+                const publicMetrics = publicBookingPageMetrics(snapshot, profile.id, eventType.id);
+                const pageIsLive = isEventTypePublicationLive(profile, eventType);
+                const eventTypeStatus = pageIsLive
+                  ? !eventType.active ? "Offline pending" : pageErrors[eventType.id]?.retrySync || pageOperationId === eventType.id ? "Update pending" : "Live"
+                  : !eventType.active ? "Offline" : "Not live";
+                const pageBusy = pageOperationId === eventType.id || isPublishing;
+                const pageActionsDisabled = pageOperationId !== null || publishingProfileId !== null;
+                const pageError = pageErrors[eventType.id];
+                const scheduleName = availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "");
+                const stat = (value: number) => snapshot ? value.toLocaleString() : "—";
+                return (
+                <div className="booking-row event-type-card" role="row" key={eventType.id} style={{ "--event-type-color": eventType.color } as React.CSSProperties}>
+                  <div className="booking-cell booking-cell-name" role="cell">
+                    <span className="booking-swatch" aria-hidden="true" />
+                    <div>
+                      <strong>{eventType.title}</strong>
+                      <span className="booking-meta">
+                        <span><Clock3 aria-hidden="true" /> {eventType.durationMinutes} min</span>
+                        <span><MeetingProviderIcon provider={eventType.location} /> {meetingLocationNames[eventType.location]}</span>
+                        <span className={scheduleName ? undefined : "booking-meta-warning"}><CalendarDays aria-hidden="true" /> {scheduleName ?? "No availability schedule"}</span>
+                        {eventType.approvalRequired ? <span><ShieldCheck aria-hidden="true" /> Needs approval</span> : null}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="booking-cell booking-cell-link public-url" role="cell">
+                    <span className="booking-slug" title={`cal.with-tap.ai/${profile.slug}/${eventType.slug}`}>/{eventType.slug}</span>
+                    {pageIsLive ? <button type="button" className="booking-inline-icon" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`} title="Copy link"><Copy aria-hidden="true" /></button> : null}
+                    <button type="button" className="booking-inline-icon" onClick={() => onPreview(profile.id, eventType.id)} aria-label={`Preview ${eventType.title}`} title="Preview page"><Eye aria-hidden="true" /></button>
+                  </div>
+                  <button
+                    type="button"
+                    className="booking-cell booking-stats"
+                    role="cell"
+                    onClick={() => setInsights({ profile, eventType })}
+                    aria-label={`Insights for ${eventType.title}: ${stat(publicMetrics.conversionViews)} visits, ${stat(publicMetrics.convertedVisits)} booked, ${snapshot ? publicBookingConversion(publicMetrics) : "no"} conversion`}
+                    title="View insights"
+                  >
+                    <span data-label="Visits">{stat(publicMetrics.conversionViews)}</span>
+                    <span data-label="Booked">{stat(publicMetrics.convertedVisits)}</span>
+                    <span data-label="Conversion">{snapshot ? publicBookingConversion(publicMetrics) : "—"}</span>
+                  </button>
+                  <div className="booking-cell booking-cell-status" role="cell">
+                    <span className={`status-chip ${eventTypeStatus === "Live" ? "status-confirmed" : "status-pending"}`}>{eventTypeStatus}</span>
+                  </div>
+                  <div className="booking-cell booking-cell-actions" role="cell">
+                    <button type="button" className="quiet-button is-compact" disabled={pageActionsDisabled} aria-label={`Edit ${eventType.title}`} onClick={() => setEventTypeEditor({ profileId: profile.id, eventTypeId: eventType.id })}>Edit</button>
+                    <button type="button" className="secondary-button is-compact" disabled={pageActionsDisabled} aria-busy={pageBusy} onClick={() => {
                       if (!profile.published && eventType.active && !pageIsLive) void publishProfile(profile);
                       else void changePageAvailability(profile.id, eventType.id, !pageIsLive);
                     }}>
-                      {pageIsLive ? <EyeOff aria-hidden="true" /> : <Globe2 aria-hidden="true" />}
                       {pageBusy ? "Updating…" : pageIsLive ? eventType.active ? "Take offline" : "Retry taking offline" : profile.published ? "Publish" : eventType.active ? "Publish profile" : "Enable bookings"}
-                    </Button>
+                    </button>
                   </div>
-                </header>
-                <h3>{eventType.title}</h3><p>{eventType.description}</p>
-                <div className="event-type-meta"><span><Clock3 /> {eventType.durationMinutes} min</span><span><CalendarDays /> {availabilityNames.get(resolveEventTypeAvailabilityScheduleId(state, eventType) ?? "") ?? "Availability unavailable"}</span><span><MeetingProviderIcon provider={eventType.location} /> {meetingLocationNames[eventType.location]}</span><span><ShieldCheck /> {eventType.approvalRequired ? "Approval required" : "Automatic"}</span></div>
-                <div className="public-url"><span>{pageIsLive ? "Live" : "Not live"} · cal.with-tap.ai/{profile.slug}/<strong>{eventType.slug}</strong></span>{pageIsLive ? <button type="button" onClick={() => void copyBookingPageUrl(profile.slug, eventType)} aria-label={`Copy URL for ${eventType.title}`}><Copy /></button> : null}</div>
-                {pageError ? <div className="booking-page-error" role="alert"><p>{pageError.message}</p>{pageError.retrySync ? <Button type="button" size="sm" variant="outline" disabled={pageActionsDisabled} onClick={() => void retryPageUpdate(profile.id, eventType.id)}>Retry update</Button> : null}</div> : null}
-                <BookingVisitSummary metrics={publicMetrics} snapshot={snapshot} />
-                {liveAnalytics ? <div className="booking-card-history"><span>All time</span><span><strong>{snapshot ? publicMetrics.confirmed.toLocaleString() : "—"}</strong> confirmed</span><span><strong>{snapshot ? publicMetrics.cancelled.toLocaleString() : "—"}</strong> cancelled</span></div> : null}
-                <footer><button type="button" className="secondary-button" onClick={() => onPreview(profile.id, eventType.id)}><Eye /> Preview page</button><button type="button" className="secondary-button" onClick={() => setInsights({ profile, eventType })}><BarChart3 /> Insights</button></footer>
-              </article>
-            );})}
-            {profile.eventTypes.length === 0 ? <div className="empty-calendar"><CalendarClock /><strong>No Event Types yet</strong><span id={`event-type-guidance-${profile.id}`}>{!canCreateEventType ? eventTypeCreationHint : serverPublished ? "Your profile URL is claimed and live. Add an Event Type when you’re ready to accept bookings." : "Claim this profile URL now, then add an Event Type when you’re ready."}</span>{canCreateEventType ? <button type="button" className="primary-button" onClick={() => setEventTypeEditor({ profileId: profile.id })}><Plus /> New Event Type</button> : <Button type="button" onClick={() => onNavigate(eventTypePrerequisiteSection)}>{hasWritableDestination ? <CalendarClock data-icon="inline-start" /> : <Settings2 data-icon="inline-start" />}{eventTypePrerequisiteAction}</Button>}</div> : null}
-          </div>
+                  {pageError ? <div className="booking-row-error" role="alert"><p>{pageError.message}</p>{pageError.retrySync ? <button type="button" className="secondary-button is-compact" disabled={pageActionsDisabled} onClick={() => void retryPageUpdate(profile.id, eventType.id)}>Retry update</button> : null}</div> : null}
+                </div>
+              );})}
+            </div>
+          ) : (
+            <div className="booking-empty-row">
+              <CalendarClock aria-hidden="true" />
+              <p id={`event-type-guidance-${profile.id}`}>{!canCreateEventType ? eventTypeCreationHint : serverPublished ? "Your profile link is live. Add an event type when you’re ready to accept bookings." : "Claim this profile link now, then add an event type when you’re ready."}</p>
+              {canCreateEventType ? null : <button type="button" className="secondary-button is-compact" onClick={() => onNavigate(eventTypePrerequisiteSection)}>{hasWritableDestination ? <CalendarClock aria-hidden="true" /> : <Settings2 aria-hidden="true" />}{eventTypePrerequisiteAction}</button>}
+            </div>
+          )}
         </section>
       );})}
+      {state.bookingProfiles.length > 0 ? (
+        <button type="button" className="booking-add-profile" onClick={() => setProfileEditor("new")}><Plus aria-hidden="true" /> New booking profile</button>
+      ) : null}
+      {workspacePanel}
       {profileEditor ? <BookingProfileDialog profile={profileEditor === "new" ? undefined : profileEditor} onClose={() => setProfileEditor(null)} onSubmit={saveProfile} onRename={onRenameProfile ? async slug => {
         if (profileEditor === "new") throw new Error("Save the profile first.");
         const updated = await onRenameProfile(profileEditor, slug);
@@ -5287,26 +5434,6 @@ function AddNotificationChannelDialog({
         <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button" disabled={submitting || !name.trim()}><MessageSquareText /> {submitting ? "Adding…" : "Add channel"}</button></div>
       </form>
     </Modal>
-  );
-}
-
-function AutomationsScreen({ state, specialistPanel }: { readonly state: CalendarState; readonly specialistPanel: ReactNode }) {
-  return (
-    <div className="content-stack">
-      {specialistPanel}
-      <section className="automation-hero panel"><div><span className="automation-icon"><Workflow /></span><div><span className="eyebrow">TAP Workflow Builder</span><h2>Build on calendar events and actions</h2><p>The package contributes pure, schema-bound nodes today. Durable event triggers will connect through the Zephyr Calendar gateway rather than pretending the mounted miniapp is a background service.</p></div></div><button type="button" className="primary-button" disabled title="The TAP SDK does not expose a workflow-builder navigation action."><ExternalLink /> Host opens Workflow Builder</button></section>
-      <section><div className="section-heading"><div><span className="eyebrow">Node library</span><h2>Calendar workflow nodes</h2><p>Drag these into customer-owned TAP workflows.</p></div><span className="status-chip status-pending">Gateway bridge required for triggers</span></div><div className="node-grid">{state.workflowNodes.map(node => <article className="node-card panel" key={node.id}><span className={`node-kind ${node.kind}`}>{node.kind === "trigger" ? <Zap /> : <GitBranch />}</span><div><span>{node.kind}</span><h3>{node.name}</h3><p>{node.description}</p><code>{node.id}</code></div></article>)}</div></section>
-      <section><div className="section-heading"><div><span className="eyebrow">Specialist surface</span><h2>Live MCP calendar tools</h2><p>Connect an account above and select these tools for Chloe in TAP.</p></div><span className="status-chip status-pending">Account and specialist grants required</span></div><div className="tool-grid">
-        <ToolCard name="list_calendars · list_events" description="Read connected calendars and current event details directly from the provider." output="Live reads · scoped to your account" />
-        <ToolCard name="get_event" description="Inspect one event, including its recorded booking Event Type." output="Individual details · privacy rules apply" />
-        <ToolCard name="find_available_slots" description="Check free intervals against live calendars and your configured Conflict Calendars." output="Conflicts rechecked when creating" />
-        <ToolCard name="create_event" description="Create meetings and Work Blocks directly with granted write access." output="Real bookings · retry-safe creation" />
-        <ToolCard name="list_event_types" description="Understand configured Event Types, their duration, and approval settings." output="Published types and drafts" />
-        <ToolCard name="calendar_analytics" description="Compare counts and scheduled minutes across calendars, kinds, or one booking Event Type." output="Date-filtered totals · no attendance inference" />
-        <ToolCard name="event_type_analytics" description="Read booking-page views, requests, and confirmations for all Event Types or one type." output="Lifetime funnel activity" />
-      </div><p>The separate local Calendar tools read the app’s saved snapshot and prepare drafts. Use Calendar live tools for current information and event creation.</p></section>
-      <section className="slash-command panel"><span className="command-mark">↗</span><div><span className="eyebrow">Channel scheduling</span><h2>Mini Apps → Schedule</h2><p>The channel app opens a dedicated scheduler with trusted TAP members when the host exposes its participant roster. Manual external guests remain available when the roster capability is unavailable.</p></div><span className="status-chip status-confirmed">Available</span></section>
-    </div>
   );
 }
 
@@ -7799,10 +7926,6 @@ function ProductEmptyState({ icon, title, description, action }: { readonly icon
 
 function MetricCard({ icon, label, value, detail, tone, actionLabel, onAction }: { readonly icon: ReactNode; readonly label: string; readonly value: string; readonly detail: string; readonly tone: "blue" | "green" | "violet" | "orange"; readonly actionLabel?: string; readonly onAction?: () => void }) {
   return <article className={`metric-card panel metric-${tone}`}><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><p>{detail}</p>{actionLabel && onAction ? <button type="button" className="metric-card-action" onClick={onAction}>{actionLabel}<ChevronRight /></button> : null}</div></article>;
-}
-
-function ToolCard({ name, description, output }: { readonly name: string; readonly description: string; readonly output: string }) {
-  return <article className="tool-card panel"><header><span><Bot /></span><code>{name}</code><span className="status-chip status-pending">Requires grant</span></header><p>{description}</p><footer><ShieldCheck /><span>{output}</span></footer></article>;
 }
 
 function MoonIcon() {

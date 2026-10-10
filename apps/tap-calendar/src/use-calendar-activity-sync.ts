@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { sdk, type MiniAppStorageApi } from "@theaiplatform/miniapp-sdk/sdk";
 import { calendarActivityAddress, isCalendarActivityProjection, type CalendarActivityProjection } from "./activity-contract";
 import { calendarPrincipalStorageAddresses } from "./principal-storage";
@@ -38,23 +38,30 @@ export async function synchronizeCalendarActivity(gateway: Pick<CalendarGatewayC
   }
 }
 
+const ACTIVITY_REFRESH_INTERVAL_MS = 2 * 60_000;
+
 export function useCalendarActivitySync(gateway: CalendarGatewayClient, workspaceId: string | undefined,
   state: CalendarState | null, enabled: boolean) {
   const [error, setError] = useState<string | null>(null);
   const acknowledged = useMemo(() => new Set<string>(), [gateway, workspaceId]);
+  // Shared across effect runs so a restart never overlaps a sync already in flight.
+  const running = useRef(false);
+  const hasState = state !== null;
+  // Restart when the journal gains an entry, not on every unrelated state change.
+  const journalHead = state?.activityJournal?.entries.at(-1)?.id ?? null;
   useEffect(() => {
-    if (!enabled || !workspaceId || !state) return;
-    let active = true, running = false;
+    if (!enabled || !workspaceId || !hasState) return;
+    let active = true;
     const refresh = () => {
-      if (running || !active || globalThis.document.visibilityState === "hidden" || !globalThis.navigator.onLine) return;
-      running = true;
+      if (running.current || !active || globalThis.document.visibilityState === "hidden" || !globalThis.navigator.onLine) return;
+      running.current = true;
       void synchronizeCalendarActivity(gateway, workspaceId, sdk.storage, acknowledged)
         .then(() => { if (active) setError(null); })
         .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "Activity is unavailable."); })
-        .finally(() => { running = false; });
+        .finally(() => { running.current = false; });
     };
     refresh();
-    const timer = globalThis.setInterval(refresh, 30_000);
+    const timer = globalThis.setInterval(refresh, ACTIVITY_REFRESH_INTERVAL_MS);
     globalThis.addEventListener("focus", refresh);
     globalThis.addEventListener("online", refresh);
     globalThis.document.addEventListener("visibilitychange", refresh);
@@ -65,6 +72,6 @@ export function useCalendarActivitySync(gateway: CalendarGatewayClient, workspac
       globalThis.removeEventListener("online", refresh);
       globalThis.document.removeEventListener("visibilitychange", refresh);
     };
-  }, [acknowledged, enabled, gateway, state, workspaceId]);
+  }, [acknowledged, enabled, gateway, hasState, journalHead, workspaceId]);
   return { error };
 }

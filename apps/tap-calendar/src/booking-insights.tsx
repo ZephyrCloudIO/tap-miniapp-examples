@@ -22,21 +22,6 @@ export function bookingVisitSteps(metrics: PublicBookingMetrics, snapshot: Publi
   return steps;
 }
 
-export function BookingVisitSummary({ metrics, snapshot }: {
-  readonly metrics: PublicBookingMetrics;
-  readonly snapshot: PublicBookingAnalytics | null;
-}) {
-  return <div className="booking-visit-summary">
-    <p>{snapshot ? `Visits since ${analyticsDate(snapshot.conversionSince)}` : "Visit analytics unavailable"}</p>
-    <dl>
-      <div><dt>Page visits</dt><dd>{snapshot ? metrics.conversionViews.toLocaleString() : "—"}</dd></div>
-      <div><dt>Booked visits</dt><dd>{snapshot ? metrics.convertedVisits.toLocaleString() : "—"}</dd></div>
-      <div><dt>Conversion</dt><dd>{snapshot ? publicBookingConversion(metrics) : "—"}</dd></div>
-    </dl>
-    {snapshot && metrics.conversionViews === 0 ? <p>No visits recorded yet.</p> : null}
-  </div>;
-}
-
 export function BookingInsights({ metrics, snapshot, preview = false }: {
   readonly metrics: PublicBookingMetrics;
   readonly snapshot: PublicBookingAnalytics | null;

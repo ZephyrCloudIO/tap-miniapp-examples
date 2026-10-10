@@ -4,6 +4,7 @@ import {
   CalendarGatewayError,
   calendarGatewayPrincipalAccess,
   calendarGatewayEventWindow,
+  parseCalendarGatewayEventQueryResult,
   createCalendarGatewayClient,
   createFetchCalendarGatewayTransport,
   createTapCalendarGatewayTransport,
@@ -204,7 +205,7 @@ describe("Calendar gateway client", () => {
         headers: [{ name: "X-TAP-Workspace-Id", value: "workspace-1" }],
         body: null,
         timeoutMs: 30_000,
-        responseBodyLimitBytes: 1_048_576,
+        responseBodyLimitBytes: 5 * 1_048_576,
         followRedirects: false,
       },
       { credentialRef: "platform-session" },
@@ -249,7 +250,7 @@ describe("Calendar gateway client", () => {
         headers: [],
         body: null,
         timeoutMs: 30_000,
-        responseBodyLimitBytes: 1_048_576,
+        responseBodyLimitBytes: 5 * 1_048_576,
         followRedirects: false,
       },
     ], [
@@ -259,7 +260,7 @@ describe("Calendar gateway client", () => {
         headers: [],
         body: null,
         timeoutMs: 30_000,
-        responseBodyLimitBytes: 1_048_576,
+        responseBodyLimitBytes: 5 * 1_048_576,
         followRedirects: false,
       },
     ]]);
@@ -775,14 +776,27 @@ describe("Calendar gateway client", () => {
       timeMin: "2026-08-09T00:00:00.000Z",
       timeMax: "2026-08-18T00:00:00.000Z",
     });
+    // August 2026's grid runs Sunday July 26 through Saturday September 5.
     expect(calendarGatewayEventWindow("month", "2026-08-14")).toEqual({
-      timeMin: "2026-07-31T00:00:00.000Z",
-      timeMax: "2026-09-02T00:00:00.000Z",
+      timeMin: "2026-07-25T00:00:00.000Z",
+      timeMax: "2026-09-07T00:00:00.000Z",
     });
     expect(calendarGatewayEventWindow("agenda", "2026-08-14")).toEqual({
       timeMin: "2026-08-13T00:00:00.000Z",
       timeMax: "2026-09-14T00:00:00.000Z",
     });
+  });
+
+  it("drops a malformed event without failing the whole range", () => {
+    const valid = { id: "a", calendarId: "cal-1", title: "Standup", start: "2026-08-14T15:00:00.000Z", end: "2026-08-14T15:30:00.000Z",
+      kind: "meeting", status: "confirmed", location: null, attendees: [] };
+    const parsed = parseCalendarGatewayEventQueryResult({
+      timeMin: "2026-08-09T00:00:00.000Z", timeMax: "2026-08-17T00:00:00.000Z", syncedAt: "2026-08-14T15:00:00.000Z",
+      events: [valid, { ...valid, id: "broken", end: "not-a-date" }],
+      syncedCalendarIds: ["cal-1"], errors: [], truncated: false,
+    });
+    expect(parsed?.events.map(item => item.id)).toEqual(["a"]);
+    expect(parseCalendarGatewayEventQueryResult({ events: [valid] })).toBeNull();
   });
 
   it("queries visible calendar events through the workspace-scoped gateway", async () => {

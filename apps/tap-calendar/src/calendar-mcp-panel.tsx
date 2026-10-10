@@ -1,3 +1,4 @@
+import { Bot, Check, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CalendarState } from "./domain";
 import type { CalendarGatewayClient } from "./gateway";
@@ -31,6 +32,47 @@ export function useCalendarMcpSync(gateway: CalendarGatewayClient, state: Calend
   return { sync, error };
 }
 
+interface AssistantCapability {
+  readonly scope: CalendarMcpScope;
+  readonly title: string;
+  readonly tools: readonly { readonly name: string; readonly description: string }[];
+}
+
+const assistantCapabilities: readonly AssistantCapability[] = [
+  {
+    scope: "calendar.read",
+    title: "Read your calendar",
+    tools: [
+      { name: "list_calendars", description: "See your calendars and which ones it can add events to." },
+      { name: "list_events", description: "Read events in a date range." },
+      { name: "get_event", description: "Open one event’s details." },
+      { name: "find_available_slots", description: "Find free time across your Conflict Calendars." },
+    ],
+  },
+  {
+    scope: "calendar.analytics",
+    title: "Analyze scheduling",
+    tools: [
+      { name: "list_event_types", description: "List your Event Types, durations, and approval settings." },
+      { name: "calendar_analytics", description: "Total scheduled time by calendar, kind, or Event Type." },
+      { name: "event_type_analytics", description: "Booking-page visits, requests, and confirmations." },
+    ],
+  },
+  {
+    scope: "calendar.write",
+    title: "Create events",
+    tools: [
+      { name: "create_event", description: "Create meetings and Work Blocks and send invitations." },
+    ],
+  },
+];
+
+const scopeTitles: Record<CalendarMcpScope, string> = {
+  "calendar.read": "Read",
+  "calendar.analytics": "Analytics",
+  "calendar.write": "Create events",
+};
+
 export function CalendarMcpPanel({ gateway, authorize, configuration, preview, activityError }: {
   readonly gateway: CalendarGatewayClient;
   readonly authorize: () => Promise<unknown>;
@@ -49,34 +91,68 @@ export function CalendarMcpPanel({ gateway, authorize, configuration, preview, a
   useEffect(() => {
     if (preview) return;
     let current = true;
-    void gateway.listMcpGrants().then(value => { if (current) setGrants(value); }, cause => { if (current) setError(cause instanceof Error ? cause.message : "Specialist connections could not be loaded."); });
+    void gateway.listMcpGrants().then(value => { if (current) setGrants(value); }, cause => { if (current) setError(cause instanceof Error ? cause.message : "Assistant connections could not be loaded."); });
     return () => { current = false; };
   }, [gateway, preview]);
   const run = async (operation: () => Promise<void>) => {
     setBusy(true); setError(null); setMessage(null);
-    try { await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : "The specialist connection could not be updated."); } finally { setBusy(false); }
+    try { await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : "The assistant connection could not be updated."); } finally { setBusy(false); }
   };
-  return <section className="panel calendar-mcp-panel" aria-labelledby="calendar-mcp-title">
-    <div className="section-heading"><div><span className="eyebrow">Live specialist connection</span><h2 id="calendar-mcp-title">Calendar access for Chloe</h2><p>Read events, compare Event Types, and create meetings while Calendar is closed.</p></div><span className={`status-chip ${grants?.length ? "status-confirmed" : "status-pending"}`}>{preview ? "Desktop setup required" : grants === null ? "Checking connection" : grants.length ? "Account access granted" : "Not connected"}</span></div>
-    <p>In TAP’s specialist tools settings, select <strong>Calendar live tools</strong> for Chloe and connect your account. Return here with the code shown by the connection page.</p>
-    {activityError ? <p role="status">Calendar activity is waiting to synchronize: {activityError}</p> : null}
-    <p>Access applies to all calendars connected to this TAP account. Free/busy calendars and private Work Blocks keep their details hidden. Analytics report scheduled time and booking activity.</p>
-    {configuration.error || error ? <p role="alert" className="form-error">{error ?? configuration.error}</p> : null}
-    {configuration.error && !preview ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(async () => { await authorize(); await configuration.sync(true); setMessage("Shared specialist settings now match this device."); })}>Replace shared settings with this device’s settings</button> : null}
-    {message ? <p role="status">{message}</p> : null}
-    <form className="schedule-form" aria-busy={busy} onSubmit={event => { event.preventDefault(); void run(async () => { await authorize(); await configuration.sync(); const review = await gateway.reviewMcpAuthorization(code.trim()); setConsent(review); setScopes(review.scopes); }); }}>
-      <label className="field"><span>Connection code</span><input value={code} placeholder="0000-0000-0000-0000" maxLength={19} required autoComplete="off" disabled={preview || busy || consent !== null} onChange={event => setCode(event.currentTarget.value)} /></label>
-      {!consent ? <button type="submit" className="secondary-button" disabled={preview || busy || !code.trim()}>Review connection</button> : null}
-    </form>
-    {consent ? <div className="calendar-mcp-consent">
-      <h3>Allow {consent.clientName} to use Calendar?</h3><p>Returns to <code>{consent.redirectOrigin}</code>. Only approve a connection you started.</p>
-      <fieldset disabled={busy}><legend>Permissions for this connection</legend>{consent.scopes.map(scope => <label className="calendar-mcp-permission" key={scope}><input type="checkbox" checked={scopes.includes(scope)} onChange={event => { const checked = event.currentTarget.checked; setScopes(current => checked ? [...current, scope] : current.filter(item => item !== scope)); }} /><span>{permissionLabels[scope]}</span></label>)}</fieldset>
-      <div className="dialog-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setConsent(null); setScopes([]); }}>Cancel</button><button type="button" className="primary-button" disabled={busy || !scopes.length} onClick={() => void run(async () => { await authorize(); await configuration.sync(); await gateway.approveMcpAuthorization(code.trim(), scopes); setConsent(null); setCode(""); setScopes([]); await refresh(); setMessage("Account access approved. Return to the connection page to finish connecting Chloe."); })}>Grant selected access</button></div>
+  const grantedScopes = new Set(grants?.flatMap(grant => grant.scopes) ?? []);
+  const connected = Boolean(grants?.length);
+  const status = preview ? "Available in TAP" : grants === null && !error ? "Checking…" : connected ? "Connected" : "Not connected";
+  const connectForm = <form className="assistant-code-form" aria-busy={busy} onSubmit={event => { event.preventDefault(); void run(async () => { await authorize(); await configuration.sync(); const review = await gateway.reviewMcpAuthorization(code.trim()); setConsent(review); setScopes(review.scopes); }); }}>
+    <label className="field"><span className="visually-hidden">Connection code</span><input name="assistant-connection-code" aria-label="Connection code" value={code} placeholder="0000-0000-0000-0000" maxLength={19} required autoComplete="off" inputMode="numeric" disabled={preview || busy} onChange={event => setCode(event.currentTarget.value)} /></label>
+    <button type="submit" className="primary-button" disabled={preview || busy || !code.trim()}>Review access</button>
+  </form>;
+  const steps = <ol className="assistant-steps">
+    <li><span aria-hidden="true">1</span><div><strong>Turn on Calendar live tools</strong><p>In TAP, open Chloe’s specialist tools and select <b>Calendar live tools</b>.</p></div></li>
+    <li><span aria-hidden="true">2</span><div><strong>Connect your account</strong><p>Follow the prompts. The connection page shows a 16-digit code.</p></div></li>
+    <li><span aria-hidden="true">3</span><div><strong>Enter the code</strong>{preview ? <p>Open Calendar in TAP to connect an assistant.</p> : connectForm}</div></li>
+  </ol>;
+  return <section className="automation-section" aria-labelledby="calendar-mcp-title">
+    <header className="automation-section-header">
+      <div>
+        <h2 id="calendar-mcp-title">Assistant access</h2>
+        <p>Let Chloe read your calendar and schedule meetings, even while Calendar is closed.</p>
+      </div>
+      <div className="automation-section-actions">
+        <span className={`status-chip ${connected ? "status-confirmed" : "status-pending"}`}>{status}</span>
+        {!preview ? <button type="button" className="icon-button" aria-label="Refresh connection status" title="Refresh connection status" disabled={busy} onClick={() => void run(async () => { await configuration.sync(); await refresh(); })}><RefreshCw aria-hidden="true" className={busy ? "is-spinning" : undefined} /></button> : null}
+      </div>
+    </header>
+    {configuration.error || error ? <div className="automation-message is-error" role="alert">
+      <p>{error ?? configuration.error}</p>
+      {configuration.error && !preview ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(async () => { await authorize(); await configuration.sync(true); setMessage("Shared assistant settings now match this device."); })}>Use this device’s settings</button> : null}
     </div> : null}
-    <h3>Account connections</h3>
-    {preview ? <p>Open Calendar in TAP to connect or revoke specialist access.</p> : null}
-    {grants?.length === 0 ? <p>No specialist account connections yet.</p> : null}
-    {grants?.map(grant => <div className="calendar-mcp-grant" key={grant.id}><div><strong>{grant.clientName}</strong><ul>{grant.scopes.map(scope => <li key={scope}>{permissionLabels[scope]}</li>)}</ul></div><button type="button" className="secondary-button" disabled={busy} onClick={() => void run(async () => { await authorize(); await gateway.revokeMcpGrant(grant.id); await refresh(); setMessage("Calendar access revoked. This connection can no longer call calendar tools."); })}>Revoke access</button></div>)}
-    {!preview ? <button type="button" className="text-button" disabled={busy} onClick={() => void run(async () => { await configuration.sync(); await refresh(); })}>Refresh connection status</button> : null}
+    {activityError ? <p className="automation-message" role="status">Calendar activity is waiting to sync: {activityError}</p> : null}
+    {message ? <p className="automation-message" role="status">{message}</p> : null}
+    {consent ? <div className="assistant-consent">
+      <h3>Allow {consent.clientName} to use Calendar?</h3>
+      <p>After you approve, you’ll return to <code>{consent.redirectOrigin}</code>. Only approve a connection you started.</p>
+      <fieldset disabled={busy}><legend>Permissions</legend>{consent.scopes.map(scope => <label className="calendar-mcp-permission" key={scope}><input type="checkbox" checked={scopes.includes(scope)} onChange={event => { const checked = event.currentTarget.checked; setScopes(current => checked ? [...current, scope] : current.filter(item => item !== scope)); }} /><span>{permissionLabels[scope]}</span></label>)}</fieldset>
+      <div className="dialog-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setConsent(null); setScopes([]); }}>Cancel</button><button type="button" className="primary-button" disabled={busy || !scopes.length} onClick={() => void run(async () => { await authorize(); await configuration.sync(); await gateway.approveMcpAuthorization(code.trim(), scopes); setConsent(null); setCode(""); setScopes([]); await refresh(); setMessage("Access approved. Return to the connection page to finish connecting Chloe."); })}>Grant access</button></div>
+    </div> : null}
+    {connected ? <ul className="assistant-grants" aria-label="Connected assistants">
+      {grants!.map(grant => <li key={grant.id}>
+        <span className="assistant-grant-icon" aria-hidden="true"><Bot /></span>
+        <div><strong>{grant.clientName}</strong><span>{grant.scopes.map(scope => scopeTitles[scope]).join(" · ")}</span></div>
+        <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(async () => { await authorize(); await gateway.revokeMcpGrant(grant.id); await refresh(); setMessage("Access revoked. This assistant can no longer use your calendar."); })}>Revoke</button>
+      </li>)}
+    </ul> : null}
+    {!consent ? connected ? <details className="assistant-connect-another"><summary>Connect another assistant</summary>{steps}</details> : steps : null}
+    <div className="assistant-capabilities" aria-label="What assistants can do">
+      {assistantCapabilities.map(capability => {
+        const granted = grantedScopes.has(capability.scope);
+        return <section key={capability.scope} className={granted ? "is-granted" : undefined} aria-labelledby={`capability-${capability.scope}`}>
+          <header>
+            <h3 id={`capability-${capability.scope}`}>{capability.title}</h3>
+            {connected ? <span>{granted ? <><Check aria-hidden="true" /> Allowed</> : "Not allowed"}</span> : null}
+          </header>
+          <ul>{capability.tools.map(tool => <li key={tool.name}><code>{tool.name}</code><span>{tool.description}</span></li>)}</ul>
+        </section>;
+      })}
+    </div>
+    <p className="automation-footnote">Free/busy calendars and private Work Blocks stay hidden from assistants. You can revoke access at any time.</p>
   </section>;
 }

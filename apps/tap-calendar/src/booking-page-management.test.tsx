@@ -9,6 +9,7 @@ import { createInitialCalendarState } from "./test-fixtures";
 import { markChangedPublicBookingProfilesPending } from "./publication-state";
 import { reconcilePublicBookingProfilePublication, type PublicBookingProfileSyncAdapter } from "./publication-sync";
 import type { PublicBookingProfilePublicationInput } from "./public-booking-publication";
+import { emptyPublicBookingMetrics, PUBLIC_BOOKING_ANALYTICS_SCHEMA, type PublicBookingAnalytics } from "./public-booking-analytics";
 
 const now = "2026-09-27T20:30:00.000Z";
 let state: CalendarState;
@@ -16,6 +17,7 @@ let root: Root;
 let container: HTMLDivElement;
 let failSync: boolean;
 let failSave: boolean;
+let snapshot: PublicBookingAnalytics | null;
 const publications: PublicBookingProfilePublicationInput[] = [];
 
 const fixture = (): CalendarState => {
@@ -57,7 +59,7 @@ function Harness() {
     setView(state);
     return true;
   };
-  return <BookingPagesScreen state={view} analyticsState={view} snapshot={null} analyticsAvailable={false} liveAnalytics
+  return <BookingPagesScreen state={view} analyticsState={view} snapshot={snapshot} analyticsAvailable={snapshot !== null} liveAnalytics
     commit={async (mutation, message, action) => { expect(action).toBe(CALENDAR_PUBLISH_ACTION); return persist(mutation, message); }}
     onSyncPublication={profileId => reconcilePublicBookingProfilePublication(profileId, {
       gateway, readState: () => state, persist, now: () => now,
@@ -67,6 +69,7 @@ function Harness() {
 
 beforeEach(async () => {
   state = fixture();
+  snapshot = null;
   failSync = failSave = false;
   publications.length = 0;
   rs.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -133,7 +136,7 @@ describe("booking page management", () => {
     expect(card().querySelector('.status-chip')?.textContent).toBe("Offline pending");
     expect(card().textContent).toContain("public page hasn’t updated");
     expect(container.querySelectorAll(".event-type-card .status-chip")[1]?.textContent).toBe("Live");
-    expect(card().querySelector('.public-url')?.textContent).toContain("Live");
+    expect(card().querySelector('.public-url button[aria-label^="Copy URL"]')).not.toBeNull();
     expect(state.bookingProfiles[0]!.pendingPublication).toBeDefined();
     failSync = false;
     await click("Retry update", card());
@@ -163,5 +166,21 @@ describe("booking page management", () => {
     const disconnected = { ...state, accounts: [] };
     expect(setEventTypeActive(disconnected, profile.id, existing.id, false).ok).toBe(true);
     expect(setEventTypeActive(disconnected, profile.id, existing.id, true).ok).toBe(false);
+  });
+
+  it("shows each page's visit cohort, not all-time bookings, in its row", async () => {
+    const profile = state.bookingProfiles[0]!;
+    const page = profile.eventTypes[0]!;
+    // Historical bookings predate visit tracking, so they must not inflate the row.
+    const analytics = { ...emptyPublicBookingMetrics, views: 4, conversionViews: 4, convertedVisits: 1, requests: 12, confirmed: 11, lifetimeConfirmed: 12 };
+    snapshot = {
+      schemaVersion: PUBLIC_BOOKING_ANALYTICS_SCHEMA, generatedAt: now,
+      trafficSince: "2026-09-25T00:00:00.000Z", conversionSince: "2026-09-25T00:00:00.000Z",
+      totals: analytics, pages: [{ sourceProfileId: profile.id, sourceEventTypeId: page.id, analytics }],
+    };
+    await act(async () => root.render(<Harness />));
+    const stats = [...card().querySelectorAll(".booking-stats > span")].map(cell => cell.textContent);
+    expect(stats).toEqual(["4", "1", "25.0%"]);
+    expect(card().querySelector(".booking-stats")?.textContent).not.toContain("11");
   });
 });

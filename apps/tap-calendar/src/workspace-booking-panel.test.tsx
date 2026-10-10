@@ -45,7 +45,7 @@ const gateway = createCalendarGatewayClient({
 const render = async () => {
   await act(async () => root.render(<WorkspaceBookingPanel loadMembers={loadMembers} gateway={gateway} state={createInitialCalendarState()} authorize={async () => {}} />));
 };
-const button = (label: string) => [...container.querySelectorAll("button")].find(item => item.textContent?.trim() === label);
+const button = (label: string) => [...container.querySelectorAll("button")].find(item => (item.textContent?.trim() || item.getAttribute("aria-label")) === label);
 const click = async (label: string) => { expect(button(label), `Missing ${label}`).toBeDefined(); await act(async () => button(label)!.click()); };
 const input = async (name: string, value: string) => {
   const field = container.querySelector<HTMLInputElement>(`[name="${name}"]`)!;
@@ -66,12 +66,12 @@ describe("workspace profile claimed state", () => {
   it("replaces initial setup with a claimed summary only after a confirmed claim", async () => {
     data = { ...data, definition: null, publication: null };
     await render();
-    expect(container.textContent).not.toContain("Name claimed");
+    expect(container.querySelector('.workspace-profile-summary')).toBeNull();
     await input("workspace-display-name", "Zephyr");
     await input("workspace-profile-slug", "zephyr");
     await click("Claim workspace name");
     expect(saves[0]).toMatchObject({ profileSlug: "zephyr", displayName: "Zephyr", published: true, events: [] });
-    expect(container.querySelector('.workspace-profile-summary')?.textContent).toContain("Name claimed");
+    expect(container.querySelector('.workspace-profile-summary h2')?.textContent).toBe("Zephyr");
     expect(container.querySelector('.workspace-profile-summary a')?.getAttribute("href")).toBe("https://cal.with-tap.ai/zephyr");
     expect(container.querySelector('[name="workspace-display-name"]')).toBeNull();
     expect(container.querySelector('[name="workspace-profile-slug"]')).toBeNull();
@@ -98,7 +98,7 @@ describe("workspace profile claimed state", () => {
   it("saves the display name while keeping the reserved URL", async () => {
     await render(); await click("Edit profile"); await input("workspace-display-name", "Zephyr Cloud"); await click("Save changes");
     expect(saves[0]).toMatchObject({ displayName: "Zephyr Cloud", profileSlug: "zephyr", expectedVersion: 1, published: true });
-    expect(container.querySelector('.workspace-profile-summary h4')?.textContent).toBe("Zephyr Cloud");
+    expect(container.querySelector('.workspace-profile-summary h2')?.textContent).toBe("Zephyr Cloud");
     expect(container.querySelector('.workspace-profile-form')).toBeNull();
     expect(document.activeElement).toBe(button("Edit profile"));
   });
@@ -106,7 +106,7 @@ describe("workspace profile claimed state", () => {
   it("keeps an offline profile offline when its display name changes", async () => {
     data = { ...data, definition: { ...data.definition!, published: false }, publication: { ...data.publication!, status: "unpublished" } };
     await render();
-    expect(container.textContent).toContain("Name claimed");
+    expect(container.querySelector('.workspace-profile-summary h2')?.textContent).toBe("Zephyr");
     expect(container.querySelector('.workspace-profile-summary a')).toBeNull();
     await click("Edit profile"); await input("workspace-display-name", "Zephyr Cloud"); await click("Save changes");
     expect(saves[0]!.published).toBe(false);
@@ -118,9 +118,9 @@ describe("workspace profile claimed state", () => {
     await render(); await click("Edit profile"); await input("workspace-display-name", "Zephyr Cloud"); failSave = true; await click("Save changes");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not save");
     expect(container.querySelector<HTMLInputElement>('[name="workspace-display-name"]')!.value).toBe("Zephyr Cloud");
-    expect(container.querySelector('.workspace-profile-summary h4')?.textContent).toBe("Zephyr");
+    expect(container.querySelector('.workspace-profile-summary h2')?.textContent).toBe("Zephyr");
     failSave = false; await click("Save changes");
-    expect(container.querySelector('.workspace-profile-summary h4')?.textContent).toBe("Zephyr Cloud");
+    expect(container.querySelector('.workspace-profile-summary h2')?.textContent).toBe("Zephyr Cloud");
   });
 
   it("does not claim success when the initial request fails", async () => {

@@ -25,6 +25,8 @@ export interface CalendarEventCacheEntry extends CalendarEventRangeRequest {
   readonly lastFullSyncAt: string | null;
   readonly lastAccessedAt: string;
   readonly partial: boolean;
+  /** Calendars whose last refresh failed; their slices may be older than the rest. */
+  readonly failedCalendarIds?: readonly string[];
 }
 
 export interface CalendarEventCacheSnapshot {
@@ -156,7 +158,11 @@ const isCalendarEventCacheEntry = (
     !isIsoDateTime(value.updatedAt) ||
     !(value.lastFullSyncAt === null || isIsoDateTime(value.lastFullSyncAt)) ||
     !isIsoDateTime(value.lastAccessedAt) ||
-    typeof value.partial !== "boolean"
+    typeof value.partial !== "boolean" ||
+    !(value.failedCalendarIds === undefined || (
+      Array.isArray(value.failedCalendarIds) &&
+      value.failedCalendarIds.every(calendarId => typeof calendarId === "string")
+    ))
   ) {
     return false;
   }
@@ -275,7 +281,7 @@ export function findReusableCalendarEventCacheEntry(
       left.key.localeCompare(right.key)
     )[0];
   if (!candidate) return null;
-  return {
+  return withFailedCalendarIds({
     ...candidate,
     ...request,
     events: candidate.events.filter(event => requestedIds.has(event.calendarId)),
@@ -285,8 +291,18 @@ export function findReusableCalendarEventCacheEntry(
         return syncedAt ? [[calendarId, syncedAt] as const] : [];
       }),
     ),
-  };
+  }, (candidate.failedCalendarIds ?? []).filter(calendarId => requestedIds.has(calendarId)));
 }
+
+const withFailedCalendarIds = (
+  entry: CalendarEventCacheEntry,
+  failedCalendarIds: readonly string[],
+): CalendarEventCacheEntry => {
+  const { failedCalendarIds: _previous, ...rest } = entry;
+  return failedCalendarIds.length > 0
+    ? { ...rest, failedCalendarIds: [...new Set(failedCalendarIds)].sort() }
+    : rest;
+};
 
 const serializedByteLength = (value: unknown): number => {
   const serialized = JSON.stringify(value);
@@ -296,6 +312,11 @@ const serializedByteLength = (value: unknown): number => {
   return serialized.length * 2;
 };
 
+/**
+ * Evicts least-recently-viewed entries until the snapshot fits. The most
+ * recently viewed entry always survives: evicting the range on screen would
+ * blank the calendar and persist an empty cache.
+ */
 export function pruneCalendarEventCache(
   cache: CalendarEventCacheSnapshot,
   limits: CalendarEventCacheLimits = calendarEventCacheLimits,
@@ -305,18 +326,20 @@ export function pruneCalendarEventCache(
     right.updatedAt.localeCompare(left.updatedAt) ||
     left.key.localeCompare(right.key),
   );
-  const fits = () => {
-    const eventCount = entries.reduce((count, entry) => count + entry.events.length, 0);
-    return (
-      entries.length <= limits.maxEntries &&
-      eventCount <= limits.maxEvents &&
-      serializedByteLength({
-        schemaVersion: CALENDAR_EVENT_CACHE_SCHEMA_VERSION,
-        entries,
-      }) <= limits.maxBytes
-    );
-  };
-  while (entries.length > 0 && !fits()) entries.pop();
+  // Size each entry once instead of re-serializing the snapshot per eviction.
+  const sizes = entries.map(entry => serializedByteLength(entry));
+  const envelopeBytes = serializedByteLength(createEmptyCalendarEventCache());
+  let bytes = envelopeBytes + sizes.reduce((total, size) => total + size, 0) +
+    Math.max(0, entries.length - 1);
+  let eventCount = entries.reduce((count, entry) => count + entry.events.length, 0);
+  while (
+    entries.length > 1 &&
+    (entries.length > limits.maxEntries || eventCount > limits.maxEvents || bytes > limits.maxBytes)
+  ) {
+    const evicted = entries.pop()!;
+    bytes -= sizes.pop()! + 1;
+    eventCount -= evicted.events.length;
+  }
   return {
     schemaVersion: CALENDAR_EVENT_CACHE_SCHEMA_VERSION,
     entries,
@@ -383,12 +406,12 @@ export function removeCalendarFromEventCache(
     const calendarSyncedAt = Object.fromEntries(
       Object.entries(entry.calendarSyncedAt).filter(([id]) => id !== calendarId),
     );
-    const candidate: CalendarEventCacheEntry = {
+    const candidate = withFailedCalendarIds({
       ...entry,
       ...request,
       events: entry.events.filter(event => event.calendarId !== calendarId),
       calendarSyncedAt,
-    };
+    }, (entry.failedCalendarIds ?? []).filter(id => id !== calendarId));
     const existing = findCalendarEventCacheEntry(next, candidate.key);
     if (!existing || candidate.updatedAt > existing.updatedAt) {
       next = putCalendarEventCacheEntry(next, candidate);
@@ -500,7 +523,7 @@ export function mergeCalendarEventQueryResult(
     result.errors.length === 0 &&
     syncedIds.size === request.calendarIds.length;
 
-  return {
+  return withFailedCalendarIds({
     ...request,
     events: [...events.values()].sort((left, right) =>
       left.start.localeCompare(right.start) || left.id.localeCompare(right.id),
@@ -510,13 +533,20 @@ export function mergeCalendarEventQueryResult(
     lastFullSyncAt: fullySynced ? observedAt : cached?.lastFullSyncAt ?? null,
     lastAccessedAt: observedAt,
     partial: !completeSlice,
-  };
+  }, result.errors.map(error => error.calendarId).filter(calendarId => requestedIds.has(calendarId)));
 }
 
+/**
+ * Oldest refresh time across the calendars that are still updating. Failed
+ * calendars are reported separately, so one broken calendar cannot make the
+ * whole view look days old.
+ */
 export function calendarEventCacheEntryFreshness(
   entry: CalendarEventCacheEntry,
 ): string {
-  const syncedTimes = entry.calendarIds
+  const failed = new Set(entry.failedCalendarIds ?? []);
+  const healthy = entry.calendarIds.filter(calendarId => !failed.has(calendarId));
+  const syncedTimes = (healthy.length > 0 ? healthy : entry.calendarIds)
     .map(calendarId => entry.calendarSyncedAt[calendarId])
     .filter((value): value is string => Boolean(value))
     .sort();

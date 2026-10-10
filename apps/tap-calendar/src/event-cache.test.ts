@@ -22,6 +22,12 @@ import {
   type CalendarEventCacheEntry,
   type CalendarEventInFlightRequest,
 } from "./event-cache";
+import {
+  CALENDAR_EVENT_PARTIAL_RETRY_MS,
+  CALENDAR_EVENT_REFRESH_INTERVAL_MS,
+  needsCatchUp,
+  syncStateForEntry,
+} from "./use-calendar-event-cache";
 
 const timeMin = "2026-08-09T00:00:00.000Z";
 const timeMax = "2026-08-17T00:00:00.000Z";
@@ -121,7 +127,36 @@ describe("calendar event range cache", () => {
       "calendar-a": "2026-08-15T10:05:00.000Z",
       "calendar-b": "2026-08-15T09:00:00.000Z",
     });
-    expect(calendarEventCacheEntryFreshness(merged)).toBe("2026-08-15T09:00:00.000Z");
+    // The failure is reported by name; it must not make the healthy calendar look stale.
+    expect(merged.failedCalendarIds).toEqual(["calendar-b"]);
+    expect(calendarEventCacheEntryFreshness(merged)).toBe("2026-08-15T10:05:00.000Z");
+    expect(syncStateForEntry(merged)).toMatchObject({ status: "partial", failedCalendarIds: ["calendar-b"] });
+    const projected = findReusableCalendarEventCacheEntry(
+      putCalendarEventCacheEntry(createEmptyCalendarEventCache(), merged),
+      createCalendarEventRangeRequest({ timeMin, timeMax, calendarIds: ["calendar-a"] }),
+    );
+    expect(projected?.failedCalendarIds).toBeUndefined();
+    expect(isCalendarEventCacheSnapshot({ schemaVersion: 1, entries: [merged] })).toBe(true);
+  });
+
+  it("reports stale-but-healthy slices as cached, not as failed calendars", () => {
+    const request = createCalendarEventRangeRequest({ timeMin, timeMax, calendarIds: ["calendar-a"] });
+    const merged = mergeCalendarEventQueryResult(request, null, {
+      timeMin,
+      timeMax,
+      syncedAt: "2026-08-15T10:05:00.000Z",
+      events: [event("a", "calendar-a")],
+      syncedCalendarIds: [],
+      servedCalendarIds: ["calendar-a"],
+      errors: [],
+      truncated: false,
+      cache: { servedAt: "2026-08-15T10:05:00.000Z", calendars: [{
+        calendarId: "calendar-a", cacheRevision: 3, freshness: "stale",
+        lastSuccessAt: "2026-08-15T10:00:00.000Z", nextSyncAt: "2026-08-15T10:05:00.000Z", error: null,
+      }] },
+    }, "2026-08-15T10:05:00.000Z");
+    expect(merged.partial).toBe(true);
+    expect(syncStateForEntry(merged)).toMatchObject({ status: "ready", failedCalendarIds: [] });
   });
 
   it("uses complete D1-served slices without pretending they freshly synced", () => {
@@ -228,6 +263,30 @@ describe("calendar event range cache", () => {
       maxEvents: 1,
       maxBytes: 100_000,
     }).entries).toHaveLength(1);
+  });
+
+  it("never evicts the most recently viewed range, even when it alone exceeds the budget", () => {
+    const older = entry("older", "2026-08-15T08:00:00.000Z");
+    const prefetched = entry("prefetched", "1970-01-01T00:00:00.000Z");
+    const large = entry("large", "2026-08-15T10:00:00.000Z", Array.from({ length: 40 }, (_, index) =>
+      ({ ...event(`large-${index}`, "calendar-large"), description: "x".repeat(2_000) })));
+    const limits = { maxEntries: 10, maxEvents: 4_000, maxBytes: 20_000 };
+    const cache = [older, prefetched, large].reduce(
+      (current, candidate) => putCalendarEventCacheEntry(current, candidate, limits),
+      createEmptyCalendarEventCache(),
+    );
+    expect(cache.entries.map(candidate => candidate.key)).toEqual([large.key]);
+    expect(mergeCalendarEventCacheSnapshots(cache, createEmptyCalendarEventCache()).entries)
+      .toHaveLength(1);
+  });
+
+  it("evicts prefetched neighbors before viewed ranges", () => {
+    const viewed = entry("viewed", "2026-08-15T09:00:00.000Z");
+    const prefetched = entry("prefetched", "1970-01-01T00:00:00.000Z");
+    const cache = pruneCalendarEventCache({ schemaVersion: 1, entries: [prefetched, viewed] }, {
+      maxEntries: 1, maxEvents: 4_000, maxBytes: 100_000,
+    });
+    expect(cache.entries.map(candidate => candidate.key)).toEqual([viewed.key]);
   });
 
   it("purges a removed calendar while preserving other cached slices", () => {
@@ -546,5 +605,17 @@ describe("calendar event range cache", () => {
     releaseReplacement();
     await expect(replacement).resolves.toBe("replacement");
     expect(requests.has("range")).toBe(false);
+  });
+
+  it("throttles catch-up by the last gateway request, not by a failing calendar's age", () => {
+    const updatedAt = "2026-08-15T10:00:00.000Z";
+    const partial = { ...entry("p", "2026-08-06T10:00:00.000Z"), updatedAt, partial: true, failedCalendarIds: ["calendar-p"] };
+    const complete = { ...entry("c", updatedAt), updatedAt };
+    const at = (ms: number) => Date.parse(updatedAt) + ms;
+    expect(needsCatchUp(partial, at(5_000))).toBe(false);
+    expect(needsCatchUp(partial, at(CALENDAR_EVENT_PARTIAL_RETRY_MS))).toBe(true);
+    expect(needsCatchUp(complete, at(CALENDAR_EVENT_PARTIAL_RETRY_MS))).toBe(false);
+    expect(needsCatchUp(complete, at(CALENDAR_EVENT_REFRESH_INTERVAL_MS))).toBe(true);
+    expect(needsCatchUp(null)).toBe(true);
   });
 });

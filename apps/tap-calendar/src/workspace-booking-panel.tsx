@@ -1,13 +1,14 @@
 import { CalendarSelect } from "./calendar-select";
 import type { MiniAppWorkspaceMember } from "@theaiplatform/miniapp-sdk/sdk";
 import { hostPolicyMatches, sharedHostInput, workspaceHosts } from "./workspace-hosts";
-import { Button, SelectItem } from "@theaiplatform/miniapp-sdk/ui";
+import { SelectItem } from "@theaiplatform/miniapp-sdk/ui";
 import { copyTextToClipboard } from "./clipboard";
-import { useEffect, useRef, useState } from "react";
-import { Users, Plus, Copy, RefreshCw, CheckCircle2, LockKeyhole, Pencil } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, Clock3, Copy, LockKeyhole, Pencil, Plus, RefreshCw, ShieldCheck, Users, Video } from "lucide-react";
 import type { CalendarState } from "./domain";
 import type { CalendarGatewayClient } from "./gateway";
 import type { SharedEventType, SharedHostInput, WorkspaceBookings, WorkspaceBookingProfileInput } from "./workspace-bookings";
+import "./booking-pages.css";
 
 const message = (error: unknown): string => error instanceof Error ? error.message : "The shared booking settings could not be loaded.";
 
@@ -61,36 +62,51 @@ export function WorkspaceBookingPanel({ gateway, state, authorize, loadMembers }
     catch (cause) { setError(message(cause)); await refresh().catch(() => undefined); return false; }
     finally { setBusy(false); }
   };
-  return <section className="shared-booking-panel" aria-labelledby="shared-booking-heading">
-    <div className="shared-booking-heading"><div><h2 id="shared-booking-heading"><Users aria-hidden="true" /> Shared bookings</h2><p>One workspace link. Every selected host attends.</p></div><button type="button" className="secondary-button" disabled={busy} onClick={() => void perform(refresh, "Shared settings refreshed.")}><RefreshCw aria-hidden="true" /> Refresh</button></div>
-    {error ? <p role="alert" className="shared-booking-error">{error}</p> : null}
-    {notice ? <p role="status">{notice}</p> : null}
-    {!data && !error ? <p role="status">Loading shared booking settings…</p> : null}
-    {data ? <>
-      {data.pendingApprovals.length ? <section className="shared-booking-section" aria-labelledby="shared-approvals-heading">
-        <h3 id="shared-approvals-heading">Meetings awaiting your approval</h3>
-        {data.pendingApprovals.map(booking => <div className="shared-booking-event" key={booking.operationId}>
-          <strong>{booking.title}</strong><span>{booking.guestName} · {booking.guestEmail} · {new Date(booking.startsAt).toLocaleString()}</span>
-          <div className="shared-booking-actions">{(["approve", "decline"] as const).map(decision => <button type="button" className={decision === "approve" ? "primary-button" : "secondary-button"} disabled={busy} key={decision} onClick={() => void perform(async () => {
+  const refreshButton = <button type="button" className="icon-button" aria-label="Refresh" title="Refresh shared bookings" disabled={busy} onClick={() => void perform(refresh, "Shared bookings refreshed.")}><RefreshCw aria-hidden="true" className={busy ? "is-spinning" : undefined} /></button>;
+  const messages = <>
+    {error ? <p role="alert" className="booking-section-message is-error">{error}</p> : null}
+    {notice ? <p role="status" className="booking-section-message">{notice}</p> : null}
+    {!data && !error ? <p role="status" className="booking-section-message">Loading shared bookings…</p> : null}
+  </>;
+  return <section className="booking-profile booking-profile-workspace" aria-labelledby="shared-booking-heading">
+    {data?.canManage ? <WorkspaceProfileEditor key={`${data.definition?.version ?? 0}:${data.publication?.publication_generation ?? 0}`} data={view!} busy={busy} focusRevision={profileFocusRevision}
+      refreshButton={refreshButton} messages={messages}
+      onSave={async input => {
+        const success = !data.publication && input.published ? "Workspace name claimed."
+          : input.published ? "Workspace profile saved." : "Workspace profile saved offline.";
+        if (await perform(async () => { await authorize("calendar.publish"); await gateway.saveWorkspaceBookingProfile(input); }, success)) {
+          setProfileFocusRevision(value => value + 1);
+        }
+      }}
+      onCopy={async url => { await perform(async () => { await copyTextToClipboard(url); }, "Booking link copied."); }} />
+      : <>
+        <header className="booking-profile-header">
+          <div className="booking-profile-identity">
+            <span className="booking-avatar is-workspace" aria-hidden="true"><Users /></span>
+            <div>
+              <div className="booking-profile-title"><h2 id="shared-booking-heading">Shared bookings</h2><span className="booking-profile-kind">Workspace</span></div>
+              <p className="booking-profile-subtitle">{data ? "You’re a host for shared meetings. A workspace owner or admin chooses who attends each one." : "One link where guests book time with several teammates."}</p>
+            </div>
+          </div>
+          <div className="booking-profile-actions">{refreshButton}</div>
+        </header>
+        {messages}
+      </>}
+    {data?.pendingApprovals.length ? <div className="booking-approvals" aria-labelledby="shared-approvals-heading">
+      <h3 id="shared-approvals-heading">Waiting for your approval</h3>
+      <ul>
+        {data.pendingApprovals.map(booking => <li className="booking-approval-row" key={booking.operationId}>
+          <div><strong>{booking.title}</strong><span>{booking.guestName} · {booking.guestEmail} · {new Date(booking.startsAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></div>
+          <div className="booking-approval-actions">{(["decline", "approve"] as const).map(decision => <button type="button" className={`${decision === "approve" ? "primary-button" : "secondary-button"} is-compact`} disabled={busy} key={decision} onClick={() => void perform(async () => {
             await authorize("calendar.approve");
             await gateway.resolveApprovalHold(booking.operationId, { idempotencyKey: `shared-${decision}-${booking.operationId}`, decision,
               ...(decision === "approve" ? { conflictCalendarIds: booking.conflictCalendarIds, conferenceProvider: booking.conferenceProvider } : {}) });
-          }, decision === "approve" ? "Meeting approved. Everyone will receive the invitation." : "Meeting declined.")}>{decision === "approve" ? "Approve meeting" : "Decline meeting"}</button>)}</div>
-        </div>)}
-      </section> : null}
-      <HostAvailability key={`${gateway.principalId}:${data.self?.host.version ?? 0}`} data={data} state={state} displayName={selfName} busy={busy}
-        onSave={async input => { await perform(async () => { await authorize("calendar.manage"); await gateway.saveSharedHost(input); }, input.enabled ? "Your booking availability is saved." : "Shared bookings disabled. Existing meetings remain on your calendar."); }} />
-      {data.canManage ? <WorkspaceProfileEditor key={`${data.definition?.version ?? 0}:${data.publication?.publication_generation ?? 0}`} data={view!} busy={busy} focusRevision={profileFocusRevision}
-        onSave={async input => {
-          const success = !data.publication && input.published ? "Workspace name claimed."
-            : input.published ? "Workspace profile saved." : "Workspace profile saved offline.";
-          if (await perform(async () => { await authorize("calendar.publish"); await gateway.saveWorkspaceBookingProfile(input); }, success)) {
-            setProfileFocusRevision(value => value + 1);
-          }
-        }}
-        onCopy={async url => { await perform(async () => { await copyTextToClipboard(url); }, "Booking link copied."); }} />
-        : <p>Everyone in this workspace is a host. A workspace owner or admin can choose hosts for shared meetings.</p>}
-    </> : null}
+          }, decision === "approve" ? "Meeting approved. Everyone will receive the invitation." : "Meeting declined.")}>{decision === "approve" ? "Approve" : "Decline"}</button>)}</div>
+        </li>)}
+      </ul>
+    </div> : null}
+    {data ? <HostAvailability key={`${gateway.principalId}:${data.self?.host.version ?? 0}`} data={data} state={state} displayName={selfName} busy={busy}
+      onSave={async input => { await perform(async () => { await authorize("calendar.manage"); await gateway.saveSharedHost(input); }, input.enabled ? "Your booking availability is saved." : "Shared bookings disabled. Existing meetings remain on your calendar."); }} /> : null}
   </section>;
 }
 
@@ -103,8 +119,13 @@ function HostAvailability({ data, state, busy, onSave, displayName: memberName }
   const [scheduleId, setScheduleId] = useState(own?.host.sourceAvailabilityScheduleId ?? state.availability[0]?.id ?? "");
   const schedule = state.availability.find(item => item.id === scheduleId);
   const canSave = Boolean(schedule && destinations.some(calendar => calendar.id === destination) && displayName.trim());
-  return <details className="shared-booking-section" open={!own?.enabled}>
-    <summary>Your booking availability {own?.enabled ? `· ${own.host.displayName}` : "· Calendar setup needed"}</summary>
+  const savedCalendar = calendars.find(calendar => calendar.id === own?.host.destinationCalendarId)?.name;
+  const savedSchedule = state.availability.find(item => item.id === own?.host.sourceAvailabilityScheduleId)?.name;
+  return <details className="booking-host-availability" open={!own?.enabled}>
+    <summary>
+      <span><strong>Your availability for shared meetings</strong><small>{own?.enabled ? [savedCalendar, savedSchedule].filter(Boolean).join(" · ") || "Synced automatically" : "Setup needed"}</small></span>
+      <ChevronDown aria-hidden="true" />
+    </summary>
     <form className="schedule-form" onSubmit={event => {
       event.preventDefault(); if (!canSave || !schedule || busy) return;
       void onSave({ expectedVersion: own?.host.version ?? 0, enabled: true, displayName,
@@ -118,19 +139,19 @@ function HostAvailability({ data, state, busy, onSave, displayName: memberName }
             timeZone: override.timezone ?? schedule.timezone, ...(override.available ? { start: override.start!, end: override.end! } : {}) })),
         } });
     }}>
-      <p>Workspace members are hosts automatically. Your connected Google calendar and saved availability determine when you can be booked. These settings sync automatically when you open Booking pages.</p>
+      <p>Your Google calendar and Availability Schedule decide when guests can book you into shared meetings. Changes sync automatically.</p>
       <div className="shared-booking-fields">
         <label className="field"><span>Your public name</span><input required maxLength={160} value={displayName} onChange={event => setDisplayName(event.currentTarget.value)} /></label>
         <label className="field"><span>Your Google calendar</span><CalendarSelect required placeholder="Choose a calendar" value={destination} onValueChange={value => setDestination(value)}>{destinations.map(calendar => <SelectItem key={calendar.id} value={calendar.id}>{calendar.name}</SelectItem>)}</CalendarSelect></label>
         <label className="field"><span>Availability Schedule</span><CalendarSelect required placeholder="Choose a schedule" value={scheduleId} onValueChange={value => setScheduleId(value)}>{state.availability.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</CalendarSelect></label>
       </div>
       {!destinations.length || !state.availability.length ? <p>Connect a Google calendar in Settings and create an Availability Schedule to get started.</p> : null}
-      <div className="shared-booking-actions"><Button disabled={busy || !canSave} type="submit">{busy ? "Syncing…" : "Save availability"}</Button></div>
+      <div className="shared-booking-actions"><button className="primary-button" disabled={busy || !canSave} type="submit">{busy ? "Syncing…" : "Save availability"}</button></div>
     </form>
   </details>;
 }
 
-function WorkspaceProfileEditor({ data, busy, onSave, onCopy, focusRevision }: { readonly data: WorkspaceBookings; readonly busy: boolean; readonly focusRevision: number; readonly onSave: (input: WorkspaceBookingProfileInput) => Promise<void>; readonly onCopy: (url: string) => Promise<void> }) {
+function WorkspaceProfileEditor({ data, busy, onSave, onCopy, focusRevision, refreshButton, messages }: { readonly data: WorkspaceBookings; readonly busy: boolean; readonly focusRevision: number; readonly refreshButton: ReactNode; readonly messages: ReactNode; readonly onSave: (input: WorkspaceBookingProfileInput) => Promise<void>; readonly onCopy: (url: string) => Promise<void> }) {
   const [slug, setSlug] = useState(data.definition?.profileSlug ?? "");
   const [name, setName] = useState(data.definition?.displayName ?? "");
   const [events, setEvents] = useState<readonly SharedEventType[]>(data.definition?.events ?? []);
@@ -179,49 +200,67 @@ function WorkspaceProfileEditor({ data, busy, onSave, onCopy, focusRevision }: {
     return errors;
   };
   const publicationBlocked = events.some(event => hostErrors(event).length > 0);
-  return <section className="shared-booking-section" aria-labelledby="workspace-profile-heading">
-    <h3 id="workspace-profile-heading">Workspace booking profile</h3>
-    {claimed ? <div className="workspace-profile-summary">
-      <div className="workspace-profile-summary-heading">
+  const displayName = data.definition?.displayName || data.publication?.display_name || "";
+  const readiness = !live ? "Offline" : !current ? "Update needed" : hasMeetings ? "Accepting bookings" : "Setup needed";
+  const readinessNote = !live ? "Your workspace link stays reserved while it’s offline."
+    : !current ? "Settings or host availability changed. Refresh shared links to apply them."
+    : !hasMeetings ? "Add a shared meeting to start accepting bookings." : null;
+  const displayUrl = profileUrl?.replace(/^https?:\/\//, "");
+  return <>
+    <header className={`booking-profile-header${claimed ? " workspace-profile-summary" : ""}`}>
+      <div className="booking-profile-identity">
+        <span className="booking-avatar is-workspace" aria-hidden="true">{claimed && displayName ? displayName.trim().slice(0, 1).toUpperCase() : <Users />}</span>
         <div>
-          <span className="workspace-name-claimed"><CheckCircle2 aria-hidden="true" /> Name claimed</span>
-          <h4>{data.definition?.displayName || data.publication!.display_name}</h4>
+          <div className="booking-profile-title">
+            <h2 id="shared-booking-heading">{claimed ? displayName : "Shared bookings"}</h2>
+            <span className="booking-profile-kind">Workspace</span>
+            {claimed ? <span className={`status-chip ${readiness === "Accepting bookings" ? "status-confirmed" : "status-pending"}`}>{readiness}</span> : null}
+          </div>
+          {claimed ? <p className="booking-profile-link">
+            <LockKeyhole aria-label="Reserved for your workspace" role="img" />
+            {live ? <a href={profileUrl!} target="_blank" rel="noreferrer">{displayUrl}</a> : <span>{displayUrl}</span>}
+            {live ? <button type="button" className="booking-inline-icon" disabled={busy} onClick={() => void onCopy(profileUrl!)} aria-label="Copy workspace link" title="Copy link"><Copy aria-hidden="true" /></button> : null}
+          </p> : <p className="booking-profile-subtitle">One link where guests book time with several teammates at once.</p>}
         </div>
-        {!editing ? <Button ref={editButton} type="button" variant="outline" disabled={busy} onClick={() => setEditing(true)}><Pencil aria-hidden="true" /> Edit profile</Button> : null}
       </div>
-      <div className="workspace-profile-address">
-        <LockKeyhole aria-hidden="true" />
-        {live ? <a href={profileUrl!} target="_blank" rel="noreferrer">{profileUrl}</a> : <span>{profileUrl}</span>}
-        {live ? <Button type="button" variant="outline" disabled={busy} onClick={() => void onCopy(profileUrl!)}><Copy aria-hidden="true" /> Copy link</Button> : null}
+      <div className="booking-profile-actions">
+        {refreshButton}
+        {claimed && !editing ? <>
+          {live ? <button type="button" className="quiet-button is-compact" disabled={busy} onClick={() => void onSave(payload(false))}>Take offline</button> : null}
+          <button ref={editButton} type="button" className="secondary-button is-compact" disabled={busy} onClick={() => setEditing(true)}><Pencil aria-hidden="true" /> Edit profile</button>
+          {!live ? <button type="button" className="primary-button is-compact" disabled={busy || publicationBlocked} onClick={() => void onSave(payload(true))}>Publish profile</button> : null}
+          {live && !current ? <button type="button" className="primary-button is-compact" disabled={busy || publicationBlocked} onClick={() => void onSave(payload(true))}><RefreshCw aria-hidden="true" /> Refresh shared links</button> : null}
+          <button type="button" className={`${hasMeetings || !live || !current ? "secondary-button" : "primary-button"} is-compact`} disabled={busy || !data.hosts.length || events.length >= 20} onClick={addMeeting}><Plus aria-hidden="true" /> Add shared meeting</button>
+        </> : null}
       </div>
-      <p className="workspace-profile-reservation">This public name is reserved for your workspace and cannot be changed.</p>
-      <div className="workspace-profile-readiness">
-        <span className={`status-chip ${live && current && hasMeetings ? "status-confirmed" : "status-pending"}`}>
-          {!live ? "Offline" : !current ? "Update needed" : hasMeetings ? "Accepting bookings" : "Setup needed"}
-        </span>
-        <p>{!live ? "Your name stays reserved while the profile is offline."
-          : !current ? "Saved settings or host availability have changed. Refresh shared links to apply them."
-          : !hasMeetings ? "Your name is ready. Add a shared meeting to start accepting bookings."
-          : `${data.definition!.events.length} shared ${data.definition!.events.length === 1 ? "meeting is" : "meetings are"} available on your booking page.`}</p>
-      </div>
-    </div> : <p>Choose a public name for your workspace. You can add shared meetings after claiming it.</p>}
-    {claimed && !editing ? <div className="workspace-profile-complete">
+    </header>
+    {messages}
+    {claimed && !editing ? <>
+      {readinessNote ? <p className="booking-section-message">{readinessNote}</p> : null}
       {publicationBlocked ? <div className="shared-booking-validation" role="alert"><ul>{[...new Set(events.flatMap(hostErrors))].map(error => <li key={error}>{error}</li>)}</ul></div> : null}
-      {hasMeetings ? <ul className="workspace-profile-meetings" aria-label="Shared meetings">
-        {data.definition!.events.map(event => <li key={event.id}>
-          <div><strong>{event.title}</strong><span>{event.durationMinutes} min · {event.hostIds.length} required {event.hostIds.length === 1 ? "host" : "hosts"}</span></div>
-          {current && data.definition?.published ? <Button type="button" variant="outline" disabled={busy} onClick={() => void onCopy(`${profileUrl}/${encodeURIComponent(event.slug)}`)} aria-label={`Copy link for ${event.title}`}><Copy aria-hidden="true" /> Copy link</Button> : null}
+      {hasMeetings ? <ul className="booking-table workspace-profile-meetings" aria-label="Shared meetings">
+        {data.definition!.events.map(event => <li className="booking-row is-shared" key={event.id}>
+          <div className="booking-cell booking-cell-name">
+            <span className="booking-swatch" aria-hidden="true" />
+            <div>
+              <strong>{event.title}</strong>
+              <span className="booking-meta">
+                <span><Clock3 aria-hidden="true" /> {event.durationMinutes} min</span>
+                <span><Users aria-hidden="true" /> {event.hostIds.length} {event.hostIds.length === 1 ? "host" : "hosts"}</span>
+                <span><Video aria-hidden="true" /> {event.location === "zoom" ? "Organizer’s Zoom" : "Google Meet"}</span>
+                {event.approvalRequired ? <span><ShieldCheck aria-hidden="true" /> Needs approval</span> : null}
+              </span>
+            </div>
+          </div>
+          <div className="booking-cell booking-cell-link">
+            <span className="booking-slug" title={`${displayUrl}/${event.slug}`}>/{event.slug}</span>
+            {current && data.definition?.published ? <button type="button" className="booking-inline-icon" disabled={busy} onClick={() => void onCopy(`${profileUrl}/${encodeURIComponent(event.slug)}`)} aria-label={`Copy link for ${event.title}`} title="Copy link"><Copy aria-hidden="true" /></button> : null}
+          </div>
         </li>)}
       </ul> : null}
-      {!data.hosts.length ? <p className="workspace-profile-next-step">No workspace members are available. Refresh to reload the workspace host list.</p> : null}
-      <div className="shared-booking-actions">
-        <Button type="button" variant={!hasMeetings ? "default" : "outline"} disabled={busy || !data.hosts.length || events.length >= 20} onClick={addMeeting}><Plus aria-hidden="true" /> Add shared meeting</Button>
-        {live && !current ? <Button type="button" disabled={busy || publicationBlocked} onClick={() => void onSave(payload(true))}><RefreshCw aria-hidden="true" /> Refresh shared links</Button> : null}
-        {!live ? <Button type="button" disabled={busy || publicationBlocked} onClick={() => void onSave(payload(true))}>Publish profile</Button> : null}
-        {live ? <Button type="button" variant="outline" disabled={busy} onClick={() => void onSave(payload(false))}>Take profile offline</Button> : null}
-      </div>
-    </div> : <form className="schedule-form workspace-profile-form" onSubmit={event => { event.preventDefault(); if (!busy && (!savePublished || !publicationBlocked)) void onSave(payload(savePublished)); }}>
-      {claimed ? <h4>Edit workspace profile</h4> : null}
+      {!data.hosts.length ? <p className="booking-section-message">No workspace members are available. Refresh to reload the workspace host list.</p> : null}
+    </> : <form className="schedule-form workspace-profile-form" onSubmit={event => { event.preventDefault(); if (!busy && (!savePublished || !publicationBlocked)) void onSave(payload(savePublished)); }}>
+      {claimed ? <h3>Edit workspace profile</h3> : <p className="booking-section-message">Choose a public name for your workspace. You can add shared meetings after claiming it.</p>}
       <div className="shared-booking-fields">
         <label className="field"><span>Workspace display name</span><input ref={nameInput} name="workspace-display-name" autoComplete="organization" required disabled={busy} maxLength={160} value={name} onChange={event => { setName(event.currentTarget.value); setDirty(true); }} placeholder="Zephyr" /></label>
         {!claimed ? <label className="field"><span>Public workspace name</span><input name="workspace-profile-slug" autoComplete="off" autoCapitalize="none" spellCheck={false} disabled={busy} required pattern="[a-z0-9]+(-[a-z0-9]+)*" minLength={2} maxLength={64} value={slug} onChange={event => { setSlug(event.currentTarget.value); setDirty(true); }} placeholder="zephyr" /><small>{data.publicBaseUrl}/{slug || "workspace-name"}</small></label> : null}
@@ -252,11 +291,11 @@ function WorkspaceProfileEditor({ data, busy, onSave, onCopy, focusRevision }: {
           {current && !dirty && data.definition?.published ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void onCopy(`${profileUrl}/${encodeURIComponent(event.slug)}`)}><Copy aria-hidden="true" /> Copy shared link</button> : null}</div>
       </fieldset>)}
       <div className="shared-booking-actions">
-        <Button type="button" variant="outline" disabled={busy || !data.hosts.length || events.length >= 20} onClick={addMeeting}><Plus aria-hidden="true" /> Add shared meeting</Button>
-        {claimed ? <Button type="button" variant="outline" disabled={busy} onClick={cancelEditing}>Cancel</Button> : null}
-        <Button type="submit" disabled={busy || events.some(event => !event.hostIds.length) || (savePublished && publicationBlocked)}>{busy ? "Saving…" : claimed ? "Save changes" : "Claim workspace name"}</Button>
+        <button type="button" className="secondary-button" disabled={busy || !data.hosts.length || events.length >= 20} onClick={addMeeting}><Plus aria-hidden="true" /> Add shared meeting</button>
+        {claimed ? <button type="button" className="secondary-button" disabled={busy} onClick={cancelEditing}>Cancel</button> : null}
+        <button type="submit" className="primary-button" disabled={busy || events.some(event => !event.hostIds.length) || (savePublished && publicationBlocked)}>{busy ? "Saving…" : claimed ? "Save changes" : "Claim workspace name"}</button>
       </div>
       {claimed ? <small>{savePublished ? "Saving updates your published profile and shared meetings." : "Saving keeps your profile offline. You can publish it when you’re ready."}</small> : <small>Your public name becomes permanent once claimed. Your display name can be edited later.</small>}
     </form>}
-  </section>;
+  </>;
 }
