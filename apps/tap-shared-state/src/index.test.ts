@@ -15,9 +15,9 @@ function fixture() {
     },
   };
   const device = () => {
-    let saved: Replica | null = null;
-    const store = { async read() { return structuredClone(saved); }, async write(value: Replica) { saved = structuredClone(value); } };
-    return { start: () => new SharedState(port, store), journal: () => saved };
+    let saved: Replica | null = null; let storeWrites = 0;
+    const store = { async read() { return structuredClone(saved); }, async write(value: Replica) { saved = structuredClone(value); storeWrites++; } };
+    return { start: () => new SharedState(port, store), journal: () => saved, storeWrites: () => storeWrites };
   };
   return { device, port, snapshot: () => snapshot, writes: () => writes,
     online: (value: boolean) => { online = value; }, loseReceipt: () => { loseReceipt = true; } };
@@ -70,4 +70,15 @@ test('closed accounts cannot write and corrupt journals fail visibly', async () 
   const f = fixture(); const client = f.device().start(); await client.open(); client.dispose();
   await assert.rejects(client.change(() => ({ bad: true })), /no longer active/);
   assert.equal(f.writes(), 0); assert.throws(() => parseReplica({ base: {}, value: {} }), /invalid/);
+});
+test('an unchanged refresh does not rewrite the device journal', async () => {
+  const f = fixture(); const device = f.device(); const phone = device.start();
+  await phone.open({ preferences: { notify: true } });
+  const before = device.storeWrites();
+  await phone.refresh(); await phone.refresh();
+  assert.equal(device.storeWrites(), before);
+  const desktop = f.device().start(); await desktop.open();
+  await desktop.change(value => ({ ...value, preferences: { notify: false } }));
+  assert.deepEqual((await phone.refresh()).preferences, { notify: false });
+  assert.equal(device.storeWrites(), before + 1);
 });

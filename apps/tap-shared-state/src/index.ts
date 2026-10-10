@@ -150,7 +150,10 @@ export class SharedState {
       this.assertActive();
       const value = rebase(this.replica.base.value, this.replica.value, remote.value);
       if (equal(value, remote.value)) {
-        await this.persist({ ...this.replica, base: remote, value });
+        // Polls usually find nothing new; skip the device write when the journal already matches.
+        if (!equal(this.replica.base, remote) || !equal(this.replica.value, value)) {
+          await this.persist({ ...this.replica, base: remote, value });
+        }
         return value;
       }
       try {
