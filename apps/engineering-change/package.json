@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/engineering-change",
-  "version": "0.2.0",
+  "version": "1.1.0",
   "miniappIndex": {
     "summary": "Engineering Change from idea through proposal, review, and closure.",
     "category": "productivity",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@rstest/core';
-import ausSpecialist from '../specialists/vanta-soc2-companion-aus/0.2.0.json';
-import euSpecialist from '../specialists/vanta-soc2-companion-eu/0.2.0.json';
-import usSpecialist from '../specialists/vanta-soc2-companion-us/0.2.0.json';
+import ausSpecialist from '../specialists/vanta-soc2-companion-aus/1.1.0.json';
+import euSpecialist from '../specialists/vanta-soc2-companion-eu/1.1.0.json';
+import usSpecialist from '../specialists/vanta-soc2-companion-us/1.1.0.json';
 import {
   analysisPrompt,
   clearLegacyManagedSpecialist,

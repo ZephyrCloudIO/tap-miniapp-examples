@@ -1,7 +1,7 @@
 ---
 name: architecture-review
 description: Review an Engineering Change for boundary, ownership, and lifecycle fit against the workspace architecture standards — during shaping for the hypothesis, and after implementation for the review contribution.
-version: 0.2.0
+version: 1.1.0
 allowed_tools:
   - get_change
   - list_changes

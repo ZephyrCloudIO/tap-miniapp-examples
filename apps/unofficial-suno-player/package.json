@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/unofficial-suno-player",
-  "version": "0.2.0",
+  "version": "1.1.0",
   "miniappIndex": {
     "summary": "Turn approved channel moments into a governed, user-owned soundtrack.",
     "category": "media",
