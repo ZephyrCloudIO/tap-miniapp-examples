@@ -170,6 +170,8 @@ interface ConnectionRow {
   readonly created_at: string;
   readonly updated_at: string;
   readonly last_synced_at: string | null;
+  readonly last_read_at?: string | null;
+  readonly discovery_attempted_at?: string | null;
 }
 
 interface CalendarRow {
@@ -355,6 +357,7 @@ interface CalendarSyncStateRow {
   readonly current_watch_channel_id: string | null;
   readonly watch_expiration_at: string | null;
   readonly last_notification_at: string | null;
+  readonly rebuild_queued_at: string | null;
 }
 
 interface CachedEventRow {
@@ -456,6 +459,7 @@ interface CalendarSyncTarget extends CalendarRow {
   readonly connection_created_at: string;
   readonly connection_updated_at: string;
   readonly connection_last_synced_at: string | null;
+  readonly connection_last_read_at: string | null;
 }
 
 interface CacheSyncOutcome {
@@ -465,6 +469,8 @@ interface CacheSyncOutcome {
   readonly fullSync: boolean;
   readonly resyncedAfterTokenExpiry: boolean;
   readonly changedEvents: number;
+  /** The full rebuild was handed to the rebuild queue. */
+  readonly deferred?: boolean;
   readonly error?: EventQueryError;
 }
 
@@ -490,16 +496,35 @@ const CACHE_BOOTSTRAP_FUTURE_WINDOWS_MS = [
   90 * 24 * 60 * 60 * 1000,
   30 * 24 * 60 * 60 * 1000,
 ] as const;
+const CACHE_SMALL_EVENT_PAGE_SIZE = 100;
 const CACHE_FRESH_MS = 2 * 60 * 1000;
+// Google push notifications invalidate watched calendars, so reads trust them for hours.
+const CACHE_WATCHED_FRESH_MS = 6 * 60 * 60 * 1000;
+// Past this age a cached calendar is no longer served as current data.
+const CACHE_MAX_SERVE_AGE_MS = 24 * 60 * 60 * 1000;
+// A range outside a reduced cache window forces another rebuild at most this often.
+const CACHE_COVERAGE_REBUILD_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+// A foreground `wait` read serves the cache once revalidation exceeds this budget.
+const CACHE_WAIT_BUDGET_MS = 1_250;
 const CACHE_REPAIR_INTERVAL_MS = 5 * 60 * 1000;
+const CACHE_WATCHED_REPAIR_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const CACHE_WATCHED_REPAIR_JITTER_MS = 6 * 60 * 60 * 1000;
 const CACHE_ERROR_RETRY_BASE_MS = 5 * 60 * 1000;
 const CACHE_SYNC_LEASE_MS = 2 * 60 * 1000;
-const CACHE_LEASE_WAIT_ATTEMPTS = 20;
-const CACHE_LEASE_WAIT_MS = 250;
 const BOOKING_COMMIT_LEASE_MS = 2 * 60 * 1000;
 const MAX_BOOKING_ATTENDEES = 100;
 const CACHE_WRITE_BATCH_SIZE = 75;
-const CACHE_REPAIR_BATCH_SIZE = 20;
+const CACHE_REPAIR_BATCH_SIZE = 100;
+// A queued rebuild is not queued again within this window; after it, reads or cron re-queue.
+const CACHE_REBUILD_REQUEUE_MS = 10 * 60 * 1000;
+const CACHE_REBUILD_CONCURRENCY = 2;
+const CACHE_REPAIR_CONCURRENCY = 6;
+const CACHE_ACTIVE_OWNER_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_READ_MARK_INTERVAL_MS = 10 * 60 * 1000;
+const CALENDAR_DISCOVERY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const CALENDAR_DISCOVERY_RETRY_MS = 10 * 60 * 1000;
+const CALENDAR_DISCOVERY_BATCH_SIZE = 10;
+const MAX_QUERY_IN_PARAMETERS = 90;
 const WATCH_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const WATCH_TTL_SECONDS = 7 * 24 * 60 * 60;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -535,6 +560,8 @@ class ProviderHttpError extends ApiError {
   constructor(
     readonly providerStatus: number,
     message: string,
+    /** Google's machine-readable error reason, such as `rateLimitExceeded`. */
+    readonly providerReason: string | null = null,
   ) {
     super(502, "provider_request_failed", message);
   }
@@ -2659,6 +2686,22 @@ async function deleteConnection(
   return new Response(null, { status: 204 });
 }
 
+/**
+ * Google reports why a request failed in `errors[].reason` (v1 format) or
+ * `details[].reason` / `status` (AIP-193 format). A 403 can be a rate limit.
+ */
+const providerErrorReason = (error: Readonly<Record<string, unknown>>): string | null => {
+  for (const list of [error.errors, error.details]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (isRecord(item) && typeof item.reason === "string" && item.reason) {
+        return item.reason.slice(0, 128);
+      }
+    }
+  }
+  return typeof error.status === "string" && error.status ? error.status.slice(0, 128) : null;
+};
+
 async function externalJson(
   url: string,
   init: RequestInit,
@@ -2708,7 +2751,11 @@ async function externalJson(
       (typeof nestedError.message === "string" && nestedError.message) ||
       (typeof record.error_description === "string" && record.error_description) ||
       `Provider request failed with HTTP ${response.status}.`;
-    throw new ProviderHttpError(response.status, message.slice(0, 500));
+    throw new ProviderHttpError(
+      response.status,
+      message.slice(0, 500),
+      providerErrorReason(nestedError),
+    );
   }
   if (!isRecord(parsed)) {
     throw new ApiError(502, "provider_response_invalid", "The provider returned invalid JSON.");
@@ -4124,23 +4171,40 @@ function normalizeGoogleFreeBusy(
   };
 }
 
+// Google sends these with HTTP 403 as well as 429. They are retryable, not lost access.
+const GOOGLE_RATE_LIMIT_REASONS = new Set([
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+  "dailyLimitExceeded",
+  "RATE_LIMIT_EXCEEDED",
+  "RESOURCE_EXHAUSTED",
+]);
+
 const providerQueryError = (calendarId: string, cause: unknown): EventQueryError => {
   if (cause instanceof ProviderHttpError) {
+    const rateLimited = cause.providerStatus === 429 || (
+      cause.providerStatus === 403 &&
+      cause.providerReason !== null &&
+      GOOGLE_RATE_LIMIT_REASONS.has(cause.providerReason)
+    );
     const code = cause.providerStatus === 401
       ? "reauthorization_required"
-      : cause.providerStatus === 403
-        ? "provider_access_denied"
-        : cause.providerStatus === 404
-          ? "provider_calendar_unavailable"
-          : cause.providerStatus === 429
-            ? "provider_rate_limited"
+      : rateLimited
+        ? "provider_rate_limited"
+        : cause.providerStatus === 403
+          ? "provider_access_denied"
+          : cause.providerStatus === 404
+            ? "provider_calendar_unavailable"
             : "provider_request_failed";
     return {
       calendarId,
       code,
       message: cause.providerStatus === 401
         ? "Reconnect this provider account to resume event sync."
-        : "Google Calendar could not return events for this calendar.",
+        : rateLimited
+          ? "Google Calendar is rate limiting this calendar. TAP retries automatically."
+          : "Google Calendar could not return events for this calendar.",
     };
   }
   if (cause instanceof ApiError) {
@@ -4188,28 +4252,42 @@ type AuthorizedTokenResult = Awaited<ReturnType<typeof authorizedToken>>;
 
 interface CacheSyncInvocation {
   readonly authorizationByConnection: Map<string, Promise<AuthorizedTokenResult>>;
+  readonly rediscoveredConnections: Set<string>;
 }
 
 const cacheSyncInvocation = (): CacheSyncInvocation => ({
   authorizationByConnection: new Map(),
+  rediscoveredConnections: new Set(),
 });
+
+const authorizedTokenForConnection = (
+  env: CalendarGatewayEnv,
+  connection: ConnectionRow,
+  providerFetch: ProviderFetch,
+  invocation: CacheSyncInvocation,
+): Promise<AuthorizedTokenResult> => {
+  const key = `${connection.workspace_id}\u0000${connection.id}`;
+  const existing = invocation.authorizationByConnection.get(key);
+  if (existing) return existing;
+  const authorization = authorizedToken(env, connection, providerFetch);
+  invocation.authorizationByConnection.set(key, authorization);
+  return authorization;
+};
 
 const authorizedTokenForCacheSync = (
   env: CalendarGatewayEnv,
   target: CalendarSyncTarget,
   providerFetch: ProviderFetch,
   invocation: CacheSyncInvocation,
-): Promise<AuthorizedTokenResult> => {
-  const key = `${target.workspace_id}\u0000${target.connection_id}`;
-  const existing = invocation.authorizationByConnection.get(key);
-  if (existing) return existing;
-  const authorization = authorizedToken(
-    env,
-    connectionFromSyncTarget(target),
-    providerFetch,
-  );
-  invocation.authorizationByConnection.set(key, authorization);
-  return authorization;
+): Promise<AuthorizedTokenResult> =>
+  authorizedTokenForConnection(env, connectionFromSyncTarget(target), providerFetch, invocation);
+
+const chunked = <Value>(values: readonly Value[], size: number): Value[][] => {
+  const chunks: Value[][] = [];
+  for (let offset = 0; offset < values.length; offset += size) {
+    chunks.push(values.slice(offset, offset + size));
+  }
+  return chunks;
 };
 
 async function loadCalendarSyncTargets(
@@ -4219,6 +4297,14 @@ async function loadCalendarSyncTargets(
   calendarIds: readonly string[],
 ): Promise<readonly CalendarSyncTarget[]> {
   if (calendarIds.length === 0) return [];
+  if (calendarIds.length > MAX_QUERY_IN_PARAMETERS) {
+    const chunks = await Promise.all(
+      chunked(calendarIds, MAX_QUERY_IN_PARAMETERS).map(chunk =>
+        loadCalendarSyncTargets(env, workspace, principal, chunk)
+      ),
+    );
+    return chunks.flat();
+  }
   return (await env.CALENDAR_DB.prepare(
     `SELECT
        provider_calendars.*,
@@ -4232,7 +4318,8 @@ async function loadCalendarSyncTargets(
        calendar_connections.status AS connection_status,
        calendar_connections.created_at AS connection_created_at,
        calendar_connections.updated_at AS connection_updated_at,
-       calendar_connections.last_synced_at AS connection_last_synced_at
+       calendar_connections.last_synced_at AS connection_last_synced_at,
+       calendar_connections.last_read_at AS connection_last_read_at
      FROM provider_calendars
      INNER JOIN calendar_connections
        ON calendar_connections.id = provider_calendars.connection_id
@@ -4244,12 +4331,12 @@ async function loadCalendarSyncTargets(
     .all<CalendarSyncTarget>()).results;
 }
 
-async function ensureCalendarSyncState(
+const insertCalendarSyncStateStatement = (
   env: CalendarGatewayEnv,
   target: CalendarSyncTarget,
-): Promise<CalendarSyncStateRow> {
-  const now = new Date().toISOString();
-  await env.CALENDAR_DB.prepare(
+  now: string,
+): D1PreparedStatement =>
+  env.CALENDAR_DB.prepare(
     `INSERT OR IGNORE INTO calendar_sync_state
       (workspace_id, connection_id, calendar_id, active_generation, cache_revision, sync_token,
        cache_time_min, freshness, last_attempt_at, last_success_at, next_sync_at,
@@ -4257,26 +4344,66 @@ async function ensureCalendarSyncState(
        current_watch_channel_id, watch_expiration_at, last_notification_at)
      VALUES (?, ?, ?, ?, 0, NULL, NULL, 'pending', NULL, NULL, ?, NULL, NULL, 0,
              NULL, NULL, NULL, NULL)`,
-  )
-    .bind(
-      target.workspace_id,
-      target.connection_id,
-      target.id,
-      `initial-${crypto.randomUUID()}`,
-      now,
-    )
-    .run();
-  const state = await env.CALENDAR_DB.prepare(
-    `SELECT * FROM calendar_sync_state
-      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?`,
-  )
-    .bind(target.workspace_id, target.connection_id, target.id)
-    .first<CalendarSyncStateRow>();
-  if (!state) {
+  ).bind(
+    target.workspace_id,
+    target.connection_id,
+    target.id,
+    `initial-${crypto.randomUUID()}`,
+    now,
+  );
+
+/**
+ * Reads every target's sync state in one query and creates only the missing
+ * rows, in one batch that also returns them. Steady-state reads cost one query.
+ */
+async function ensureCalendarSyncStates(
+  env: CalendarGatewayEnv,
+  workspace: string,
+  targets: readonly CalendarSyncTarget[],
+): Promise<Map<string, CalendarSyncStateRow>> {
+  const states = new Map(
+    (await loadCalendarSyncStates(env, workspace, targets.map(target => target.id)))
+      .map(state => [state.calendar_id, state] as const),
+  );
+  const missing = targets.filter(target => !states.has(target.id));
+  for (const chunk of chunked(missing, MAX_QUERY_IN_PARAMETERS)) {
+    const now = new Date().toISOString();
+    const results = await env.CALENDAR_DB.batch<CalendarSyncStateRow>([
+      ...chunk.map(target => insertCalendarSyncStateStatement(env, target, now)),
+      env.CALENDAR_DB.prepare(
+        `SELECT * FROM calendar_sync_state
+          WHERE workspace_id = ?
+            AND calendar_id IN (${chunk.map(() => "?").join(", ")})`,
+      ).bind(workspace, ...chunk.map(target => target.id)),
+    ]);
+    for (const state of results.at(-1)?.results ?? []) states.set(state.calendar_id, state);
+  }
+  if (targets.some(target => !states.has(target.id))) {
     throw new ApiError(500, "cache_state_unavailable", "Calendar cache state is unavailable.");
   }
-  return state;
+  return states;
 }
+
+async function ensureCalendarSyncState(
+  env: CalendarGatewayEnv,
+  target: CalendarSyncTarget,
+): Promise<CalendarSyncStateRow> {
+  return (await ensureCalendarSyncStates(env, target.workspace_id, [target])).get(target.id)!;
+}
+
+const watchHealthy = (state: CalendarSyncStateRow, now: number): boolean =>
+  state.current_watch_channel_id !== null &&
+  state.watch_expiration_at !== null &&
+  Date.parse(state.watch_expiration_at) > now;
+
+const cacheFreshWindow = (state: CalendarSyncStateRow, now: number): number =>
+  watchHealthy(state, now) ? CACHE_WATCHED_FRESH_MS : CACHE_FRESH_MS;
+
+// Healthy watches only need a safety-net sync; jitter spreads them over 6–12 hours.
+const cacheRepairDelay = (state: CalendarSyncStateRow, now: number): number =>
+  watchHealthy(state, now)
+    ? CACHE_WATCHED_REPAIR_INTERVAL_MS + Math.floor(Math.random() * CACHE_WATCHED_REPAIR_JITTER_MS)
+    : CACHE_REPAIR_INTERVAL_MS;
 
 const cacheFailureDelay = (consecutiveFailures: number): number =>
   Math.min(
@@ -4284,11 +4411,30 @@ const cacheFailureDelay = (consecutiveFailures: number): number =>
     CACHE_ERROR_RETRY_BASE_MS * 2 ** Math.min(consecutiveFailures, 4),
   );
 
+// These fail the same way on every retry with the same sync token, so the token is dropped
+// and the next attempt rebuilds the snapshot with the reduced-window fallback.
+const CACHE_TOKEN_RESET_ERRORS = new Set([
+  "provider_pagination_limit",
+  "event_limit_reached",
+  "provider_response_too_large",
+]);
+
+const syncTokenInvalidated = (error: unknown): boolean =>
+  (error instanceof ProviderHttpError && error.providerStatus === 410) ||
+  (error instanceof ApiError && CACHE_TOKEN_RESET_ERRORS.has(error.code));
+
+// Lost access or a deleted calendar: the calendar list is rediscovered so it drops out.
+const CALENDAR_REDISCOVERY_ERRORS = new Set([
+  "provider_access_denied",
+  "provider_calendar_unavailable",
+]);
+
 async function recordCacheSyncFailure(
   env: CalendarGatewayEnv,
   state: CalendarSyncStateRow,
   error: EventQueryError,
   leaseUntil: string,
+  clearSyncToken: boolean,
 ): Promise<void> {
   const nextSyncAt = new Date(
     Date.now() + cacheFailureDelay(state.consecutive_failures),
@@ -4297,7 +4443,8 @@ async function recordCacheSyncFailure(
     `UPDATE calendar_sync_state
         SET freshness = CASE WHEN last_success_at IS NULL THEN 'error' ELSE 'stale' END,
             error_code = ?, error_message = ?, consecutive_failures = consecutive_failures + 1,
-            next_sync_at = ?, lease_until = NULL
+            next_sync_at = ?, lease_until = NULL, rebuild_queued_at = NULL,
+            sync_token = CASE WHEN ? = 1 THEN NULL ELSE sync_token END
       WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
         AND lease_until = ?`,
   )
@@ -4305,11 +4452,56 @@ async function recordCacheSyncFailure(
       error.code,
       error.message.slice(0, 500),
       nextSyncAt,
+      clearSyncToken ? 1 : 0,
       state.workspace_id,
       state.connection_id,
       state.calendar_id,
       leaseUntil,
     )
+    .run();
+}
+
+/**
+ * Takes the per-calendar sync lease and returns the leased state in one round trip.
+ * Returns null while another request holds the lease.
+ */
+async function acquireCacheSyncLease(
+  env: CalendarGatewayEnv,
+  target: CalendarSyncTarget,
+  now: string,
+  leaseUntil: string,
+): Promise<CalendarSyncStateRow | null> {
+  const [, leased] = await env.CALENDAR_DB.batch<CalendarSyncStateRow>([
+    insertCalendarSyncStateStatement(env, target, now),
+    env.CALENDAR_DB.prepare(
+      `UPDATE calendar_sync_state
+          SET lease_until = ?, last_attempt_at = ?
+        WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
+          AND (lease_until IS NULL OR lease_until <= ?)
+        RETURNING *`,
+    ).bind(
+      leaseUntil,
+      now,
+      target.workspace_id,
+      target.connection_id,
+      target.id,
+      now,
+    ),
+  ]);
+  return leased?.results[0] ?? null;
+}
+
+async function releaseCacheSyncLease(
+  env: CalendarGatewayEnv,
+  state: CalendarSyncStateRow,
+  leaseUntil: string,
+): Promise<void> {
+  await env.CALENDAR_DB.prepare(
+    `UPDATE calendar_sync_state SET lease_until = NULL
+      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
+        AND lease_until = ?`,
+  )
+    .bind(state.workspace_id, state.connection_id, state.calendar_id, leaseUntil)
     .run();
 }
 
@@ -4372,6 +4564,7 @@ async function collectGoogleCalendarChanges(
   syncToken: string | null,
   providerFetch: ProviderFetch,
   fullSyncFutureMs = CACHE_ROLLING_FUTURE_MS,
+  pageSize = CACHE_EVENT_PAGE_SIZE,
 ): Promise<GoogleSyncCollection> {
   const mutations: GoogleCacheMutation[] = [];
   const fullSync = !syncToken;
@@ -4381,12 +4574,15 @@ async function collectGoogleCalendarChanges(
   const cacheTimeMax = fullSync
     ? new Date(Date.now() + fullSyncFutureMs).toISOString()
     : null;
+  const pageLimit = pageSize < CACHE_EVENT_PAGE_SIZE
+    ? MAX_EVENT_PROVIDER_PAGES * 2
+    : MAX_EVENT_PROVIDER_PAGES;
   let pageToken: string | null = null;
   let nextSyncToken: string | null = null;
   let pageCount = 0;
   do {
     pageCount += 1;
-    if (pageCount > MAX_EVENT_PROVIDER_PAGES) {
+    if (pageCount > pageLimit) {
       throw new ApiError(
         502,
         "provider_pagination_limit",
@@ -4398,7 +4594,7 @@ async function collectGoogleCalendarChanges(
     );
     url.searchParams.set("singleEvents", "true");
     url.searchParams.set("showDeleted", "true");
-    url.searchParams.set("maxResults", String(CACHE_EVENT_PAGE_SIZE));
+    url.searchParams.set("maxResults", String(pageSize));
     url.searchParams.set("maxAttendees", String(MAX_EVENT_ATTENDEES));
     url.searchParams.set("fields", GOOGLE_SYNC_EVENT_FIELDS);
     if (syncToken) url.searchParams.set("syncToken", syncToken);
@@ -4447,32 +4643,116 @@ async function collectGoogleRollingSnapshot(
   providerFetch: ProviderFetch,
 ): Promise<GoogleSyncCollection> {
   let lastError: unknown;
+  let pageSize = CACHE_EVENT_PAGE_SIZE;
   for (const futureWindowMs of CACHE_BOOTSTRAP_FUTURE_WINDOWS_MS) {
-    try {
-      return await collectGoogleCalendarChanges(
-        target,
-        accessToken,
-        null,
-        providerFetch,
-        futureWindowMs,
-      );
-    } catch (error) {
-      lastError = error;
-      if (
-        !(error instanceof ApiError) ||
-        !["provider_pagination_limit", "event_limit_reached"].includes(error.code)
-      ) throw error;
-      logCalendarSync("warn", "calendar rolling bootstrap window reduced", {
-        workspace_id: target.workspace_id,
-        connection_id: target.connection_id,
-        calendar_id: target.id,
-        attempted_future_days: Math.round(futureWindowMs / (24 * 60 * 60 * 1000)),
-        error_code: error.code,
-      });
+    while (true) {
+      try {
+        return await collectGoogleCalendarChanges(
+          target,
+          accessToken,
+          null,
+          providerFetch,
+          futureWindowMs,
+          pageSize,
+        );
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof ApiError) || !CACHE_TOKEN_RESET_ERRORS.has(error.code)) throw error;
+        logCalendarSync("warn", "calendar rolling bootstrap window reduced", {
+          workspace_id: target.workspace_id,
+          connection_id: target.connection_id,
+          calendar_id: target.id,
+          attempted_future_days: Math.round(futureWindowMs / (24 * 60 * 60 * 1000)),
+          page_size: pageSize,
+          error_code: error.code,
+        });
+        // An oversized page retries the same window with smaller pages before shrinking it.
+        if (error.code !== "provider_response_too_large" || pageSize === CACHE_SMALL_EVENT_PAGE_SIZE) {
+          break;
+        }
+        pageSize = CACHE_SMALL_EVENT_PAGE_SIZE;
+      }
     }
   }
   throw lastError;
 }
+
+const CACHE_ROW_COLUMNS = `(workspace_id, connection_id, calendar_id, provider_event_id, sync_generation,
+   event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at)`;
+
+const CACHE_ROW_UPSERT = `ON CONFLICT
+   (workspace_id, connection_id, calendar_id, provider_event_id, sync_generation)
+  DO UPDATE SET
+   event_id = excluded.event_id,
+   start_at = excluded.start_at,
+   end_at = excluded.end_at,
+   tombstoned = excluded.tombstoned,
+   payload_json = excluded.payload_json,
+   provider_updated_at = excluded.provider_updated_at,
+   cached_at = excluded.cached_at`;
+
+const cacheRowValues = (
+  state: CalendarSyncStateRow,
+  generation: string,
+  mutation: GoogleCacheMutation,
+  cachedAt: string,
+): readonly unknown[] => [
+  state.workspace_id,
+  state.connection_id,
+  state.calendar_id,
+  mutation.providerEventId,
+  generation,
+  mutation.eventId,
+  mutation.start,
+  mutation.end,
+  mutation.tombstoned ? 1 : 0,
+  JSON.stringify(mutation.payload),
+  mutation.providerUpdatedAt,
+  cachedAt,
+];
+
+/**
+ * An in-place cache write commits only while the calendar still has the snapshot
+ * (and, for syncs, the lease) it was computed against. Every statement in the batch
+ * carries this guard, and the state update runs last, so the batch is all-or-nothing.
+ */
+interface CacheCommitGuard {
+  readonly sql: string;
+  readonly values: readonly unknown[];
+}
+
+const cacheCommitGuard = (
+  state: CalendarSyncStateRow,
+  leaseUntil: string | null,
+): CacheCommitGuard => ({
+  sql: `workspace_id = ? AND connection_id = ? AND calendar_id = ?
+        AND active_generation = ? AND cache_revision = ?${leaseUntil ? " AND lease_until = ?" : ""}`,
+  values: [
+    state.workspace_id,
+    state.connection_id,
+    state.calendar_id,
+    state.active_generation,
+    state.cache_revision,
+    ...(leaseUntil ? [leaseUntil] : []),
+  ],
+});
+
+const guardedCacheRowStatement = (
+  env: CalendarGatewayEnv,
+  state: CalendarSyncStateRow,
+  mutation: GoogleCacheMutation,
+  cachedAt: string,
+  guard: CacheCommitGuard,
+): D1PreparedStatement =>
+  env.CALENDAR_DB.prepare(
+    `INSERT INTO calendar_event_cache ${CACHE_ROW_COLUMNS}
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM calendar_sync_state WHERE ${guard.sql})
+     ${CACHE_ROW_UPSERT}`,
+  ).bind(
+    ...cacheRowValues(state, state.active_generation, mutation, cachedAt),
+    ...guard.values,
+  );
 
 async function writeGoogleCacheMutations(
   env: CalendarGatewayEnv,
@@ -4481,39 +4761,80 @@ async function writeGoogleCacheMutations(
   mutations: readonly GoogleCacheMutation[],
 ): Promise<void> {
   const cachedAt = new Date().toISOString();
-  for (let offset = 0; offset < mutations.length; offset += CACHE_WRITE_BATCH_SIZE) {
-    const chunk = mutations.slice(offset, offset + CACHE_WRITE_BATCH_SIZE);
+  for (const chunk of chunked(mutations, CACHE_WRITE_BATCH_SIZE)) {
     await env.CALENDAR_DB.batch(chunk.map(mutation =>
       env.CALENDAR_DB.prepare(
-        `INSERT INTO calendar_event_cache
-          (workspace_id, connection_id, calendar_id, provider_event_id, sync_generation,
-           event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at)
+        `INSERT INTO calendar_event_cache ${CACHE_ROW_COLUMNS}
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT
-          (workspace_id, connection_id, calendar_id, provider_event_id, sync_generation)
-         DO UPDATE SET
-          event_id = excluded.event_id,
-          start_at = excluded.start_at,
-          end_at = excluded.end_at,
-          tombstoned = excluded.tombstoned,
-          payload_json = excluded.payload_json,
-          provider_updated_at = excluded.provider_updated_at,
-          cached_at = excluded.cached_at`,
+         ${CACHE_ROW_UPSERT}`,
+      ).bind(...cacheRowValues(state, generation, mutation, cachedAt))
+    ));
+  }
+}
+
+const deleteCacheGenerationStatement = (
+  env: CalendarGatewayEnv,
+  state: CalendarSyncStateRow,
+  generation: string,
+): D1PreparedStatement =>
+  env.CALENDAR_DB.prepare(
+    `DELETE FROM calendar_event_cache
+      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
+        AND sync_generation = ?`,
+  ).bind(state.workspace_id, state.connection_id, state.calendar_id, generation);
+
+/**
+ * Applies changed events to the active generation in place and commits them with
+ * `stateUpdate` (which must be guarded by the same snapshot). Small change sets are
+ * one batch. Large ones are staged in a scratch generation readers never join, then
+ * merged, committed, and cleaned up in one batch, so readers never see a partial update
+ * and unchanged rows are never copied. Returns whether the commit applied.
+ */
+async function applyCacheMutationsInPlace(
+  env: CalendarGatewayEnv,
+  state: CalendarSyncStateRow,
+  mutations: readonly GoogleCacheMutation[],
+  guard: CacheCommitGuard,
+  stateUpdate: D1PreparedStatement,
+): Promise<boolean> {
+  const cachedAt = new Date().toISOString();
+  if (mutations.length <= CACHE_WRITE_BATCH_SIZE) {
+    const results = await env.CALENDAR_DB.batch([
+      ...mutations.map(mutation =>
+        guardedCacheRowStatement(env, state, mutation, cachedAt, guard)
+      ),
+      stateUpdate,
+    ]);
+    return Number(results.at(-1)?.meta.changes ?? 0) > 0;
+  }
+  const staging = `staging-${crypto.randomUUID()}`;
+  try {
+    await writeGoogleCacheMutations(env, state, staging, mutations);
+    const [, committed] = await env.CALENDAR_DB.batch([
+      env.CALENDAR_DB.prepare(
+        `INSERT INTO calendar_event_cache ${CACHE_ROW_COLUMNS}
+         SELECT workspace_id, connection_id, calendar_id, provider_event_id, ?,
+                event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at
+           FROM calendar_event_cache
+          WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
+            AND sync_generation = ?
+            AND EXISTS (SELECT 1 FROM calendar_sync_state WHERE ${guard.sql})
+         ${CACHE_ROW_UPSERT}`,
       ).bind(
+        state.active_generation,
         state.workspace_id,
         state.connection_id,
         state.calendar_id,
-        mutation.providerEventId,
-        generation,
-        mutation.eventId,
-        mutation.start,
-        mutation.end,
-        mutation.tombstoned ? 1 : 0,
-        JSON.stringify(mutation.payload),
-        mutation.providerUpdatedAt,
-        cachedAt,
-      )
-    ));
+        staging,
+        ...guard.values,
+      ),
+      stateUpdate,
+      deleteCacheGenerationStatement(env, state, staging),
+    ]);
+    return Number(committed?.meta.changes ?? 0) > 0;
+  } catch (error) {
+    await deleteCacheGenerationStatement(env, state, staging).run().catch(() => undefined);
+    throw error;
   }
 }
 
@@ -4614,32 +4935,219 @@ async function ensureGoogleWatch(
   ]);
 }
 
+/**
+ * Re-reads a connection's calendar list so deleted or unshared calendars drop out
+ * (their sync state and cache rows cascade). Attempts are throttled per connection in D1
+ * and deduplicated per invocation. Failures are logged, never thrown.
+ */
+async function rediscoverCalendarList(
+  env: CalendarGatewayEnv,
+  connection: ConnectionRow,
+  providerFetch: ProviderFetch,
+  invocation: CacheSyncInvocation,
+  reason: string,
+): Promise<boolean> {
+  if (
+    connection.mode !== "oauth" ||
+    (connection.provider !== "google" && connection.provider !== "microsoft") ||
+    !connection.credential_ciphertext ||
+    !connection.principal_id
+  ) return false;
+  const key = `${connection.workspace_id}\u0000${connection.id}`;
+  if (invocation.rediscoveredConnections.has(key)) return false;
+  invocation.rediscoveredConnections.add(key);
+  const fields = {
+    workspace_id: connection.workspace_id,
+    connection_id: connection.id,
+    reason,
+  };
+  try {
+    const attemptedAt = Date.now();
+    const claimed = await env.CALENDAR_DB.prepare(
+      `UPDATE calendar_connections SET discovery_attempted_at = ?
+        WHERE workspace_id = ? AND principal_id = ? AND id = ?
+          AND (discovery_attempted_at IS NULL OR discovery_attempted_at <= ?)`,
+    )
+      .bind(
+        new Date(attemptedAt).toISOString(),
+        connection.workspace_id,
+        connection.principal_id,
+        connection.id,
+        new Date(attemptedAt - CALENDAR_DISCOVERY_RETRY_MS).toISOString(),
+      )
+      .run();
+    if (Number(claimed.meta.changes ?? 0) === 0) return false;
+    const { secret } = await authorizedTokenForConnection(env, connection, providerFetch, invocation);
+    const discovery = await discoverProvider(connection.provider, secret.accessToken, providerFetch);
+    await persistDiscovery(env, connection, discovery, secret);
+    logCalendarSync("info", "calendar list rediscovered", {
+      ...fields,
+      calendars: discovery.calendars.length,
+    });
+    return true;
+  } catch (error) {
+    logCalendarSync("warn", "calendar list rediscovery failed", {
+      ...fields,
+      error_code: error instanceof ApiError ? error.code : "unknown",
+    });
+    return false;
+  }
+}
+
+async function rediscoverOwnerCalendarLists(
+  env: CalendarGatewayEnv,
+  scope: CalendarPrincipalScope,
+  providerFetch: ProviderFetch,
+  invocation: CacheSyncInvocation,
+  reason: string,
+): Promise<void> {
+  const connections = (await env.CALENDAR_DB.prepare(
+    `SELECT * FROM calendar_connections
+      WHERE workspace_id = ? AND principal_id = ? AND mode = 'oauth'
+        AND provider IN ('google', 'microsoft') AND credential_ciphertext IS NOT NULL`,
+  )
+    .bind(scope.workspace, scope.principal)
+    .all<ConnectionRow>()).results;
+  for (const connection of connections) {
+    await rediscoverCalendarList(env, connection, providerFetch, invocation, reason);
+  }
+}
+
+/** Daily cron pass: every OAuth calendar list is re-read at least once a day. */
+async function rediscoverStaleCalendarLists(
+  env: CalendarGatewayEnv,
+  providerFetch: ProviderFetch,
+): Promise<void> {
+  const staleBefore = new Date(Date.now() - CALENDAR_DISCOVERY_INTERVAL_MS).toISOString();
+  const connections = (await env.CALENDAR_DB.prepare(
+    `SELECT * FROM calendar_connections
+      WHERE mode = 'oauth' AND provider IN ('google', 'microsoft')
+        AND principal_id IS NOT NULL AND credential_ciphertext IS NOT NULL
+        AND (last_synced_at IS NULL OR last_synced_at <= ?)
+        AND (discovery_attempted_at IS NULL OR discovery_attempted_at <= ?)
+      ORDER BY COALESCE(last_read_at, '') DESC, COALESCE(last_synced_at, ''), id
+      LIMIT ?`,
+  )
+    .bind(staleBefore, staleBefore, CALENDAR_DISCOVERY_BATCH_SIZE)
+    .all<ConnectionRow>()).results;
+  const invocation = cacheSyncInvocation();
+  const outcomes = await mapWithConcurrency(
+    connections,
+    2,
+    connection => rediscoverCalendarList(env, connection, providerFetch, invocation, "daily"),
+  );
+  logCalendarSync("info", "calendar list rediscovery completed", {
+    selected: connections.length,
+    rediscovered: outcomes.filter(Boolean).length,
+  });
+}
+
+/** Where a full rebuild runs: in this invocation, or on the rebuild queue. */
+type CacheRebuildMode = "inline" | "queue";
+
+interface CacheRebuildMessage {
+  readonly kind: "calendar-cache-rebuild";
+  readonly workspaceId: string;
+  readonly principalId: string;
+  readonly calendarId: string;
+}
+
+/** Background work hands full rebuilds to the queue when it is bound. */
+const backgroundRebuildMode = (env: CalendarGatewayEnv): CacheRebuildMode =>
+  env.CALENDAR_REBUILD_QUEUE ? "queue" : "inline";
+
+const rebuildQueued = (state: CalendarSyncStateRow | undefined, now: number): boolean =>
+  Boolean(state?.rebuild_queued_at) &&
+  Date.parse(state!.rebuild_queued_at!) + CACHE_REBUILD_REQUEUE_MS > now;
+
+/**
+ * Hands a full rebuild to the rebuild queue and releases the sync lease. A rebuild queued
+ * within CACHE_REBUILD_REQUEUE_MS is not queued again. Returns false, still holding the
+ * lease, when the queue cannot take the message, so the caller rebuilds inline.
+ */
+async function deferCacheRebuild(
+  env: CalendarGatewayEnv,
+  target: CalendarSyncTarget,
+  state: CalendarSyncStateRow,
+  leaseUntil: string,
+  clearSyncToken: boolean,
+): Promise<boolean> {
+  const now = Date.now();
+  const alreadyQueued = rebuildQueued(state, now);
+  const fields = {
+    workspace_id: target.workspace_id,
+    connection_id: target.connection_id,
+    calendar_id: target.id,
+  };
+  if (!alreadyQueued) {
+    try {
+      await env.CALENDAR_REBUILD_QUEUE.send({
+        kind: "calendar-cache-rebuild",
+        workspaceId: target.workspace_id,
+        principalId: target.principal_id,
+        calendarId: target.id,
+      } satisfies CacheRebuildMessage);
+    } catch (error) {
+      logCalendarSync("warn", "calendar cache rebuild could not be queued", {
+        ...fields,
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    }
+  }
+  await env.CALENDAR_DB.prepare(
+    `UPDATE calendar_sync_state
+        SET lease_until = NULL,
+            rebuild_queued_at = CASE WHEN ? = 1 THEN rebuild_queued_at ELSE ? END,
+            sync_token = CASE WHEN ? = 1 THEN NULL ELSE sync_token END
+      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
+        AND lease_until = ?`,
+  )
+    .bind(
+      alreadyQueued ? 1 : 0,
+      new Date(now).toISOString(),
+      clearSyncToken ? 1 : 0,
+      state.workspace_id,
+      state.connection_id,
+      state.calendar_id,
+      leaseUntil,
+    )
+    .run();
+  logCalendarSync("info", "calendar cache rebuild queued", {
+    ...fields,
+    already_queued: alreadyQueued,
+    sync_token_reset: clearSyncToken,
+  });
+  return true;
+}
+
+const deferredRebuildOutcome = (
+  target: CalendarSyncTarget,
+  tokenInvalidated: boolean,
+): CacheSyncOutcome => ({
+  calendarId: target.id,
+  synced: false,
+  skipped: true,
+  fullSync: true,
+  resyncedAfterTokenExpiry: tokenInvalidated,
+  changedEvents: 0,
+  deferred: true,
+});
+
 async function syncGoogleCalendarCache(
   env: CalendarGatewayEnv,
   target: CalendarSyncTarget,
   providerFetch: ProviderFetch = fetch,
   invocation: CacheSyncInvocation = cacheSyncInvocation(),
   forceFullSync = false,
+  rebuild: CacheRebuildMode = "inline",
 ): Promise<CacheSyncOutcome> {
-  let state = await ensureCalendarSyncState(env, target);
   const now = new Date();
   const leaseUntil = new Date(now.valueOf() + CACHE_SYNC_LEASE_MS).toISOString();
-  const lease = await env.CALENDAR_DB.prepare(
-    `UPDATE calendar_sync_state
-        SET lease_until = ?, last_attempt_at = ?
-      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-        AND (lease_until IS NULL OR lease_until <= ?)`,
-  )
-    .bind(
-      leaseUntil,
-      now.toISOString(),
-      state.workspace_id,
-      state.connection_id,
-      state.calendar_id,
-      now.toISOString(),
-    )
-    .run();
-  if (Number(lease.meta.changes ?? 0) === 0) {
+  // The lease update returns the latest committed snapshot and sync token, so an incremental
+  // sync always applies on top of the state it leased.
+  const state = await acquireCacheSyncLease(env, target, now.toISOString(), leaseUntil);
+  if (!state) {
     return {
       calendarId: target.id,
       synced: false,
@@ -4649,23 +5157,29 @@ async function syncGoogleCalendarCache(
       changedEvents: 0,
     };
   }
-  // State may have advanced between the pre-lease read and this lease acquisition. Reload it
-  // so an incremental generation always clones the latest committed snapshot and sync token.
-  state = await ensureCalendarSyncState(env, target);
+  let leaseHeld = true;
+  let tokenInvalidated = false;
   try {
-    const { secret } = await authorizedTokenForCacheSync(
-      env,
-      target,
-      providerFetch,
-      invocation,
-    );
     const rollingCoverageRefreshDue = !state.cache_time_max ||
       Date.parse(state.cache_time_max) <= Date.now() + CACHE_ROLLING_REBUILD_MARGIN_MS;
     const requestedSyncToken = forceFullSync || rollingCoverageRefreshDue ||
       state.projection_version !== GOOGLE_EVENT_PROJECTION_VERSION
       ? null
       : state.sync_token;
-    let resyncedAfterTokenExpiry = false;
+    if (
+      !requestedSyncToken &&
+      rebuild === "queue" &&
+      await deferCacheRebuild(env, target, state, leaseUntil, false)
+    ) {
+      leaseHeld = false;
+      return deferredRebuildOutcome(target, false);
+    }
+    const { secret } = await authorizedTokenForCacheSync(
+      env,
+      target,
+      providerFetch,
+      invocation,
+    );
     let collection: GoogleSyncCollection;
     try {
       collection = requestedSyncToken
@@ -4677,101 +5191,132 @@ async function syncGoogleCalendarCache(
         )
         : await collectGoogleRollingSnapshot(target, secret.accessToken, providerFetch);
     } catch (error) {
-      if (!(error instanceof ProviderHttpError) || error.providerStatus !== 410 || !requestedSyncToken) {
-        throw error;
+      if (!requestedSyncToken || !syncTokenInvalidated(error)) throw error;
+      // An expired token (410) or one that overflows every retry the same way is dropped,
+      // and the cache is rebuilt from a fresh rolling snapshot.
+      tokenInvalidated = true;
+      logCalendarSync("warn", "calendar sync token reset", {
+        workspace_id: target.workspace_id,
+        connection_id: target.connection_id,
+        calendar_id: target.id,
+        error_code: error instanceof ProviderHttpError ? "provider_sync_token_expired" : (error as ApiError).code,
+      });
+      if (rebuild === "queue" && await deferCacheRebuild(env, target, state, leaseUntil, true)) {
+        leaseHeld = false;
+        return deferredRebuildOutcome(target, true);
       }
-      resyncedAfterTokenExpiry = true;
       collection = await collectGoogleRollingSnapshot(
         target,
         secret.accessToken,
         providerFetch,
       );
     }
-    // Every sync stages a new immutable generation. The active pointer and revision change
-    // together only after every page has been written, so readers never observe a partial
-    // incremental update with an old proof revision.
-    const generation = `sync-${crypto.randomUUID()}`;
-    if (!collection.fullSync) {
-      await env.CALENDAR_DB.prepare(
-        `INSERT INTO calendar_event_cache
-          (workspace_id, connection_id, calendar_id, provider_event_id, sync_generation,
-           event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at)
-         SELECT workspace_id, connection_id, calendar_id, provider_event_id, ?,
-                event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at
-           FROM calendar_event_cache
-          WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-            AND sync_generation = ?`,
-      )
-        .bind(
-          generation,
-          state.workspace_id,
-          state.connection_id,
-          state.calendar_id,
-          state.active_generation,
-        )
-        .run();
-    }
-    await writeGoogleCacheMutations(env, state, generation, collection.mutations);
     const completedAt = new Date().toISOString();
-    const nextSyncAt = new Date(Date.now() + CACHE_REPAIR_INTERVAL_MS).toISOString();
-    const commit = await env.CALENDAR_DB.prepare(
-      `UPDATE calendar_sync_state
-          SET active_generation = ?, cache_revision = cache_revision + 1, sync_token = ?,
-              projection_version = ${GOOGLE_EVENT_PROJECTION_VERSION},
-              cache_time_min = COALESCE(?, cache_time_min),
-              cache_time_max = COALESCE(?, cache_time_max), freshness = 'fresh',
-              last_success_at = ?, next_sync_at = ?, error_code = NULL,
-              error_message = NULL, consecutive_failures = 0, lease_until = NULL
-        WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-          AND lease_until = ? AND active_generation = ? AND cache_revision = ?`,
-    ).bind(
-      generation,
-      collection.nextSyncToken,
-      collection.cacheTimeMin,
-      collection.cacheTimeMax,
-      completedAt,
-      nextSyncAt,
-      state.workspace_id,
-      state.connection_id,
-      state.calendar_id,
-      leaseUntil,
-      state.active_generation,
-      state.cache_revision,
-    ).run();
-    if (Number(commit.meta.changes ?? 0) === 0) {
-      await env.CALENDAR_DB.prepare(
-        `DELETE FROM calendar_event_cache
-          WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-            AND sync_generation = ?`,
-      )
-        .bind(state.workspace_id, state.connection_id, state.calendar_id, generation)
-        .run();
+    // A push notification that arrived after the lease was taken may describe a change this
+    // sync did not read, so the calendar stays due instead of waiting out its repair delay.
+    const nextSync = {
+      sql: "next_sync_at = CASE WHEN last_notification_at > ? THEN ? ELSE ? END",
+      values: [
+        now.toISOString(),
+        completedAt,
+        new Date(Date.now() + cacheRepairDelay(state, Date.now())).toISOString(),
+      ],
+    };
+    const guard = cacheCommitGuard(state, leaseUntil);
+    let committed: boolean;
+    if (!collection.fullSync && collection.mutations.length === 0) {
+      // Nothing changed at Google: only the token and timestamps move. The revision stays put,
+      // so clients holding this revision already have the current snapshot.
+      committed = Number((await env.CALENDAR_DB.prepare(
+        `UPDATE calendar_sync_state
+            SET sync_token = ?, freshness = 'fresh', last_success_at = ?, ${nextSync.sql},
+                error_code = NULL, error_message = NULL, consecutive_failures = 0,
+                lease_until = NULL
+          WHERE ${guard.sql}`,
+      ).bind(
+        collection.nextSyncToken,
+        completedAt,
+        ...nextSync.values,
+        ...guard.values,
+      ).run()).meta.changes ?? 0) > 0;
+    } else if (!collection.fullSync) {
+      committed = await applyCacheMutationsInPlace(
+        env,
+        state,
+        collection.mutations,
+        guard,
+        env.CALENDAR_DB.prepare(
+          `UPDATE calendar_sync_state
+              SET cache_revision = cache_revision + 1, sync_token = ?,
+                  freshness = 'fresh', last_success_at = ?, ${nextSync.sql},
+                  error_code = NULL, error_message = NULL, consecutive_failures = 0,
+                  lease_until = NULL
+            WHERE ${guard.sql}`,
+        ).bind(
+          collection.nextSyncToken,
+          completedAt,
+          ...nextSync.values,
+          ...guard.values,
+        ),
+      );
+    } else {
+      // A full rebuild stages a new immutable generation. The active pointer and revision
+      // change together only after every page has been written, so readers never observe
+      // a partial snapshot with an old proof revision.
+      const generation = `sync-${crypto.randomUUID()}`;
+      await writeGoogleCacheMutations(env, state, generation, collection.mutations);
+      committed = Number((await env.CALENDAR_DB.prepare(
+        `UPDATE calendar_sync_state
+            SET active_generation = ?, cache_revision = cache_revision + 1, sync_token = ?,
+                projection_version = ${GOOGLE_EVENT_PROJECTION_VERSION},
+                cache_time_min = ?, cache_time_max = ?, freshness = 'fresh',
+                last_success_at = ?, ${nextSync.sql}, error_code = NULL,
+                error_message = NULL, consecutive_failures = 0, lease_until = NULL,
+                rebuild_queued_at = NULL
+          WHERE ${guard.sql}`,
+      ).bind(
+        generation,
+        collection.nextSyncToken,
+        collection.cacheTimeMin,
+        collection.cacheTimeMax,
+        completedAt,
+        ...nextSync.values,
+        ...guard.values,
+      ).run()).meta.changes ?? 0) > 0;
+      if (!committed) {
+        // Orphaned rows are never joined by readers; the next rebuild removes them anyway.
+        await deleteCacheGenerationStatement(env, state, generation).run().catch(() => undefined);
+      } else {
+        try {
+          await env.CALENDAR_DB.prepare(
+            `DELETE FROM calendar_event_cache
+              WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
+                AND sync_generation <> ?`,
+          )
+            .bind(state.workspace_id, state.connection_id, state.calendar_id, generation)
+            .run();
+        } catch (error) {
+          logCalendarSync("warn", "calendar cache generation cleanup failed", {
+            workspace_id: target.workspace_id,
+            connection_id: target.connection_id,
+            calendar_id: target.id,
+            error: error instanceof Error ? error.message : "unknown error",
+          });
+        }
+      }
+    }
+    if (!committed) {
+      // A booking or another sync moved the snapshot first. The lease is released below.
       return {
         calendarId: target.id,
         synced: false,
         skipped: true,
         fullSync: collection.fullSync,
-        resyncedAfterTokenExpiry,
+        resyncedAfterTokenExpiry: tokenInvalidated,
         changedEvents: 0,
       };
     }
-    try {
-      await env.CALENDAR_DB.prepare(
-        `DELETE FROM calendar_event_cache
-          WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-            AND sync_generation <> ?`,
-      )
-        .bind(state.workspace_id, state.connection_id, state.calendar_id, generation)
-        .run();
-    } catch (error) {
-      logCalendarSync("warn", "calendar cache generation cleanup failed", {
-        workspace_id: target.workspace_id,
-        connection_id: target.connection_id,
-        calendar_id: target.id,
-        error: error instanceof Error ? error.message : "unknown error",
-      });
-    }
-    state = (await ensureCalendarSyncState(env, target));
+    leaseHeld = false;
     try {
       await ensureGoogleWatch(env, target, state, secret.accessToken, providerFetch);
     } catch (error) {
@@ -4787,7 +5332,7 @@ async function syncGoogleCalendarCache(
       connection_id: target.connection_id,
       calendar_id: target.id,
       full_sync: collection.fullSync,
-      resynced_after_token_expiry: resyncedAfterTokenExpiry,
+      resynced_after_token_expiry: tokenInvalidated,
       changed_events: collection.mutations.length,
       cache_time_min: collection.cacheTimeMin ?? state.cache_time_min,
       cache_time_max: collection.cacheTimeMax ?? state.cache_time_max,
@@ -4797,18 +5342,34 @@ async function syncGoogleCalendarCache(
       synced: true,
       skipped: false,
       fullSync: collection.fullSync,
-      resyncedAfterTokenExpiry,
+      resyncedAfterTokenExpiry: tokenInvalidated,
       changedEvents: collection.mutations.length,
     };
   } catch (cause) {
     const error = providerQueryError(target.id, cause);
-    await recordCacheSyncFailure(env, state, error, leaseUntil);
+    await recordCacheSyncFailure(
+      env,
+      state,
+      error,
+      leaseUntil,
+      tokenInvalidated || CACHE_TOKEN_RESET_ERRORS.has(error.code),
+    );
+    leaseHeld = false;
     logCalendarSync("error", "calendar cache synchronization failed", {
       workspace_id: target.workspace_id,
       connection_id: target.connection_id,
       calendar_id: target.id,
       error_code: error.code,
     });
+    if (CALENDAR_REDISCOVERY_ERRORS.has(error.code)) {
+      await rediscoverCalendarList(
+        env,
+        connectionFromSyncTarget(target),
+        providerFetch,
+        invocation,
+        error.code,
+      );
+    }
     return {
       calendarId: target.id,
       synced: false,
@@ -4818,6 +5379,19 @@ async function syncGoogleCalendarCache(
       changedEvents: 0,
       error,
     };
+  } finally {
+    if (leaseHeld) {
+      // Every exit releases the lease, including a commit that lost its guard or a failed
+      // failure record, so a calendar is never stuck behind a dead lease for its full TTL.
+      await releaseCacheSyncLease(env, state, leaseUntil).catch(error => {
+        logCalendarSync("warn", "calendar sync lease release failed", {
+          workspace_id: target.workspace_id,
+          connection_id: target.connection_id,
+          calendar_id: target.id,
+          error: error instanceof Error ? error.message : "unknown error",
+        });
+      });
+    }
   }
 }
 
@@ -5159,59 +5733,49 @@ export async function queryPublicGoogleBusyIntervals(
   );
 }
 
+/**
+ * Live provider read for an already-authorized owner. Callers that loaded the owner's
+ * sync targets pass them in, so the fallback costs no extra D1 query or authorization.
+ */
 async function queryLiveEventsForScope(
   scope: CalendarPrincipalScope,
   input: EventQueryInput,
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch = fetch,
+  preloadedTargets?: readonly CalendarSyncTarget[],
+  invocation: CacheSyncInvocation = cacheSyncInvocation(),
 ): Promise<EventQueryPayload> {
-  const { workspace, principal } = scope;
-  const placeholders = input.calendarIds.map(() => "?").join(", ");
-  const calendarRows = await env.CALENDAR_DB.prepare(
-    `SELECT provider_calendars.* FROM provider_calendars
-       INNER JOIN calendar_connections ON calendar_connections.id = provider_calendars.connection_id
-      WHERE calendar_connections.workspace_id = ?
-        AND calendar_connections.principal_id = ?
-        AND provider_calendars.id IN (${placeholders})`,
-  )
-    .bind(workspace, principal, ...input.calendarIds)
-    .all<CalendarRow>();
-  const calendarsById = new Map(calendarRows.results.map(calendar => [calendar.id, calendar] as const));
+  const requested = new Set(input.calendarIds);
+  const calendars = (
+    preloadedTargets ??
+    await loadCalendarSyncTargets(env, scope.workspace, scope.principal, input.calendarIds)
+  ).filter(target =>
+    requested.has(target.id) &&
+    target.workspace_id === scope.workspace &&
+    target.principal_id === scope.principal
+  );
+  const known = new Set(calendars.map(calendar => calendar.id));
   const errors: EventQueryError[] = input.calendarIds
-    .filter(calendarId => !calendarsById.has(calendarId))
+    .filter(calendarId => !known.has(calendarId))
     .map(calendarId => ({
       calendarId,
       code: "calendar_not_found",
       message: "The calendar was not found in this workspace.",
     }));
-  const connectionIds = [...new Set(calendarRows.results.map(calendar => calendar.connection_id))];
-  const connections = connectionIds.length === 0
-    ? []
-    : (await env.CALENDAR_DB.prepare(
-        `SELECT * FROM calendar_connections
-          WHERE workspace_id = ? AND principal_id = ?
-            AND id IN (${connectionIds.map(() => "?").join(", ")})`,
-      )
-        .bind(workspace, principal, ...connectionIds)
-        .all<ConnectionRow>()).results;
-  const connectionsById = new Map(connections.map(connection => [connection.id, connection] as const));
+  const calendarsByConnection = new Map<string, CalendarSyncTarget[]>();
+  for (const calendar of calendars) {
+    const group = calendarsByConnection.get(calendar.connection_id) ?? [];
+    group.push(calendar);
+    calendarsByConnection.set(calendar.connection_id, group);
+  }
   const budget: EventQueryBudget = { remaining: MAX_EVENT_QUERY_EVENTS, truncated: false };
   const eventMap = new Map<string, GatewayCalendarEvent>();
   const synced = new Set<string>();
 
-  for (const connectionId of connectionIds) {
-    const connection = connectionsById.get(connectionId);
-    const calendars = calendarRows.results.filter(calendar => calendar.connection_id === connectionId);
-    if (!connection) {
-      errors.push(...calendars.map(calendar => ({
-        calendarId: calendar.id,
-        code: "connection_not_found",
-        message: "The calendar connection was not found in this workspace.",
-      })));
-      continue;
-    }
+  for (const connectionCalendars of calendarsByConnection.values()) {
+    const connection = connectionFromSyncTarget(connectionCalendars[0]!);
     if (connection.provider !== "google" || connection.mode !== "oauth") {
-      errors.push(...calendars.map(calendar => ({
+      errors.push(...connectionCalendars.map(calendar => ({
         calendarId: calendar.id,
         code: "provider_adapter_unavailable",
         message: "Live event queries are not available for this calendar connection.",
@@ -5220,13 +5784,18 @@ async function queryLiveEventsForScope(
     }
     let accessToken: string;
     try {
-      accessToken = (await authorizedToken(env, connection, providerFetch)).secret.accessToken;
+      accessToken = (await authorizedTokenForConnection(
+        env,
+        connection,
+        providerFetch,
+        invocation,
+      )).secret.accessToken;
     } catch (cause) {
-      errors.push(...calendars.map(calendar => providerQueryError(calendar.id, cause)));
+      errors.push(...connectionCalendars.map(calendar => providerQueryError(calendar.id, cause)));
       continue;
     }
-    const readable = calendars.filter(calendar => calendar.role !== "free-busy");
-    const freeBusy = calendars.filter(calendar => calendar.role === "free-busy");
+    const readable = connectionCalendars.filter(calendar => calendar.role !== "free-busy");
+    const freeBusy = connectionCalendars.filter(calendar => calendar.role === "free-busy");
     const readableResults = await mapWithConcurrency(
       readable,
       EVENT_QUERY_CONCURRENCY,
@@ -5278,16 +5847,6 @@ async function queryLiveEventsForScope(
   };
 }
 
-async function queryLiveEvents(
-  request: Request,
-  env: CalendarGatewayEnv,
-  providerFetch: ProviderFetch = fetch,
-): Promise<Response> {
-  const scope = await principalScope(request, env);
-  const input = eventQueryInput(await readJson(request));
-  return json(await queryLiveEventsForScope(scope, input, env, providerFetch));
-}
-
 interface EventQueryPayload {
   readonly timeMin: string;
   readonly timeMax: string;
@@ -5334,32 +5893,18 @@ async function loadCalendarSyncStates(
   calendarIds: readonly string[],
 ): Promise<readonly CalendarSyncStateRow[]> {
   if (calendarIds.length === 0) return [];
-  return (await env.CALENDAR_DB.prepare(
-    `SELECT * FROM calendar_sync_state
-      WHERE workspace_id = ?
-        AND calendar_id IN (${calendarIds.map(() => "?").join(", ")})`,
-  )
-    .bind(workspace, ...calendarIds)
-    .all<CalendarSyncStateRow>()).results;
-}
-
-async function waitForLeasedCacheSyncs(
-  env: CalendarGatewayEnv,
-  workspace: string,
-  calendarIds: readonly string[],
-  priorRevisions: ReadonlyMap<string, number>,
-): Promise<void> {
-  if (calendarIds.length === 0) return;
-  for (let attempt = 0; attempt < CACHE_LEASE_WAIT_ATTEMPTS; attempt += 1) {
-    await scheduler.wait(CACHE_LEASE_WAIT_MS);
-    const states = await loadCalendarSyncStates(env, workspace, calendarIds);
-    const pending = states.some(state =>
-      state.cache_revision <= (priorRevisions.get(state.calendar_id) ?? -1) &&
-      state.lease_until !== null &&
-      Date.parse(state.lease_until) > Date.now()
-    );
-    if (!pending) return;
-  }
+  const results = await Promise.all(
+    chunked(calendarIds, MAX_QUERY_IN_PARAMETERS).map(chunk =>
+      env.CALENDAR_DB.prepare(
+        `SELECT * FROM calendar_sync_state
+          WHERE workspace_id = ?
+            AND calendar_id IN (${chunk.map(() => "?").join(", ")})`,
+      )
+        .bind(workspace, ...chunk)
+        .all<CalendarSyncStateRow>()
+    ),
+  );
+  return results.flatMap(result => result.results);
 }
 
 async function loadCachedEvents(
@@ -5413,23 +5958,65 @@ const stateUsableForQuery = (
   Date.parse(state.cache_time_max) >= Date.parse(input.timeMax),
 );
 
+/**
+ * A cache that covers the range is served only while its last success is within
+ * CACHE_MAX_SERVE_AGE_MS. Older data is not presented as current: the read falls back
+ * to the provider, which returns events or the calendar's error.
+ */
+const stateServable = (
+  state: CalendarSyncStateRow | undefined,
+  input: EventQueryInput,
+  now: number,
+): state is CalendarSyncStateRow =>
+  stateUsableForQuery(state, input) &&
+  Date.parse(state.last_success_at!) + CACHE_MAX_SERVE_AGE_MS > now;
+
 const inputFitsRollingCoverage = (input: EventQueryInput): boolean =>
   Date.parse(input.timeMin) >= Date.now() - CACHE_INITIAL_HISTORY_MS &&
   Date.parse(input.timeMax) <= Date.now() + CACHE_ROLLING_FUTURE_MS;
 
-const stateNeedsRevalidation = (state: CalendarSyncStateRow): boolean =>
-  state.freshness !== "fresh" ||
-  Date.parse(state.next_sync_at) <= Date.now() ||
-  !state.last_success_at ||
-  Date.parse(state.last_success_at) + CACHE_FRESH_MS <= Date.now();
+/**
+ * A healthy cache rebuilt within CACHE_COVERAGE_REBUILD_COOLDOWN_MS. When such a cache does not
+ * cover a range, its window was reduced on purpose (busy calendar), and another forced rebuild
+ * would hit the same limits. A rebuild sets cache_time_min to rebuild time minus the history.
+ */
+const coverageRebuiltRecently = (
+  state: CalendarSyncStateRow | undefined,
+  now: number,
+): boolean =>
+  Boolean(state?.last_success_at && state.cache_time_min) &&
+  state!.projection_version === GOOGLE_EVENT_PROJECTION_VERSION &&
+  Date.parse(state!.last_success_at!) + CACHE_MAX_SERVE_AGE_MS > now &&
+  Date.parse(state!.cache_time_min!) + CACHE_INITIAL_HISTORY_MS +
+      CACHE_COVERAGE_REBUILD_COOLDOWN_MS > now;
+
+const stateInBackoff = (state: CalendarSyncStateRow | undefined, now: number): boolean =>
+  Boolean(state?.error_code) && Date.parse(state!.next_sync_at) > now;
+
+/** Fresh, not due, and synced within its freshness window (hours with a healthy watch). */
+const stateIsCurrent = (state: CalendarSyncStateRow, now = Date.now()): boolean =>
+  state.freshness === "fresh" &&
+  Date.parse(state.next_sync_at) > now &&
+  Boolean(state.last_success_at) &&
+  Date.parse(state.last_success_at!) + cacheFreshWindow(state, now) > now;
+
+/**
+ * Whether a read should refresh this calendar. A due calendar always refreshes. A
+ * failing calendar (not fresh) waits for next_sync_at, its retry backoff, instead of
+ * retrying on every read.
+ */
+const stateNeedsRevalidation = (state: CalendarSyncStateRow, now = Date.now()): boolean =>
+  Date.parse(state.next_sync_at) <= now ||
+  (state.freshness === "fresh" && !stateIsCurrent(state, now));
 
 const cacheProof = (
   state: CalendarSyncStateRow,
   input: EventQueryInput,
+  now: number,
 ): CacheCalendarProof => ({
   calendarId: state.calendar_id,
   cacheRevision: state.cache_revision,
-  freshness: state.freshness === "fresh" && stateNeedsRevalidation(state)
+  freshness: state.freshness === "fresh" && !stateIsCurrent(state, now)
     ? "stale"
     : state.freshness,
   lastSuccessAt: state.last_success_at,
@@ -5442,34 +6029,82 @@ const cacheProof = (
     : null,
 });
 
-const internalEventQueryRequest = (
-  request: Request,
-  input: EventQueryInput,
-  calendarIds: readonly string[],
-): Request => {
-  const headers = new Headers(request.headers);
-  headers.set("Content-Type", "application/json");
-  headers.delete("Content-Length");
-  return new Request(request.url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ ...input, calendarIds }),
+const isGoogleCacheTarget = (target: CalendarSyncTarget): boolean =>
+  target.provider === "google" && target.mode === "oauth" && target.role !== "free-busy";
+
+/** Resolves true when `work` settles within `budgetMs`, false when the budget runs out first. */
+const settlesWithin = async (work: Promise<unknown>, budgetMs: number): Promise<boolean> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<false>(resolve => {
+    timer = setTimeout(() => resolve(false), budgetMs);
   });
+  try {
+    return await Promise.race([work.then(() => true, () => true), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
+/**
+ * Stamps the owner's connections as recently read, at most once per
+ * CACHE_READ_MARK_INTERVAL_MS, so cache repair can serve active owners first.
+ */
+const markOwnerRead = async (
+  env: CalendarGatewayEnv,
+  scope: CalendarPrincipalScope,
+): Promise<void> => {
+  const now = Date.now();
+  await env.CALENDAR_DB.prepare(
+    `UPDATE calendar_connections SET last_read_at = ?
+      WHERE workspace_id = ? AND principal_id = ?
+        AND (last_read_at IS NULL OR last_read_at <= ?)`,
+  )
+    .bind(
+      new Date(now).toISOString(),
+      scope.workspace,
+      scope.principal,
+      new Date(now - CACHE_READ_MARK_INTERVAL_MS).toISOString(),
+    )
+    .run();
+};
+
+interface EventQueryOptions {
+  /**
+   * Authoritative reads (MCP slot proposals) wait for every refresh, including
+   * calendars in retry backoff, so their cache proofs can be trusted.
+   */
+  readonly strict?: boolean;
+}
+
+/**
+ * Cache-first event read.
+ *
+ * - Calendars whose D1 cache covers the range (and is under the max serve age) are
+ *   served from D1. Stale ones revalidate in `waitUntil`; `wait` mode gives that
+ *   revalidation CACHE_WAIT_BUDGET_MS and then serves what is cached.
+ * - Calendars without a servable cache rebuild it (unless in retry backoff) and are
+ *   read live from the provider meanwhile.
+ * - Another request's sync lease is never polled; its calendar is served as cached.
+ *
+ * A warm read costs four foreground D1 queries: the principal's legacy-owner check,
+ * sync targets, sync states, and cached events.
+ */
 async function queryEvents(
   request: Request,
   env: CalendarGatewayEnv,
   executionContext: ExecutionContext | undefined,
   providerFetch: ProviderFetch = fetch,
+  options: EventQueryOptions = {},
 ): Promise<Response> {
-  const { workspace, principal } = await principalScope(request, env);
+  const scope = await principalScope(request, env);
+  const { workspace, principal } = scope;
   const body = await readJson(request);
   const input = eventQueryInput(body);
   if (body.revalidate !== undefined && !["wait", "background"].includes(String(body.revalidate))) {
     throw new ApiError(400, "invalid_revalidate_mode", "revalidate must be wait or background.");
   }
   const revalidateMode = body.revalidate === "background" ? "background" : "wait";
+  const strict = options.strict === true;
   const targets = await loadCalendarSyncTargets(
     env,
     workspace,
@@ -5477,87 +6112,128 @@ async function queryEvents(
     input.calendarIds,
   );
   const syncInvocation = cacheSyncInvocation();
-  const cacheTargets = targets.filter(target =>
-    target.provider === "google" && target.mode === "oauth" && target.role !== "free-busy"
-  );
-  await Promise.all(cacheTargets.map(target => ensureCalendarSyncState(env, target)));
-  let states = await loadCalendarSyncStates(env, workspace, cacheTargets.map(target => target.id));
-  let statesByCalendar = new Map(states.map(state => [state.calendar_id, state] as const));
-  const coldTargets = cacheTargets.filter(target =>
-    !stateUsableForQuery(statesByCalendar.get(target.id), input)
-  );
-  const freshlySynced = new Set<string>();
-  if (coldTargets.length > 0) {
-    const priorRevisions = new Map(states.map(state => [state.calendar_id, state.cache_revision]));
-    const outcomes = await mapWithConcurrency(
-      coldTargets,
-      EVENT_QUERY_CONCURRENCY,
-      target => syncGoogleCalendarCache(
-        env,
-        target,
-        providerFetch,
-        syncInvocation,
-        inputFitsRollingCoverage(input),
-      ),
-    );
-    for (const outcome of outcomes) if (outcome.synced) freshlySynced.add(outcome.calendarId);
-    await waitForLeasedCacheSyncs(
-      env,
-      workspace,
-      outcomes.filter(outcome => outcome.skipped).map(outcome => outcome.calendarId),
-      priorRevisions,
-    );
-    states = await loadCalendarSyncStates(env, workspace, cacheTargets.map(target => target.id));
-    statesByCalendar = new Map(states.map(state => [state.calendar_id, state] as const));
-  }
-  const usableTargets = cacheTargets.filter(target =>
-    stateUsableForQuery(statesByCalendar.get(target.id), input)
-  );
-  const usableIds = new Set(usableTargets.map(target => target.id));
-  const staleTargets = usableTargets.filter(target => {
+  const cacheTargets = targets.filter(isGoogleCacheTarget);
+  const cacheTargetIds = cacheTargets.map(target => target.id);
+  let statesByCalendar = await ensureCalendarSyncStates(env, workspace, cacheTargets);
+  const classifiedAt = Date.now();
+  // Background refreshes queue full rebuilds; strict reads and callers without a waitUntil
+  // context rebuild inline so the result is available to this request.
+  const rebuild: CacheRebuildMode = !strict && executionContext
+    ? backgroundRebuildMode(env)
+    : "inline";
+  const refreshes = cacheTargets.flatMap(target => {
     const state = statesByCalendar.get(target.id);
-    return state ? stateNeedsRevalidation(state) : false;
+    // A queued rebuild owns this calendar; serve what is cached or read it live meanwhile.
+    if (rebuild === "queue" && rebuildQueued(state, classifiedAt)) return [];
+    if (stateServable(state, input, classifiedAt)) {
+      const due = strict
+        ? !stateIsCurrent(state, classifiedAt)
+        : stateNeedsRevalidation(state, classifiedAt);
+      return due ? [{ target, forceFullSync: false }] : [];
+    }
+    if (!strict && stateInBackoff(state, classifiedAt)) return [];
+    if (!strict && coverageRebuiltRecently(state, classifiedAt)) {
+      // The range is past a deliberately reduced window that was just rebuilt. Read it
+      // live; only refresh the existing coverage if it is due.
+      return stateNeedsRevalidation(state!, classifiedAt) ? [{ target, forceFullSync: false }] : [];
+    }
+    return [{
+      target,
+      forceFullSync: inputFitsRollingCoverage(input) && !stateUsableForQuery(state, input),
+    }];
   });
-  if (staleTargets.length > 0) {
-    const priorRevisions = new Map(states.map(state => [state.calendar_id, state.cache_revision]));
-    const revalidation = mapWithConcurrency(
-      staleTargets,
+  const background: Promise<unknown>[] = [];
+  let syncedBeforeRead = new Set<string>();
+  if (refreshes.length > 0) {
+    const freshlySynced = new Set<string>();
+    let settled = 0;
+    const refresh = mapWithConcurrency(
+      refreshes,
       EVENT_QUERY_CONCURRENCY,
-      target => syncGoogleCalendarCache(env, target, providerFetch, syncInvocation),
-    );
-    if (revalidateMode === "background" && executionContext) {
-      executionContext.waitUntil(revalidation.then(() => undefined));
-    } else {
-      const outcomes = await revalidation;
-      for (const outcome of outcomes) if (outcome.synced) freshlySynced.add(outcome.calendarId);
-      await waitForLeasedCacheSyncs(
-        env,
-        workspace,
-        outcomes.filter(outcome => outcome.skipped).map(outcome => outcome.calendarId),
-        priorRevisions,
+      async ({ target, forceFullSync }) => {
+        const outcome = await syncGoogleCalendarCache(
+          env,
+          target,
+          providerFetch,
+          syncInvocation,
+          forceFullSync,
+          rebuild,
+        );
+        settled += 1;
+        if (outcome.synced) freshlySynced.add(outcome.calendarId);
+        return outcome;
+      },
+    ).catch(error => {
+      logCalendarSync("error", "calendar cache revalidation failed", {
+        workspace_id: workspace,
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+    });
+    let finished = false;
+    if (!executionContext || strict) {
+      await refresh;
+      finished = true;
+    } else if (revalidateMode === "wait") {
+      finished = await settlesWithin(refresh, CACHE_WAIT_BUDGET_MS);
+    }
+    if (!finished) executionContext!.waitUntil(refresh);
+    if (settled > 0) {
+      syncedBeforeRead = new Set(freshlySynced);
+      statesByCalendar = new Map(
+        (await loadCalendarSyncStates(env, workspace, cacheTargetIds))
+          .map(state => [state.calendar_id, state] as const),
       );
-      states = await loadCalendarSyncStates(env, workspace, cacheTargets.map(target => target.id));
-      statesByCalendar = new Map(states.map(state => [state.calendar_id, state] as const));
     }
   }
-  const cached = await loadCachedEvents(env, workspace, input, [...usableIds]);
+  const servedAt = Date.now();
+  const usableTargets = cacheTargets.filter(target =>
+    stateServable(statesByCalendar.get(target.id), input, servedAt)
+  );
+  const usableIds = new Set(usableTargets.map(target => target.id));
   const fallbackIds = input.calendarIds.filter(calendarId => !usableIds.has(calendarId));
-  let live: EventQueryPayload | null = null;
-  if (fallbackIds.length > 0) {
-    const response = await queryLiveEvents(
-      internalEventQueryRequest(request, input, fallbackIds),
+  const [cached, live] = await Promise.all([
+    loadCachedEvents(env, workspace, input, [...usableIds]),
+    fallbackIds.length > 0
+      ? queryLiveEventsForScope(
+        scope,
+        { ...input, calendarIds: fallbackIds },
+        env,
+        providerFetch,
+        targets,
+        syncInvocation,
+      )
+      : Promise.resolve(null),
+  ]);
+  if (live?.errors.some(error => error.code === "calendar_not_found")) {
+    // The client knows a calendar this gateway does not: refresh the owner's calendar lists.
+    background.push(rediscoverOwnerCalendarLists(
       env,
+      scope,
       providerFetch,
-    );
-    live = await response.json<EventQueryPayload>();
+      syncInvocation,
+      "calendar_not_found",
+    ));
   }
+  const readMarkStaleBefore = Date.now() - CACHE_READ_MARK_INTERVAL_MS;
+  if (targets.some(target =>
+    !target.connection_last_read_at ||
+    Date.parse(target.connection_last_read_at) <= readMarkStaleBefore
+  )) background.push(markOwnerRead(env, scope));
+  const backgroundWork = Promise.all(background.map(work => work.catch(error => {
+    logCalendarSync("warn", "event query background work failed", {
+      workspace_id: workspace,
+      error: error instanceof Error ? error.message : "unknown error",
+    });
+  })));
+  if (executionContext) executionContext.waitUntil(backgroundWork);
+  else await backgroundWork;
   const eventMap = new Map<string, GatewayCalendarEvent>();
   for (const event of cached.events) eventMap.set(event.id, event);
   for (const event of live?.events ?? []) eventMap.set(event.id, event);
   const events = [...eventMap.values()].sort((left, right) =>
     left.start.localeCompare(right.start) || left.id.localeCompare(right.id)
   );
-  const syncedIds = new Set<string>(freshlySynced);
+  const syncedIds = new Set<string>(syncedBeforeRead);
   for (const calendarId of live?.syncedCalendarIds ?? []) syncedIds.add(calendarId);
   const servedIds = new Set<string>(usableIds);
   for (const calendarId of live?.syncedCalendarIds ?? []) servedIds.add(calendarId);
@@ -5583,11 +6259,11 @@ async function queryEvents(
     truncated: cached.truncated || Boolean(live?.truncated),
     source: usableIds.size === 0 ? "live" : fallbackIds.length === 0 ? "cache" : "cache+live",
     cache: {
-      servedAt: new Date().toISOString(),
+      servedAt: new Date(servedAt).toISOString(),
       calendars: input.calendarIds
         .map(calendarId => statesByCalendar.get(calendarId))
         .filter((state): state is CalendarSyncStateRow => Boolean(state))
-        .map(state => cacheProof(state, input)),
+        .map(state => cacheProof(state, input, servedAt)),
     },
   });
 }
@@ -5628,32 +6304,14 @@ async function strictLiveAvailabilityForScope(
   };
 }
 
-async function strictLiveAvailability(
-  request: Request,
-  env: CalendarGatewayEnv,
-  input: EventQueryInput,
-  providerFetch: ProviderFetch,
-  excludedEventIds: ReadonlySet<string> = new Set(),
-): Promise<LiveAvailabilityResult> {
-  const scope = await principalScope(request, env);
-  return strictLiveAvailabilityForScope(
-    scope,
-    env,
-    input,
-    providerFetch,
-    excludedEventIds,
-  );
-}
-
 async function validateLiveAvailability(
   request: Request,
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch,
 ): Promise<Response> {
-  await principalScope(request, env);
-  const input = eventQueryInput(await readJson(request));
   const scope = await principalScope(request, env);
-  const result = await strictLiveAvailability(request, env, input, providerFetch);
+  const input = eventQueryInput(await readJson(request));
+  const result = await strictLiveAvailabilityForScope(scope, env, input, providerFetch);
   const held = await hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), scope, input.timeMin, input.timeMax);
   return json({ ...result, available: result.available && held.length === 0, timeMin: input.timeMin, timeMax: input.timeMax });
 }
@@ -5701,16 +6359,13 @@ async function confirmLiveAvailability(
     principal,
     input.calendarIds,
   ))
-    .filter(target =>
-      target.provider === "google" && target.mode === "oauth" && target.role !== "free-busy"
-    );
+    .filter(isGoogleCacheTarget);
   const syncInvocation = cacheSyncInvocation();
-  await Promise.all(cacheTargets.map(target => ensureCalendarSyncState(env, target)));
-  let cacheStates = await loadCalendarSyncStates(env, workspace, cacheTargets.map(target => target.id));
-  let cacheStatesById = new Map(cacheStates.map(state => [state.calendar_id, state] as const));
+  let cacheStatesById = await ensureCalendarSyncStates(env, workspace, cacheTargets);
+  // Confirmation is an explicit action: it refreshes anything not current, even in backoff.
   const refreshTargets = cacheTargets.filter(target => {
     const state = cacheStatesById.get(target.id);
-    return !stateUsableForQuery(state, input) || (state ? stateNeedsRevalidation(state) : true);
+    return !stateUsableForQuery(state, input) || !stateIsCurrent(state);
   });
   if (refreshTargets.length > 0) {
     const outcomes = await mapWithConcurrency(
@@ -5732,12 +6387,14 @@ async function confirmLiveAvailability(
         "The calendar cache could not be refreshed before live availability validation.",
       );
     }
-    cacheStates = await loadCalendarSyncStates(env, workspace, cacheTargets.map(target => target.id));
-    cacheStatesById = new Map(cacheStates.map(state => [state.calendar_id, state] as const));
+    cacheStatesById = new Map(
+      (await loadCalendarSyncStates(env, workspace, cacheTargets.map(target => target.id)))
+        .map(state => [state.calendar_id, state] as const),
+    );
   }
   if (cacheTargets.some(target => {
     const state = cacheStatesById.get(target.id);
-    return !stateUsableForQuery(state, input) || (state ? stateNeedsRevalidation(state) : true);
+    return !stateUsableForQuery(state, input) || !stateIsCurrent(state);
   })) {
     throw new ApiError(
       503,
@@ -5748,7 +6405,7 @@ async function confirmLiveAvailability(
   // Confirmation always revalidates providers. Client-observed cache revisions are proof only,
   // never an authority for a new availability decision. An identical idempotency replay above
   // returns the already committed decision without depending on provider availability.
-  const live = await strictLiveAvailability(request, env, input, providerFetch);
+  const live = await strictLiveAvailabilityForScope({ workspace, principal }, env, input, providerFetch);
   const held = await hostBusyIntervals(env.CALENDAR_DB.withSession("first-primary"), { workspace, principal }, input.timeMin, input.timeMax);
   const validation = { ...live, available: live.available && held.length === 0 };
   if (!validation.conclusive) {
@@ -6914,77 +7571,30 @@ async function stageBookingCacheMutation(
   mutation: GoogleCacheMutation,
 ): Promise<void> {
   const state = await ensureCalendarSyncState(env, target);
-  const generation = `booking-${crypto.randomUUID()}`;
-  await env.CALENDAR_DB.prepare(
-    `INSERT INTO calendar_event_cache
-      (workspace_id, connection_id, calendar_id, provider_event_id, sync_generation,
-       event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at)
-     SELECT workspace_id, connection_id, calendar_id, provider_event_id, ?,
-            event_id, start_at, end_at, tombstoned, payload_json, provider_updated_at, cached_at
-       FROM calendar_event_cache
-      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-        AND sync_generation = ?`,
-  )
-    .bind(
-      generation,
-      state.workspace_id,
-      state.connection_id,
-      state.calendar_id,
-      state.active_generation,
-    )
-    .run();
-  await writeGoogleCacheMutations(env, state, generation, [mutation]);
   const now = new Date().toISOString();
-  const committed = await env.CALENDAR_DB.prepare(
-    `UPDATE calendar_sync_state
-        SET active_generation = ?, cache_revision = cache_revision + 1,
-            freshness = CASE WHEN last_success_at IS NULL THEN 'pending' ELSE 'stale' END,
-            next_sync_at = ?
-      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-        AND active_generation = ? AND cache_revision = ?`,
+  // The booking row lands in the active generation in place, atomically with the revision
+  // bump. The calendar is marked due so the next read or cron reconciles it with Google.
+  const guard = cacheCommitGuard(state, null);
+  const committed = await applyCacheMutationsInPlace(
+    env,
+    state,
+    [mutation],
+    guard,
+    env.CALENDAR_DB.prepare(
+      `UPDATE calendar_sync_state
+          SET cache_revision = cache_revision + 1,
+              freshness = CASE WHEN last_success_at IS NULL THEN 'pending' ELSE 'stale' END,
+              next_sync_at = ?
+        WHERE ${guard.sql}`,
+    ).bind(now, ...guard.values),
+  );
+  if (committed) return;
+  await env.CALENDAR_DB.prepare(
+    `UPDATE calendar_sync_state SET next_sync_at = ?
+      WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?`,
   )
-    .bind(
-      generation,
-      now,
-      state.workspace_id,
-      state.connection_id,
-      state.calendar_id,
-      state.active_generation,
-      state.cache_revision,
-    )
+    .bind(now, state.workspace_id, state.connection_id, state.calendar_id)
     .run();
-  if (Number(committed.meta.changes ?? 0) === 0) {
-    await env.CALENDAR_DB.prepare(
-      `DELETE FROM calendar_event_cache
-        WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-          AND sync_generation = ?`,
-    )
-      .bind(state.workspace_id, state.connection_id, state.calendar_id, generation)
-      .run();
-    await env.CALENDAR_DB.prepare(
-      `UPDATE calendar_sync_state SET next_sync_at = ?
-        WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?`,
-    )
-      .bind(now, state.workspace_id, state.connection_id, state.calendar_id)
-      .run();
-    return;
-  }
-  try {
-    await env.CALENDAR_DB.prepare(
-      `DELETE FROM calendar_event_cache
-        WHERE workspace_id = ? AND connection_id = ? AND calendar_id = ?
-          AND sync_generation <> ?`,
-    )
-      .bind(state.workspace_id, state.connection_id, state.calendar_id, generation)
-      .run();
-  } catch (error) {
-    logCalendarSync("warn", "booking cache generation cleanup failed", {
-      workspace_id: state.workspace_id,
-      connection_id: state.connection_id,
-      calendar_id: state.calendar_id,
-      error: error instanceof Error ? error.message : "unknown error",
-    });
-  }
 }
 
 async function stageCommittedBookingInCache(
@@ -9255,8 +9865,8 @@ async function resolveGoogleApprovalHold(
         if (tapOverlap) {
           throw new ApiError(409, "slot_conflict", "That time is no longer available.");
         }
-        const validation = await strictLiveAvailability(
-          request,
+        const validation = await strictLiveAvailabilityForScope(
+          { workspace, principal },
           env,
           approvalConflictRange!,
           providerFetch,
@@ -9597,18 +10207,27 @@ async function handleGoogleCalendarWebhook(
     target,
     providerFetch,
     cacheSyncInvocation(),
+    false,
+    executionContext ? backgroundRebuildMode(env) : "inline",
   ).then(() => undefined);
   if (executionContext) executionContext.waitUntil(synchronization);
   else await synchronization;
   return new Response(null, { status: 202 });
 }
 
+/**
+ * Cron cache repair. Selects up to CACHE_REPAIR_BATCH_SIZE due calendars, owners who read
+ * their calendars recently first and failing calendars first within each group, then syncs
+ * them with bounded parallelism. Calendars with healthy watches come due every 6–12 hours.
+ */
 async function repairCalendarCaches(
   env: CalendarGatewayEnv,
   providerFetch: ProviderFetch,
 ): Promise<void> {
-  const now = new Date().toISOString();
-  const renewBefore = new Date(Date.now() + WATCH_RENEWAL_WINDOW_MS).toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const renewBefore = new Date(nowMs + WATCH_RENEWAL_WINDOW_MS).toISOString();
+  const activeSince = new Date(nowMs - CACHE_ACTIVE_OWNER_MS).toISOString();
   const due = (await env.CALENDAR_DB.prepare(
     `SELECT calendar_sync_state.workspace_id, calendar_sync_state.calendar_id,
             calendar_connections.principal_id
@@ -9622,40 +10241,133 @@ async function repairCalendarCaches(
         AND calendar_connections.principal_id IS NOT NULL
         AND provider_calendars.role <> 'free-busy'
         AND (calendar_sync_state.lease_until IS NULL OR calendar_sync_state.lease_until <= ?)
+        AND (calendar_sync_state.rebuild_queued_at IS NULL
+             OR calendar_sync_state.rebuild_queued_at <= ?)
         AND (
           calendar_sync_state.last_success_at IS NULL
           OR calendar_sync_state.next_sync_at <= ?
           OR (calendar_sync_state.watch_expiration_at IS NOT NULL
               AND calendar_sync_state.watch_expiration_at <= ?)
         )
-      ORDER BY calendar_sync_state.next_sync_at,
+      ORDER BY CASE WHEN calendar_connections.last_read_at >= ? THEN 0 ELSE 1 END,
+               CASE WHEN calendar_sync_state.error_code IS NOT NULL THEN 0 ELSE 1 END,
+               calendar_sync_state.next_sync_at,
                COALESCE(calendar_sync_state.last_attempt_at, ''),
                calendar_sync_state.calendar_id
       LIMIT ?`,
   )
-    .bind(now, now, renewBefore, CACHE_REPAIR_BATCH_SIZE)
+    .bind(
+      now,
+      new Date(nowMs - CACHE_REBUILD_REQUEUE_MS).toISOString(),
+      now,
+      renewBefore,
+      activeSince,
+      CACHE_REPAIR_BATCH_SIZE,
+    )
     .all<{
       readonly workspace_id: string;
       readonly calendar_id: string;
       readonly principal_id: string;
     }>()).results;
-  let succeeded = 0;
-  const syncInvocation = cacheSyncInvocation();
+  // One target query per owner instead of one per calendar.
+  const calendarIdsByOwner = new Map<string, { workspace: string; principal: string; ids: string[] }>();
   for (const item of due) {
-    const target = (await loadCalendarSyncTargets(
-      env,
-      item.workspace_id,
-      item.principal_id,
-      [item.calendar_id],
-    ))[0];
-    if (!target) continue;
-    const outcome = await syncGoogleCalendarCache(env, target, providerFetch, syncInvocation);
-    if (outcome.synced) succeeded += 1;
+    const key = `${item.workspace_id}\u0000${item.principal_id}`;
+    const owner = calendarIdsByOwner.get(key) ??
+      { workspace: item.workspace_id, principal: item.principal_id, ids: [] };
+    owner.ids.push(item.calendar_id);
+    calendarIdsByOwner.set(key, owner);
   }
+  const targetsById = new Map<string, CalendarSyncTarget>();
+  for (const owner of calendarIdsByOwner.values()) {
+    for (const target of await loadCalendarSyncTargets(env, owner.workspace, owner.principal, owner.ids)) {
+      targetsById.set(target.id, target);
+    }
+  }
+  const targets = due
+    .map(item => targetsById.get(item.calendar_id))
+    .filter((target): target is CalendarSyncTarget => Boolean(target));
+  const syncInvocation = cacheSyncInvocation();
+  const outcomes = await mapWithConcurrency(
+    targets,
+    CACHE_REPAIR_CONCURRENCY,
+    target => syncGoogleCalendarCache(
+      env,
+      target,
+      providerFetch,
+      syncInvocation,
+      false,
+      backgroundRebuildMode(env),
+    ),
+  );
   logCalendarSync("info", "calendar cache repair completed", {
     selected: due.length,
-    succeeded,
+    succeeded: outcomes.filter(outcome => outcome.synced).length,
+    rebuilds_queued: outcomes.filter(outcome => outcome.deferred).length,
+    failed: outcomes.filter(outcome => outcome.error).length,
     batch_limit: CACHE_REPAIR_BATCH_SIZE,
+  });
+}
+
+const cacheRebuildMessage = (value: unknown): CacheRebuildMessage | null =>
+  isRecord(value) &&
+    value.kind === "calendar-cache-rebuild" &&
+    typeof value.workspaceId === "string" &&
+    typeof value.principalId === "string" &&
+    typeof value.calendarId === "string"
+    ? value as unknown as CacheRebuildMessage
+    : null;
+
+/**
+ * Rebuild-queue consumer. Each message rebuilds one calendar's cache inline. A message
+ * whose calendar was removed, or already rebuilt by a strict read, is acknowledged without
+ * work. A calendar leased by another sync is retried shortly; a provider failure is recorded
+ * on the calendar (clearing its queued marker) and acknowledged, so normal backoff applies.
+ */
+async function processCacheRebuilds(
+  batch: MessageBatch<unknown>,
+  env: CalendarGatewayEnv,
+  providerFetch: ProviderFetch,
+): Promise<void> {
+  const invocation = cacheSyncInvocation();
+  await mapWithConcurrency(batch.messages, CACHE_REBUILD_CONCURRENCY, async message => {
+    const body = cacheRebuildMessage(message.body);
+    if (!body) {
+      message.ack();
+      return;
+    }
+    try {
+      const target = (await loadCalendarSyncTargets(
+        env,
+        body.workspaceId,
+        body.principalId,
+        [body.calendarId],
+      ))[0];
+      const state = target
+        ? (await loadCalendarSyncStates(env, body.workspaceId, [body.calendarId]))[0]
+        : undefined;
+      if (!target || !isGoogleCacheTarget(target) || !state?.rebuild_queued_at) {
+        message.ack();
+        return;
+      }
+      const outcome = await syncGoogleCalendarCache(
+        env,
+        target,
+        providerFetch,
+        invocation,
+        true,
+        "inline",
+      );
+      if (outcome.skipped) message.retry({ delaySeconds: 30 });
+      else message.ack();
+    } catch (error) {
+      logCalendarSync("error", "calendar cache rebuild failed", {
+        workspace_id: body.workspaceId,
+        calendar_id: body.calendarId,
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+      message.retry({ delaySeconds: 60 });
+    }
   });
 }
 
@@ -10053,11 +10765,13 @@ async function mcpCachedQuery(
   input: EventQueryInput,
   revalidate: "wait" | "background",
 ): Promise<Readonly<Record<string, unknown>>> {
+  // Slot proposals need authoritative proofs, so their `wait` reads are strict.
   const response = await queryEvents(
     mcpEventRequest(request, input, revalidate),
     env,
     executionContext,
     providerFetch,
+    { strict: revalidate === "wait" },
   );
   const value: unknown = await response.json();
   if (!isRecord(value)) throw new ApiError(500, "cache_response_invalid", "Cache response invalid.");
@@ -10642,6 +11356,7 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
         ["public booking email reconciliation", reconcilePublicBookingEmailNotices(env)],
         ["public booking email delivery", deliverPublicBookingEmails(env)],
         ["calendar cache repair", repairCalendarCaches(env, providerFetch)],
+        ["calendar list rediscovery", rediscoverStaleCalendarLists(env, providerFetch)],
         ["activity retention", env.CALENDAR_DB.prepare("DELETE FROM calendar_activity_events WHERE occurred_at < ?").bind(new Date(Date.now() - 90 * 86_400_000).toISOString()).run().then(() => undefined)],
         ["expired specialist consent cleanup", env.CALENDAR_DB.prepare("DELETE FROM calendar_mcp_authorizations WHERE expires_at < ?").bind(new Date().toISOString()).run().then(() => undefined)],
       ];
@@ -10652,6 +11367,12 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
           });
         }));
       }
+    },
+    async queue(
+      batch: MessageBatch<unknown>,
+      env: CalendarGatewayEnv,
+    ): Promise<void> {
+      await processCacheRebuilds(batch, env, providerFetch);
     },
   } satisfies ExportedHandler<CalendarGatewayEnv>;
 }
@@ -10727,4 +11448,5 @@ export default {
     return calendarOAuth(`${origin.replace(/\/+$/u, "")}/mcp/live`).fetch(request, env, context);
   },
   scheduled: calendarWorker.scheduled,
+  queue: calendarWorker.queue,
 } satisfies ExportedHandler<CalendarGatewayEnv>;
