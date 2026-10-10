@@ -499,6 +499,8 @@ const CACHE_FRESH_MS = 2 * 60 * 1000;
 const CACHE_WATCHED_FRESH_MS = 6 * 60 * 60 * 1000;
 // Past this age a cached calendar is no longer served as current data.
 const CACHE_MAX_SERVE_AGE_MS = 24 * 60 * 60 * 1000;
+// A range outside a reduced cache window forces another rebuild at most this often.
+const CACHE_COVERAGE_REBUILD_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 // A foreground `wait` read serves the cache once revalidation exceeds this budget.
 const CACHE_WAIT_BUDGET_MS = 1_250;
 const CACHE_REPAIR_INTERVAL_MS = 5 * 60 * 1000;
@@ -5861,6 +5863,21 @@ const inputFitsRollingCoverage = (input: EventQueryInput): boolean =>
   Date.parse(input.timeMin) >= Date.now() - CACHE_INITIAL_HISTORY_MS &&
   Date.parse(input.timeMax) <= Date.now() + CACHE_ROLLING_FUTURE_MS;
 
+/**
+ * A healthy cache rebuilt within CACHE_COVERAGE_REBUILD_COOLDOWN_MS. When such a cache does not
+ * cover a range, its window was reduced on purpose (busy calendar), and another forced rebuild
+ * would hit the same limits. A rebuild sets cache_time_min to rebuild time minus the history.
+ */
+const coverageRebuiltRecently = (
+  state: CalendarSyncStateRow | undefined,
+  now: number,
+): boolean =>
+  Boolean(state?.last_success_at && state.cache_time_min) &&
+  state!.projection_version === GOOGLE_EVENT_PROJECTION_VERSION &&
+  Date.parse(state!.last_success_at!) + CACHE_MAX_SERVE_AGE_MS > now &&
+  Date.parse(state!.cache_time_min!) + CACHE_INITIAL_HISTORY_MS +
+      CACHE_COVERAGE_REBUILD_COOLDOWN_MS > now;
+
 const stateInBackoff = (state: CalendarSyncStateRow | undefined, now: number): boolean =>
   Boolean(state?.error_code) && Date.parse(state!.next_sync_at) > now;
 
@@ -5996,6 +6013,11 @@ async function queryEvents(
       return due ? [{ target, forceFullSync: false }] : [];
     }
     if (!strict && stateInBackoff(state, classifiedAt)) return [];
+    if (!strict && coverageRebuiltRecently(state, classifiedAt)) {
+      // The range is past a deliberately reduced window that was just rebuilt. Read it
+      // live; only refresh the existing coverage if it is due.
+      return stateNeedsRevalidation(state!, classifiedAt) ? [{ target, forceFullSync: false }] : [];
+    }
     return [{
       target,
       forceFullSync: inputFitsRollingCoverage(input) && !stateUsableForQuery(state, input),

@@ -387,7 +387,7 @@ Freshness and retries:
 - A calendar is fresh for 2 minutes after a successful sync, or 6 hours while it has a healthy Google push watch. A notification makes it due at once.
 - A failing calendar is not retried by reads until its `nextSyncAt` (5 minutes, doubling to 1 hour). Until then it is served from cache with its error.
 - A cache whose last success is more than 24 hours old is not served as current data. The calendar is read live instead, which returns its events or its error.
-- Calendars without a servable cache rebuild unless they are in backoff, and are read live meanwhile. A request never polls another request's sync lease.
+- Calendars without a servable cache rebuild unless they are in backoff, and are read live meanwhile. A range past a reduced (90- or 30-day) window that was rebuilt in the last 6 hours is read live without forcing another rebuild. A request never polls another request's sync lease.
 
 A warm read makes four foreground D1 queries: the legacy-owner check in `principalScope`, sync targets, sync states, and cached events. Before this change a read of 22 stale calendars made about 270 D1 queries and 22 or more Google calls in the foreground.
 

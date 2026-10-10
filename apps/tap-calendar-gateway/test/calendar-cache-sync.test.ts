@@ -416,6 +416,29 @@ describe("calendar cache reads and sync", () => {
     expect(rebuiltState).toMatchObject({ sync_token: "token-rebuilt", error_code: null });
     expect(Date.parse(rebuiltState.cache_time_max!)).toBe(testNow + 90 * DAY_MS);
 
+    // A range past the reduced window is read live instead of forcing the same rebuild
+    // again, until the rebuild cooldown passes.
+    const farRange = {
+      timeMin: new Date(testNow + 100 * DAY_MS).toISOString(),
+      timeMax: new Date(testNow + 107 * DAY_MS).toISOString(),
+    };
+    const snapshotCalls = () => google.eventCalls().filter(url =>
+      !url.searchParams.has("syncToken") && url.searchParams.get("orderBy") !== "startTime"
+    ).length;
+    const snapshotsBefore = snapshotCalls();
+    expect(await google.query(farRange)).toMatchObject({
+      source: "live",
+      servedCalendarIds: [google.calendarId],
+    });
+    expect(snapshotCalls()).toBe(snapshotsBefore);
+    await updateState(
+      google.calendarId,
+      "cache_time_min = ?",
+      new Date(testNow - 31 * DAY_MS - 7 * 60 * 60 * 1000).toISOString(),
+    );
+    await google.query(farRange);
+    expect(snapshotCalls()).toBeGreaterThan(snapshotsBefore);
+
     // If the rebuild fails too, the bad token is still cleared for the next attempt.
     google.provider.snapshot = () =>
       Response.json({ error: { message: "Backend Error" } }, { status: 503 });
