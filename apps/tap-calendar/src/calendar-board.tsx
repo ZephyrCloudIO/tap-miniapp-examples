@@ -3,8 +3,9 @@ import {
   CalendarDays,
   Link2,
   Users,
+  X,
 } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   allCalendars,
   visibleEvents,
@@ -17,8 +18,9 @@ import {
   DEFAULT_CALENDAR_SCROLL_HOUR,
   calendarGridHourLabel,
   calendarLocalDate,
-  timeGridEventLayout,
+  timeGridDayPlacements,
   timeGridNowPercentage,
+  type TimeGridEventPlacement,
 } from "./calendar-time-grid";
 
 interface WeekDay {
@@ -88,6 +90,33 @@ const formatTime = (iso: string): string => timeFormatter.format(new Date(iso));
 const eventTime = (event: CalendarEvent): string =>
   event.allDay ? "All day" : `${formatTime(event.start)}–${formatTime(event.end)}`;
 
+const eventDescription = (event: CalendarEvent): string =>
+  `${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`;
+
+/** All-day rows and month cells show this many events before "+N more". */
+const DAY_EVENT_PREVIEW_LIMIT = 3;
+
+const dayLabel = (key: string): string => fullDateFormatter.format(new Date(`${key}T12:00`));
+
+const moreEventsLabel = (count: number, key: string): string =>
+  `Show ${count} more ${count === 1 ? "event" : "events"} on ${dayLabel(key)}`;
+
+const fewerEventsLabel = (count: number, key: string): string =>
+  `Show less: hide ${count} ${count === 1 ? "event" : "events"} on ${dayLabel(key)}`;
+
+const EVENT_EDGE_INSET_PX = 4;
+const EVENT_GUTTER_INSET_PX = 1;
+
+/** Horizontal position inside the day column, inset so neighbours never touch. */
+const eventColumnStyle = ({ column, columnSpan, columnCount }: TimeGridEventPlacement) => {
+  const insetStart = column === 0 ? EVENT_EDGE_INSET_PX : EVENT_GUTTER_INSET_PX;
+  const insetEnd = column + columnSpan === columnCount ? EVENT_EDGE_INSET_PX : EVENT_GUTTER_INSET_PX;
+  return {
+    left: `calc(${(column / columnCount) * 100}% + ${insetStart}px)`,
+    width: `calc(${(columnSpan / columnCount) * 100}% - ${insetStart + insetEnd}px)`,
+  };
+};
+
 interface CalendarBoardProps {
   readonly state: CalendarState;
   readonly anchorDate: string;
@@ -151,6 +180,26 @@ function TimeGrid({
         ? weekDays(anchorDate, 7)
         : weekDays(anchorDate, 5);
   const nowTop = timeGridNowPercentage(new Date());
+  const idPrefix = useId();
+  const [expandedAllDayKeys, setExpandedAllDayKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const allDayColumns = days.map(day => {
+    const dayEvents = events.filter(
+      event => event.allDay === true && event.start.slice(0, 10) <= day.key && event.end.slice(0, 10) > day.key,
+    );
+    return {
+      day,
+      dayEvents,
+      expanded: expandedAllDayKeys.has(day.key),
+      hiddenCount: Math.max(0, dayEvents.length - DAY_EVENT_PREVIEW_LIMIT),
+    };
+  });
+  // Only an expanded column can outgrow the sticky row, so only then is its height capped.
+  const allDayExpanded = allDayColumns.some(column => column.expanded && column.hiddenCount > 0);
+  const toggleAllDay = (key: string) => setExpandedAllDayKeys(current => {
+    const next = new Set(current);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  });
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -177,27 +226,41 @@ function TimeGrid({
           ))}
         </div>
         <div className="all-day-label" aria-hidden="true">All day</div>
-        <div className="all-day-columns" aria-label="All-day events">
-          {days.map(day => (
-            <div className="all-day-column" key={day.key}>
-              {events
-                .filter(event => event.allDay === true && event.start.slice(0, 10) <= day.key && event.end.slice(0, 10) > day.key)
-                .slice(0, 3)
-                .map(event => (
+        <div className={`all-day-columns${allDayExpanded ? " is-expanded" : ""}`} aria-label="All-day events">
+          {allDayColumns.map(({ day, dayEvents, expanded, hiddenCount }) => {
+            const columnId = `${idPrefix}all-day-${day.key}`;
+            const toggleLabel = expanded ? fewerEventsLabel(hiddenCount, day.key) : moreEventsLabel(hiddenCount, day.key);
+            return (
+              <div className="all-day-column" id={columnId} key={day.key}>
+                {(expanded ? dayEvents : dayEvents.slice(0, DAY_EVENT_PREVIEW_LIMIT)).map(event => (
                   <button
                     type="button"
                     key={event.id}
                     style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
                     onClick={() => onSelectEvent(event.id)}
-                    title={`${event.title}, ${eventResponseLabel(event)}`}
+                    title={eventDescription(event)}
                     className={eventResponseClassName(event)}
-                    aria-label={`${event.title}, All day, ${eventResponseLabel(event)}`}
+                    aria-label={eventDescription(event)}
                   >
-                    <span className="rsvp-event-title">{event.title}</span> <EventResponseBadge event={event} compact />
+                    <span className="rsvp-event-title">{event.title}</span>
                   </button>
                 ))}
-            </div>
-          ))}
+                {hiddenCount > 0 ? (
+                  <button
+                    type="button"
+                    className="all-day-more"
+                    aria-expanded={expanded}
+                    aria-controls={columnId}
+                    aria-label={toggleLabel}
+                    title={toggleLabel}
+                    onClick={() => toggleAllDay(day.key)}
+                  >
+                    {expanded ? "Show less" : `+${hiddenCount} more`}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
         <div className="time-labels" aria-hidden="true">
           {hours.map(hour => (
@@ -205,61 +268,66 @@ function TimeGrid({
           ))}
         </div>
         <div className="day-columns" role="row">
-          {days.map(day => (
-            <div className="day-column" role="gridcell" key={day.key}>
-              {slotMinutes.map(minute => {
-                const start = slotStart(day.key, minute);
-                const label = `Schedule on ${fullDateFormatter.format(new Date(start))} at ${formatTime(start)}`;
-                return (
-                  <button
-                    className="calendar-time-slot"
-                    type="button"
-                    key={minute}
-                    aria-label={label}
-                    title={label}
-                    tabIndex={minute === focusedMinute ? 0 : -1}
-                    onFocus={() => setFocusedMinute(minute)}
-                    onClick={() => onSelectSlot(start)}
-                    onKeyDown={event => {
-                      const nextMinute = event.key === "ArrowDown" ? Math.min(1410, minute + 30)
-                        : event.key === "ArrowUp" ? Math.max(0, minute - 30)
-                          : event.key === "Home" ? 0
-                            : event.key === "End" ? 1410 : null;
-                      if (nextMinute === null) return;
-                      event.preventDefault();
-                      event.currentTarget.parentElement
-                        ?.querySelectorAll<HTMLButtonElement>(".calendar-time-slot")[nextMinute / 30]?.focus();
-                    }}
-                  />
-                );
-              })}
-              {events
-                .filter(event => event.allDay !== true && eventDate(event) === day.key)
-                .map(event => {
-                  const layout = timeGridEventLayout(event);
+          {days.map(day => {
+            const dayEvents = events.filter(event => event.allDay !== true && eventDate(event) === day.key);
+            const placements = timeGridDayPlacements(dayEvents);
+            return (
+              <div className="day-column" role="gridcell" key={day.key}>
+                {slotMinutes.map(minute => {
+                  const start = slotStart(day.key, minute);
+                  const label = `Schedule on ${fullDateFormatter.format(new Date(start))} at ${formatTime(start)}`;
+                  return (
+                    <button
+                      className="calendar-time-slot"
+                      type="button"
+                      key={minute}
+                      aria-label={label}
+                      title={label}
+                      tabIndex={minute === focusedMinute ? 0 : -1}
+                      onFocus={() => setFocusedMinute(minute)}
+                      onClick={() => onSelectSlot(start)}
+                      onKeyDown={event => {
+                        const nextMinute = event.key === "ArrowDown" ? Math.min(1410, minute + 30)
+                          : event.key === "ArrowUp" ? Math.max(0, minute - 30)
+                            : event.key === "Home" ? 0
+                              : event.key === "End" ? 1410 : null;
+                        if (nextMinute === null) return;
+                        event.preventDefault();
+                        event.currentTarget.parentElement
+                          ?.querySelectorAll<HTMLButtonElement>(".calendar-time-slot")[nextMinute / 30]?.focus();
+                      }}
+                    />
+                  );
+                })}
+                {dayEvents.map(event => {
+                  const placement = placements.get(event.id);
+                  if (!placement) return null;
                   const color = colors.get(event.calendarId) ?? "#6d5dfc";
                   return (
                     <button
-                      className={`calendar-event event-${event.kind} ${eventResponseClassName(event)}`}
+                      className={`calendar-event event-${event.kind}${placement.compact ? " is-compact" : ""} ${eventResponseClassName(event)}`}
                       key={event.id}
                       style={{
-                        top: `${layout.topPercentage}%`,
-                        height: `${layout.heightPercentage}%`,
+                        top: `${placement.topPercentage}%`,
+                        height: `${placement.heightPercentage}%`,
+                        ...eventColumnStyle(placement),
                         "--event-color": color,
                       } as React.CSSProperties}
                       type="button"
                       onClick={() => onSelectEvent(event.id)}
-                      aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}
+                      title={eventDescription(event)}
+                      aria-label={eventDescription(event)}
                     >
                       <strong className="rsvp-event-title">{event.title}</strong>
-                      <span>{eventTime(event)} <EventResponseBadge event={event} compact /></span>
-                      {event.source ? <small><Link2 size={10} /> {event.source.label}</small> : null}
+                      <span>{placement.compact ? formatTime(event.start) : eventTime(event)}</span>
+                      {event.source && !placement.compact ? <small><Link2 size={10} /> <span>{event.source.label}</span></small> : null}
                     </button>
                   );
                 })}
-              {day.today ? <div className="now-line" aria-label="Current time" style={{ top: `${nowTop}%` }} /> : null}
-            </div>
-          ))}
+                {day.today ? <div className="now-line" aria-label="Current time" style={{ top: `${nowTop}%` }} /> : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -301,7 +369,7 @@ function AgendaView({
           </header>
           <div>
             {dayEvents.map(event => (
-              <button type="button" key={event.id} className={eventResponseClassName(event)} style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties} onClick={() => onSelectEvent(event.id)} aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}>
+              <button type="button" key={event.id} className={eventResponseClassName(event)} style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties} onClick={() => onSelectEvent(event.id)} aria-label={eventDescription(event)}>
                 <span
                   className="event-dot"
                   style={{ background: colors.get(event.calendarId) ?? "#6d5dfc" }}
@@ -355,6 +423,38 @@ function MonthView({
     year: "numeric",
     timeZone: "UTC",
   }).format(anchor);
+  const popoverId = useId();
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [openDayKey, setOpenDayKey] = useState<string | null>(null);
+  const closePopover = () => {
+    setOpenDayKey(null);
+    triggerRef.current?.focus();
+  };
+  useEffect(() => {
+    if (openDayKey === null) return;
+    popoverRef.current?.focus();
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && (popoverRef.current?.contains(target) || triggerRef.current?.contains(target))) return;
+      setOpenDayKey(null);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [openDayKey]);
+  const monthEvent = (event: CalendarEvent, onClick: () => void) => (
+    <button
+      type="button"
+      key={event.id}
+      onClick={onClick}
+      className={eventResponseClassName(event)}
+      title={eventDescription(event)}
+      aria-label={eventDescription(event)}
+      style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
+    >
+      <span>{event.allDay ? "All day" : formatTime(event.start)}</span> <span className="rsvp-event-title">{event.title}</span>
+    </button>
+  );
   return (
     <div className="month-view" role="grid" aria-label={monthLabel}>
       <div className="month-weekdays" role="row">
@@ -363,36 +463,72 @@ function MonthView({
         ))}
       </div>
       <div className="month-cells">
-        {cells.map(cell => (
-          <div
-            className={`month-cell${cell.currentMonth ? "" : " outside"}${cell.today ? " today" : ""}`}
-            role="gridcell"
-            key={cell.key}
-          >
-            <button
-              className="month-create-event"
-              type="button"
-              aria-label={`Schedule on ${fullDateFormatter.format(new Date(`${cell.key}T09:00`))}`}
-              onClick={() => onSelectSlot(slotStart(cell.key, 9 * 60))}
-            />
-            <span className="month-number">{cell.day}</span>
-            {events
-              .filter(event => eventDate(event) === cell.key)
-              .slice(0, 3)
-              .map(event => (
+        {cells.map((cell, index) => {
+          const cellEvents = events.filter(event => eventDate(event) === cell.key);
+          const hiddenCount = cellEvents.length - DAY_EVENT_PREVIEW_LIMIT;
+          const open = openDayKey === cell.key && hiddenCount > 0;
+          // Keep the popover inside the grid: right-hand columns open leftwards, lower rows open upwards.
+          const popoverAlignment = `${index % 7 >= 5 ? " align-end" : ""}${index >= 21 ? " align-bottom" : ""}`;
+          return (
+            <div
+              className={`month-cell${cell.currentMonth ? "" : " outside"}${cell.today ? " today" : ""}`}
+              role="gridcell"
+              key={cell.key}
+            >
+              <button
+                className="month-create-event"
+                type="button"
+                aria-label={`Schedule on ${fullDateFormatter.format(new Date(`${cell.key}T09:00`))}`}
+                onClick={() => onSelectSlot(slotStart(cell.key, 9 * 60))}
+              />
+              <span className="month-number">{cell.day}</span>
+              {cellEvents
+                .slice(0, DAY_EVENT_PREVIEW_LIMIT)
+                .map(event => monthEvent(event, () => onSelectEvent(event.id)))}
+              {hiddenCount > 0 ? (
                 <button
                   type="button"
-                  key={event.id}
-                  onClick={() => onSelectEvent(event.id)}
-                  className={eventResponseClassName(event)}
-                  aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}
-                  style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
+                  className="month-more"
+                  ref={open ? triggerRef : undefined}
+                  aria-haspopup="dialog"
+                  aria-expanded={open}
+                  aria-controls={open ? popoverId : undefined}
+                  aria-label={moreEventsLabel(hiddenCount, cell.key)}
+                  title={moreEventsLabel(hiddenCount, cell.key)}
+                  onClick={() => setOpenDayKey(open ? null : cell.key)}
                 >
-                  <span>{event.allDay ? "All day" : formatTime(event.start)}</span> <span className="rsvp-event-title">{event.title}</span> <EventResponseBadge event={event} compact />
+                  +{hiddenCount} more
                 </button>
-              ))}
-          </div>
-        ))}
+              ) : null}
+              {open ? (
+                <div
+                  className={`month-day-popover${popoverAlignment}`}
+                  id={popoverId}
+                  ref={popoverRef}
+                  role="dialog"
+                  aria-label={`Events on ${dayLabel(cell.key)}`}
+                  tabIndex={-1}
+                  onKeyDown={event => {
+                    if (event.key !== "Escape") return;
+                    event.stopPropagation();
+                    closePopover();
+                  }}
+                >
+                  <header>
+                    <strong>{dayLabel(cell.key)}</strong>
+                    <button type="button" className="month-day-popover-close" aria-label="Close" title="Close" onClick={closePopover}>
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </header>
+                  {cellEvents.map(event => monthEvent(event, () => {
+                    closePopover();
+                    onSelectEvent(event.id);
+                  }))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

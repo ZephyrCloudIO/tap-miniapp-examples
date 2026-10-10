@@ -194,28 +194,41 @@ p { text-wrap: pretty; }
 .time-grid-wrap { min-width: 0; height: 100%; overflow: auto; }
 .time-grid { --calendar-columns: 5; --calendar-day-height: 1440px; --calendar-hour-height: 60px; display: grid; grid-template-columns: 57px minmax(0, 1fr); grid-template-rows: 52px minmax(29px, auto) var(--calendar-day-height); min-width: calc(57px + max(620px, calc(var(--calendar-columns) * 124px))); min-height: 100%; }
 .time-grid-corner { position: sticky; z-index: 9; top: 0; left: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--card); }
-.day-headings { position: sticky; z-index: 8; top: 0; display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--card) 95%, transparent); }
+.day-headings { position: sticky; z-index: 8; top: 0; display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); border-bottom: 1px solid var(--border); background: var(--card); }
 .day-heading { display: flex; align-items: center; justify-content: center; gap: 6px; border-right: 1px solid var(--border); color: var(--muted-foreground); }
 .day-heading span { font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .day-heading strong { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 8px; color: var(--foreground); font-size: 12px; }
 .day-heading.is-today strong { background: var(--calendar-accent); color: white; }
-.all-day-label { position: sticky; z-index: 7; left: 0; display: grid; place-items: center end; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--card); padding-right: 8px; color: var(--muted-foreground); font-size: 7px; }
-.all-day-columns { display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--card) 97%, var(--muted)); }
+.all-day-label { position: sticky; z-index: 9; top: 52px; left: 0; display: grid; place-items: center end; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--card); padding-right: 8px; color: var(--muted-foreground); font-size: 9px; }
+.all-day-columns { position: sticky; z-index: 7; top: 52px; display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--card) 97%, var(--muted)); }
 .all-day-column { display: grid; min-width: 0; align-content: start; gap: 2px; border-right: 1px solid var(--border); padding: 3px; }
-.all-day-column button { min-width: 0; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 3px 5px; color: var(--foreground); font-size: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.all-day-column button { min-width: 0; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 3px 6px; color: var(--foreground); font-size: 11px; font-weight: 650; line-height: 1.3; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.all-day-columns.is-expanded { max-height: 148px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.all-day-column .all-day-more { border-left: 0; background: transparent; padding-left: 9px; color: var(--muted-foreground); }
+.all-day-column .all-day-more:hover { background: var(--accent); color: var(--foreground); }
 .time-labels { position: sticky; z-index: 5; left: 0; display: grid; grid-template-rows: repeat(24, var(--calendar-hour-height)); border-right: 1px solid var(--border); background: var(--card); }
-.time-labels span { transform: translateY(-6px); padding-right: 8px; color: var(--muted-foreground); font-size: 7px; text-align: right; }
+.time-labels span { transform: translateY(-7px); padding-right: 8px; color: var(--muted-foreground); font-size: 9px; text-align: right; white-space: nowrap; }
 .day-columns { display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); min-width: 0; }
 .day-column { position: relative; min-width: 0; border-right: 1px solid var(--border); }
 .calendar-time-slot { display: block; width: 100%; height: calc(var(--calendar-hour-height) / 2); border: 0; background: transparent; padding: 0; cursor: pointer; }
 .calendar-time-slot:nth-child(odd) { border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); }
 .calendar-time-slot:hover, .calendar-time-slot:focus-visible { background: color-mix(in srgb, var(--calendar-accent) 10%, transparent); }
 .calendar-time-slot:focus-visible { position: relative; z-index: 3; outline: 2px solid var(--calendar-accent); outline-offset: -2px; }
-.calendar-event { position: absolute; z-index: 2; right: 4px; left: 4px; display: flex; min-height: 30px; flex-direction: column; align-items: flex-start; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 6px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 5px 6px; color: var(--foreground); text-align: left; cursor: pointer; }
+.calendar-event { position: absolute; z-index: 2; display: flex; min-width: 0; min-height: 30px; container-type: size; flex-direction: column; align-items: flex-start; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 6px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 4px 6px; color: var(--foreground); text-align: left; cursor: pointer; }
 .calendar-event:hover { z-index: 4; filter: brightness(.98); box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent); }
-.calendar-event strong { max-width: 100%; flex: 0 0 auto; overflow: hidden; font-size: 9px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-.calendar-event > span { color: var(--muted-foreground); font-size: 7px; }
-.calendar-event small { display: flex; max-width: 100%; align-items: center; gap: 3px; overflow: hidden; margin-top: 3px; color: var(--muted-foreground); font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event strong { max-width: 100%; flex: 0 0 auto; overflow: hidden; font-size: 11px; font-weight: 650; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event > span { max-width: 100%; flex: 0 0 auto; overflow: hidden; color: var(--muted-foreground); font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event small { display: flex; max-width: 100%; align-items: center; gap: 3px; overflow: hidden; margin-top: 2px; color: var(--muted-foreground); font-size: 9px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event small svg { flex: 0 0 auto; }
+.calendar-event small span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Taller cards let long titles wrap instead of truncating to a word or two. */
+@container (min-height: 44px) { .calendar-event:not(.is-compact) strong { display: -webkit-box; overflow-wrap: anywhere; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; } }
+@container (min-height: 60px) { .calendar-event:not(.is-compact) strong { -webkit-line-clamp: 3; } }
+/* 30-minute cards: title and start time share one line. A time that does not fit
+   wraps onto a second line the card clips, rather than showing a fragment. */
+.calendar-event.is-compact { flex-flow: row wrap; align-content: flex-start; align-items: baseline; gap: 20px 5px; padding-block: 3px; }
+.calendar-event.is-compact strong { min-width: 0; flex: 0 1 auto; }
+.calendar-event.is-compact > span { flex: 0 0 auto; }
 .calendar-event.event-work-block { border-left-style: dashed; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--event-color) 11%, var(--card)), color-mix(in srgb, var(--event-color) 11%, var(--card)) 7px, color-mix(in srgb, var(--event-color) 5%, var(--card)) 7px, color-mix(in srgb, var(--event-color) 5%, var(--card)) 14px); }
 .calendar-event.event-hold { border: 1px dashed var(--event-color); opacity: .78; }
 .now-line { position: absolute; z-index: 3; right: 0; left: 0; height: 1px; background: #ef5350; pointer-events: none; }
@@ -260,11 +273,21 @@ p { text-wrap: pretty; }
 .month-cell.outside { background: color-mix(in srgb, var(--muted) 38%, var(--card)); color: var(--muted-foreground); }
 .month-number { position: relative; pointer-events: none; display: grid; width: 22px; height: 22px; margin: 0 auto 4px; place-items: center; border-radius: 7px; font-size: 9px; }
 .month-cell.today .month-number { background: var(--calendar-accent); color: white; font-weight: 800; }
-.month-cell button { position: relative; display: block; width: 100%; overflow: hidden; margin: 2px 0; border: 0; border-left: 2px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 12%, var(--card)); padding: 4px 5px; font-size: 7px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.month-cell button { position: relative; display: block; width: 100%; overflow: hidden; margin: 2px 0; border: 0; border-left: 2px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 12%, var(--card)); padding: 3px 6px; font-size: 11px; line-height: 1.3; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .month-cell .month-create-event { position: absolute; inset: 0; height: 100%; margin: 0; border: 0; border-radius: 0; background: transparent; padding: 0; }
 .month-create-event:hover, .month-create-event:focus-visible { background: color-mix(in srgb, var(--calendar-accent) 8%, transparent); }
 .month-create-event:focus-visible { outline: 2px solid var(--calendar-accent); outline-offset: -2px; }
 .month-cell button span { color: var(--muted-foreground); }
+.month-cell .month-more { border-left: 0; background: transparent; padding-left: 8px; color: var(--muted-foreground); font-weight: 650; }
+.month-cell .month-more:hover, .month-cell .month-more[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
+.month-day-popover { position: absolute; z-index: 2; top: -1px; left: -1px; display: grid; width: max(calc(100% + 2px), 240px); max-height: 288px; align-content: start; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 10px; background: var(--popover); padding: 6px 8px 8px; color: var(--popover-foreground); box-shadow: 0 14px 38px color-mix(in srgb, #000 20%, transparent); }
+.month-day-popover.align-end { right: -1px; left: auto; }
+.month-day-popover.align-bottom { top: auto; bottom: -1px; }
+.month-day-popover:focus { outline: none; }
+.month-day-popover header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.month-day-popover header strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.month-cell .month-day-popover-close { display: inline-grid; flex: 0 0 auto; width: 24px; height: 24px; place-items: center; margin: 0; border: 0; border-radius: 6px; background: transparent; padding: 0; color: var(--muted-foreground); }
+.month-cell .month-day-popover-close:hover { background: var(--accent); color: var(--foreground); }
 .team-view { height: 100%; overflow: auto; padding: 24px; background: color-mix(in srgb, var(--muted) 25%, var(--card)); }
 .team-roster-empty { display: grid; min-height: 100%; place-content: center; justify-items: center; gap: 8px; color: var(--muted-foreground); text-align: center; }
 .team-roster-empty svg { color: var(--calendar-accent); }
@@ -1126,8 +1149,6 @@ p { text-wrap: pretty; }
 .rsvp-badge-accepted { color: var(--calendar-green); }
 .rsvp-badge-needsAction, .rsvp-badge-tentative { color: var(--foreground); }
 .rsvp-badge-declined { color: var(--muted-foreground); }
-.rsvp-compact .rsvp-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.rsvp-compact { margin-left: 3px; }
 .attendee-list > div > .rsvp-badge { display: inline-flex; width: auto; height: auto; max-width: 130px; border-radius: 0; background: transparent; font-size: 9px; }
 .attendee-list .rsvp-badge svg { color: currentColor; }
 .event-drawer > .rsvp-badge { margin-bottom: 8px; }

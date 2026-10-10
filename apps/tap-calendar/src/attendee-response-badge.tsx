@@ -18,16 +18,14 @@ const responseIcons = {
 export function AttendeeResponseBadge({
   response = "unknown",
   viewer = false,
-  compact = false,
 }: {
   readonly response?: CalendarResponseStatus;
   readonly viewer?: boolean;
-  readonly compact?: boolean;
 }) {
   const Icon = responseIcons[response];
   const label = (viewer ? viewerResponseLabels : attendeeResponseLabels)[response];
   return (
-    <span className={`rsvp-badge rsvp-badge-${response}${compact ? " rsvp-compact" : ""}`} title={label}>
+    <span className={`rsvp-badge rsvp-badge-${response}`} title={label}>
       <Icon aria-hidden="true" />
       <span className="rsvp-label">{label}</span>
     </span>
@@ -45,13 +43,12 @@ export const eventResponseLabel = (event: CalendarEvent): string => {
   return response ? viewerResponseLabels[response] : event.status;
 };
 
-export function EventResponseBadge({ event, compact = false, showBookingStatus = false }: {
+export function EventResponseBadge({ event, showBookingStatus = false }: {
   readonly event: CalendarEvent;
-  readonly compact?: boolean;
   readonly showBookingStatus?: boolean;
 }) {
   if (event.status === "cancelled") return <span className="status-chip status-cancelled">Cancelled</span>;
   const response = eventViewerResponse(event);
-  return response ? <AttendeeResponseBadge response={response} viewer compact={compact} />
+  return response ? <AttendeeResponseBadge response={response} viewer />
     : showBookingStatus ? <span className={`status-chip status-${event.status}`}>{event.status}</span> : null;
 }

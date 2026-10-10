@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@rstest/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CalendarBoard } from "./calendar-board";
-import { AttendeeResponseBadge, EventResponseBadge, eventResponseClassName } from "./attendee-response-badge";
+import { AttendeeResponseBadge, EventResponseBadge, eventResponseClassName, eventResponseLabel } from "./attendee-response-badge";
 import { eventViewerResponse, isAttendeeResponse, type CalendarResponseStatus } from "./attendee-response";
 import { createEmptyCalendarState, isCalendarState, type CalendarEvent, type CalendarView } from "./domain";
 import { mergeProviderEvent } from "./provider-event-merge";
@@ -51,7 +51,9 @@ describe("calendar RSVP presentation", () => {
       const html = renderToStaticMarkup(<CalendarBoard state={state([current], view)} anchorDate={current.start.slice(0, 10)} onSelectEvent={() => {}} onSelectSlot={() => {}} />);
       expect(html).toContain(eventResponseClassName(current));
       expect(html).toContain("Account review");
-      expect(html).toContain("rsvp-label");
+      expect(html).toContain(`, ${eventResponseLabel(current)}"`);
+      // Card styling already carries the response; only the agenda list repeats it as a labelled badge.
+      expect(html.includes("rsvp-badge")).toBe(view === "agenda");
     }
   });
 
