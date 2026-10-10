@@ -17,8 +17,9 @@ import {
   DEFAULT_CALENDAR_SCROLL_HOUR,
   calendarGridHourLabel,
   calendarLocalDate,
-  timeGridEventLayout,
+  timeGridDayPlacements,
   timeGridNowPercentage,
+  type TimeGridEventPlacement,
 } from "./calendar-time-grid";
 
 interface WeekDay {
@@ -87,6 +88,22 @@ const formatTime = (iso: string): string => timeFormatter.format(new Date(iso));
 
 const eventTime = (event: CalendarEvent): string =>
   event.allDay ? "All day" : `${formatTime(event.start)}–${formatTime(event.end)}`;
+
+const eventDescription = (event: CalendarEvent): string =>
+  `${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`;
+
+const EVENT_EDGE_INSET_PX = 4;
+const EVENT_GUTTER_INSET_PX = 1;
+
+/** Horizontal position inside the day column, inset so neighbours never touch. */
+const eventColumnStyle = ({ column, columnSpan, columnCount }: TimeGridEventPlacement) => {
+  const insetStart = column === 0 ? EVENT_EDGE_INSET_PX : EVENT_GUTTER_INSET_PX;
+  const insetEnd = column + columnSpan === columnCount ? EVENT_EDGE_INSET_PX : EVENT_GUTTER_INSET_PX;
+  return {
+    left: `calc(${(column / columnCount) * 100}% + ${insetStart}px)`,
+    width: `calc(${(columnSpan / columnCount) * 100}% - ${insetStart + insetEnd}px)`,
+  };
+};
 
 interface CalendarBoardProps {
   readonly state: CalendarState;
@@ -189,11 +206,11 @@ function TimeGrid({
                     key={event.id}
                     style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
                     onClick={() => onSelectEvent(event.id)}
-                    title={`${event.title}, ${eventResponseLabel(event)}`}
+                    title={eventDescription(event)}
                     className={eventResponseClassName(event)}
-                    aria-label={`${event.title}, All day, ${eventResponseLabel(event)}`}
+                    aria-label={eventDescription(event)}
                   >
-                    <span className="rsvp-event-title">{event.title}</span> <EventResponseBadge event={event} compact />
+                    <span className="rsvp-event-title">{event.title}</span>
                   </button>
                 ))}
             </div>
@@ -205,61 +222,66 @@ function TimeGrid({
           ))}
         </div>
         <div className="day-columns" role="row">
-          {days.map(day => (
-            <div className="day-column" role="gridcell" key={day.key}>
-              {slotMinutes.map(minute => {
-                const start = slotStart(day.key, minute);
-                const label = `Schedule on ${fullDateFormatter.format(new Date(start))} at ${formatTime(start)}`;
-                return (
-                  <button
-                    className="calendar-time-slot"
-                    type="button"
-                    key={minute}
-                    aria-label={label}
-                    title={label}
-                    tabIndex={minute === focusedMinute ? 0 : -1}
-                    onFocus={() => setFocusedMinute(minute)}
-                    onClick={() => onSelectSlot(start)}
-                    onKeyDown={event => {
-                      const nextMinute = event.key === "ArrowDown" ? Math.min(1410, minute + 30)
-                        : event.key === "ArrowUp" ? Math.max(0, minute - 30)
-                          : event.key === "Home" ? 0
-                            : event.key === "End" ? 1410 : null;
-                      if (nextMinute === null) return;
-                      event.preventDefault();
-                      event.currentTarget.parentElement
-                        ?.querySelectorAll<HTMLButtonElement>(".calendar-time-slot")[nextMinute / 30]?.focus();
-                    }}
-                  />
-                );
-              })}
-              {events
-                .filter(event => event.allDay !== true && eventDate(event) === day.key)
-                .map(event => {
-                  const layout = timeGridEventLayout(event);
+          {days.map(day => {
+            const dayEvents = events.filter(event => event.allDay !== true && eventDate(event) === day.key);
+            const placements = timeGridDayPlacements(dayEvents);
+            return (
+              <div className="day-column" role="gridcell" key={day.key}>
+                {slotMinutes.map(minute => {
+                  const start = slotStart(day.key, minute);
+                  const label = `Schedule on ${fullDateFormatter.format(new Date(start))} at ${formatTime(start)}`;
+                  return (
+                    <button
+                      className="calendar-time-slot"
+                      type="button"
+                      key={minute}
+                      aria-label={label}
+                      title={label}
+                      tabIndex={minute === focusedMinute ? 0 : -1}
+                      onFocus={() => setFocusedMinute(minute)}
+                      onClick={() => onSelectSlot(start)}
+                      onKeyDown={event => {
+                        const nextMinute = event.key === "ArrowDown" ? Math.min(1410, minute + 30)
+                          : event.key === "ArrowUp" ? Math.max(0, minute - 30)
+                            : event.key === "Home" ? 0
+                              : event.key === "End" ? 1410 : null;
+                        if (nextMinute === null) return;
+                        event.preventDefault();
+                        event.currentTarget.parentElement
+                          ?.querySelectorAll<HTMLButtonElement>(".calendar-time-slot")[nextMinute / 30]?.focus();
+                      }}
+                    />
+                  );
+                })}
+                {dayEvents.map(event => {
+                  const placement = placements.get(event.id);
+                  if (!placement) return null;
                   const color = colors.get(event.calendarId) ?? "#6d5dfc";
                   return (
                     <button
-                      className={`calendar-event event-${event.kind} ${eventResponseClassName(event)}`}
+                      className={`calendar-event event-${event.kind}${placement.compact ? " is-compact" : ""} ${eventResponseClassName(event)}`}
                       key={event.id}
                       style={{
-                        top: `${layout.topPercentage}%`,
-                        height: `${layout.heightPercentage}%`,
+                        top: `${placement.topPercentage}%`,
+                        height: `${placement.heightPercentage}%`,
+                        ...eventColumnStyle(placement),
                         "--event-color": color,
                       } as React.CSSProperties}
                       type="button"
                       onClick={() => onSelectEvent(event.id)}
-                      aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}
+                      title={eventDescription(event)}
+                      aria-label={eventDescription(event)}
                     >
                       <strong className="rsvp-event-title">{event.title}</strong>
-                      <span>{eventTime(event)} <EventResponseBadge event={event} compact /></span>
-                      {event.source ? <small><Link2 size={10} /> {event.source.label}</small> : null}
+                      <span>{placement.compact ? formatTime(event.start) : eventTime(event)}</span>
+                      {event.source && !placement.compact ? <small><Link2 size={10} /> <span>{event.source.label}</span></small> : null}
                     </button>
                   );
                 })}
-              {day.today ? <div className="now-line" aria-label="Current time" style={{ top: `${nowTop}%` }} /> : null}
-            </div>
-          ))}
+                {day.today ? <div className="now-line" aria-label="Current time" style={{ top: `${nowTop}%` }} /> : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -301,7 +323,7 @@ function AgendaView({
           </header>
           <div>
             {dayEvents.map(event => (
-              <button type="button" key={event.id} className={eventResponseClassName(event)} style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties} onClick={() => onSelectEvent(event.id)} aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}>
+              <button type="button" key={event.id} className={eventResponseClassName(event)} style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties} onClick={() => onSelectEvent(event.id)} aria-label={eventDescription(event)}>
                 <span
                   className="event-dot"
                   style={{ background: colors.get(event.calendarId) ?? "#6d5dfc" }}
@@ -385,10 +407,11 @@ function MonthView({
                   key={event.id}
                   onClick={() => onSelectEvent(event.id)}
                   className={eventResponseClassName(event)}
-                  aria-label={`${event.title}, ${eventTime(event)}, ${eventResponseLabel(event)}`}
+                  title={eventDescription(event)}
+                  aria-label={eventDescription(event)}
                   style={{ "--event-color": colors.get(event.calendarId) ?? "#6d5dfc" } as React.CSSProperties}
                 >
-                  <span>{event.allDay ? "All day" : formatTime(event.start)}</span> <span className="rsvp-event-title">{event.title}</span> <EventResponseBadge event={event} compact />
+                  <span>{event.allDay ? "All day" : formatTime(event.start)}</span> <span className="rsvp-event-title">{event.title}</span>
                 </button>
               ))}
           </div>
