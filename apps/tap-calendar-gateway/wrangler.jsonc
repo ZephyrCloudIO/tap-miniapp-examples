@@ -5,6 +5,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-14",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Event reads make several sequential D1 round trips; run next to the database.
+  "placement": { "mode": "smart" },
   "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   "workers_dev": false,
   "preview_urls": false,
@@ -53,6 +55,7 @@
     "production": {
       "account_id": "b848db7e2edd56dee8ffcc39c18612a5",
       "name": "tap-calendar-gateway-production",
+      "placement": { "mode": "smart" },
       "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "13e5018e1bc2424892c7a6337e9a5759" }],
       "workers_dev": false,
       "preview_urls": false,

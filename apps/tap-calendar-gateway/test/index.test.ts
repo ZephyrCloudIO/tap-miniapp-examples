@@ -430,8 +430,8 @@ describe("TAP Calendar local gateway", () => {
         background.push(promise);
       },
     } as unknown as ExecutionContext);
-    expect(background).toHaveLength(7);
-    await expect(Promise.all(background)).resolves.toHaveLength(7);
+    expect(background).toHaveLength(8);
+    await expect(Promise.all(background)).resolves.toHaveLength(8);
   });
 
   it("persists an empty-install connection and every discovered calendar in D1", async () => {
@@ -1232,8 +1232,13 @@ describe("TAP Calendar local gateway", () => {
 
     // A fresh legacy snapshot must be rebuilt even without a provider change.
     // The existing sync-token-2 would fail if this tried an incremental sync.
+    // (A fresh snapshot has no error; an errored calendar would wait out its backoff.)
     await env.CALENDAR_DB.prepare(
-      "UPDATE calendar_sync_state SET projection_version = 1, freshness = 'fresh', next_sync_at = '2099-01-01T00:00:00Z' WHERE calendar_id = ?",
+      `UPDATE calendar_sync_state
+          SET projection_version = 1, freshness = 'fresh', error_code = NULL,
+              error_message = NULL, consecutive_failures = 0,
+              next_sync_at = '2099-01-01T00:00:00Z'
+        WHERE calendar_id = ?`,
     ).bind(calendarId).run();
     const callsBeforeUpgrade = providerCalls.length;
     const upgraded = await oauthWorker.fetch(request("/v1/events/query", {
@@ -1320,16 +1325,17 @@ describe("TAP Calendar local gateway", () => {
       },
     } as unknown as ExecutionContext);
     await Promise.all(scheduledWork);
+    // One cron run now repairs more than the old 20-calendar batch, in parallel.
     expect(
       await env.CALENDAR_DB.prepare(
         "SELECT COUNT(*) AS count FROM calendar_sync_state WHERE cache_revision > 0",
       ).first<number>("count"),
-    ).toBe(20);
+    ).toBe(21);
     expect(
       await env.CALENDAR_DB.prepare(
-        "SELECT COUNT(*) AS count FROM calendar_sync_state WHERE cache_revision = 0",
+        "SELECT COUNT(*) AS count FROM calendar_sync_state WHERE cache_revision = 0 OR lease_until IS NOT NULL",
       ).first<number>("count"),
-    ).toBe(1);
+    ).toBe(0);
     expect(providerCalls.filter(call =>
       call.url.origin === "https://oauth2.googleapis.com" && call.url.pathname === "/token"
     ).length).toBe(refreshCallsBeforeRepair + 1);
