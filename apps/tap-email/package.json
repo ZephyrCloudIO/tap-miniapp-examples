@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/tap-email",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "miniappIndex": {
     "summary": "Keyboard-first unified email with coverage-aware Operational Zero.",
     "category": "communication",
