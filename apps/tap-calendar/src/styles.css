@@ -201,6 +201,9 @@ p { text-wrap: pretty; }
 .all-day-columns { position: sticky; z-index: 7; top: 52px; display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--card) 97%, var(--muted)); }
 .all-day-column { display: grid; min-width: 0; align-content: start; gap: 2px; border-right: 1px solid var(--border); padding: 3px; }
 .all-day-column button { min-width: 0; overflow: hidden; border: 0; border-left: 3px solid var(--event-color); border-radius: 4px; background: color-mix(in srgb, var(--event-color) 14%, var(--card)); padding: 3px 6px; color: var(--foreground); font-size: 11px; font-weight: 650; line-height: 1.3; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.all-day-columns.is-expanded { max-height: 148px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.all-day-column .all-day-more { border-left: 0; background: transparent; padding-left: 9px; color: var(--muted-foreground); }
+.all-day-column .all-day-more:hover { background: var(--accent); color: var(--foreground); }
 .time-labels { position: sticky; z-index: 5; left: 0; display: grid; grid-template-rows: repeat(24, var(--calendar-hour-height)); border-right: 1px solid var(--border); background: var(--card); }
 .time-labels span { transform: translateY(-7px); padding-right: 8px; color: var(--muted-foreground); font-size: 9px; text-align: right; white-space: nowrap; }
 .day-columns { display: grid; grid-template-columns: repeat(var(--calendar-columns), minmax(0, 1fr)); min-width: 0; }
@@ -273,6 +276,16 @@ p { text-wrap: pretty; }
 .month-create-event:hover, .month-create-event:focus-visible { background: color-mix(in srgb, var(--calendar-accent) 8%, transparent); }
 .month-create-event:focus-visible { outline: 2px solid var(--calendar-accent); outline-offset: -2px; }
 .month-cell button span { color: var(--muted-foreground); }
+.month-cell .month-more { border-left: 0; background: transparent; padding-left: 8px; color: var(--muted-foreground); font-weight: 650; }
+.month-cell .month-more:hover, .month-cell .month-more[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
+.month-day-popover { position: absolute; z-index: 2; top: -1px; left: -1px; display: grid; width: max(calc(100% + 2px), 240px); max-height: 288px; align-content: start; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 10px; background: var(--popover); padding: 6px 8px 8px; color: var(--popover-foreground); box-shadow: 0 14px 38px color-mix(in srgb, #000 20%, transparent); }
+.month-day-popover.align-end { right: -1px; left: auto; }
+.month-day-popover.align-bottom { top: auto; bottom: -1px; }
+.month-day-popover:focus { outline: none; }
+.month-day-popover header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.month-day-popover header strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.month-cell .month-day-popover-close { display: inline-grid; flex: 0 0 auto; width: 24px; height: 24px; place-items: center; margin: 0; border: 0; border-radius: 6px; background: transparent; padding: 0; color: var(--muted-foreground); }
+.month-cell .month-day-popover-close:hover { background: var(--accent); color: var(--foreground); }
 .team-view { height: 100%; overflow: auto; padding: 24px; background: color-mix(in srgb, var(--muted) 25%, var(--card)); }
 .team-roster-empty { display: grid; min-height: 100%; place-content: center; justify-items: center; gap: 8px; color: var(--muted-foreground); text-align: center; }
 .team-roster-empty svg { color: var(--calendar-accent); }
