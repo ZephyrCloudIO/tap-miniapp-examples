@@ -209,6 +209,10 @@ describe("TAP Calendar domain", () => {
     expect(isCalendarState(channelSchedulerSeed.storage[0]?.value)).toBe(true);
   });
 
+  it("accepts the deterministic domain test fixture", () => {
+    expect(isCalendarState(createInitialCalendarState())).toBe(true);
+  });
+
   it("keeps receipt-less schema-v1 profiles valid without assuming they are live", () => {
     const legacy = publicationStateFixture();
     const profile = legacy.bookingProfiles[0]!;
@@ -772,27 +776,10 @@ describe("TAP Calendar domain", () => {
       error: { code: "invalid-destination", field: "replacementDestinationId" },
     });
 
-    const withApprovalEvent = {
-      ...initial,
-      events: [
-        ...initial.events,
-        {
-          id: "event-hold-1",
-          calendarId: "cal-work",
-          title: "Architecture advisory hold",
-          start: "2026-08-17T14:00:00-04:00",
-          end: "2026-08-17T15:00:00-04:00",
-          kind: "hold" as const,
-          status: "pending" as const,
-          location: "microsoft-teams" as const,
-          attendees: [externalGuest],
-        },
-      ],
-    };
-    expect(isCalendarState(withApprovalEvent)).toBe(true);
+    expect(isCalendarState(initial)).toBe(true);
 
     const removed = removeCalendarFromTap(
-      withApprovalEvent,
+      initial,
       "cal-work",
       "cal-google-main",
     );

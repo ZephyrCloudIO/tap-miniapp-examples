@@ -272,6 +272,26 @@ export function createInitialCalendarState(): CalendarState {
         location: null,
         attendees: [theo],
       },
+      {
+        id: "event-hold-1",
+        calendarId: "cal-work",
+        title: "Architecture advisory hold",
+        start: "2026-08-18T14:00:00-04:00",
+        end: "2026-08-18T15:00:00-04:00",
+        kind: "hold",
+        status: "pending",
+        location: "microsoft-teams",
+        attendees: [
+          self,
+          {
+            id: "guest-avery",
+            name: "Avery Brooks",
+            email: "avery@example.com",
+            kind: "external",
+            required: true,
+          },
+        ],
+      },
     ],
     availability: [
       {
@@ -424,7 +444,7 @@ export function createInitialCalendarState(): CalendarState {
             createdAt: "2026-08-14T09:14:00-04:00",
             kind: "approval",
             title: "Meeting approval requested",
-            summary: "Avery Brooks requested Architecture advisory · Mon, Aug 17 at 2:00 PM",
+            summary: "Avery Brooks requested Architecture advisory · Tue, Aug 18 at 2:00 PM",
             bookingRequestId: "booking-pending-1",
             redacted: false,
           },
