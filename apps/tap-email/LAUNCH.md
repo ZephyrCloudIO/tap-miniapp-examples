@@ -33,7 +33,6 @@ Create the GitHub environment `tap-email-coordinator-production` and add these
 environment secrets:
 
 - `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_MONITOR_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
@@ -99,17 +98,7 @@ obtain explicit incident-owner authorization before resuming it manually. Treat
 either queue verification or a readiness probe failure as a failed deployment,
 even when the upload step succeeded.
 
-`Monitor TAP Email Coordinator` runs read-only checks every five minutes,
-serialized with production deployment. It verifies delivery state, producer and
-consumer topology, dead-letter queues, backlog age, `/health`, `/ready`, and
-aggregate-only D1 sync progress. A failure opens or refreshes one GitHub issue;
-the first healthy run closes it. The monitor never prints mailbox data and never
-resumes queue delivery.
-
-GitHub disables scheduled workflows in public repositories after 60 days with
-no repository activity. Keep an independent canary that alerts when this
-workflow has no recent run; the scheduler is operational defense, while durable
-redispatch and deployment verification remain the sync recovery controls.
+Durable redispatch and deployment verification are the sync recovery controls.
 
 ## 4. Production smoke test
 

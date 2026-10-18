@@ -196,38 +196,18 @@ configured dead-letter queues with `wrangler queues consumer list <queue>`.
 The automated production workflow performs this check and reports each live
 queue backlog.
 
-`Monitor TAP Email Coordinator` runs every five minutes and can also be started
-manually after a release. It performs read-only Cloudflare Queue and aggregate
-D1 checks, opens one deduplicated GitHub issue when delivery, topology,
-dead-letter, backlog-age, or durable-progress checks fail, and closes that issue
-after recovery. Monitor output contains operational counts and timestamps only;
-it never queries or prints mailbox identifiers, subjects, bodies, or recipients.
-Cloudflare reports queue metrics on a best-effort basis and defines an oldest
-timestamp of zero as unknown. Unknown **sync** queue age remains a visible
-telemetry warning when the independent D1 checks succeed with no anomalies;
-this means operational checks passed, not that queue age was verified. Unknown
-command queue age still fails because the D1 progress query covers sync jobs.
-Paused delivery, missing routes, dead letters, known stale backlog, malformed
-metrics and failed API/D1 reads remain failures. Durable checks include current
-application dead letters, which may already be acknowledged in Cloudflare;
-completed full syncs supersede older failures. A completed incremental history
+A completed full sync supersedes older failures. A completed incremental history
 traversal also recovers failed incremental events whose saved history cursor
 falls inside the covered range. Recovery is recorded in `recovered_at` without
 changing the terminal failure or its audit history. Intermediate history pages,
 other mailboxes, and failures with an unknown starting cursor do not prove
 recovery. Apply migration `0023_incremental_sync_recovery.sql` before deploying
-the coordinator or the updated monitor. A failed continuation is also
+the coordinator. A failed continuation is also
 operationally recovered when a later applied delivery matches its account,
 profile, page and generation, and that same generation's checkpoint has advanced.
 The recorded traversal must predate the failed delivery; later resets or unknown
 start times cannot establish recovery.
 This leaves the original failure audit record and coverage counters intact.
-These checks do not establish
-complete historical body coverage or successful optional body downloads.
-The monitor never resumes either queue. Configure the production Environment
-secret `CLOUDFLARE_MONITOR_API_TOKEN` with only account-scoped `Queues Read` and
-`D1 Read`; the workflow temporarily falls back to the deployment token so
-monitoring remains active while that least-privilege credential is provisioned.
 
 Rotate `GOOGLE_TOKEN_ENCRYPTION_KEY` only with an explicit data-migration plan;
 existing encrypted credentials and bodies depend on it. Verify the production
