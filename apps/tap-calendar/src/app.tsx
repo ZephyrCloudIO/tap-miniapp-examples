@@ -3031,6 +3031,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
         <div className="workspace-content" ref={workspaceContentRef}>
           {section === "calendar" ? (
             <CalendarScreen
+              mobileCompact={nativeHeader && compact}
               state={displayState}
               anchorDate={anchorDate}
               onAnchorDateChange={setAnchorDate}
@@ -3512,6 +3513,7 @@ function CalendarEventSyncStatus({
 }
 
 function CalendarScreen({
+  mobileCompact,
   state,
   anchorDate,
   onAnchorDateChange,
@@ -3522,6 +3524,7 @@ function CalendarScreen({
   onSchedule,
   onAddAccount,
 }: {
+  readonly mobileCompact: boolean;
   readonly state: CalendarState;
   readonly anchorDate: string;
   readonly onAnchorDateChange: (date: string) => void;
@@ -3628,7 +3631,15 @@ function CalendarScreen({
           calendars={allCalendars(state)}
           syncState={eventSyncState}
         />
-        <div className="view-switcher" aria-label="Calendar view">
+        {mobileCompact ? <label className="mobile-view-selector">
+          <span>View</span>
+          <select aria-label="Calendar view" value={state.activeView} disabled={saving} onChange={event => {
+            const view = allViews.find(view => view.id === event.currentTarget.value);
+            if (view) onSetView(view.id);
+          }}>
+            {allViews.map(view => <option key={view.id} value={view.id}>{view.label}</option>)}
+          </select>
+        </label> : <div className="view-switcher" aria-label="Calendar view">
           {allViews.map(view => (
             <button
               type="button"
@@ -3639,7 +3650,7 @@ function CalendarScreen({
               onClick={() => onSetView(view.id)}
             >{view.label}</button>
           ))}
-        </div>
+        </div>}
         <button type="button" className="icon-button toolbar-more" aria-label="More calendar options"><MoreHorizontal /></button>
       </div>
       {state.accounts.length === 0 ? (
