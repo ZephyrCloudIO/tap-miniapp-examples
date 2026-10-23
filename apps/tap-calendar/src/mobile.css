@@ -45,10 +45,8 @@
   :root[data-tap-mobile] .calendar-toolbar { display: grid; grid-template-columns: minmax(0,1fr) auto; }
   :root[data-tap-mobile] .view-switcher { grid-column: 1 / -1; width: 100%; overflow-x: auto; }
   :root[data-tap-mobile] .view-switcher button { flex: 1; min-width: max-content; }
-  :root[data-tap-mobile] .toolbar-more { grid-column: 2; grid-row: 1; }
 }
 
-:root[data-tap-mobile] .toolbar-more { display: none; }
 :root[data-tap-mobile] .status-confirmed, :root[data-tap-mobile] .rsvp-badge-accepted { color: var(--tap-positive); }
 :root[data-tap-mobile] .status-pending { color: var(--tap-warning); }
 :root[data-tap-mobile] .status-declined, :root[data-tap-mobile] .status-cancelled { color: var(--destructive); }

@@ -946,7 +946,6 @@ p { text-wrap: pretty; }
   .date-navigation { min-width: 280px; }
   .view-switcher { order: 3; width: 100%; overflow-x: auto; }
   .view-switcher button { flex: 1; min-width: 65px; }
-  .toolbar-more { margin-left: auto; }
   .calendar-surface { min-height: 0; }
   .availability-layout, .settings-layout { grid-template-columns: 1fr; }
   .settings-layout { padding: 17px 15px 60px; }
@@ -976,7 +975,6 @@ p { text-wrap: pretty; }
   .header-actions .primary-button svg { width: 16px; }
   .calendar-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; min-height: 92px; }
   .date-navigation { grid-column: 1; grid-row: 1; min-width: 0; }
-  .toolbar-more { grid-column: 2; grid-row: 1; }
   .calendar-toolbar > .status-chip { grid-column: 1 / -1; justify-self: start; }
   .view-switcher { grid-column: 1 / -1; min-width: 0; }
   .date-navigation h2 { font-size: 11px; }
