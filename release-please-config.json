@@ -31,6 +31,7 @@
         { "type": "json", "path": "apps/personal-health-ledger/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/pyre/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/tap-calendar/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/tap-calendar-gateway/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/tap-email/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/unofficial-suno-player/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/vanta-companion/package.json", "jsonpath": "$.version" }

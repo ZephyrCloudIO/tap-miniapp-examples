@@ -206,7 +206,7 @@ The Worker also consumes and produces the `tap-calendar-cache-rebuilds-productio
 pnpm --filter @tap-examples/tap-calendar-gateway exec wrangler queues create tap-calendar-cache-rebuilds-production
 ```
 
-Apply the additive Zoom schema before deploying code that reads it, then deploy the Worker:
+Production deploys run from the Deploy TAP Calendar Gateway workflow (below). To run them by hand, apply the additive schema before deploying code that reads it, then deploy the Worker:
 
 ```bash
 pnpm --filter @tap-examples/tap-calendar-gateway migrate:production
@@ -214,6 +214,25 @@ pnpm --filter @tap-examples/tap-calendar-gateway deploy:production
 ```
 
 Migration `0016_zoom_meeting_provider.sql` stores per-principal Zoom connections, single-use OAuth state, rotating-token refresh leases, and meeting-operation recovery state. Do not rotate `TOKEN_ENCRYPTION_KEY` in place: existing calendar and Zoom credentials depend on it.
+
+### CRM delivery (Connect to CRM)
+
+A workspace admin opens Settings → Connect to CRM, enters a CRM bot key, and clicks Test or Connect. They never enter the CRM address: the gateway always uses its `CRM_API_URL` var, so one place decides which CRM an environment may write to. The key needs `contacts.write`, which the CRM's **Lead writer** preset has. Routes (`GET`/`POST`/`DELETE /v1/crm/connection`, `POST /v1/crm/connection/test`) need `workspace:manage` to change anything.
+
+- **Test** sends `dryRun: true` to `POST /tap/v1/bot/bookings`, which the CRM runs and rolls back. The result is connected, or `invalid_key` (401), `missing_scope` (403), `unreachable`, or `rejected`. Connect stores the key only after a passing test.
+- **Storage:** migration `0027_crm_connection.sql` adds `crm_connections` (the key is AES-256-GCM encrypted with `TOKEN_ENCRYPTION_KEY`, like the Zoom tokens; Disconnect deletes the row and anything still queued) and `crm_booking_deliveries`, a durable queue keyed by `(booking_reference, event_key)` beside the booking email outbox.
+- **Filling the queue:** the cron derives CRM messages from booking state (`reconcileCrmDeliveries`), so every place a booking is confirmed, approved, rescheduled, cancelled, declined or expired is covered. Confirmed or approved sends `CONFIRMED`; a reschedule sends `CONFIRMED` with the new times; a cancellation, and a decline or expiry of a booking already sent, sends `CANCELLED`. Pending bookings are not sent. The message version is the management row's `version`, and the CRM ignores anything at or below the version it has applied.
+- **Retries:** the cron delivers with backoff (`deliverCrmBookings`). `2xx` is done. `429` and `5xx` retry, honouring `Retry-After`. `401` and `403` mark the connection as needing attention in Settings and keep the message queued for after a reconnect. `400` and `409` stop and log the request id, never the body. Redirects are refused so the key is never forwarded.
+- **Off by default:** a workspace with no connection sends nothing.
+
+Deployment: only the gateway calls TAP CRM, server to server from its cron. The pages at `cal.with-tap.ai` never call the CRM and never hold a CRM key, so they need no CORS, CSP, or Turnstile changes for it.
+
+- `CRM_API_URL` is a plain Worker var. Production sets `https://crm-api.zephyr-cloud.io`. When it is unset, blank, or invalid, CRM delivery is off and Connect is unavailable (`resolveCrmApiUrl` in `src/crm-config.ts`). The default (development) environment leaves it unset; any staging environment must point at a non-production CRM or leave it unset, never at the production CRM.
+- The gateway reaches the CRM with an ordinary outbound `fetch`. `crm-api.zephyr-cloud.io` is a different zone from `calendar-api.theaiplatform.app`, so Cloudflare's same-zone Worker-to-Worker limit does not apply. A service binding to `tap-crm-api-production` is the alternative if the public route is ever unwanted.
+- `bookingPage` is `<profileSlug>/<eventTypeSlug>` (`crmBookingPage`), never the full URL. The management link and its token are never sent. `meetingUrl` is the Zoom or Meet join link. `hosts` are the collective hosts, or for an individual page its owner (the connected account of the destination calendar).
+- Nothing is backfilled: only bookings confirmed, rescheduled, or cancelled after a workspace connects are sent. A reschedule or cancellation of a booking the CRM never received is sent as a new message and the CRM creates the meeting already in its new state.
+
+Release: `.github/workflows/deploy-tap-calendar-gateway.yml` runs after CI passes on `main`. It checks that `env.production.vars.CRM_API_URL` is an https origin and that the default environment leaves it unset, then runs the checks, creates the rebuild queue if missing, applies the D1 migrations (including `0027`), deploys, and checks `/health/booking-analytics`. Release Please bumps this package's version with each release, and the CRM User-Agent is `tap-calendar/<that version>`. The manual `migrate:production` and `deploy:production` scripts remain for emergencies. After a release that touches CRM delivery, book, reschedule, and cancel one test booking on a connected workspace at `cal.with-tap.ai`. The CRM should show one meeting on the guest's timeline that moves and is then cancelled, and sending the same message a second time changes nothing.
 
 Tokens and PKCE verifiers are AES-256-GCM encrypted before they enter D1. OAuth state is hashed, expires after ten minutes, and is consumed once. Google discovery reads `users/me/calendarList`; Microsoft discovery reads `/me` and `/me/calendars` and includes calendars shared with the signed-in user.
 

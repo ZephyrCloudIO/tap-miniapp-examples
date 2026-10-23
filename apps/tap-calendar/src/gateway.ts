@@ -154,6 +154,35 @@ export interface CalendarGatewayMeetingProviderConnection {
   readonly updatedAt: string;
 }
 
+export type CalendarGatewayCrmAttentionReason = "invalid_key" | "missing_scope" | "unreachable";
+export type CalendarGatewayCrmTestReason = CalendarGatewayCrmAttentionReason | "rejected";
+
+export interface CalendarGatewayCrmConnection {
+  readonly apiUrl: string;
+  readonly status: "connected" | "attention";
+  readonly reason: CalendarGatewayCrmAttentionReason | null;
+  readonly connectedAt: string;
+  readonly lastVerifiedAt: string | null;
+  readonly lastDeliveredAt: string | null;
+  readonly pendingDeliveries: number;
+}
+
+export interface CalendarGatewayCrmConnectionStatus {
+  readonly enabled: boolean;
+  readonly defaultApiUrl: string | null;
+  readonly canManage: boolean;
+  readonly connection: CalendarGatewayCrmConnection | null;
+}
+
+export interface CalendarGatewayCrmTestResult {
+  readonly ok: boolean;
+  readonly reason: CalendarGatewayCrmTestReason | null;
+}
+
+export type CalendarGatewayCrmConnectResult =
+  | { readonly ok: true; readonly reason: null; readonly connection: CalendarGatewayCrmConnection }
+  | { readonly ok: false; readonly reason: CalendarGatewayCrmTestReason; readonly connection: null };
+
 export interface CalendarGatewayCommittedBooking {
   readonly state: "committed";
   readonly provider: "google";
@@ -332,6 +361,41 @@ const hasExactKeys = (
   return actual.length === sortedExpected.length &&
     actual.every((key, index) => key === sortedExpected[index]);
 };
+
+const isCrmAttentionReason = (value: unknown): value is CalendarGatewayCrmAttentionReason =>
+  value === "invalid_key" || value === "missing_scope" || value === "unreachable";
+
+const isCrmTestReason = (value: unknown): value is CalendarGatewayCrmTestReason =>
+  isCrmAttentionReason(value) || value === "rejected";
+
+const isNullableIsoDateTime = (value: unknown): value is string | null =>
+  value === null || isIsoDateTime(value);
+
+const isCrmConnection = (value: unknown): value is CalendarGatewayCrmConnection =>
+  isRecord(value) &&
+  typeof value.apiUrl === "string" && value.apiUrl.trim() !== "" &&
+  (value.status === "connected" ? value.reason === null
+    : value.status === "attention" && (value.reason === null || isCrmAttentionReason(value.reason))) &&
+  isIsoDateTime(value.connectedAt) &&
+  isNullableIsoDateTime(value.lastVerifiedAt) &&
+  isNullableIsoDateTime(value.lastDeliveredAt) &&
+  typeof value.pendingDeliveries === "number" &&
+  Number.isSafeInteger(value.pendingDeliveries) && value.pendingDeliveries >= 0;
+
+const isCrmConnectionStatus = (value: unknown): value is CalendarGatewayCrmConnectionStatus =>
+  isRecord(value) &&
+  typeof value.enabled === "boolean" &&
+  (value.defaultApiUrl === null || typeof value.defaultApiUrl === "string") &&
+  typeof value.canManage === "boolean" &&
+  (value.connection === null || isCrmConnection(value.connection));
+
+const isCrmTestResult = (value: unknown): value is CalendarGatewayCrmTestResult =>
+  isRecord(value) && typeof value.ok === "boolean" &&
+  (value.ok ? value.reason === null : isCrmTestReason(value.reason));
+
+const isCrmConnectResult = (value: unknown): value is CalendarGatewayCrmConnectResult =>
+  isCrmTestResult(value) && isRecord(value) &&
+  (value.ok ? isCrmConnection(value.connection) : value.connection === null);
 
 const isReceiptIdentifier = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -977,6 +1041,14 @@ export interface CalendarGatewayClient {
     connectionId: string,
   ): Promise<CalendarGatewayMeetingProviderConnection>;
   deleteMeetingProviderConnection(connectionId: string): Promise<void>;
+  readCrmConnection(): Promise<CalendarGatewayCrmConnectionStatus>;
+  testCrmConnection(input: {
+    readonly botKey?: string;
+  }): Promise<CalendarGatewayCrmTestResult>;
+  connectCrm(input: {
+    readonly botKey: string;
+  }): Promise<CalendarGatewayCrmConnectResult>;
+  disconnectCrm(): Promise<void>;
   syncConnection(connectionId: string): Promise<CalendarGatewayConnection>;
   queryEvents(input: {
     readonly timeMin: string;
@@ -1402,6 +1474,53 @@ export function createCalendarGatewayClient(input: {
         "DELETE",
         `/v1/meeting-providers/connections/${encodeURIComponent(connectionId)}`,
       );
+    },
+    async readCrmConnection() {
+      const result = await request<unknown>("GET", "/v1/crm/connection");
+      if (!isCrmConnectionStatus(result)) {
+        throw new CalendarGatewayError(
+          502,
+          "gateway_response_invalid",
+          "The Calendar gateway returned an invalid CRM connection status.",
+        );
+      }
+      return result;
+    },
+    async testCrmConnection(value) {
+      const result = await request<unknown>("POST", "/v1/crm/connection/test", {
+        ...(value.botKey ? { botKey: value.botKey } : {}),
+      });
+      if (!isCrmTestResult(result)) {
+        throw new CalendarGatewayError(
+          502,
+          "gateway_response_invalid",
+          "The Calendar gateway returned an invalid CRM connection test response.",
+        );
+      }
+      return result;
+    },
+    async connectCrm(value) {
+      const result = await request<unknown>("POST", "/v1/crm/connection", {
+        botKey: value.botKey,
+      });
+      if (!isCrmConnectResult(result)) {
+        throw new CalendarGatewayError(
+          502,
+          "gateway_response_invalid",
+          "The Calendar gateway returned an invalid CRM connection response.",
+        );
+      }
+      return result;
+    },
+    async disconnectCrm() {
+      const result = await request<unknown>("DELETE", "/v1/crm/connection");
+      if (!isRecord(result) || result.disconnected !== true) {
+        throw new CalendarGatewayError(
+          502,
+          "gateway_response_invalid",
+          "The Calendar gateway returned an invalid CRM disconnection response.",
+        );
+      }
     },
     async syncConnection(connectionId) {
       return connection(

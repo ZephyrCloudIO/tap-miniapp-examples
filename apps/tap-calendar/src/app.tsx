@@ -14,6 +14,7 @@ import { PublicBookingExtraFields, PublicBookingPrivacyNotice } from "./public-b
 
 import { CalendarMcpPanel, useCalendarMcpSync } from "./calendar-mcp-panel";
 import { WorkspaceBookingPanel } from "./workspace-booking-panel";
+import { CrmConnectionPanel } from "./crm-connection-panel";
 import { analyticsDate, BookingInsights } from "./booking-insights";
 import { applyPublicBookingAnalytics, publicBookingPageMetrics, publicBookingConversion, type PublicBookingAnalytics } from "./public-booking-analytics";
 import { usePublicBookingAnalytics } from "./use-public-booking-analytics";
@@ -3106,6 +3107,7 @@ export function TapCalendarApp({ preview = false, context, nativeHeader = false 
               gateway={calendarGateway}
               meetingProviderConnections={meetingProviderConnections}
               onManageZoom={() => setConnectionTarget({ kind: "zoom" })}
+              authorizeCrm={() => requireCalendarAuthority(context, preview, CALENDAR_MANAGE_ACTION)}
               preview={preview}
               announce={announce}
               onAddAccount={() => setConnectionTarget({ kind: "account" })}
@@ -5446,6 +5448,7 @@ function SettingsScreen({
   gateway,
   meetingProviderConnections,
   onManageZoom,
+  authorizeCrm,
   preview,
   announce,
   onAddAccount,
@@ -5460,6 +5463,7 @@ function SettingsScreen({
   readonly gateway: CalendarGatewayClient;
   readonly meetingProviderConnections: MeetingProviderConnectionsState;
   readonly onManageZoom: () => void;
+  readonly authorizeCrm: () => Promise<unknown>;
   readonly preview: boolean;
   readonly announce: (message: string) => void;
   readonly onAddAccount: () => void;
@@ -5599,6 +5603,7 @@ function SettingsScreen({
                 </Button>
               </div>
             </div>
+            {preview ? null : <CrmConnectionPanel gateway={gateway} authorize={authorizeCrm} announce={announce} />}
           </section>
           <NotificationSettings
             state={state}

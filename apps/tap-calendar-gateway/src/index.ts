@@ -78,6 +78,17 @@ import {
   type PublicBookingManagementProviderRecovery,
   type PublicBookingManagementProviderResult,
 } from "./public-booking-management";
+import { resolveCrmApiUrl } from "./crm-config";
+import { testCrmConnection, type CrmTestResult } from "./crm-delivery";
+import {
+  deleteCrmConnection,
+  deliverCrmBookings,
+  markCrmConnection,
+  pendingCrmDeliveries,
+  readCrmConnection,
+  reconcileCrmDeliveries,
+  saveCrmConnection,
+} from "./crm-store";
 import {
   D1PublicBookingManagementStore,
   PublicBookingManagementStoreError,
@@ -10683,6 +10694,117 @@ async function deliverPublicBookingEmails(env: CalendarGatewayEnv): Promise<void
   });
 }
 
+async function crmConnectionView(
+  env: CalendarGatewayEnv,
+  scope: CalendarPrincipalScope,
+  canManage: boolean,
+): Promise<Response> {
+  const defaultApiUrl = resolveCrmApiUrl(env.CRM_API_URL);
+  const connection = await readCrmConnection(env.CALENDAR_DB.withSession("first-primary"), scope.workspace);
+  return json({
+    enabled: defaultApiUrl !== null,
+    defaultApiUrl,
+    canManage,
+    connection: connection
+      ? {
+        apiUrl: defaultApiUrl,
+        status: connection.status,
+        reason: connection.status_reason,
+        connectedAt: connection.connected_at,
+        lastVerifiedAt: connection.last_verified_at,
+        lastDeliveredAt: connection.last_delivered_at,
+        pendingDeliveries: await pendingCrmDeliveries(env.CALENDAR_DB, scope.workspace),
+      }
+      : null,
+  });
+}
+
+async function crmConnectionRoute(
+  request: Request,
+  env: CalendarGatewayEnv,
+  path: string,
+  providerFetch: ProviderFetch,
+): Promise<Response> {
+  const scope = await principalScope(request, env);
+  const canManage = await workspacePermission(env, scope, "workspace:manage");
+  if (request.method === "GET" && path === "/v1/crm/connection") {
+    return crmConnectionView(env, scope, canManage);
+  }
+  if (!canManage) {
+    throw new ApiError(403, "workspace_management_required", "Only workspace owners and admins can manage the CRM connection.");
+  }
+  // Unset CRM_API_URL turns CRM delivery off, so staging can never reach the production CRM.
+  const defaultApiUrl = resolveCrmApiUrl(env.CRM_API_URL);
+  if (!defaultApiUrl) {
+    throw new ApiError(409, "crm_delivery_disabled", "CRM delivery is not enabled in this environment.");
+  }
+  if (request.method === "DELETE" && path === "/v1/crm/connection") {
+    await deleteCrmConnection(env.CALENDAR_DB, scope.workspace);
+    return json({ disconnected: true });
+  }
+  if (request.method !== "POST") throw new ApiError(404, "not_found", "The CRM route was not found.");
+  const testing = path === "/v1/crm/connection/test";
+  const body = await readJson(request);
+  const enteredKey = typeof body.botKey === "string" ? body.botKey.trim() : "";
+  if (body.botKey !== undefined && (typeof body.botKey !== "string" || enteredKey.length < 8 || enteredKey.length > 512)) {
+    throw new ApiError(400, "invalid_crm_key", "Enter the CRM bot key.");
+  }
+
+  // Test without a key checks the stored connection.
+  const stored = enteredKey || !testing ? null : await readCrmConnection(env.CALENDAR_DB, scope.workspace);
+  if (!enteredKey && !stored) throw new ApiError(400, "invalid_crm_key", "Enter the CRM bot key.");
+  const target = {
+    apiUrl: defaultApiUrl,
+    botKey: enteredKey || (await decryptSecret<{ botKey: string }>(env, stored!.key_ciphertext)).botKey,
+  };
+  const result: CrmTestResult = await testCrmConnection(providerFetch, target);
+
+  if (testing) {
+    // Testing the stored key also refreshes its status; a blip does not stop delivery.
+    if (stored) {
+      const now = new Date().toISOString();
+      if (result.ok) await markCrmConnection(env.CALENDAR_DB, scope.workspace, { status: "connected" }, now);
+      else if (result.reason === "invalid_key" || result.reason === "missing_scope") {
+        await markCrmConnection(env.CALENDAR_DB, scope.workspace, { status: "attention", reason: result.reason }, now);
+      }
+    }
+    return json(result);
+  }
+  if (!result.ok) return json({ ...result, connection: null });
+  await saveCrmConnection(env.CALENDAR_DB, {
+    workspace: scope.workspace,
+    keyCiphertext: await encryptSecret(env, { botKey: target.botKey }),
+    connectedBy: scope.principal,
+    now: new Date().toISOString(),
+  });
+  const view = await (await crmConnectionView(env, scope, canManage)).json<{ connection: unknown }>();
+  return json({ ...result, connection: view.connection });
+}
+
+async function deliverCrmBookingsJob(
+  env: CalendarGatewayEnv,
+  providerFetch: ProviderFetch,
+): Promise<void> {
+  const apiUrl = resolveCrmApiUrl(env.CRM_API_URL);
+  if (!apiUrl) return;
+  const enqueued = await reconcileCrmDeliveries(env.CALENDAR_DB, {
+    now: new Date().toISOString(),
+    limit: CACHE_REPAIR_BATCH_SIZE,
+    id: () => crypto.randomUUID(),
+  });
+  const summary = await deliverCrmBookings({
+    database: env.CALENDAR_DB,
+    apiUrl,
+    fetch: providerFetch,
+    decryptKey: async ciphertext => (await decryptSecret<{ botKey: string }>(env, ciphertext)).botKey,
+    now: Date.now,
+    random: Math.random,
+    id: () => crypto.randomUUID(),
+    log: logCalendarSync,
+  }, CACHE_REPAIR_BATCH_SIZE);
+  logCalendarSync("info", "crm delivery completed", { enqueued, ...summary });
+}
+
 const MCP_PROTOCOL_VERSION = "2025-11-25";
 const MCP_MAX_EVENTS = 200;
 const MCP_MAX_CONFLICTS = 50;
@@ -11136,6 +11258,9 @@ async function route(
   if (path === "/v1/workspace-bookings" || path.startsWith("/v1/workspace-bookings/")) {
     return workspaceBookingsRoute(request, env, path);
   }
+  if (path === "/v1/crm/connection" || path === "/v1/crm/connection/test") {
+    return crmConnectionRoute(request, env, path, providerFetch);
+  }
   if (request.method === "POST" && path === "/v1/publications/profiles") {
     return publishBookingProfile(request, env);
   }
@@ -11355,6 +11480,7 @@ export function createCalendarGatewayWorker(providerFetch: ProviderFetch = fetch
         ["public approval lifecycle expiration", expirePublicBookingManagementApprovals(env)],
         ["public booking email reconciliation", reconcilePublicBookingEmailNotices(env)],
         ["public booking email delivery", deliverPublicBookingEmails(env)],
+        ["crm booking delivery", deliverCrmBookingsJob(env, providerFetch)],
         ["calendar cache repair", repairCalendarCaches(env, providerFetch)],
         ["calendar list rediscovery", rediscoverStaleCalendarLists(env, providerFetch)],
         ["activity retention", env.CALENDAR_DB.prepare("DELETE FROM calendar_activity_events WHERE occurred_at < ?").bind(new Date(Date.now() - 90 * 86_400_000).toISOString()).run().then(() => undefined)],

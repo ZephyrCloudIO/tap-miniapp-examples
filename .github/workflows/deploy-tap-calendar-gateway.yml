@@ -1,0 +1,273 @@
+name: Deploy TAP Calendar Gateway
+
+# Release process for the calendar API at calendar-api.theaiplatform.app: once CI
+# passes on main, apply the D1 migrations and deploy the Worker. Release Please
+# bumps apps/tap-calendar-gateway/package.json with every release, and the CRM
+# delivery User-Agent carries that version.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: tap-calendar-gateway-production
+  queue: max
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  packages: read
+
+env:
+  TAP_CALENDAR_GATEWAY_PRODUCTION_URL: https://calendar-api.theaiplatform.app
+
+jobs:
+  authorize-revision:
+    name: Select a CI-approved revision
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy-sha: ${{ steps.revision.outputs.deploy-sha }}
+      should-deploy: ${{ steps.revision.outputs.should-deploy }}
+    steps:
+      - name: Require successful repository CI
+        id: revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_RUN_CHECK_SUITE_ID: ${{ github.event.workflow_run.check_suite_id }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
+            deploy_sha="$WORKFLOW_RUN_SHA"
+
+            read -r before_sha after_sha < <(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/${GITHUB_REPOSITORY}/check-suites/${WORKFLOW_RUN_CHECK_SUITE_ID}" \
+                --jq '[.before, .after] | @tsv'
+            )
+
+            if [[ "$after_sha" != "$deploy_sha" ]]; then
+              echo "::error::The completed CI check suite does not match its reported head SHA."
+              exit 1
+            fi
+
+            changed_paths="$(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/${GITHUB_REPOSITORY}/compare/${before_sha}...${after_sha}" \
+                --jq '.files[].filename'
+            )"
+            changed_path_count="$(wc -l <<< "$changed_paths" | tr -d ' ')"
+            should_deploy=false
+
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/deploy-tap-calendar-gateway.yml | \
+                  apps/tap-calendar-gateway/* | \
+                  apps/tap-shared-state/* | \
+                  apps/tap-calendar/src/mcp-contract.ts | \
+                  apps/tap-calendar/src/public-booking-details.ts | \
+                  apps/tap-calendar/src/shared-state-contract.ts | \
+                  package.json | \
+                  pnpm-lock.yaml | \
+                  pnpm-workspace.yaml)
+                  should_deploy=true
+                  break
+                  ;;
+              esac
+            done <<< "$changed_paths"
+
+            if [[ "$changed_path_count" -ge 300 ]]; then
+              echo "::notice::The GitHub comparison reached its 300-file response limit; deploying fail-safe."
+              should_deploy=true
+            fi
+          else
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Manual production deployments must target the main branch."
+              exit 1
+            fi
+
+            deploy_sha="$GITHUB_SHA"
+            successful_ci_runs="$(
+              gh api \
+                --method GET \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                -f branch=main \
+                -f event=push \
+                -f head_sha="$deploy_sha" \
+                -f status=success \
+                -f per_page=1 \
+                --jq '.total_count'
+            )"
+
+            if [[ "$successful_ci_runs" -lt 1 ]]; then
+              echo "::error::No successful CI push run exists for ${deploy_sha}; deploy only after CI succeeds for this exact revision."
+              exit 1
+            fi
+
+            should_deploy=true
+          fi
+
+          if [[ ! "$deploy_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The CI-approved deployment revision is not a full commit SHA."
+            exit 1
+          fi
+
+          echo "Deploying CI-approved revision ${deploy_sha}."
+          echo "deploy-sha=${deploy_sha}" >> "$GITHUB_OUTPUT"
+          echo "should-deploy=${should_deploy}" >> "$GITHUB_OUTPUT"
+
+  verify-and-deploy:
+    needs: authorize-revision
+    if: needs.authorize-revision.outputs.should-deploy == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: tap-calendar-gateway-production
+      url: https://calendar-api.theaiplatform.app
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.authorize-revision.outputs.deploy-sha }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # The Worker secrets (TOKEN_ENCRYPTION_KEY, Google, Zoom, Turnstile, ...) live on
+      # the Worker and survive a deploy, so only the repository's CLOUDFLARE_API_TOKEN is
+      # needed. The account ID is read from wrangler.jsonc.
+      - name: Validate production configuration
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+            echo "::error::Missing required repository secret: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const fail = (message) => {
+            console.error(`::error::${message}`);
+            process.exitCode = 1;
+          };
+
+          // wrangler.jsonc allows whole-line comments only.
+          const config = JSON.parse(
+            readFileSync('apps/tap-calendar-gateway/wrangler.jsonc', 'utf8')
+              .split('\n')
+              .filter((line) => !/^\s*\/\//.test(line))
+              .join('\n'),
+          );
+          if (!/^[a-f0-9]{32}$/i.test(config.env?.production?.account_id ?? '')) {
+            fail('env.production.account_id must be a 32-character hexadecimal account ID.');
+          }
+          const production = config.env?.production?.vars ?? {};
+          // CRM_API_URL decides which CRM production bookings are written to.
+          try {
+            const url = new URL(production.CRM_API_URL ?? '');
+            if (
+              url.protocol !== 'https:' ||
+              url.username ||
+              url.password ||
+              url.search ||
+              url.hash ||
+              (url.pathname !== '/' && url.pathname !== '')
+            ) {
+              fail('env.production.vars.CRM_API_URL must be an HTTPS origin without credentials, a path, a query, or a fragment.');
+            }
+          } catch {
+            fail('env.production.vars.CRM_API_URL must be a valid HTTPS origin.');
+          }
+          if (config.vars?.CRM_API_URL) {
+            fail('The default (development) environment must leave CRM_API_URL unset so it can never reach the production CRM.');
+          }
+          NODE
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify production Worker
+        run: |
+          pnpm --filter @tap-examples/tap-calendar-gateway types:check
+          pnpm --filter @tap-examples/tap-calendar-gateway typecheck
+          pnpm --filter @tap-examples/tap-calendar-gateway test
+
+      # `wrangler deploy` fails if a declared queue is missing.
+      - name: Ensure production queue exists
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          queue=tap-calendar-cache-rebuilds-production
+          pnpm --dir apps/tap-calendar-gateway exec wrangler queues info "$queue" >/dev/null 2>&1 || \
+            pnpm --dir apps/tap-calendar-gateway exec wrangler queues create "$queue"
+
+      - name: Apply migrations and deploy
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: apps/tap-calendar-gateway
+          packageManager: pnpm
+          environment: production
+          wranglerVersion: "4.123.0"
+          preCommands: wrangler d1 migrations apply CALENDAR_DB --remote --env production
+          command: deploy --env production
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="${TAP_CALENDAR_GATEWAY_PRODUCTION_URL%/}"
+
+          curl \
+            --fail \
+            --show-error \
+            --silent \
+            --retry 12 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 30 \
+            "${base_url}/health/booking-analytics" | node --input-type=module -e '
+              let body = "";
+              for await (const chunk of process.stdin) body += chunk;
+              if (JSON.parse(body).ready !== true) {
+                console.error("::error::/health/booking-analytics did not report ready.");
+                process.exit(1);
+              }
+            '
