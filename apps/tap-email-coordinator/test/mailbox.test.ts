@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodeBase64Url, openSecret, sealSecret } from '../src/crypto';
 import {
+  classifyThreadAttention,
   enqueueScheduledSyncs,
   freshGoogleThreadHasExternalReplyAfter,
   mailboxPage,
@@ -16,6 +17,40 @@ const encryptionKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('thread attention classification', () => {
+  const classify = (labels: string[], fromSelf = false, automated = false) =>
+    classifyThreadAttention(new Set(labels), fromSelf, automated);
+
+  it('asks for a reply on person-sent inbox mail the user has not answered', () => {
+    expect(classify(['INBOX', 'UNREAD']).needsResponse).toBe(true);
+    expect(classify(['INBOX']).needsResponse).toBe(true);
+  });
+
+  it('does not ask for a reply on automated senders or Gmail bulk categories', () => {
+    expect(classify(['INBOX', 'UNREAD'], false, true).needsResponse).toBe(false);
+    for (const category of ['PROMOTIONS', 'SOCIAL', 'UPDATES', 'FORUMS']) {
+      expect(classify(['INBOX', 'UNREAD', `CATEGORY_${category}`]).needsResponse).toBe(false);
+    }
+  });
+
+  it('does not ask for a reply when the user sent the last message or the thread left the inbox', () => {
+    expect(classify(['INBOX'], true)).toMatchObject({ needsResponse: false, waitingOnOthers: true });
+    expect(classify(['UNREAD'])).toMatchObject({ needsResponse: false, waitingOnOthers: false });
+  });
+
+  it('marks unread IMPORTANT mail critical but not read or bulk mail', () => {
+    expect(classify(['INBOX', 'IMPORTANT', 'UNREAD']).important).toBe(true);
+    expect(classify(['INBOX', 'IMPORTANT']).important).toBe(false);
+    expect(classify(['INBOX', 'IMPORTANT', 'UNREAD'], false, true).important).toBe(false);
+    expect(classify(['INBOX', 'IMPORTANT', 'UNREAD', 'CATEGORY_UPDATES']).important).toBe(false);
+  });
+
+  it('keeps starred mail critical even when it is read, automated, or archived', () => {
+    expect(classify(['STARRED']).important).toBe(true);
+    expect(classify(['INBOX', 'STARRED'], false, true).important).toBe(true);
+  });
 });
 
 describe('fresh scheduled-send reply barrier', () => {

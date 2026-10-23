@@ -580,6 +580,42 @@ async function parseMessage(
   };
 }
 
+// Gmail files bulk mail under these tabs. Mail in them is never "critical" or
+// "needs a reply"; the user can still find it in the Inbox.
+const bulkCategoryLabels = [
+  'CATEGORY_PROMOTIONS',
+  'CATEGORY_SOCIAL',
+  'CATEGORY_UPDATES',
+  'CATEGORY_FORUMS',
+] as const;
+
+/**
+ * Decides which inbox threads ask for the user's attention.
+ *
+ * - Critical: starred, or Gmail marks it IMPORTANT, it is still unread, and it
+ *   is not bulk mail. Gmail applies IMPORTANT broadly, so the extra conditions
+ *   keep read and bulk mail out of the count.
+ * - Needs response: in the inbox, the last message is not from the user, and
+ *   the thread is not bulk mail (automated sender or a Gmail bulk category).
+ * - Waiting on others: in the inbox and the user sent the last message.
+ *
+ * migration 0025 mirrors these rules in SQL for stored threads.
+ */
+export function classifyThreadAttention(
+  labels: ReadonlySet<string>,
+  latestFromSelf: boolean,
+  latestAutomated: boolean,
+): Pick<ParsedThread, 'important' | 'needsResponse' | 'waitingOnOthers'> {
+  const inInbox = labels.has('INBOX');
+  const bulk = latestAutomated || bulkCategoryLabels.some(label => labels.has(label));
+  return {
+    important: labels.has('STARRED') ||
+      (labels.has('IMPORTANT') && labels.has('UNREAD') && !bulk),
+    needsResponse: inInbox && !latestFromSelf && !bulk,
+    waitingOnOthers: inInbox && latestFromSelf,
+  };
+}
+
 async function parseThread(value: unknown, accountAddress: string): Promise<ParsedThread | null> {
   const thread = asRecord(value);
   if (!thread || typeof thread.id !== 'string') return null;
@@ -647,10 +683,8 @@ async function parseThread(value: unknown, accountAddress: string): Promise<Pars
     receivedAt: latest.sentAt,
     unread: allLabels.has('UNREAD'),
     starred: allLabels.has('STARRED'),
-    important: allLabels.has('IMPORTANT') || allLabels.has('STARRED'),
+    ...classifyThreadAttention(allLabels, latestFromSelf, latest.automated),
     inInbox: allLabels.has('INBOX'),
-    needsResponse: allLabels.has('INBOX') && !latestFromSelf && !latest.automated,
-    waitingOnOthers: allLabels.has('INBOX') && latestFromSelf,
     labelIds: [...allLabels].toSorted(),
     messages: parsedMessages,
     sentRecipients: [...sentRecipients.values()],
