@@ -1,6 +1,6 @@
 {
   "name": "@tap-examples/vanta-companion",
-  "version": "0.2.0",
+  "version": "1.1.0",
   "miniappIndex": {
     "summary": "Governed SOC 2 coordination workspace over authorized Vanta data.",
     "category": "business",
