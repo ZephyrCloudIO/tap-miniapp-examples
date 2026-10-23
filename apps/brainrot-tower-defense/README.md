@@ -110,7 +110,8 @@ style node that clips newly added canvas controls below the map.
 
 ```sh
 pnpm install --frozen-lockfile
-python3 -m pip install -r scripts/requirements-assets.txt
+python3 -m pip install --upgrade 'pip>=26.2.2' 'certifi>=2026.10.19'
+python3 -m pip install --upgrade -r scripts/requirements-assets.txt
 python3 scripts/build-enemy-atlas.py
 pnpm test
 pnpm typecheck
