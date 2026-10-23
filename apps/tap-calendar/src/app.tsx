@@ -3640,7 +3640,6 @@ function CalendarScreen({
             >{view.label}</button>
           ))}
         </div>
-        <button type="button" className="icon-button toolbar-more" aria-label="More calendar options"><MoreHorizontal /></button>
       </div>
       {state.accounts.length === 0 ? (
         <div className="calendar-first-run">

@@ -54,6 +54,18 @@ test("hydrates the seeded multi-calendar state through TAP storage", async ({
   );
 });
 
+test("does not render header controls that have no action", async ({
+  surface,
+}) => {
+  await expectReadySurface(surface);
+  await expect(
+    surface.getByRole("button", { name: "More calendar options" }),
+  ).toHaveCount(0);
+  await expect(
+    surface.getByRole("button", { name: "Open profile menu" }),
+  ).toHaveCount(0);
+});
+
 test("shows the Availability Schedule assigned to each booking page", async ({
   surface,
   tap,
