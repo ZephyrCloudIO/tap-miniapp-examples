@@ -1210,4 +1210,80 @@ describe("Calendar gateway client", () => {
       currentEvent: event,
     })).toBe(false);
   });
+
+  describe("CRM connection", () => {
+    const crmConnection = {
+      apiUrl: "https://crm.example.com", status: "connected", reason: null, connectedAt: "2026-10-01T12:00:00.000Z",
+      lastVerifiedAt: null, lastDeliveredAt: null, pendingDeliveries: 2,
+    };
+    const crmClient = (respond: (method: string, path: string, body: string | null) => unknown, requests: { method: string; path: string; body: string | null; headers: readonly { name: string; value: string }[] }[] = []) =>
+      createCalendarGatewayClient({
+        baseUrl: "https://calendar-api.theaiplatform.app", workspaceId: "workspace-1", principalId: "user-1",
+        transport: async (url, init) => {
+          const path = new URL(url).pathname;
+          requests.push({ method: init.method, path, body: init.body, headers: init.headers });
+          return { status: 200, bodyText: JSON.stringify(respond(init.method, path, init.body)) };
+        },
+      });
+    const status = (overrides: Record<string, unknown> = {}) => ({ enabled: true, defaultApiUrl: null, canManage: true, connection: null, ...overrides });
+
+    it("sends owner headers and omits unset fields", async () => {
+      const requests: Parameters<typeof crmClient>[1] = [];
+      const client = crmClient((method, path) => path.endsWith("/test") ? { ok: true, reason: null } : method === "DELETE" ? { disconnected: true }
+        : method === "POST" ? { ok: true, reason: null, connection: crmConnection } : status({ connection: crmConnection }), requests);
+      await expect(client.readCrmConnection()).resolves.toMatchObject({ connection: { pendingDeliveries: 2 } });
+      await expect(client.testCrmConnection({})).resolves.toEqual({ ok: true, reason: null });
+      await expect(client.testCrmConnection({ botKey: "key" })).resolves.toEqual({ ok: true, reason: null });
+      await expect(client.connectCrm({ botKey: "key" })).resolves.toMatchObject({ ok: true });
+      await expect(client.disconnectCrm()).resolves.toBeUndefined();
+      expect(requests.map(request => `${request.method} ${request.path}`)).toEqual([
+        "GET /v1/crm/connection", "POST /v1/crm/connection/test", "POST /v1/crm/connection/test", "POST /v1/crm/connection", "DELETE /v1/crm/connection",
+      ]);
+      expect(requests.map(request => request.body)).toEqual([
+        null, "{}", JSON.stringify({ botKey: "key" }), JSON.stringify({ botKey: "key" }), null,
+      ]);
+      expect(requests[0]!.headers).toContainEqual({ name: "X-TAP-Principal-Id", value: "user-1" });
+      expect(requests[0]!.headers).toContainEqual({ name: "X-TAP-Workspace-Id", value: "workspace-1" });
+    });
+
+    it("returns a failed connection attempt without a connection", async () => {
+      const client = crmClient(() => ({ ok: false, reason: "invalid_key", connection: null }));
+      await expect(client.connectCrm({ botKey: "key" })).resolves.toEqual({ ok: false, reason: "invalid_key", connection: null });
+    });
+
+    it.each([
+      ["a missing flag", status({ enabled: undefined })],
+      ["an unknown connection status", status({ connection: { ...crmConnection, status: "pending" } })],
+      ["a connected connection with a reason", status({ connection: { ...crmConnection, reason: "invalid_key" } })],
+      ["an unknown reason", status({ connection: { ...crmConnection, status: "attention", reason: "other" } })],
+      ["a negative pending count", status({ connection: { ...crmConnection, pendingDeliveries: -1 } })],
+      ["a malformed timestamp", status({ connection: { ...crmConnection, lastDeliveredAt: "yesterday" } })],
+    ])("rejects a CRM status with %s", async (_name, body) => {
+      await expect(crmClient(() => body).readCrmConnection()).rejects.toMatchObject({ status: 502, code: "gateway_response_invalid" });
+    });
+
+    it.each([
+      ["a successful test with a reason", { ok: true, reason: "invalid_key" }],
+      ["a failed test without a reason", { ok: false, reason: null }],
+      ["an unknown reason", { ok: false, reason: "teapot" }],
+    ])("rejects a CRM test with %s", async (_name, body) => {
+      await expect(crmClient(() => body).testCrmConnection({})).rejects.toMatchObject({ code: "gateway_response_invalid" });
+    });
+
+    it.each([
+      ["a success without a connection", { ok: true, reason: null, connection: null }],
+      ["a failure that still carries a connection", { ok: false, reason: "unreachable", connection: crmConnection }],
+    ])("rejects a CRM connect with %s", async (_name, body) => {
+      await expect(crmClient(() => body).connectCrm({ botKey: "key" })).rejects.toMatchObject({ code: "gateway_response_invalid" });
+    });
+
+    it("rejects an unconfirmed disconnect and surfaces gateway errors", async () => {
+      await expect(crmClient(() => ({ disconnected: false })).disconnectCrm()).rejects.toMatchObject({ code: "gateway_response_invalid" });
+      const failing = createCalendarGatewayClient({
+        baseUrl: "https://calendar-api.theaiplatform.app", workspaceId: "workspace-1", principalId: "user-1",
+        transport: async () => ({ status: 403, bodyText: JSON.stringify({ error: "forbidden", message: "Admins only." }) }),
+      });
+      await expect(failing.connectCrm({ botKey: "key" })).rejects.toMatchObject({ status: 403, code: "forbidden" });
+    });
+  });
 });

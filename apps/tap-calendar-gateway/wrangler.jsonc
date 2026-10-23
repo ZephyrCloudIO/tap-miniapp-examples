@@ -86,7 +86,9 @@
         "PUBLIC_BOOKING_BASE_URL": "https://cal.with-tap.ai",
         "PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAAESPERDaCkgFvRr5",
         "PUBLIC_BOOKING_EMAIL_FROM": "bookings@with-tap.ai",
-        "PUBLIC_BOOKING_EMAIL_FROM_NAME": "TAP Calendar"
+        "PUBLIC_BOOKING_EMAIL_FROM_NAME": "TAP Calendar",
+        // Only this Worker calls the CRM (from its cron); the pages never do.
+        "CRM_API_URL": "https://crm-api.zephyr-cloud.io"
       },
       "services": [
         {

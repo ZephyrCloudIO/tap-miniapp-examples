@@ -62,17 +62,16 @@ test("every miniapp's release metadata matches its package version", () => {
   assert.deepEqual(synchronizeReleaseVersions({ check: true }), []);
 });
 
-test("Release Please bumps every miniapp in lockstep with the root package", () => {
+// Workers that deploy beside the miniapps but have no TAP manifest to synchronize.
+const releasedWorkers = ["apps/tap-calendar-gateway"];
+
+test("Release Please bumps every miniapp and released Worker in lockstep with the root package", () => {
   const config = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "release-please-config.json"), "utf8"));
   const manifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, ".release-please-manifest.json"), "utf8"));
   const rootPackage = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
   assert.equal(manifest["."], rootPackage.version);
-  assert.deepEqual(
-    config.packages["."]["extra-files"],
-    discoverMiniapps().map((appRoot) => ({
-      type: "json",
-      path: `${path.relative(repositoryRoot, appRoot)}/package.json`,
-      jsonpath: "$.version",
-    })),
-  );
+  const expected = [...discoverMiniapps().map((appRoot) => path.relative(repositoryRoot, appRoot)), ...releasedWorkers]
+    .sort()
+    .map((appPath) => ({ type: "json", path: `${appPath}/package.json`, jsonpath: "$.version" }));
+  assert.deepEqual(config.packages["."]["extra-files"], expected);
 });

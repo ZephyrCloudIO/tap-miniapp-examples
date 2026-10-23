@@ -1,0 +1,11 @@
+.crm-connection-details { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0; }
+.crm-connection-details > div { display: grid; gap: 2px; }
+.crm-connection-details dt { color: var(--muted-foreground); font-size: 8px; }
+.crm-connection-details dd { margin: 0; font-size: 10px; font-weight: 650; }
+.crm-connection-details .crm-connection-attention { flex-basis: 100%; }
+.crm-connection-note { color: var(--muted-foreground); font-size: 8px; line-height: 1.5; }
+.crm-connection-form { display: grid; gap: 10px; }
+.crm-connection-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.crm-connection-actions > small { flex: 1 1 auto; color: var(--muted-foreground); font-size: 9px; }
+.crm-connection-message { margin: 0; border-radius: 8px; background: color-mix(in srgb, var(--muted) 45%, var(--card)); padding: 8px 10px; font-size: 10px; line-height: 1.5; }
+.crm-connection-message.is-error { background: color-mix(in srgb, #dc554b 10%, var(--card)); }

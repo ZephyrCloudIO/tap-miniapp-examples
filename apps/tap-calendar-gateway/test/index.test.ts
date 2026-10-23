@@ -419,7 +419,7 @@ describe("TAP Calendar local gateway", () => {
     expect(await denied.json()).toMatchObject({ error: "webhook_denied" });
   });
 
-  it("registers isolated scheduled lifecycle, email, and cache work", async () => {
+  it("registers isolated scheduled lifecycle, email, CRM, and cache work", async () => {
     const background: Promise<unknown>[] = [];
     worker.scheduled({
       cron: "*/5 * * * *",
@@ -430,8 +430,8 @@ describe("TAP Calendar local gateway", () => {
         background.push(promise);
       },
     } as unknown as ExecutionContext);
-    expect(background).toHaveLength(8);
-    await expect(Promise.all(background)).resolves.toHaveLength(8);
+    expect(background).toHaveLength(9);
+    await expect(Promise.all(background)).resolves.toHaveLength(9);
   });
 
   it("persists an empty-install connection and every discovered calendar in D1", async () => {
