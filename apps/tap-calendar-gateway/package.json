@@ -5,7 +5,7 @@
   "type": "module",
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.10.1",
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.0",
     "agents": "0.20.1",
     "html-to-text": "10.0.1",
     "jose": "6.2.3",
