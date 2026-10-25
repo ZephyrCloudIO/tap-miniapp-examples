@@ -26,3 +26,5 @@ minimumReleaseAgeExclude:
   - "wrangler@4.112.0"
   - "wrangler@4.123.0"
   - "wrangler@4.119.0"
+  # Renovate security update: zod@4.6.6
+  - zod@4.6.6
