@@ -26,3 +26,5 @@ minimumReleaseAgeExclude:
   - "wrangler@4.112.0"
   - "wrangler@4.123.0"
   - "wrangler@4.119.0"
+  # Renovate security update: postal-mime@4.0.8
+  - postal-mime@4.0.8
