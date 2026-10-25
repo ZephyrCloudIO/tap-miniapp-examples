@@ -22,7 +22,8 @@ minimumReleaseAgeExclude:
   - "@types/node@26.1.1"
   - "miniflare@4.20260714.0"
   - "postcss@8.5.26"
-  - "vitest@4.1.10"
+  # Renovate security update: vitest@4.1.11
+  - "vitest@4.1.10 || 4.1.11"
   - "wrangler@4.112.0"
   - "wrangler@4.123.0"
   - "wrangler@4.119.0"
