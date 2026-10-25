@@ -26,3 +26,5 @@ minimumReleaseAgeExclude:
   - "wrangler@4.112.0"
   - "wrangler@4.123.0"
   - "wrangler@4.119.0"
+  # Renovate security update: dompurify@3.4.17
+  - dompurify@3.4.17
