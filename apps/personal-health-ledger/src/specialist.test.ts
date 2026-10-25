@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@rstest/core';
 import { addItem, addSavedView, createLedger } from './domain';
 import { createAdministrationDraft } from './administration-draft';
-import specialistManifest from '../specialists/personal-health-researcher/0.2.0.json';
+import specialistManifest from '../specialists/personal-health-researcher/1.1.0.json';
 import {
   buildSpecialistPrompt,
   extractHealthSpecialistResult,
